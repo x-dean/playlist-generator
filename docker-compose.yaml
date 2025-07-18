@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   playlist-generator:
     build: .
@@ -12,4 +10,5 @@ services:
       - OUTPUT_DIR=/app/playlists
       - CACHE_DIR=/app/cache
       - WORKERS=${WORKERS:-4}
+      - TIMEOUT=${TIMEOUT:-30}
     working_dir: /app
