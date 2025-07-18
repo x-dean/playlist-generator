@@ -24,9 +24,9 @@ class PlaylistGenerator:
         self.db_path = db_path
         self.workers = workers
         self.timeout = timeout
-        self.analyzer = AudioAnalyzer(timeout=timeout)
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self._init_db()
+        self.analyzer = AudioAnalyzer(timeout=timeout)
         
     def _init_db(self):
         """Initialize database with proper schema"""
