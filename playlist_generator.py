@@ -118,7 +118,7 @@ class PlaylistGenerator:
 
     def generate_playlist_name(self, features):
         # More granular BPM classification (8 levels)
-        bpm = features['bpm']
+        bpm = float(features['bpm'])
         bpm_desc = (
             "VerySlow" if bpm < 55 else
             "Slow" if bpm < 70 else
@@ -131,7 +131,7 @@ class PlaylistGenerator:
         )
         
         # More detailed timbre classification (6 levels)
-        centroid = features['centroid']
+        centroid = float(features['centroid'])
         timbre_desc = (
             "Dark" if centroid < 800 else
             "Warm" if centroid < 1500 else
@@ -142,7 +142,7 @@ class PlaylistGenerator:
         )
         
         # Duration with more ranges (5 levels)
-        duration = features['duration']
+        duration = float(features['duration'])
         duration_desc = (
             "Brief" if duration < 60 else
             "Short" if duration < 120 else
@@ -152,7 +152,7 @@ class PlaylistGenerator:
         )
         
         # More sensitive energy scaling (0-10)
-        energy_level = min(10, int(features['beat_confidence'] * 12))
+        energy_level = min(10, int(float(features['beat_confidence']) * 12))
         
         # Enhanced mood detection
         mood = (
@@ -174,7 +174,7 @@ class PlaylistGenerator:
         
         # Create enhanced features
         numeric_cols = ['bpm', 'beat_confidence', 'centroid', 'duration']
-        df[numeric_cols] = df[numeric_cols].fillna(0)
+        df[numeric_cols] = df[numeric_cols].fillna(0).astype(float)
         
         # Add weighted combination features
         df['energy'] = df['beat_confidence'] * 1.5

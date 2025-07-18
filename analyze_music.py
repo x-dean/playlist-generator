@@ -87,8 +87,8 @@ class AudioAnalyzer:
     def _extract_rhythm_features(self, audio):
         try:
             rhythm_extractor = es.RhythmExtractor()
-            result = rhythm_extractor(audio)
-            return float(result[0]), float(np.nanmean(result[2]))
+            bpm, _, beats_confidence, _, _ = rhythm_extractor(audio)
+            return float(bpm), float(np.nanmean(beats_confidence))
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
             return 0.0, 0.0
@@ -97,7 +97,8 @@ class AudioAnalyzer:
     def _extract_spectral_features(self, audio):
         try:
             spectral = es.SpectralCentroidTime(sampleRate=44100)
-            return float(np.nanmean(spectral(audio)))
+            centroid_values = spectral(audio)
+            return float(np.nanmean(centroid_values))
         except Exception as e:
             logger.warning(f"Spectral extraction failed: {str(e)}")
             return 0.0
@@ -117,10 +118,10 @@ class AudioAnalyzer:
                 """, (file_info['file_hash'], file_info['last_modified']))
                 if row := cursor.fetchone():
                     return {
-                        'duration': row[0],
-                        'bpm': row[1],
-                        'beat_confidence': row[2],
-                        'centroid': row[3],
+                        'duration': float(row[0]),
+                        'bpm': float(row[1]),
+                        'beat_confidence': float(row[2]),
+                        'centroid': float(row[3]),
                         'filepath': audio_path,
                         'filename': os.path.basename(audio_path)
                     }, True, file_info['file_hash']
@@ -131,12 +132,14 @@ class AudioAnalyzer:
                 return None, False, None
 
             features = {
-                'duration': len(audio) / 44100.0,
+                'duration': float(len(audio) / 44100.0),
                 'filepath': audio_path,
                 'filename': os.path.basename(audio_path)
             }
-            features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
-            features['centroid'] = self._extract_spectral_features(audio)
+            bpm, confidence = self._extract_rhythm_features(audio)
+            features['bpm'] = float(bpm)
+            features['beat_confidence'] = float(confidence)
+            features['centroid'] = float(self._extract_spectral_features(audio))
 
             # Update cache
             with self.conn:
@@ -153,6 +156,9 @@ class AudioAnalyzer:
                 ))
 
             return features, False, file_info['file_hash']
+        except ValueError as ve:
+            logger.error(f"Value error processing {audio_path}: {str(ve)}")
+            return None, False, None
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             return None, False, None
@@ -171,6 +177,3 @@ def extract_features(audio_path):
 def get_all_features():
     """Get all features from the database"""
     return audio_analyzer.get_all_features()
-
-# [Keep the singleton instance at the end]
-audio_analyzer = AudioAnalyzer()
