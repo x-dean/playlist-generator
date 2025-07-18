@@ -32,7 +32,7 @@ def timeout(seconds=30, error_message="Processing timed out"):
     return decorator
 
 class AudioAnalyzer:
-    def __init__(self, cache_file=None, timeout_seconds=30):
+    def __init__(self, cache_file=None, timeout_seconds=60):  # Increased default timeout
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
@@ -75,86 +75,57 @@ class AudioAnalyzer:
 
     @timeout()
     def _safe_audio_load(self, audio_path):
-        def decorator(func):
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                def _handle_timeout(signum, frame):
-                    raise TimeoutException(f"Audio loading timed out after {self.timeout_seconds} seconds")
-
-                signal.signal(signal.SIGALRM, _handle_timeout)
-                signal.alarm(self.timeout_seconds)
-                try:
-                    result = func(*args, **kwargs)
-                finally:
-                    signal.alarm(0)
-                return result
-            return wrapper
-        return decorator(lambda: self._load_audio(audio_path))()
-
-    def _load_audio(self, audio_path):
         try:
-            loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
+            # Skip obviously problematic files
+            if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 1024:
+                return None
+                
+            loader = es.MonoLoader(
+                filename=audio_path,
+                sampleRate=44100,
+                resampleQuality=4,
+                downmix='mix'
+            )
             audio = loader()
-            return audio if isinstance(audio, np.ndarray) and len(audio) > 0 else None
+            return audio if isinstance(audio, np.ndarray) and len(audio) > 1024 else None
         except Exception as e:
             logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
             return None
 
     @timeout()
     def _extract_rhythm_features(self, audio):
-        def decorator(func):
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                def _handle_timeout(signum, frame):
-                    raise TimeoutException(f"Rhythm extraction timed out after {self.timeout_seconds} seconds")
-
-                signal.signal(signal.SIGALRM, _handle_timeout)
-                signal.alarm(self.timeout_seconds)
-                try:
-                    result = func(*args, **kwargs)
-                finally:
-                    signal.alarm(0)
-                return result
-            return wrapper
-        return decorator(lambda: self._extract_rhythm(audio))()
-
-    def _extract_rhythm(self, audio):
         try:
-            rhythm_extractor = es.RhythmExtractor2013(method="multifeature")
-            bpm, beats, beats_confidence, _, beats_intervals = rhythm_extractor(audio)
-            bpm = float(bpm) if isinstance(bpm, (float, int, np.number)) else 0.0
-            confidence = float(np.nanmean(beats_confidence)) if isinstance(beats_confidence, np.ndarray) else 0.0
-            return bpm, confidence
+            # Skip very short audio files
+            if len(audio) < 1024:
+                return 0.0, 0.0
+                
+            rhythm_extractor = es.RhythmExtractor2013(
+                method="multifeature",
+                minTempo=40,
+                maxTempo=208
+            )
+            bpm, _, beats_confidence, _, _ = rhythm_extractor(audio)
+            
+            # Validate BPM
+            if np.isnan(bpm) or bpm < 40 or bpm > 208:
+                return 0.0, 0.0
+                
+            return float(bpm), float(np.nanmean(beats_confidence))
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
             return 0.0, 0.0
 
     @timeout()
     def _extract_spectral_features(self, audio):
-        def decorator(func):
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                def _handle_timeout(signum, frame):
-                    raise TimeoutException(f"Spectral extraction timed out after {self.timeout_seconds} seconds")
-
-                signal.signal(signal.SIGALRM, _handle_timeout)
-                signal.alarm(self.timeout_seconds)
-                try:
-                    result = func(*args, **kwargs)
-                finally:
-                    signal.alarm(0)
-                return result
-            return wrapper
-        return decorator(lambda: self._extract_spectral(audio))()
-
-    def _extract_spectral(self, audio):
         try:
+            if len(audio) < 1024:
+                return 0.0
+                
             spectral = es.SpectralCentroidTime(sampleRate=44100)
             centroid_values = spectral(audio)
+            
             if isinstance(centroid_values, np.ndarray):
                 return float(np.nanmean(centroid_values))
-            elif isinstance(centroid_values, (float, int, np.number)):
-                return float(centroid_values)
             return 0.0
         except Exception as e:
             logger.warning(f"Spectral extraction failed: {str(e)}")
@@ -165,6 +136,7 @@ class AudioAnalyzer:
             self._init_db()
             file_info = self._get_file_info(audio_path)
             
+            # Check cache first
             with self.conn:
                 cursor = self.conn.cursor()
                 cursor.execute("""
@@ -194,12 +166,13 @@ class AudioAnalyzer:
             }
             
             bpm, confidence = self._extract_rhythm_features(audio)
-            features['bpm'] = float(bpm) if bpm else 0.0
-            features['beat_confidence'] = float(confidence) if confidence else 0.0
+            features['bpm'] = float(bpm)
+            features['beat_confidence'] = float(confidence)
             
             centroid = self._extract_spectral_features(audio)
-            features['centroid'] = float(centroid) if centroid else 0.0
+            features['centroid'] = float(centroid)
 
+            # Update cache
             with self.conn:
                 self.conn.execute("""
                 INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
@@ -214,9 +187,6 @@ class AudioAnalyzer:
                 ))
 
             return features, False, file_info['file_hash']
-        except ValueError as ve:
-            logger.error(f"Value error processing {audio_path}: {str(ve)}")
-            return None, False, None
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             return None, False, None
@@ -225,8 +195,8 @@ class AudioAnalyzer:
                 self.conn.close()
                 self.conn = None
 
-# Singleton instance with configurable timeout
-audio_analyzer = AudioAnalyzer(timeout_seconds=int(os.getenv('TIMEOUT_SECONDS', 30)))
+# Singleton instance with increased default timeout
+audio_analyzer = AudioAnalyzer(timeout_seconds=60)
 
 def extract_features(audio_path):
     return audio_analyzer.extract_features(audio_path)

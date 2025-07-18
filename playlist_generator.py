@@ -34,14 +34,13 @@ def sanitize_filename(name):
     return re.sub(r'_+', '_', name).strip('_')
 
 class PlaylistGenerator:
-    def __init__(self, timeout_seconds=30):
+    def __init__(self, timeout_seconds=60):  # Increased default timeout
         self.failed_files = []
         self.container_music_dir = ""
         self.host_music_dir = ""
         self.timeout_seconds = timeout_seconds
 
     def analyze_directory(self, music_dir, workers=4, force_sequential=False):
-        """Analyze all audio files in directory"""
         file_list = []
         self.failed_files = []
         self.container_music_dir = music_dir.rstrip('/')
@@ -49,9 +48,15 @@ class PlaylistGenerator:
         for root, _, files in os.walk(music_dir):
             for file in files:
                 if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg')):
-                    file_list.append(os.path.join(root, file))
+                    filepath = os.path.join(root, file)
+                    try:
+                        # Skip small or invalid files
+                        if os.path.getsize(filepath) > 1024:
+                            file_list.append(filepath)
+                    except OSError:
+                        continue
 
-        logger.info(f"Found {len(file_list)} audio files")
+        logger.info(f"Found {len(file_list)} valid audio files")
         if not file_list:
             logger.warning("No valid audio files found")
             return []
@@ -258,7 +263,7 @@ def main():
     parser.add_argument('--workers', type=int, default=max(1, mp.cpu_count() // 2), 
                        help='Number of workers')
     parser.add_argument('--chunk_size', type=int, default=1000, help='Clustering chunk size')
-    parser.add_argument('--timeout', type=int, default=30, 
+    parser.add_argument('--timeout', type=int, default=60, 
                        help='Timeout for audio analysis in seconds')
     parser.add_argument('--use_db', action='store_true', help='Use database only')
     parser.add_argument('--force_sequential', action='store_true', 
