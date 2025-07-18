@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Optimized Music Playlist Generator with Enhanced Naming and Configurable Timeout
-"""
-
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.preprocessing import StandardScaler
@@ -16,8 +12,8 @@ import numpy as np
 import time
 import traceback
 import re
+import gc
 
-# Logging setup
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s',
@@ -29,89 +25,71 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def sanitize_filename(name):
-    """Convert to Linux-friendly filename"""
     name = re.sub(r'[^\w\-_]', '_', name)
     return re.sub(r'_+', '_', name).strip('_')
 
 class PlaylistGenerator:
-    def __init__(self, timeout_seconds=60):  # Increased default timeout
+    def __init__(self, timeout_seconds=30, batch_size=50):
         self.failed_files = []
         self.container_music_dir = ""
         self.host_music_dir = ""
         self.timeout_seconds = timeout_seconds
+        self.batch_size = batch_size
 
     def analyze_directory(self, music_dir, workers=4, force_sequential=False):
-        file_list = []
-        self.failed_files = []
-        self.container_music_dir = music_dir.rstrip('/')
-
-        for root, _, files in os.walk(music_dir):
-            for file in files:
-                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg')):
-                    filepath = os.path.join(root, file)
-                    try:
-                        # Skip small or invalid files
-                        if os.path.getsize(filepath) > 1024:
-                            file_list.append(filepath)
-                    except OSError:
-                        continue
-
+        file_list = self._get_audio_files(music_dir)
         logger.info(f"Found {len(file_list)} valid audio files")
+        
         if not file_list:
-            logger.warning("No valid audio files found")
             return []
 
         if force_sequential or workers <= 1:
-            logger.info("Using sequential processing")
             return self._process_sequential(file_list)
 
-        return self._process_parallel(file_list, workers)
+        return self._process_batches(file_list, workers)
 
-    def _process_sequential(self, file_list):
-        """Process files sequentially"""
+    def _get_audio_files(self, music_dir):
+        valid_files = []
+        for root, _, files in os.walk(music_dir):
+            for f in files:
+                if f.lower().endswith(('.mp3', '.wav', '.flac', '.ogg')):
+                    filepath = os.path.join(root, f)
+                    try:
+                        if os.path.getsize(filepath) > 1024:
+                            valid_files.append(filepath)
+                    except OSError:
+                        continue
+        return valid_files
+
+    def _process_batches(self, file_list, workers):
         results = []
-        for filepath in tqdm(file_list, desc="Processing files"):
-            features, _ = self.process_file_worker(filepath)
-            if features:
-                results.append(features)
-            else:
-                self.failed_files.append(filepath)
+        batches = [file_list[i:i + self.batch_size] 
+                  for i in range(0, len(file_list), self.batch_size)]
+        
+        with mp.Pool(min(workers, mp.cpu_count())) as pool:
+            for batch_result in tqdm(
+                pool.imap_unordered(self._process_batch, batches),
+                total=len(batches),
+                desc="Processing batches"
+            ):
+                results.extend(batch_result)
+                gc.collect()
+                
         return results
 
-    def _process_parallel(self, file_list, workers):
-        """Process files in parallel"""
-        results = []
-        try:
-            logger.info(f"Starting multiprocessing pool with {workers} workers")
-            pool = mp.Pool(processes=min(workers, mp.cpu_count() // 2 or 1))
-            for features, filepath in tqdm(
-                pool.imap_unordered(self.process_file_worker, file_list),
-                total=len(file_list),
-                desc="Processing files"
-            ):
-                if features:
-                    results.append(features)
-                else:
-                    self.failed_files.append(filepath)
-            pool.close()
-            pool.join()
-            logger.info("Processing completed")
-            return results
-        except Exception as e:
-            logger.error(f"Multiprocessing failed: {str(e)}")
-            logger.error(traceback.format_exc())
-            if 'pool' in locals():
-                pool.terminate()
-                pool.join()
-            return self._process_sequential(file_list)
+    def _process_batch(self, file_batch):
+        batch_results = []
+        for filepath in file_batch:
+            features, _ = self.process_file_worker(filepath)
+            if features:
+                batch_results.append(features)
+        return batch_results
 
     def process_file_worker(self, filepath):
-        """Worker function for processing individual files"""
         try:
             from analyze_music import audio_analyzer
-            audio_analyzer.timeout_seconds = self.timeout_seconds
             result = audio_analyzer.extract_features(filepath)
-            if result:  # Returns (features, from_cache, file_hash)
+            if result:
                 return result[0], filepath
             return None, filepath
         except Exception as e:
@@ -256,37 +234,34 @@ class PlaylistGenerator:
 
 def main():
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
-    parser.add_argument('--music_dir', required=True, help='Music directory in container')
-    parser.add_argument('--host_music_dir', required=True, help='Host music directory')
-    parser.add_argument('--output_dir', default='./playlists', help='Output directory')
-    parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists')
-    parser.add_argument('--workers', type=int, default=max(1, mp.cpu_count() // 2), 
-                       help='Number of workers')
-    parser.add_argument('--chunk_size', type=int, default=1000, help='Clustering chunk size')
-    parser.add_argument('--timeout', type=int, default=60, 
-                       help='Timeout for audio analysis in seconds')
-    parser.add_argument('--use_db', action='store_true', help='Use database only')
-    parser.add_argument('--force_sequential', action='store_true', 
-                       help='Force sequential processing')
+    parser.add_argument('--music_dir', required=True)
+    parser.add_argument('--host_music_dir', required=True)
+    parser.add_argument('--output_dir', default='./playlists')
+    parser.add_argument('--num_playlists', type=int, default=8)
+    parser.add_argument('--workers', type=int, default=max(1, mp.cpu_count() - 1))
+    parser.add_argument('--chunk_size', type=int, default=1000)
+    parser.add_argument('--timeout', type=int, default=30)
+    parser.add_argument('--batch_size', type=int, default=50)
+    parser.add_argument('--use_db', action='store_true')
+    parser.add_argument('--force_sequential', action='store_true')
     args = parser.parse_args()
 
-    generator = PlaylistGenerator(timeout_seconds=args.timeout)
+    generator = PlaylistGenerator(
+        timeout_seconds=args.timeout,
+        batch_size=args.batch_size
+    )
     generator.host_music_dir = args.host_music_dir.rstrip('/')
 
     start_time = time.time()
     try:
         if args.use_db:
-            logger.info("Using database features")
             features = generator.get_all_features_from_db()
         else:
-            logger.info("Analyzing directory")
             features = generator.analyze_directory(
                 args.music_dir,
                 args.workers,
                 args.force_sequential
             )
-        
-        logger.info(f"Processed {len(features)} files, {len(generator.failed_files)} failed")
         
         if features:
             playlists = generator.generate_playlists(
@@ -295,15 +270,11 @@ def main():
                 args.chunk_size
             )
             generator.save_playlists(playlists, args.output_dir)
-        else:
-            logger.error("No valid audio files available")
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
-        logger.error(traceback.format_exc())
         raise
     finally:
-        elapsed = time.time() - start_time
-        logger.info(f"Completed in {elapsed:.2f} seconds")
+        logger.info(f"Completed in {time.time() - start_time:.2f} seconds")
 
 if __name__ == "__main__":
     mp.set_start_method('spawn', force=True)

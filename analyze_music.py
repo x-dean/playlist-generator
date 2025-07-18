@@ -5,9 +5,9 @@ import logging
 import sqlite3
 import hashlib
 import signal
+import gc
 from functools import wraps
 
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -32,41 +32,31 @@ def timeout(seconds=30, error_message="Processing timed out"):
     return decorator
 
 class AudioAnalyzer:
-    def __init__(self, cache_file=None, timeout_seconds=60):  # Increased default timeout
+    def __init__(self, cache_file=None, timeout_seconds=30):
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-        self.conn = None
         self.timeout_seconds = timeout_seconds
+        self.conn = None
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     def _init_db(self):
         if not self.conn:
             self.conn = sqlite3.connect(self.cache_file, timeout=30)
-            with self.conn:
-                self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS audio_features (
-                    file_hash TEXT PRIMARY KEY,
-                    file_path TEXT NOT NULL,
-                    duration REAL,
-                    bpm REAL,
-                    beat_confidence REAL,
-                    centroid REAL,
-                    last_modified REAL,
-                    last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """)
-                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
+            self.conn.execute("PRAGMA journal_mode = WAL")
+            self.conn.execute("PRAGMA synchronous = NORMAL")
+            self.conn.execute("PRAGMA cache_size = -8000")
 
     def _get_file_info(self, filepath):
         try:
             stat = os.stat(filepath)
             return {
-                'file_hash': f"{os.path.basename(filepath)}_{stat.st_size}_{stat.st_mtime}",
+                'file_hash': hashlib.md5(f"{filepath}_{stat.st_size}_{stat.st_mtime}".encode()).hexdigest(),
                 'last_modified': stat.st_mtime,
                 'file_path': filepath
             }
-        except Exception as e:
-            logger.warning(f"Couldn't get file stats for {filepath}: {str(e)}")
+        except Exception:
             return {
                 'file_hash': hashlib.md5(filepath.encode()).hexdigest(),
                 'last_modified': 0,
@@ -76,7 +66,6 @@ class AudioAnalyzer:
     @timeout()
     def _safe_audio_load(self, audio_path):
         try:
-            # Skip obviously problematic files
             if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 1024:
                 return None
                 
@@ -95,7 +84,6 @@ class AudioAnalyzer:
     @timeout()
     def _extract_rhythm_features(self, audio):
         try:
-            # Skip very short audio files
             if len(audio) < 1024:
                 return 0.0, 0.0
                 
@@ -106,7 +94,6 @@ class AudioAnalyzer:
             )
             bpm, _, beats_confidence, _, _ = rhythm_extractor(audio)
             
-            # Validate BPM
             if np.isnan(bpm) or bpm < 40 or bpm > 208:
                 return 0.0, 0.0
                 
@@ -136,23 +123,31 @@ class AudioAnalyzer:
             self._init_db()
             file_info = self._get_file_info(audio_path)
             
-            # Check cache first
-            with self.conn:
-                cursor = self.conn.cursor()
-                cursor.execute("""
+            cursor = self.conn.cursor()
+            cursor.execute("""
                 SELECT duration, bpm, beat_confidence, centroid
                 FROM audio_features
                 WHERE file_hash = ? AND last_modified >= ?
+                LIMIT 1
                 """, (file_info['file_hash'], file_info['last_modified']))
-                if row := cursor.fetchone():
-                    return {
-                        'duration': float(row[0]),
-                        'bpm': float(row[1]),
-                        'beat_confidence': float(row[2]),
-                        'centroid': float(row[3]),
-                        'filepath': audio_path,
-                        'filename': os.path.basename(audio_path)
-                    }, True, file_info['file_hash']
+            
+            if row := cursor.fetchone():
+                self._cache_hits += 1
+                if self._cache_hits % 100 == 0:
+                    gc.collect()
+                return {
+                    'duration': float(row[0]),
+                    'bpm': float(row[1]),
+                    'beat_confidence': float(row[2]),
+                    'centroid': float(row[3]),
+                    'filepath': audio_path,
+                    'filename': os.path.basename(audio_path)
+                }, True, file_info['file_hash']
+
+            self._cache_misses += 1
+            if self._cache_misses % 50 == 0:
+                self.conn.commit()
+                gc.collect()
 
             logger.info(f"Processing: {os.path.basename(audio_path)}")
             audio = self._safe_audio_load(audio_path)
@@ -172,7 +167,6 @@ class AudioAnalyzer:
             centroid = self._extract_spectral_features(audio)
             features['centroid'] = float(centroid)
 
-            # Update cache
             with self.conn:
                 self.conn.execute("""
                 INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
@@ -191,12 +185,10 @@ class AudioAnalyzer:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             return None, False, None
         finally:
-            if self.conn:
-                self.conn.close()
-                self.conn = None
+            if self._cache_misses % 200 == 0 and self.conn:
+                self.conn.execute("VACUUM")
 
-# Singleton instance with increased default timeout
-audio_analyzer = AudioAnalyzer(timeout_seconds=60)
+audio_analyzer = AudioAnalyzer(timeout_seconds=int(os.getenv('TIMEOUT_SECONDS', 30)))
 
 def extract_features(audio_path):
     return audio_analyzer.extract_features(audio_path)
