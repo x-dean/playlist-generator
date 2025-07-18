@@ -7,6 +7,7 @@ import hashlib
 import signal
 import gc
 from functools import wraps
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,8 +35,10 @@ def timeout(seconds=30, error_message="Processing timed out"):
 class AudioAnalyzer:
     def __init__(self, cache_file=None, timeout_seconds=30):
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-        self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
+        self.cache_file = str(Path(cache_file or os.path.join(cache_dir, 'audio_analysis.db')).replace('\\', '/')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+        logger.info(f"Initializing database at: {self.cache_file}")
+        
         self.timeout_seconds = timeout_seconds
         self.conn = None
         self._cache_hits = 0
@@ -43,13 +46,14 @@ class AudioAnalyzer:
         self._init_db()
 
     def _init_db(self):
-        """Initialize database with proper settings"""
-        if not self.conn:
+        """Initialize database with proper settings and verify WAL mode"""
+        try:
             self.conn = sqlite3.connect(self.cache_file, timeout=30)
-            # Optimized database settings
             self.conn.execute("PRAGMA journal_mode = WAL")
             self.conn.execute("PRAGMA synchronous = NORMAL")
             self.conn.execute("PRAGMA cache_size = -8000")  # ~8MB cache
+            
+            # Create tables if not exists
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS audio_features (
                     file_hash TEXT PRIMARY KEY,
@@ -63,6 +67,15 @@ class AudioAnalyzer:
                 )
             """)
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
+            self.conn.commit()
+            
+            # Verify WAL mode
+            wal_status = self.conn.execute("PRAGMA journal_mode").fetchone()[0]
+            logger.info(f"Database initialized in {wal_status} mode at {self.cache_file}")
+            
+        except Exception as e:
+            logger.error(f"Database initialization failed: {str(e)}")
+            raise
 
     def _get_file_info(self, filepath):
         """Generate unique file hash based on metadata"""
@@ -85,7 +98,6 @@ class AudioAnalyzer:
     def _safe_audio_load(self, audio_path):
         """Load audio file with validation and timeout"""
         try:
-            # Skip obviously invalid files
             if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 1024:
                 logger.debug(f"Skipping small/corrupt file: {audio_path}")
                 return None
@@ -106,7 +118,7 @@ class AudioAnalyzer:
     def _extract_rhythm_features(self, audio):
         """Extract BPM and beat confidence with validation"""
         try:
-            if len(audio) < 1024:  # Minimum audio length
+            if len(audio) < 1024:
                 return 0.0, 0.0
                 
             rhythm_extractor = es.RhythmExtractor2013(
@@ -116,7 +128,6 @@ class AudioAnalyzer:
             )
             bpm, _, beats_confidence, _, _ = rhythm_extractor(audio)
             
-            # Validate extracted BPM
             if np.isnan(bpm) or bpm < 40 or bpm > 208:
                 return 0.0, 0.0
                 
@@ -129,7 +140,7 @@ class AudioAnalyzer:
     def _extract_spectral_features(self, audio):
         """Extract spectral centroid with validation"""
         try:
-            if len(audio) < 1024:  # Minimum audio length
+            if len(audio) < 1024:
                 return 0.0
                 
             spectral = es.SpectralCentroidTime(sampleRate=44100)
@@ -245,3 +256,9 @@ def extract_features(audio_path):
 def get_all_features():
     """Public interface to get all cached features"""
     return audio_analyzer.get_all_features()
+
+if __name__ == "__main__":
+    # Test database creation
+    print(f"Database location: {audio_analyzer.cache_file}")
+    print(f"Database exists: {os.path.exists(audio_analyzer.cache_file)}")
+    print(f"WAL file exists: {os.path.exists(audio_analyzer.cache_file + '-wal')}")
