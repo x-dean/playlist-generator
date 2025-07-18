@@ -2,7 +2,7 @@ services:
   playlist-generator:
     build: .
     volumes:
-      - ${MUSIC_DIR:-./music}:/music:ro
+      - ${HOST_MUSIC_DIR:-./music}:${MUSIC_DIR:-/music}:ro
       - ${OUTPUT_DIR:-./playlists}:/app/playlists
       - ${CACHE_DIR:-./cache}:/app/cache
     environment:

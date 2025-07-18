@@ -3,7 +3,8 @@ set -euo pipefail
 
 # Default parameters
 REBUILD=false
-MUSIC_DIR="${PWD}/music"
+HOST_MUSIC_DIR="${PWD}/music"  # Host path
+MUSIC_DIR="/music"             # Container path
 OUTPUT_DIR="${PWD}/playlists"
 CACHE_DIR="${PWD}/cache"
 WORKERS=$(nproc)
@@ -16,6 +17,7 @@ FORCE_SEQUENTIAL=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --rebuild) REBUILD=true ;;
+        --host_music_dir=*) HOST_MUSIC_DIR="${1#*=}" ;;
         --music_dir=*) MUSIC_DIR="${1#*=}" ;;
         --output_dir=*) OUTPUT_DIR="${1#*=}" ;;
         --cache_dir=*) CACHE_DIR="${1#*=}" ;;
@@ -33,7 +35,8 @@ done
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
 
 echo "=== Playlist Generator Configuration ==="
-echo "Music Directory: $MUSIC_DIR"
+echo "Host Music Directory: $HOST_MUSIC_DIR"
+echo "Container Music Directory: $MUSIC_DIR"
 echo "Output Directory: $OUTPUT_DIR"
 echo "Cache Directory: $CACHE_DIR"
 echo "Workers: $WORKERS"
@@ -49,12 +52,13 @@ if "$REBUILD"; then
 fi
 
 # Export environment variables for compose
-export MUSIC_DIR OUTPUT_DIR CACHE_DIR
+export HOST_MUSIC_DIR OUTPUT_DIR CACHE_DIR
 
 # Run the container
 docker compose run --rm \
   playlist-generator \
-  --music_dir /music \
+  --music_dir "$MUSIC_DIR" \
+  --host_music_dir "$HOST_MUSIC_DIR" \
   --output_dir /app/playlists \
   --workers "$WORKERS" \
   --num_playlists "$NUM_PLAYLISTS" \
@@ -62,5 +66,5 @@ docker compose run --rm \
   $( [ "$USE_DB" = true ] && echo "--use_db" ) \
   $( [ "$FORCE_SEQUENTIAL" = true ] && echo "--force_sequential" )
 
-echo "✅ Playlists generated successfully!"
+echo "Playlists generated successfully!"
 echo "Output available in: $OUTPUT_DIR"
