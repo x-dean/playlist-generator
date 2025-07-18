@@ -13,7 +13,7 @@ volumes:
   music_volume:
     driver_opts:
       type: none
-      device: /root/music/library
+      device: ${PWD}/music
       o: bind
   playlists_volume:
     driver_opts:
