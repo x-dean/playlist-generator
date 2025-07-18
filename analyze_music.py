@@ -35,7 +35,7 @@ def timeout(seconds=30, error_message="Processing timed out"):
 class AudioAnalyzer:
     def __init__(self, cache_file=None, timeout_seconds=30):
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-        self.cache_file = str(Path(cache_file or os.path.join(cache_dir, 'audio_analysis.db')).replace('\\', '/')
+        self.cache_file = str(Path(cache_file or os.path.join(cache_dir, 'audio_analysis.db')).replace('\\', '/'))
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
         logger.info(f"Initializing database at: {self.cache_file}")
         
@@ -53,7 +53,6 @@ class AudioAnalyzer:
             self.conn.execute("PRAGMA synchronous = NORMAL")
             self.conn.execute("PRAGMA cache_size = -8000")  # ~8MB cache
             
-            # Create tables if not exists
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS audio_features (
                     file_hash TEXT PRIMARY KEY,
@@ -69,7 +68,6 @@ class AudioAnalyzer:
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
             self.conn.commit()
             
-            # Verify WAL mode
             wal_status = self.conn.execute("PRAGMA journal_mode").fetchone()[0]
             logger.info(f"Database initialized in {wal_status} mode at {self.cache_file}")
             
@@ -158,7 +156,6 @@ class AudioAnalyzer:
         try:
             file_info = self._get_file_info(audio_path)
             
-            # First check cache
             with self.conn:
                 cursor = self.conn.cursor()
                 cursor.execute("""
@@ -182,7 +179,6 @@ class AudioAnalyzer:
                         'filename': os.path.basename(audio_path)
                     }, True, file_info['file_hash']
 
-            # Only process if not in cache
             self._cache_misses += 1
             logger.info(f"Processing: {os.path.basename(audio_path)}")
             
@@ -196,11 +192,9 @@ class AudioAnalyzer:
                 'filename': os.path.basename(audio_path)
             }
             
-            # Extract features
             features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
             features['centroid'] = self._extract_spectral_features(audio)
 
-            # Store in database
             with self.conn:
                 self.conn.execute("""
                     INSERT OR REPLACE INTO audio_features
@@ -246,19 +240,15 @@ class AudioAnalyzer:
             logger.error(f"Database error: {str(e)}")
             return []
 
-# Singleton instance with configurable timeout
 audio_analyzer = AudioAnalyzer(timeout_seconds=int(os.getenv('TIMEOUT_SECONDS', 30)))
 
 def extract_features(audio_path):
-    """Public interface for feature extraction"""
     return audio_analyzer.extract_features(audio_path)
 
 def get_all_features():
-    """Public interface to get all cached features"""
     return audio_analyzer.get_all_features()
 
 if __name__ == "__main__":
-    # Test database creation
     print(f"Database location: {audio_analyzer.cache_file}")
     print(f"Database exists: {os.path.exists(audio_analyzer.cache_file)}")
     print(f"WAL file exists: {os.path.exists(audio_analyzer.cache_file + '-wal')}")
