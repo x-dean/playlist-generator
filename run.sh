@@ -15,56 +15,22 @@ FORCE_SEQUENTIAL=false
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --rebuild)
-            REBUILD=true
-            shift
-            ;;
-        --music_dir=*)
-            MUSIC_DIR="${1#*=}"
-            shift
-            ;;
-        --output_dir=*)
-            OUTPUT_DIR="${1#*=}"
-            shift
-            ;;
-        --cache_dir=*)
-            CACHE_DIR="${1#*=}"
-            shift
-            ;;
-        --workers=*)
-            WORKERS="${1#*=}"
-            shift
-            ;;
-        --num_playlists=*)
-            NUM_PLAYLISTS="${1#*=}"
-            shift
-            ;;
-        --chunk_size=*)
-            CHUNK_SIZE="${1#*=}"
-            shift
-            ;;
-        --use_db)
-            USE_DB=true
-            shift
-            ;;
-        --force_sequential)
-            FORCE_SEQUENTIAL=true
-            shift
-            ;;
-        *)
-            echo "Unknown option: $1"
-            exit 1
-            ;;
+        --rebuild) REBUILD=true ;;
+        --music_dir=*) MUSIC_DIR="${1#*=}" ;;
+        --output_dir=*) OUTPUT_DIR="${1#*=}" ;;
+        --cache_dir=*) CACHE_DIR="${1#*=}" ;;
+        --workers=*) WORKERS="${1#*=}" ;;
+        --num_playlists=*) NUM_PLAYLISTS="${1#*=}" ;;
+        --chunk_size=*) CHUNK_SIZE="${1#*=}" ;;
+        --use_db) USE_DB=true ;;
+        --force_sequential) FORCE_SEQUENTIAL=true ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
     esac
+    shift
 done
 
 # Create directories
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
-
-# Export environment variables for compose
-export MUSIC_DIR
-export OUTPUT_DIR
-export CACHE_DIR
 
 echo "=== Playlist Generator Configuration ==="
 echo "Music Directory: $MUSIC_DIR"
@@ -77,16 +43,18 @@ echo "Use DB: $USE_DB"
 echo "Force Sequential: $FORCE_SEQUENTIAL"
 
 # Build only if requested
-if [ "$REBUILD" = true ]; then
+if "$REBUILD"; then
     echo "=== Rebuilding Docker image ==="
     docker compose build --no-cache
 fi
 
-# Run the generator with all parameters
+# Export environment variables for compose
+export MUSIC_DIR OUTPUT_DIR CACHE_DIR
+
+# Run the container
 docker compose run --rm \
   playlist-generator \
   --music_dir /music \
-  --host_music_dir "$MUSIC_DIR" \
   --output_dir /app/playlists \
   --workers "$WORKERS" \
   --num_playlists "$NUM_PLAYLISTS" \
