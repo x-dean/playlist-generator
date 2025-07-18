@@ -20,53 +20,37 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class PlaylistGenerator:
-    def __init__(self, db_path='/app/cache/audio_features.db', workers=4, timeout=30):
+    def __init__(self, db_path='audio_features.db', workers=4):
         self.db_path = db_path
         self.workers = workers
-        self.timeout = timeout
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        self._init_db()
-        self.analyzer = AudioAnalyzer(timeout=timeout)
-        
-    def _init_db(self):
-        """Initialize database with proper schema"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS audio_files (
-                    path TEXT PRIMARY KEY,
-                    file_hash TEXT NOT NULL,
-                    bpm REAL,
-                    duration REAL,
-                    beat_confidence REAL,
-                    centroid REAL,
-                    last_modified REAL,
-                    processed_time REAL
-                )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_hash ON audio_files(file_hash)")
-            conn.commit()
+        self.analyzer = AudioAnalyzer(db_path=db_path)
 
-    def _file_hash(self, filepath):
-        """Generate hash based on file metadata"""
-        try:
-            stat = os.stat(filepath)
-            return hashlib.md5(f"{filepath}-{stat.st_size}-{stat.st_mtime}".encode()).hexdigest()
-        except Exception as e:
-            logger.error(f"Couldn't get file stats for {filepath}: {str(e)}")
-            return hashlib.md5(filepath.encode()).hexdigest()
+    def process_directory(self, music_dir):
+        """Process directory with hash-based change detection"""
+        files = list(self._get_audio_files(music_dir))
+        
+        with mp.Pool(self.workers) as pool:
+            results = list(tqdm(
+                pool.imap(self.analyzer.extract_features, files),
+                total=len(files),
+                desc="Processing files"
+            ))
+        
+        # Return only successful results
+        return [r for r in results if r is not None]
 
     def _get_audio_files(self, music_dir):
-        """Find all audio files in directory"""
+        """Get audio files with basic validation"""
         valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a')
         for root, _, files in os.walk(music_dir):
             for f in files:
                 if f.lower().endswith(valid_ext):
                     filepath = os.path.join(root, f)
                     try:
-                        if os.path.getsize(filepath) > 1024:  # Skip small files
+                        if os.path.getsize(filepath) > 1024:  # 1KB minimum
                             yield filepath
-                    except OSError as e:
-                        logger.warning(f"Skipping {filepath}: {str(e)}")
+                    except OSError:
+                        continue
 
     def _process_file(self, filepath):
         """Process single file and return features"""

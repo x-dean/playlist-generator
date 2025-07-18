@@ -4,11 +4,7 @@ services:
     volumes:
       - ${HOST_MUSIC_DIR:-./music}:${MUSIC_DIR:-/music}:ro
       - ${OUTPUT_DIR:-./playlists}:/app/playlists
-      - ${CACHE_DIR:-./cache}:/app/cache
+      - ${DB_DIR:-./db}:/app/db  # Database volume
     environment:
-      - MUSIC_DIR=${MUSIC_DIR:-/music}
-      - OUTPUT_DIR=/app/playlists
-      - CACHE_DIR=/app/cache
-      - WORKERS=${WORKERS:-4}
-      - TIMEOUT=${TIMEOUT:-30}
+      - DB_PATH=/app/db/audio_features.db
     working_dir: /app
