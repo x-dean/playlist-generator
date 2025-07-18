@@ -2,57 +2,67 @@ import os
 import signal
 import essentia.standard as es
 import numpy as np
-import sqlite3
-from contextlib import contextmanager
+from functools import lru_cache
 
 class AudioAnalyzer:
-    def __init__(self, timeout=30):
-        self.timeout = timeout
+    def __init__(self, base_timeout=30, long_file_threshold=300):
+        self.base_timeout = base_timeout
+        self.long_file_threshold = long_file_threshold  # seconds
         
-    @contextmanager
-    def _time_limit(self):
-        signal.signal(signal.SIGALRM, self._raise_timeout)
-        signal.alarm(self.timeout)
+    @lru_cache(maxsize=100)
+    def _estimate_timeout(self, filepath):
+        """Predict timeout based on file duration"""
         try:
-            yield
-        finally:
-            signal.alarm(0)
-            
-    def _raise_timeout(self, signum, frame):
-        raise TimeoutError("Audio analysis timed out")
+            duration = os.path.getsize(filepath) / (44100 * 2 * 2)  # Rough estimate
+            return min(120, max(self.base_timeout, int(duration * 0.5)))
+        except:
+            return self.base_timeout
 
     def extract_features(self, filepath):
+        timeout = self._estimate_timeout(filepath)
+        
+        def handler(signum, frame):
+            raise TimeoutError(f"Analysis timed out after {timeout}s")
+        
+        signal.signal(signal.SIGALRM, handler)
+        signal.alarm(timeout)
+        
         try:
-            with self._time_limit():
-                # Load audio file
-                loader = es.MonoLoader(
-                    filename=filepath,
-                    sampleRate=44100,
-                    resampleQuality=4
-                )
-                audio = loader()
+            loader = es.MonoLoader(
+                filename=filepath,
+                sampleRate=44100,
+                resampleQuality=2  # Faster resampling
+            )
+            audio = loader()
+            
+            # Skip analysis if file is too short
+            if len(audio) < 44100:  # 1 second
+                return None
                 
-                # Skip if audio is too short
-                if len(audio) < 44100:  # 1 second
-                    return None
-                
-                # Extract features
-                rhythm = es.RhythmExtractor2013()
-                bpm, beats, confidence, _, _ = rhythm(audio)
-                
-                spectral = es.SpectralCentroidTime(sampleRate=44100)
-                centroid = spectral(audio)
-                
-                return {
-                    'bpm': float(bpm),
-                    'duration': len(audio)/44100,
-                    'beat_confidence': float(np.mean(confidence)),
-                    'centroid': float(np.mean(centroid))
-                }
-                
+            # Fast rhythm estimation
+            rhythm = es.RhythmExtractor2013(
+                method="degara",  # Faster algorithm
+                minTempo=60,
+                maxTempo=200
+            )
+            bpm, _, confidence, _, _ = rhythm(audio)
+            
+            # Simplified spectral analysis
+            spectral = es.SpectralCentroid(sampleRate=44100)
+            centroid = spectral(audio[:44100*30])  # Only analyze first 30 seconds
+            
+            return {
+                'bpm': float(bpm),
+                'duration': len(audio)/44100,
+                'beat_confidence': float(np.mean(confidence)),
+                'centroid': float(np.mean(centroid))
+            }
+            
         except TimeoutError:
-            print(f"Timeout processing {os.path.basename(filepath)}")
+            print(f"Skipped {os.path.basename(filepath)} (timeout: {timeout}s)")
             return None
         except Exception as e:
-            print(f"Error processing {os.path.basename(filepath)}: {str(e)}")
+            print(f"Error in {os.path.basename(filepath)}: {str(e)}")
             return None
+        finally:
+            signal.alarm(0)

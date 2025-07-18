@@ -115,26 +115,46 @@ class PlaylistGenerator:
         except Exception as e:
             logger.error(f"Error processing {filepath}: {str(e)}")
             return None
+        
+    def _process_batch(self, filepaths):
+        """Process multiple files in one batch to reduce overhead"""
+        results = []
+        for filepath in filepaths:
+            try:
+                result = self._process_file(filepath)
+                if result:
+                    results.append(result)
+            except Exception as e:
+                logger.error(f"Failed on {filepath}: {str(e)}")
+        return results
 
     def process_directory(self, music_dir):
-        """Process all files in directory with parallel workers"""
+        """Process all files in directory with batched parallel workers"""
         files = list(self._get_audio_files(music_dir))
         if not files:
             logger.warning("No audio files found")
             return []
 
-        # Process files in parallel
+        # Create batches of 10-20 files (adjust based on your system)
+        batch_size = max(10, min(20, len(files)//self.workers))
+        batches = [files[i:i + batch_size] for i in range(0, len(files), batch_size)]
+        
+        # Process files in parallel batches
         with mp.Pool(self.workers) as pool:
             results = list(tqdm(
-                pool.imap(self._process_file, files),
-                total=len(files),
-                desc="Processing files",
-                unit="file"
+                pool.imap_unordered(self._process_batch, batches),
+                total=len(batches),
+                desc="Processing batches",
+                unit="batch"
             ))
         
-        processed_count = sum(1 for r in results if r is not None)
-        logger.info(f"Processed {processed_count} files ({len(files) - processed_count} skipped)")
-        return [r for r in results if r is not None]
+        # Flatten results
+        processed_files = [item for sublist in results for item in sublist]
+        processed_count = len(processed_files)
+        skipped_count = len(files) - processed_count
+        
+        logger.info(f"Processed {processed_count} files ({skipped_count} skipped)")
+        return processed_files
 
     def generate_playlists(self, output_dir, min_tracks=5):
         """Generate playlists from analyzed features"""
