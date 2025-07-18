@@ -78,7 +78,7 @@ class AudioAnalyzer:
         try:
             loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
             audio = loader()
-            return audio if len(audio) > 0 else None
+            return audio if isinstance(audio, np.ndarray) and len(audio) > 0 else None
         except Exception as e:
             logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
             return None
@@ -86,9 +86,14 @@ class AudioAnalyzer:
     @timeout()
     def _extract_rhythm_features(self, audio):
         try:
-            rhythm_extractor = es.RhythmExtractor()
-            bpm, _, beats_confidence, _, _ = rhythm_extractor(audio)
-            return float(bpm), float(np.nanmean(beats_confidence))
+            rhythm_extractor = es.RhythmExtractor2013(method="multifeature")
+            bpm, beats, beats_confidence, _, beats_intervals = rhythm_extractor(audio)
+            
+            # Convert all outputs to scalar values
+            bpm = float(bpm) if isinstance(bpm, (float, int, np.number)) else 0.0
+            confidence = float(np.nanmean(beats_confidence)) if isinstance(beats_confidence, np.ndarray) else 0.0
+            
+            return bpm, confidence
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
             return 0.0, 0.0
@@ -98,7 +103,13 @@ class AudioAnalyzer:
         try:
             spectral = es.SpectralCentroidTime(sampleRate=44100)
             centroid_values = spectral(audio)
-            return float(np.nanmean(centroid_values))
+            
+            # Ensure we return a scalar value
+            if isinstance(centroid_values, np.ndarray):
+                return float(np.nanmean(centroid_values))
+            elif isinstance(centroid_values, (float, int, np.number)):
+                return float(centroid_values)
+            return 0.0
         except Exception as e:
             logger.warning(f"Spectral extraction failed: {str(e)}")
             return 0.0
@@ -128,7 +139,8 @@ class AudioAnalyzer:
 
             # Process new file
             logger.info(f"Processing: {os.path.basename(audio_path)}")
-            if not (audio := self._safe_audio_load(audio_path)):
+            audio = self._safe_audio_load(audio_path)
+            if audio is None:
                 return None, False, None
 
             features = {
@@ -136,10 +148,14 @@ class AudioAnalyzer:
                 'filepath': audio_path,
                 'filename': os.path.basename(audio_path)
             }
+            
+            # Extract features with additional type safety
             bpm, confidence = self._extract_rhythm_features(audio)
-            features['bpm'] = float(bpm)
-            features['beat_confidence'] = float(confidence)
-            features['centroid'] = float(self._extract_spectral_features(audio))
+            features['bpm'] = float(bpm) if bpm else 0.0
+            features['beat_confidence'] = float(confidence) if confidence else 0.0
+            
+            centroid = self._extract_spectral_features(audio)
+            features['centroid'] = float(centroid) if centroid else 0.0
 
             # Update cache
             with self.conn:
