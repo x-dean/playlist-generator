@@ -83,12 +83,14 @@ class PlaylistGenerator:
                     if row[0] == current_hash:
                         return None  # Skip unchanged files
             
-            # Extract actual features
+            # Only proceed if analyzer is properly initialized
+            if not hasattr(self, 'analyzer'):
+                self.analyzer = AudioAnalyzer(timeout=self.timeout)
+                
             features = self.analyzer.extract_features(filepath)
             if not features:
                 return None
                 
-            # Prepare database record
             record = {
                 'path': filepath,
                 'file_hash': current_hash,
@@ -100,7 +102,6 @@ class PlaylistGenerator:
                 'processed_time': time.time()
             }
             
-            # Update database
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute("""
                     INSERT OR REPLACE INTO audio_files 
