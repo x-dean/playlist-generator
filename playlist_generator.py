@@ -1,382 +1,250 @@
 #!/usr/bin/env python3
-import pandas as pd
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.preprocessing import StandardScaler
-import multiprocessing as mp
-import argparse
 import os
-import logging
+import sqlite3
+import hashlib
+import multiprocessing as mp
 from tqdm import tqdm
-from analyze_music import get_all_features
-import numpy as np
-import time
-import traceback
-import re
-import gc
-import signal
-from contextlib import contextmanager
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("playlist_generator.log", mode='w')
-    ]
-)
-logger = logging.getLogger(__name__)
-
-class TimeoutException(Exception):
-    pass
-
-@contextmanager
-def time_limit(seconds):
-    def signal_handler(signum, frame):
-        raise TimeoutException(f"Timed out after {seconds} seconds")
-    
-    signal.signal(signal.SIGALRM, signal_handler)
-    signal.alarm(seconds)
-    try:
-        yield
-    finally:
-        signal.alarm(0)
-
-def sanitize_filename(name):
-    name = re.sub(r'[^\w\-_]', '_', name)
-    return re.sub(r'_+', '_', name).strip('_')
+import logging
+from analyze_music import AudioAnalyzer
 
 class PlaylistGenerator:
-    def __init__(self, timeout_seconds=30, batch_size=20):
-        self.failed_files = []
-        self.container_music_dir = ""
-        self.host_music_dir = ""
-        self.checkpoint_dir = os.getenv('CHECKPOINT_DIR', '/app/checkpoints')
-        self.timeout_seconds = timeout_seconds
-        self.batch_size = batch_size
-        self.shutdown_flag = False
-    
-    # Create checkpoint directory if it doesn't exist
-    os.makedirs(self.checkpoint_dir, exist_ok=True)
-    
-    # Register signal handlers
-    signal.signal(signal.SIGINT, self.handle_interrupt)
-    signal.signal(signal.SIGTERM, self.handle_interrupt)
-
-    def handle_interrupt(self, signum, frame):
-        logger.warning(f"Received interrupt signal {signum}, shutting down gracefully...")
-        self.shutdown_flag = True
-
-    def analyze_directory(self, music_dir, workers=4, force_sequential=False):
-        # Use the output directory for checkpoints instead of music directory
-        checkpoint_file = os.path.join(self.checkpoint_dir, "progress_checkpoint")
+    def __init__(self, db_path='audio_features.db', workers=4, timeout=30):
+        self.db_path = db_path
+        self.workers = workers
+        self.timeout = timeout
+        self.analyzer = AudioAnalyzer(timeout=timeout)
+        self._init_db()
         
-        # Create the checkpoint directory if it doesn't exist
-        os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
-        
-        processed_files = set()
-        
-        # Load progress if exists
-        if os.path.exists(checkpoint_file):
-            try:
-                with open(checkpoint_file, 'r') as f:
-                    processed_files = set(f.read().splitlines())
-                logger.info(f"Resuming from checkpoint with {len(processed_files)} processed files")
-            except Exception as e:
-                logger.error(f"Failed to load checkpoint: {str(e)}")
+    def _init_db(self):
+        """Initialize database with proper schema"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS audio_files (
+                    path TEXT PRIMARY KEY,
+                    file_hash TEXT NOT NULL,
+                    bpm REAL,
+                    duration REAL,
+                    beat_confidence REAL,
+                    centroid REAL,
+                    last_modified REAL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hash ON audio_files(file_hash)")
+            conn.commit()
 
-    file_list = [f for f in self._get_audio_files(music_dir) 
-                if f not in processed_files]
-    logger.info(f"Found {len(file_list)} new files to process (total: {len(processed_files) + len(file_list)})")
+    def _file_hash(self, filepath):
+        """Generate consistent hash based on file metadata"""
+        stat = os.stat(filepath)
+        return hashlib.md5(f"{filepath}-{stat.st_size}-{stat.st_mtime}".encode()).hexdigest()
 
     def _get_audio_files(self, music_dir):
-        valid_files = []
+        """Generator yielding all valid audio files"""
+        valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a')
         for root, _, files in os.walk(music_dir):
             for f in files:
-                if self.shutdown_flag:
-                    return []
-                    
-                if f.lower().endswith(('.mp3', '.wav', '.flac', '.ogg')):
+                if f.lower().endswith(valid_ext):
                     filepath = os.path.join(root, f)
-                    try:
-                        if os.path.getsize(filepath) > 1024:
-                            valid_files.append(filepath)
-                    except OSError:
-                        continue
-        return valid_files
+                    if os.path.getsize(filepath) > 1024:  # Skip small files
+                        yield filepath
 
-    def _process_batches(self, file_list, workers, checkpoint_file, processed_files):
-        results = []
-        batches = [file_list[i:i + self.batch_size] 
-                  for i in range(0, len(file_list), self.batch_size)]
-        
+    def _process_file(self, filepath):
+        """Process single file and return features if changed"""
         try:
-            with mp.Pool(min(workers, mp.cpu_count())) as pool:
-                with tqdm(
-                    total=len(batches),
-                    desc="Processing batches",
-                    mininterval=5.0  # Update less frequently
-                ) as pbar:
-                    for i, batch_result in enumerate(pool.imap_unordered(self._process_batch, batches)):
-                        if self.shutdown_flag:
-                            logger.warning("Shutdown requested, terminating early")
-                            pool.terminate()
-                            break
-                            
-                        results.extend(batch_result)
-                        processed_files.update(batches[i])
-                        
-                        # Save progress every 10 batches
-                        if i % 10 == 0:
-                            self._save_checkpoint(checkpoint_file, processed_files)
-                            
-                        pbar.update(1)
-                        gc.collect()
-                        
-            return results
-        except Exception as e:
-            logger.error(f"Batch processing failed: {str(e)}")
-            pool.terminate()
-            raise
-        finally:
-            self._save_checkpoint(checkpoint_file, processed_files)
-            pool.close()
-            pool.join()
-
-    def _save_checkpoint(self, checkpoint_file, processed_files):
-        try:
-            # Ensure the directory exists
-            os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
+            current_hash = self._file_hash(filepath)
             
-            # Use a temporary file to ensure atomic write
-            temp_file = checkpoint_file + '.tmp'
-            with open(temp_file, 'w') as f:
-                f.write("\n".join(processed_files))
+            # Check if we can skip processing
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "SELECT file_hash FROM audio_files WHERE path = ?", 
+                    (filepath,)
+                )
+                if row := cursor.fetchone():
+                    if row[0] == current_hash:
+                        return None  # Skip unchanged files
             
-            # Rename to final file
-            os.replace(temp_file, checkpoint_file)
-        except Exception as e:
-            logger.error(f"Failed to save checkpoint: {str(e)}")
-            # Fallback to saving in output directory if music directory isn't writable
-            if "No such file or directory" in str(e):
-                fallback_path = os.path.join(self.host_music_dir, ".progress_checkpoint")
-                try:
-                    with open(fallback_path, 'w') as f:
-                        f.write("\n".join(processed_files))
-                    logger.info(f"Saved checkpoint to fallback location: {fallback_path}")
-                except Exception as fallback_e:
-                    logger.error(f"Failed to save fallback checkpoint: {str(fallback_e)}")
-
-    def _process_batch(self, file_batch):
-        if self.shutdown_flag:
-            return []
-            
-        batch_results = []
-        for filepath in file_batch:
-            try:
-                with time_limit(self.timeout_seconds):
-                    features, _ = self.process_file_worker(filepath)
-                    if features:
-                        batch_results.append(features)
-            except TimeoutException:
-                logger.warning(f"Timeout processing {filepath}")
-                self.failed_files.append(filepath)
-            except Exception as e:
-                logger.error(f"Error processing {filepath}: {str(e)}")
-                self.failed_files.append(filepath)
+            # Extract features
+            features = self.analyzer.extract_features(filepath)
+            if not features:
+                return None
                 
-        return batch_results
-
-    def process_file_worker(self, filepath):
-        try:
-            from analyze_music import audio_analyzer
-            result = audio_analyzer.extract_features(filepath)
-            if result:
-                return result[0], filepath
-            return None, filepath
+            # Prepare database record
+            record = {
+                'path': filepath,
+                'file_hash': current_hash,
+                'bpm': features.get('bpm', 0),
+                'duration': features.get('duration', 0),
+                'beat_confidence': features.get('beat_confidence', 0),
+                'centroid': features.get('centroid', 0),
+                'last_modified': os.path.getmtime(filepath)
+            }
+            
+            # Update database
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO audio_files 
+                    VALUES (:path, :file_hash, :bpm, :duration, 
+                            :beat_confidence, :centroid, :last_modified)
+                    """, record)
+                conn.commit()
+            
+            return record
+            
         except Exception as e:
-            logger.error(f"Error processing {filepath}: {str(e)}")
-            return None, filepath
+            logging.error(f"Error processing {filepath}: {str(e)}")
+            return None
 
-    def get_all_features_from_db(self):
-        """Get all features from database cache"""
-        try:
-            return get_all_features()
-        except Exception as e:
-            logger.error(f"Database error: {str(e)}")
+    def process_directory(self, music_dir):
+        """Process all files in directory with parallel workers"""
+        files = list(self._get_audio_files(music_dir))
+        if not files:
+            logging.warning("No audio files found")
             return []
 
-    def convert_to_host_path(self, container_path):
-        """Convert container path to host path"""
-        if not self.host_music_dir or not self.container_music_dir:
-            return container_path
+        # Process files in parallel
+        with mp.Pool(self.workers) as pool:
+            results = list(tqdm(
+                pool.imap_unordered(self._process_file, files),
+                total=len(files),
+                desc="Processing files",
+                unit="file"
+            ))
+        
+        return [r for r in results if r is not None]
 
-        container_path = os.path.normpath(container_path)
-        container_music_dir = os.path.normpath(self.container_music_dir)
+def generate_playlist_name(self, features):
+    """Generate descriptive playlist name based on multiple audio features"""
+    # BPM classification
+    bpm = features.get('bpm', 0)
+    if bpm < 60: bpm_desc = "Glacial"
+    elif bpm < 80: bpm_desc = "Chill"
+    elif bpm < 100: bpm_desc = "Medium"
+    elif bpm < 120: bpm_desc = "Upbeat"
+    elif bpm < 140: bpm_desc = "Energetic"
+    else: bpm_desc = "Intense"
 
-        if not container_path.startswith(container_music_dir):
-            return container_path
+    # Energy level (based on beat confidence)
+    energy = features.get('beat_confidence', 0) * 10  # Scale 0-10
+    if energy < 3: energy_desc = "Mellow"
+    elif energy < 6: energy_desc = "Moderate"
+    else: energy_desc = "HighEnergy"
 
-        rel_path = os.path.relpath(container_path, container_music_dir)
-        return os.path.join(self.host_music_dir, rel_path)
+    # Spectral characteristics
+    centroid = features.get('centroid', 0)
+    if centroid < 1000: spectral_desc = "Dark"
+    elif centroid < 2000: spectral_desc = "Warm"
+    elif centroid < 3000: spectral_desc = "Bright"
+    else: spectral_desc = "Crisp"
 
-    def generate_playlist_name(self, features):
-        """Generate descriptive playlist name based on features"""
-        bpm = float(features['bpm'])
-        bpm_desc = (
-            "VerySlow" if bpm < 55 else
-            "Slow" if bpm < 70 else
-            "Chill" if bpm < 85 else
-            "Medium" if bpm < 100 else
-            "Upbeat" if bpm < 115 else
-            "Energetic" if bpm < 135 else
-            "Fast" if bpm < 155 else
-            "VeryFast"
-        )
-        
-        centroid = float(features['centroid'])
-        timbre_desc = (
-            "Dark" if centroid < 800 else
-            "Warm" if centroid < 1500 else
-            "Mellow" if centroid < 2200 else
-            "Bright" if centroid < 3000 else
-            "Sharp" if centroid < 4000 else
-            "VerySharp"
-        )
-        
-        duration = float(features['duration'])
-        duration_desc = (
-            "Brief" if duration < 60 else
-            "Short" if duration < 120 else
-            "Medium" if duration < 180 else
-            "Long" if duration < 240 else
-            "VeryLong"
-        )
-        
-        energy_level = min(10, int(float(features['beat_confidence']) * 12))
-        
-        mood = (
-            "Ambient" if bpm < 75 and centroid < 1200 else
-            "Downtempo" if bpm < 95 and energy_level < 4 else
-            "Dance" if bpm > 125 and energy_level > 7 else
-            "Dynamic" if centroid > 3000 and energy_level > 5 else
-            "Balanced"
-        )
-        
-        return f"{bpm_desc}_{timbre_desc}_{duration_desc}_E{energy_level}_{mood}"
+    # Duration classification
+    duration = features.get('duration', 0)
+    if duration < 120: duration_desc = "Short"
+    elif duration < 240: duration_desc = "Medium"
+    elif duration < 360: duration_desc = "Long"
+    else: duration_desc = "Epic"
 
-    def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000):
-        """Generate playlists using clustering"""
-        if not features_list:
-            logger.warning("No features to cluster")
-            return {}
+    # Mood classification (combination of features)
+    mood = "Eclectic"
+    if bpm < 80 and energy < 4:
+        mood = "Ambient"
+    elif bpm < 100 and energy < 5:
+        mood = "Downtempo"
+    elif bpm > 120 and energy > 7:
+        mood = "Dance"
+    elif centroid > 2500 and energy > 6:
+        mood = "Experimental"
 
-        df = pd.DataFrame(features_list)
-        
-        # Prepare features
-        numeric_cols = ['bpm', 'beat_confidence', 'centroid', 'duration']
-        df[numeric_cols] = df[numeric_cols].fillna(0).astype(float)
-        
-        # Enhanced features
-        df['energy'] = df['beat_confidence'] * 1.5
-        df['tempo_timbre'] = (df['bpm']/200) * (df['centroid']/4000) * 2
-        cluster_features = numeric_cols + ['energy', 'tempo_timbre']
-        
-        # Clustering
-        kmeans = MiniBatchKMeans(
-            n_clusters=min(num_playlists*2, len(df)),
-            random_state=42,
-            batch_size=min(100, len(df)),
-            n_init=5,
-            max_iter=100
-        )
-        
-        features_scaled = StandardScaler().fit_transform(df[cluster_features])
-        df['cluster'] = kmeans.fit_predict(features_scaled)
-        
-        # Group into playlists
-        playlists = {}
-        for cluster in df['cluster'].unique():
-            cluster_songs = df[df['cluster'] == cluster]
-            centroid = cluster_songs[cluster_features].mean().to_dict()
-            name = sanitize_filename(self.generate_playlist_name(centroid))
+    return f"{bpm_desc}BPM_{energy_desc}_{spectral_desc}_{duration_desc}_{mood}"
+
+def generate_playlists(self, output_dir, min_tracks=5):
+    """Generate playlists using clustering of audio features"""
+    with sqlite3.connect(self.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.execute("""
+            SELECT path, bpm, duration, beat_confidence, centroid 
+            FROM audio_files
+            WHERE bpm > 0 AND duration > 0
+        """)
+        features = [dict(row) for row in cursor.fetchall()]
+    
+    if not features:
+        logging.warning("No features available for playlist generation")
+        return
+    
+    # Prepare features for clustering
+    import pandas as pd
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import StandardScaler
+    
+    df = pd.DataFrame(features)
+    X = df[['bpm', 'beat_confidence', 'centroid']]
+    
+    # Normalize features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    # Determine optimal cluster size (5-15 playlists)
+    num_clusters = min(max(5, len(features)//20), 15)
+    kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+    df['cluster'] = kmeans.fit_predict(X_scaled)
+    
+    # Create playlists
+    os.makedirs(output_dir, exist_ok=True)
+    playlist_count = 0
+    
+    for cluster_id in df['cluster'].unique():
+        cluster_tracks = df[df['cluster'] == cluster_id]
+        if len(cluster_tracks) < min_tracks:
+            continue
             
-            if name not in playlists:
-                playlists[name] = []
-            playlists[name].extend(cluster_songs['filepath'].tolist())
+        # Get centroid features for naming
+        centroid_features = {
+            'bpm': cluster_tracks['bpm'].median(),
+            'beat_confidence': cluster_tracks['beat_confidence'].median(),
+            'centroid': cluster_tracks['centroid'].median(),
+            'duration': cluster_tracks['duration'].median()
+        }
         
-        return {k:v for k,v in playlists.items() if len(v) >= 5}
-
-    def save_playlists(self, playlists, output_dir):
-        """Save playlists to files"""
-        os.makedirs(output_dir, exist_ok=True)
-        saved_count = 0
-
-        for name, songs in playlists.items():
-            if not songs:
-                continue
-
-            playlist_path = os.path.join(output_dir, f"{name}.m3u")
-            with open(playlist_path, 'w') as f:
-                f.write("\n".join(songs))
-            saved_count += 1
-            logger.info(f"Saved {name} with {len(songs)} tracks")
-
-        if saved_count:
-            logger.info(f"Saved {saved_count} playlists")
-        else:
-            logger.warning("No playlists saved")
-
-        if self.failed_files:
-            failed_path = os.path.join(output_dir, "Failed_Files.m3u")
-            with open(failed_path, 'w') as f:
-                host_failed = [self.convert_to_host_path(p) for p in self.failed_files]
-                f.write("\n".join(host_failed))
-            logger.info(f"Saved {len(self.failed_files)} failed files")
+        playlist_name = self.generate_playlist_name(centroid_features)
+        safe_name = "".join(c if c.isalnum() else "_" for c in playlist_name)
+        
+        # Save playlist
+        with open(os.path.join(output_dir, f"{safe_name}.m3u"), 'w') as f:
+            f.write("\n".join(cluster_tracks['path'].tolist()))
+        
+        logging.info(f"Created playlist '{safe_name}' with {len(cluster_tracks)} tracks")
+        playlist_count += 1
+    
+    logging.info(f"Generated {playlist_count} playlists in {output_dir}")
 
 def main():
+    import argparse
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
-    parser.add_argument('--music_dir', required=True)
-    parser.add_argument('--host_music_dir', required=True)
-    parser.add_argument('--output_dir', default='./playlists')
-    parser.add_argument('--num_playlists', type=int, default=8)
-    parser.add_argument('--workers', type=int, default=max(1, mp.cpu_count() - 1))
-    parser.add_argument('--chunk_size', type=int, default=1000)
-    parser.add_argument('--timeout', type=int, default=30)
-    parser.add_argument('--batch_size', type=int, default=20)
-    parser.add_argument('--use_db', action='store_true')
-    parser.add_argument('--force_sequential', action='store_true')
+    parser.add_argument('--music_dir', required=True, help='Directory containing music files')
+    parser.add_argument('--output_dir', default='./playlists', help='Output directory for playlists')
+    parser.add_argument('--workers', type=int, default=max(1, mp.cpu_count() - 1), 
+                       help='Number of worker processes')
+    parser.add_argument('--timeout', type=int, default=30, 
+                       help='Timeout per file analysis in seconds')
     args = parser.parse_args()
 
-    generator = PlaylistGenerator(
-        timeout_seconds=args.timeout,
-        batch_size=args.batch_size
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s %(levelname)s %(message)s',
+        handlers=[logging.StreamHandler()]
     )
-    generator.host_music_dir = args.host_music_dir.rstrip('/')
 
-    start_time = time.time()
-    try:
-        if args.use_db:
-            features = generator.get_all_features_from_db()
-        else:
-            features = generator.analyze_directory(
-                args.music_dir,
-                args.workers,
-                args.force_sequential
-            )
-        
-        if features and not generator.shutdown_flag:
-            playlists = generator.generate_playlists(
-                features,
-                args.num_playlists,
-                args.chunk_size
-            )
-            generator.save_playlists(playlists, args.output_dir)
-    except Exception as e:
-        logger.error(f"Fatal error: {str(e)}")
-        raise
-    finally:
-        logger.info(f"Completed in {time.time() - start_time:.2f} seconds")
+    generator = PlaylistGenerator(
+        workers=args.workers,
+        timeout=args.timeout
+    )
+    
+    # Process files
+    features = generator.process_directory(args.music_dir)
+    logging.info(f"Processed {len(features)} audio files")
+    
+    # Generate playlists
+    generator.generate_playlists(args.output_dir)
 
 if __name__ == "__main__":
-    mp.set_start_method('spawn', force=True)
+    mp.set_start_method('spawn')
     main()
