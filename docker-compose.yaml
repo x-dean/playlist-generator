@@ -7,4 +7,5 @@ services:
       - ${CACHE_DIR:-./cache}:/app/cache
     environment:
       - CACHE_DIR=/app/cache
+      - TIMEOUT_SECONDS=${TIMEOUT:-30}
     working_dir: /app

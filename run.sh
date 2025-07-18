@@ -3,13 +3,14 @@ set -euo pipefail
 
 # Default parameters
 REBUILD=false
-HOST_MUSIC_DIR="${PWD}/music"  # Host path
-MUSIC_DIR="/music"             # Container path
+HOST_MUSIC_DIR="${PWD}/music"
+MUSIC_DIR="/music"
 OUTPUT_DIR="${PWD}/playlists"
 CACHE_DIR="${PWD}/cache"
 WORKERS=$(nproc)
 NUM_PLAYLISTS=10
 CHUNK_SIZE=1000
+TIMEOUT=30
 USE_DB=false
 FORCE_SEQUENTIAL=false
 
@@ -24,6 +25,7 @@ while [[ $# -gt 0 ]]; do
         --workers=*) WORKERS="${1#*=}" ;;
         --num_playlists=*) NUM_PLAYLISTS="${1#*=}" ;;
         --chunk_size=*) CHUNK_SIZE="${1#*=}" ;;
+        --timeout=*) TIMEOUT="${1#*=}" ;;
         --use_db) USE_DB=true ;;
         --force_sequential) FORCE_SEQUENTIAL=true ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -42,19 +44,17 @@ echo "Cache Directory: $CACHE_DIR"
 echo "Workers: $WORKERS"
 echo "Playlists: $NUM_PLAYLISTS"
 echo "Chunk Size: $CHUNK_SIZE"
+echo "Timeout: $TIMEOUT seconds"
 echo "Use DB: $USE_DB"
 echo "Force Sequential: $FORCE_SEQUENTIAL"
 
-# Build only if requested
 if "$REBUILD"; then
     echo "=== Rebuilding Docker image ==="
     docker compose build --no-cache
 fi
 
-# Export environment variables for compose
-export HOST_MUSIC_DIR OUTPUT_DIR CACHE_DIR
+export HOST_MUSIC_DIR OUTPUT_DIR CACHE_DIR TIMEOUT
 
-# Run the container
 docker compose run --rm \
   playlist-generator \
   --music_dir "$MUSIC_DIR" \
@@ -63,6 +63,7 @@ docker compose run --rm \
   --workers "$WORKERS" \
   --num_playlists "$NUM_PLAYLISTS" \
   --chunk_size "$CHUNK_SIZE" \
+  --timeout "$TIMEOUT" \
   $( [ "$USE_DB" = true ] && echo "--use_db" ) \
   $( [ "$FORCE_SEQUENTIAL" = true ] && echo "--force_sequential" )
 

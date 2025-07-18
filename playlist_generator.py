@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Optimized Music Playlist Generator with Enhanced Naming
+Optimized Music Playlist Generator with Enhanced Naming and Configurable Timeout
 """
 
 import pandas as pd
@@ -34,12 +34,14 @@ def sanitize_filename(name):
     return re.sub(r'_+', '_', name).strip('_')
 
 class PlaylistGenerator:
-    def __init__(self):
+    def __init__(self, timeout_seconds=30):
         self.failed_files = []
         self.container_music_dir = ""
         self.host_music_dir = ""
+        self.timeout_seconds = timeout_seconds
 
     def analyze_directory(self, music_dir, workers=4, force_sequential=False):
+        """Analyze all audio files in directory"""
         file_list = []
         self.failed_files = []
         self.container_music_dir = music_dir.rstrip('/')
@@ -61,9 +63,10 @@ class PlaylistGenerator:
         return self._process_parallel(file_list, workers)
 
     def _process_sequential(self, file_list):
+        """Process files sequentially"""
         results = []
         for filepath in tqdm(file_list, desc="Processing files"):
-            features, _ = process_file_worker(filepath)
+            features, _ = self.process_file_worker(filepath)
             if features:
                 results.append(features)
             else:
@@ -71,12 +74,13 @@ class PlaylistGenerator:
         return results
 
     def _process_parallel(self, file_list, workers):
+        """Process files in parallel"""
         results = []
         try:
-            logger.info("Starting multiprocessing pool")
+            logger.info(f"Starting multiprocessing pool with {workers} workers")
             pool = mp.Pool(processes=min(workers, mp.cpu_count() // 2 or 1))
             for features, filepath in tqdm(
-                pool.imap_unordered(process_file_worker, file_list),
+                pool.imap_unordered(self.process_file_worker, file_list),
                 total=len(file_list),
                 desc="Processing files"
             ):
@@ -96,7 +100,21 @@ class PlaylistGenerator:
                 pool.join()
             return self._process_sequential(file_list)
 
+    def process_file_worker(self, filepath):
+        """Worker function for processing individual files"""
+        try:
+            from analyze_music import audio_analyzer
+            audio_analyzer.timeout_seconds = self.timeout_seconds
+            result = audio_analyzer.extract_features(filepath)
+            if result:  # Returns (features, from_cache, file_hash)
+                return result[0], filepath
+            return None, filepath
+        except Exception as e:
+            logger.error(f"Error processing {filepath}: {str(e)}")
+            return None, filepath
+
     def get_all_features_from_db(self):
+        """Get all features from database cache"""
         try:
             return get_all_features()
         except Exception as e:
@@ -104,6 +122,7 @@ class PlaylistGenerator:
             return []
 
     def convert_to_host_path(self, container_path):
+        """Convert container path to host path"""
         if not self.host_music_dir or not self.container_music_dir:
             return container_path
 
@@ -117,7 +136,7 @@ class PlaylistGenerator:
         return os.path.join(self.host_music_dir, rel_path)
 
     def generate_playlist_name(self, features):
-        # More granular BPM classification (8 levels)
+        """Generate descriptive playlist name based on features"""
         bpm = float(features['bpm'])
         bpm_desc = (
             "VerySlow" if bpm < 55 else
@@ -130,7 +149,6 @@ class PlaylistGenerator:
             "VeryFast"
         )
         
-        # More detailed timbre classification (6 levels)
         centroid = float(features['centroid'])
         timbre_desc = (
             "Dark" if centroid < 800 else
@@ -141,7 +159,6 @@ class PlaylistGenerator:
             "VerySharp"
         )
         
-        # Duration with more ranges (5 levels)
         duration = float(features['duration'])
         duration_desc = (
             "Brief" if duration < 60 else
@@ -151,10 +168,8 @@ class PlaylistGenerator:
             "VeryLong"
         )
         
-        # More sensitive energy scaling (0-10)
         energy_level = min(10, int(float(features['beat_confidence']) * 12))
         
-        # Enhanced mood detection
         mood = (
             "Ambient" if bpm < 75 and centroid < 1200 else
             "Downtempo" if bpm < 95 and energy_level < 4 else
@@ -166,49 +181,49 @@ class PlaylistGenerator:
         return f"{bpm_desc}_{timbre_desc}_{duration_desc}_E{energy_level}_{mood}"
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000):
+        """Generate playlists using clustering"""
         if not features_list:
             logger.warning("No features to cluster")
             return {}
 
         df = pd.DataFrame(features_list)
         
-        # Create enhanced features
+        # Prepare features
         numeric_cols = ['bpm', 'beat_confidence', 'centroid', 'duration']
         df[numeric_cols] = df[numeric_cols].fillna(0).astype(float)
         
-        # Add weighted combination features
+        # Enhanced features
         df['energy'] = df['beat_confidence'] * 1.5
         df['tempo_timbre'] = (df['bpm']/200) * (df['centroid']/4000) * 2
         cluster_features = numeric_cols + ['energy', 'tempo_timbre']
         
-        # Improved clustering with more iterations
+        # Clustering
         kmeans = MiniBatchKMeans(
-            n_clusters=min(num_playlists*2, len(df)),  # Start with more clusters
+            n_clusters=min(num_playlists*2, len(df)),
             random_state=42,
             batch_size=min(100, len(df)),
-            n_init=5,    # More initializations
-            max_iter=100  # More iterations
+            n_init=5,
+            max_iter=100
         )
         
         features_scaled = StandardScaler().fit_transform(df[cluster_features])
         df['cluster'] = kmeans.fit_predict(features_scaled)
         
-        # Group by playlist name instead of cluster number
+        # Group into playlists
         playlists = {}
         for cluster in df['cluster'].unique():
             cluster_songs = df[df['cluster'] == cluster]
             centroid = cluster_songs[cluster_features].mean().to_dict()
             name = sanitize_filename(self.generate_playlist_name(centroid))
             
-            # Merge clusters with the same name
             if name not in playlists:
                 playlists[name] = []
             playlists[name].extend(cluster_songs['filepath'].tolist())
         
-        # Filter out very small playlists
-        return {k:v for k,v in playlists.items() if len(v) >= 5}  # Minimum 5 tracks
+        return {k:v for k,v in playlists.items() if len(v) >= 5}
 
     def save_playlists(self, playlists, output_dir):
+        """Save playlists to files"""
         os.makedirs(output_dir, exist_ok=True)
         saved_count = 0
 
@@ -234,17 +249,6 @@ class PlaylistGenerator:
                 f.write("\n".join(host_failed))
             logger.info(f"Saved {len(self.failed_files)} failed files")
 
-def process_file_worker(filepath):
-    try:
-        from analyze_music import audio_analyzer
-        result = audio_analyzer.extract_features(filepath)
-        if result:  # Returns (features, from_cache, file_hash)
-            return result[0], filepath  # Return only features and filepath
-        return None, filepath
-    except Exception as e:
-        logger.error(f"Error processing {filepath}: {str(e)}")
-        return None, filepath
-
 def main():
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
     parser.add_argument('--music_dir', required=True, help='Music directory in container')
@@ -254,12 +258,14 @@ def main():
     parser.add_argument('--workers', type=int, default=max(1, mp.cpu_count() // 2), 
                        help='Number of workers')
     parser.add_argument('--chunk_size', type=int, default=1000, help='Clustering chunk size')
+    parser.add_argument('--timeout', type=int, default=30, 
+                       help='Timeout for audio analysis in seconds')
     parser.add_argument('--use_db', action='store_true', help='Use database only')
     parser.add_argument('--force_sequential', action='store_true', 
                        help='Force sequential processing')
     args = parser.parse_args()
 
-    generator = PlaylistGenerator()
+    generator = PlaylistGenerator(timeout_seconds=args.timeout)
     generator.host_music_dir = args.host_music_dir.rstrip('/')
 
     start_time = time.time()
