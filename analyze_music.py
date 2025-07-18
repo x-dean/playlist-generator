@@ -35,7 +35,9 @@ def timeout(seconds=30, error_message="Processing timed out"):
 class AudioAnalyzer:
     def __init__(self, cache_file=None, timeout_seconds=30):
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-        self.cache_file = str(Path(cache_file or os.path.join(cache_dir, 'audio_analysis.db')).replace('\\', '/'))
+        # Fixed path handling - convert to string first, then replace
+        db_path = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
+        self.cache_file = str(Path(db_path)).replace('\\', '/')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
         logger.info(f"Initializing database at: {self.cache_file}")
         
