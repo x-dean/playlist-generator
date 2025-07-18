@@ -40,15 +40,32 @@ class AudioAnalyzer:
         self.conn = None
         self._cache_hits = 0
         self._cache_misses = 0
+        self._init_db()
 
     def _init_db(self):
+        """Initialize database with proper settings"""
         if not self.conn:
             self.conn = sqlite3.connect(self.cache_file, timeout=30)
+            # Optimized database settings
             self.conn.execute("PRAGMA journal_mode = WAL")
             self.conn.execute("PRAGMA synchronous = NORMAL")
-            self.conn.execute("PRAGMA cache_size = -8000")
+            self.conn.execute("PRAGMA cache_size = -8000")  # ~8MB cache
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS audio_features (
+                    file_hash TEXT PRIMARY KEY,
+                    file_path TEXT NOT NULL,
+                    duration REAL,
+                    bpm REAL,
+                    beat_confidence REAL,
+                    centroid REAL,
+                    last_modified REAL,
+                    last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
     def _get_file_info(self, filepath):
+        """Generate unique file hash based on metadata"""
         try:
             stat = os.stat(filepath)
             return {
@@ -56,7 +73,8 @@ class AudioAnalyzer:
                 'last_modified': stat.st_mtime,
                 'file_path': filepath
             }
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Couldn't get file stats for {filepath}: {str(e)}")
             return {
                 'file_hash': hashlib.md5(filepath.encode()).hexdigest(),
                 'last_modified': 0,
@@ -65,8 +83,11 @@ class AudioAnalyzer:
 
     @timeout()
     def _safe_audio_load(self, audio_path):
+        """Load audio file with validation and timeout"""
         try:
+            # Skip obviously invalid files
             if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 1024:
+                logger.debug(f"Skipping small/corrupt file: {audio_path}")
                 return None
                 
             loader = es.MonoLoader(
@@ -83,8 +104,9 @@ class AudioAnalyzer:
 
     @timeout()
     def _extract_rhythm_features(self, audio):
+        """Extract BPM and beat confidence with validation"""
         try:
-            if len(audio) < 1024:
+            if len(audio) < 1024:  # Minimum audio length
                 return 0.0, 0.0
                 
             rhythm_extractor = es.RhythmExtractor2013(
@@ -94,6 +116,7 @@ class AudioAnalyzer:
             )
             bpm, _, beats_confidence, _, _ = rhythm_extractor(audio)
             
+            # Validate extracted BPM
             if np.isnan(bpm) or bpm < 40 or bpm > 208:
                 return 0.0, 0.0
                 
@@ -104,8 +127,9 @@ class AudioAnalyzer:
 
     @timeout()
     def _extract_spectral_features(self, audio):
+        """Extract spectral centroid with validation"""
         try:
-            if len(audio) < 1024:
+            if len(audio) < 1024:  # Minimum audio length
                 return 0.0
                 
             spectral = es.SpectralCentroidTime(sampleRate=44100)
@@ -119,37 +143,38 @@ class AudioAnalyzer:
             return 0.0
 
     def extract_features(self, audio_path):
+        """Main feature extraction method with caching"""
         try:
-            self._init_db()
             file_info = self._get_file_info(audio_path)
             
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT duration, bpm, beat_confidence, centroid
-                FROM audio_features
-                WHERE file_hash = ? AND last_modified >= ?
-                LIMIT 1
+            # First check cache
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    SELECT duration, bpm, beat_confidence, centroid
+                    FROM audio_features
+                    WHERE file_hash = ? AND last_modified >= ?
+                    LIMIT 1
                 """, (file_info['file_hash'], file_info['last_modified']))
-            
-            if row := cursor.fetchone():
-                self._cache_hits += 1
-                if self._cache_hits % 100 == 0:
-                    gc.collect()
-                return {
-                    'duration': float(row[0]),
-                    'bpm': float(row[1]),
-                    'beat_confidence': float(row[2]),
-                    'centroid': float(row[3]),
-                    'filepath': audio_path,
-                    'filename': os.path.basename(audio_path)
-                }, True, file_info['file_hash']
+                
+                if row := cursor.fetchone():
+                    self._cache_hits += 1
+                    if self._cache_hits % 100 == 0:
+                        logger.info(f"Cache hits: {self._cache_hits}, misses: {self._cache_misses}")
+                        gc.collect()
+                    return {
+                        'duration': float(row[0]),
+                        'bpm': float(row[1]),
+                        'beat_confidence': float(row[2]),
+                        'centroid': float(row[3]),
+                        'filepath': audio_path,
+                        'filename': os.path.basename(audio_path)
+                    }, True, file_info['file_hash']
 
+            # Only process if not in cache
             self._cache_misses += 1
-            if self._cache_misses % 50 == 0:
-                self.conn.commit()
-                gc.collect()
-
             logger.info(f"Processing: {os.path.basename(audio_path)}")
+            
             audio = self._safe_audio_load(audio_path)
             if audio is None:
                 return None, False, None
@@ -160,19 +185,18 @@ class AudioAnalyzer:
                 'filename': os.path.basename(audio_path)
             }
             
-            bpm, confidence = self._extract_rhythm_features(audio)
-            features['bpm'] = float(bpm)
-            features['beat_confidence'] = float(confidence)
-            
-            centroid = self._extract_spectral_features(audio)
-            features['centroid'] = float(centroid)
+            # Extract features
+            features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
+            features['centroid'] = self._extract_spectral_features(audio)
 
+            # Store in database
             with self.conn:
                 self.conn.execute("""
-                INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                    INSERT OR REPLACE INTO audio_features
+                    VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
                 """, (
                     file_info['file_hash'],
-                    audio_path,
+                    file_info['file_path'],
                     features['duration'],
                     features['bpm'],
                     features['beat_confidence'],
@@ -185,13 +209,39 @@ class AudioAnalyzer:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             return None, False, None
         finally:
-            if self._cache_misses % 200 == 0 and self.conn:
-                self.conn.execute("VACUUM")
+            if self._cache_misses > 0 and self._cache_misses % 200 == 0:
+                with self.conn:
+                    self.conn.execute("VACUUM")
+                gc.collect()
 
+    def get_all_features(self):
+        """Retrieve all features from database"""
+        try:
+            with self.conn:
+                cursor = self.conn.cursor()
+                cursor.execute("""
+                    SELECT file_path as filepath, duration, bpm, beat_confidence, centroid
+                    FROM audio_features
+                """)
+                return [{
+                    'filepath': row[0],
+                    'duration': float(row[1]),
+                    'bpm': float(row[2]),
+                    'beat_confidence': float(row[3]),
+                    'centroid': float(row[4]),
+                    'filename': os.path.basename(row[0])
+                } for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Database error: {str(e)}")
+            return []
+
+# Singleton instance with configurable timeout
 audio_analyzer = AudioAnalyzer(timeout_seconds=int(os.getenv('TIMEOUT_SECONDS', 30)))
 
 def extract_features(audio_path):
+    """Public interface for feature extraction"""
     return audio_analyzer.extract_features(audio_path)
 
 def get_all_features():
+    """Public interface to get all cached features"""
     return audio_analyzer.get_all_features()
