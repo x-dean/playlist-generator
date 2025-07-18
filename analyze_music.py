@@ -8,6 +8,8 @@ import signal
 import gc
 from functools import wraps
 from pathlib import Path
+from queue import Queue
+from contextlib import contextmanager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,47 +17,62 @@ logger = logging.getLogger(__name__)
 class TimeoutException(Exception):
     pass
 
-def timeout(seconds=30, error_message="Processing timed out"):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            def _handle_timeout(signum, frame):
-                raise TimeoutException(error_message)
+@contextmanager
+def timeout_context(seconds):
+    def signal_handler(signum, frame):
+        raise TimeoutException(f"Operation timed out after {seconds} seconds")
+    
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
 
-            signal.signal(signal.SIGALRM, _handle_timeout)
-            signal.alarm(seconds)
-            try:
-                result = func(*args, **kwargs)
-            finally:
-                signal.alarm(0)
-            return result
-        return wrapper
-    return decorator
+class ConnectionPool:
+    def __init__(self, db_path, pool_size=5):
+        self.db_path = db_path
+        self.pool = Queue(maxsize=pool_size)
+        for _ in range(pool_size):
+            conn = sqlite3.connect(db_path, timeout=30)
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA cache_size = -8000")
+            self.pool.put(conn)
+            
+    def get_conn(self):
+        return self.pool.get()
+        
+    def release_conn(self, conn):
+        self.pool.put(conn)
+        
+    def close_all(self):
+        while not self.pool.empty():
+            conn = self.pool.get()
+            conn.close()
 
 class AudioAnalyzer:
-    def __init__(self, cache_file=None, timeout_seconds=30):
+    def __init__(self, cache_file=None, timeout_seconds=30, pool_size=5):
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-        # Fixed path handling - convert to string first, then replace
         db_path = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
         self.cache_file = str(Path(db_path)).replace('\\', '/')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-        logger.info(f"Initializing database at: {self.cache_file}")
         
         self.timeout_seconds = timeout_seconds
-        self.conn = None
+        self.pool_size = pool_size
+        self.conn_pool = ConnectionPool(self.cache_file, pool_size)
         self._cache_hits = 0
         self._cache_misses = 0
         self._init_db()
+        
+        logger.info(f"Initialized analyzer with {pool_size} DB connections")
 
     def _init_db(self):
-        """Initialize database with proper settings and verify WAL mode"""
+        """Initialize database with proper settings"""
+        conn = None
         try:
-            self.conn = sqlite3.connect(self.cache_file, timeout=30)
-            self.conn.execute("PRAGMA journal_mode = WAL")
-            self.conn.execute("PRAGMA synchronous = NORMAL")
-            self.conn.execute("PRAGMA cache_size = -8000")  # ~8MB cache
-            
-            self.conn.execute("""
+            conn = self.conn_pool.get_conn()
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS audio_features (
                     file_hash TEXT PRIMARY KEY,
                     file_path TEXT NOT NULL,
@@ -67,15 +84,14 @@ class AudioAnalyzer:
                     last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
-            self.conn.commit()
-            
-            wal_status = self.conn.execute("PRAGMA journal_mode").fetchone()[0]
-            logger.info(f"Database initialized in {wal_status} mode at {self.cache_file}")
-            
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
+            conn.commit()
         except Exception as e:
             logger.error(f"Database initialization failed: {str(e)}")
             raise
+        finally:
+            if conn:
+                self.conn_pool.release_conn(conn)
 
     def _get_file_info(self, filepath):
         """Generate unique file hash based on metadata"""
@@ -94,7 +110,6 @@ class AudioAnalyzer:
                 'file_path': filepath
             }
 
-    @timeout()
     def _safe_audio_load(self, audio_path):
         """Load audio file with validation and timeout"""
         try:
@@ -102,52 +117,62 @@ class AudioAnalyzer:
                 logger.debug(f"Skipping small/corrupt file: {audio_path}")
                 return None
                 
-            loader = es.MonoLoader(
-                filename=audio_path,
-                sampleRate=44100,
-                resampleQuality=4,
-                downmix='mix'
-            )
-            audio = loader()
-            return audio if isinstance(audio, np.ndarray) and len(audio) > 1024 else None
+            with timeout_context(self.timeout_seconds):
+                loader = es.MonoLoader(
+                    filename=audio_path,
+                    sampleRate=44100,
+                    resampleQuality=4,
+                    downmix='mix'
+                )
+                audio = loader()
+                return audio if isinstance(audio, np.ndarray) and len(audio) > 1024 else None
+        except TimeoutException:
+            logger.warning(f"Timeout loading audio file: {audio_path}")
+            return None
         except Exception as e:
             logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
             return None
 
-    @timeout()
     def _extract_rhythm_features(self, audio):
         """Extract BPM and beat confidence with validation"""
         try:
             if len(audio) < 1024:
                 return 0.0, 0.0
                 
-            rhythm_extractor = es.RhythmExtractor2013(
-                method="multifeature",
-                minTempo=40,
-                maxTempo=208
-            )
-            bpm, _, beats_confidence, _, _ = rhythm_extractor(audio)
-            
-            if np.isnan(bpm) or bpm < 40 or bpm > 208:
-                return 0.0, 0.0
+            with timeout_context(self.timeout_seconds):
+                rhythm_extractor = es.RhythmExtractor2013(
+                    method="multifeature",
+                    minTempo=40,
+                    maxTempo=208
+                )
+                bpm, _, beats_confidence, _, _ = rhythm_extractor(audio)
                 
-            return float(bpm), float(np.nanmean(beats_confidence))
+                if np.isnan(bpm) or bpm < 40 or bpm > 208:
+                    return 0.0, 0.0
+                    
+                return float(bpm), float(np.nanmean(beats_confidence))
+        except TimeoutException:
+            logger.warning("Timeout during rhythm extraction")
+            return 0.0, 0.0
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
             return 0.0, 0.0
 
-    @timeout()
     def _extract_spectral_features(self, audio):
         """Extract spectral centroid with validation"""
         try:
             if len(audio) < 1024:
                 return 0.0
                 
-            spectral = es.SpectralCentroidTime(sampleRate=44100)
-            centroid_values = spectral(audio)
-            
-            if isinstance(centroid_values, np.ndarray):
-                return float(np.nanmean(centroid_values))
+            with timeout_context(self.timeout_seconds):
+                spectral = es.SpectralCentroidTime(sampleRate=44100)
+                centroid_values = spectral(audio)
+                
+                if isinstance(centroid_values, np.ndarray):
+                    return float(np.nanmean(centroid_values))
+                return 0.0
+        except TimeoutException:
+            logger.warning("Timeout during spectral extraction")
             return 0.0
         except Exception as e:
             logger.warning(f"Spectral extraction failed: {str(e)}")
@@ -155,11 +180,13 @@ class AudioAnalyzer:
 
     def extract_features(self, audio_path):
         """Main feature extraction method with caching"""
+        conn = None
         try:
             file_info = self._get_file_info(audio_path)
+            conn = self.conn_pool.get_conn()
+            cursor = conn.cursor()
             
-            with self.conn:
-                cursor = self.conn.cursor()
+            with timeout_context(self.timeout_seconds):
                 cursor.execute("""
                     SELECT duration, bpm, beat_confidence, centroid
                     FROM audio_features
@@ -197,8 +224,8 @@ class AudioAnalyzer:
             features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
             features['centroid'] = self._extract_spectral_features(audio)
 
-            with self.conn:
-                self.conn.execute("""
+            with timeout_context(self.timeout_seconds):
+                conn.execute("""
                     INSERT OR REPLACE INTO audio_features
                     VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
                 """, (
@@ -210,22 +237,42 @@ class AudioAnalyzer:
                     features['centroid'],
                     file_info['last_modified']
                 ))
+                conn.commit()
 
             return features, False, file_info['file_hash']
+        except TimeoutException:
+            logger.warning(f"Timeout during database operations for {audio_path}")
+            return None, False, None
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             return None, False, None
         finally:
+            if conn:
+                self.conn_pool.release_conn(conn)
             if self._cache_misses > 0 and self._cache_misses % 200 == 0:
-                with self.conn:
-                    self.conn.execute("VACUUM")
-                gc.collect()
+                self._vacuum_db()
+
+    def _vacuum_db(self):
+        """Perform database maintenance"""
+        conn = None
+        try:
+            conn = self.conn_pool.get_conn()
+            conn.execute("VACUUM")
+            conn.commit()
+            gc.collect()
+        except Exception as e:
+            logger.warning(f"Database maintenance failed: {str(e)}")
+        finally:
+            if conn:
+                self.conn_pool.release_conn(conn)
 
     def get_all_features(self):
         """Retrieve all features from database"""
+        conn = None
         try:
-            with self.conn:
-                cursor = self.conn.cursor()
+            conn = self.conn_pool.get_conn()
+            cursor = conn.cursor()
+            with timeout_context(self.timeout_seconds):
                 cursor.execute("""
                     SELECT file_path as filepath, duration, bpm, beat_confidence, centroid
                     FROM audio_features
@@ -241,8 +288,19 @@ class AudioAnalyzer:
         except Exception as e:
             logger.error(f"Database error: {str(e)}")
             return []
+        finally:
+            if conn:
+                self.conn_pool.release_conn(conn)
 
-audio_analyzer = AudioAnalyzer(timeout_seconds=int(os.getenv('TIMEOUT_SECONDS', 30)))
+    def close(self):
+        """Clean up resources"""
+        self.conn_pool.close_all()
+
+# Initialize analyzer with environment variables
+audio_analyzer = AudioAnalyzer(
+    timeout_seconds=int(os.getenv('TIMEOUT_SECONDS', 30)),
+    pool_size=int(os.getenv('DB_POOL_SIZE', 5))
+)
 
 def extract_features(audio_path):
     return audio_analyzer.extract_features(audio_path)
@@ -253,4 +311,7 @@ def get_all_features():
 if __name__ == "__main__":
     print(f"Database location: {audio_analyzer.cache_file}")
     print(f"Database exists: {os.path.exists(audio_analyzer.cache_file)}")
-    print(f"WAL file exists: {os.path.exists(audio_analyzer.cache_file + '-wal')}")
+    try:
+        audio_analyzer.close()
+    except:
+        pass

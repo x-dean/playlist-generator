@@ -13,6 +13,8 @@ import time
 import traceback
 import re
 import gc
+import signal
+from contextlib import contextmanager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,34 +26,74 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+class TimeoutException(Exception):
+    pass
+
+@contextmanager
+def time_limit(seconds):
+    def signal_handler(signum, frame):
+        raise TimeoutException(f"Timed out after {seconds} seconds")
+    
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+
 def sanitize_filename(name):
     name = re.sub(r'[^\w\-_]', '_', name)
     return re.sub(r'_+', '_', name).strip('_')
 
 class PlaylistGenerator:
-    def __init__(self, timeout_seconds=30, batch_size=50):
+    def __init__(self, timeout_seconds=30, batch_size=20):
         self.failed_files = []
         self.container_music_dir = ""
         self.host_music_dir = ""
         self.timeout_seconds = timeout_seconds
         self.batch_size = batch_size
+        self.shutdown_flag = False
+        
+        # Register signal handlers
+        signal.signal(signal.SIGINT, self.handle_interrupt)
+        signal.signal(signal.SIGTERM, self.handle_interrupt)
+
+    def handle_interrupt(self, signum, frame):
+        logger.warning(f"Received interrupt signal {signum}, shutting down gracefully...")
+        self.shutdown_flag = True
 
     def analyze_directory(self, music_dir, workers=4, force_sequential=False):
-        file_list = self._get_audio_files(music_dir)
-        logger.info(f"Found {len(file_list)} valid audio files")
+        checkpoint_file = os.path.join(self.host_music_dir, ".progress_checkpoint")
+        processed_files = set()
+        
+        # Load progress if exists
+        if os.path.exists(checkpoint_file):
+            try:
+                with open(checkpoint_file, 'r') as f:
+                    processed_files = set(f.read().splitlines())
+                logger.info(f"Resuming from checkpoint with {len(processed_files)} processed files")
+            except Exception as e:
+                logger.error(f"Failed to load checkpoint: {str(e)}")
+
+        file_list = [f for f in self._get_audio_files(music_dir) 
+                    if f not in processed_files]
+        logger.info(f"Found {len(file_list)} new files to process (total: {len(processed_files) + len(file_list)})")
         
         if not file_list:
             return []
 
-        if force_sequential or workers <= 1:
-            return self._process_sequential(file_list)
+        if force_sequential or workers <= 1 or self.shutdown_flag:
+            return self._process_sequential(file_list, checkpoint_file, processed_files)
 
-        return self._process_batches(file_list, workers)
+        return self._process_batches(file_list, workers, checkpoint_file, processed_files)
 
     def _get_audio_files(self, music_dir):
         valid_files = []
         for root, _, files in os.walk(music_dir):
             for f in files:
+                if self.shutdown_flag:
+                    return []
+                    
                 if f.lower().endswith(('.mp3', '.wav', '.flac', '.ogg')):
                     filepath = os.path.join(root, f)
                     try:
@@ -61,28 +103,69 @@ class PlaylistGenerator:
                         continue
         return valid_files
 
-    def _process_batches(self, file_list, workers):
+    def _process_batches(self, file_list, workers, checkpoint_file, processed_files):
         results = []
         batches = [file_list[i:i + self.batch_size] 
                   for i in range(0, len(file_list), self.batch_size)]
         
-        with mp.Pool(min(workers, mp.cpu_count())) as pool:
-            for batch_result in tqdm(
-                pool.imap_unordered(self._process_batch, batches),
-                total=len(batches),
-                desc="Processing batches"
-            ):
-                results.extend(batch_result)
-                gc.collect()
-                
-        return results
+        try:
+            with mp.Pool(min(workers, mp.cpu_count())) as pool:
+                with tqdm(
+                    total=len(batches),
+                    desc="Processing batches",
+                    mininterval=5.0  # Update less frequently
+                ) as pbar:
+                    for i, batch_result in enumerate(pool.imap_unordered(self._process_batch, batches)):
+                        if self.shutdown_flag:
+                            logger.warning("Shutdown requested, terminating early")
+                            pool.terminate()
+                            break
+                            
+                        results.extend(batch_result)
+                        processed_files.update(batches[i])
+                        
+                        # Save progress every 10 batches
+                        if i % 10 == 0:
+                            self._save_checkpoint(checkpoint_file, processed_files)
+                            
+                        pbar.update(1)
+                        gc.collect()
+                        
+            return results
+        except Exception as e:
+            logger.error(f"Batch processing failed: {str(e)}")
+            pool.terminate()
+            raise
+        finally:
+            self._save_checkpoint(checkpoint_file, processed_files)
+            pool.close()
+            pool.join()
+
+    def _save_checkpoint(self, checkpoint_file, processed_files):
+        try:
+            with open(checkpoint_file, 'w') as f:
+                f.write("\n".join(processed_files))
+        except Exception as e:
+            logger.error(f"Failed to save checkpoint: {str(e)}")
 
     def _process_batch(self, file_batch):
+        if self.shutdown_flag:
+            return []
+            
         batch_results = []
         for filepath in file_batch:
-            features, _ = self.process_file_worker(filepath)
-            if features:
-                batch_results.append(features)
+            try:
+                with time_limit(self.timeout_seconds):
+                    features, _ = self.process_file_worker(filepath)
+                    if features:
+                        batch_results.append(features)
+            except TimeoutException:
+                logger.warning(f"Timeout processing {filepath}")
+                self.failed_files.append(filepath)
+            except Exception as e:
+                logger.error(f"Error processing {filepath}: {str(e)}")
+                self.failed_files.append(filepath)
+                
         return batch_results
 
     def process_file_worker(self, filepath):
@@ -241,7 +324,7 @@ def main():
     parser.add_argument('--workers', type=int, default=max(1, mp.cpu_count() - 1))
     parser.add_argument('--chunk_size', type=int, default=1000)
     parser.add_argument('--timeout', type=int, default=30)
-    parser.add_argument('--batch_size', type=int, default=50)
+    parser.add_argument('--batch_size', type=int, default=20)
     parser.add_argument('--use_db', action='store_true')
     parser.add_argument('--force_sequential', action='store_true')
     args = parser.parse_args()
@@ -263,7 +346,7 @@ def main():
                 args.force_sequential
             )
         
-        if features:
+        if features and not generator.shutdown_flag:
             playlists = generator.generate_playlists(
                 features,
                 args.num_playlists,
