@@ -12,6 +12,7 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from analyze_music import AudioAnalyzer
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s',
@@ -20,27 +21,47 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class PlaylistGenerator:
-    def __init__(self, db_path='audio_features.db', workers=4):
-        self.db_path = db_path
+    def __init__(self, db_path='audio_features.db', workers=4, timeout=30):
+        """
+        Initialize with:
+        - db_path: Path to SQLite database
+        - workers: Number of parallel processes
+        - timeout: Analysis timeout per file (seconds)
+        """
+        self.db_path = os.path.abspath(db_path)
         self.workers = workers
-        self.analyzer = AudioAnalyzer(db_path=db_path)
+        self.timeout = timeout
+        
+        # Ensure database directory exists
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        
+        # Initialize analyzer with shared DB
+        self.analyzer = AudioAnalyzer(db_path=self.db_path, timeout=timeout)
+        
+        # Initialize database schema
+        self._init_db()
 
-    def process_directory(self, music_dir):
-        """Process directory with hash-based change detection"""
-        files = list(self._get_audio_files(music_dir))
-        
-        with mp.Pool(self.workers) as pool:
-            results = list(tqdm(
-                pool.imap(self.analyzer.extract_features, files),
-                total=len(files),
-                desc="Processing files"
-            ))
-        
-        # Return only successful results
-        return [r for r in results if r is not None]
+    def _init_db(self):
+        """Initialize database tables"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS audio_files (
+                    path TEXT PRIMARY KEY,
+                    file_hash TEXT NOT NULL,
+                    bpm REAL,
+                    duration REAL,
+                    beat_confidence REAL,
+                    spectral_centroid REAL,
+                    last_modified REAL,
+                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_hash ON audio_files(file_hash)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_path ON audio_files(path)")
+            conn.commit()
 
     def _get_audio_files(self, music_dir):
-        """Get audio files with basic validation"""
+        """Generator yielding all valid audio files"""
         valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a')
         for root, _, files in os.walk(music_dir):
             for f in files:
@@ -49,162 +70,45 @@ class PlaylistGenerator:
                     try:
                         if os.path.getsize(filepath) > 1024:  # 1KB minimum
                             yield filepath
-                    except OSError:
+                    except OSError as e:
+                        logger.warning(f"Skipping {filepath}: {str(e)}")
                         continue
 
-    def _process_file(self, filepath):
-        """Process single file and return features"""
-        try:
-            current_hash = self._file_hash(filepath)
-            
-            # Check if we can skip processing
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    "SELECT file_hash FROM audio_files WHERE path = ?", 
-                    (filepath,)
-                )
-                if row := cursor.fetchone():
-                    if row[0] == current_hash:
-                        return None  # Skip unchanged files
-            
-            # Only proceed if analyzer is properly initialized
-            if not hasattr(self, 'analyzer'):
-                self.analyzer = AudioAnalyzer(timeout=self.timeout)
-                
-            features = self.analyzer.extract_features(filepath)
-            if not features:
-                return None
-                
-            record = {
-                'path': filepath,
-                'file_hash': current_hash,
-                'bpm': features.get('bpm', 0),
-                'duration': features.get('duration', 0),
-                'beat_confidence': features.get('beat_confidence', 0),
-                'centroid': features.get('centroid', 0),
-                'last_modified': os.path.getmtime(filepath),
-                'processed_time': time.time()
-            }
-            
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute("""
-                    INSERT OR REPLACE INTO audio_files 
-                    VALUES (:path, :file_hash, :bpm, :duration, 
-                            :beat_confidence, :centroid, :last_modified, :processed_time)
-                    """, record)
-                conn.commit()
-            
-            return record
-            
-        except Exception as e:
-            logger.error(f"Error processing {filepath}: {str(e)}")
-            return None
-        
-    def _process_batch(self, filepaths):
-        """Process multiple files in one batch to reduce overhead"""
-        results = []
-        for filepath in filepaths:
-            try:
-                result = self._process_file(filepath)
-                if result:
-                    results.append(result)
-            except Exception as e:
-                logger.error(f"Failed on {filepath}: {str(e)}")
-        return results
-
     def process_directory(self, music_dir):
-        """Process all files in directory with batched parallel workers"""
+        """
+        Process all audio files in directory with:
+        - Parallel processing
+        - Hash-based change detection
+        - Progress tracking
+        """
         files = list(self._get_audio_files(music_dir))
         if not files:
-            logger.warning("No audio files found")
+            logger.warning("No audio files found in directory")
             return []
 
-        # Create batches of 10-20 files (adjust based on your system)
-        batch_size = max(10, min(20, len(files)//self.workers))
-        batches = [files[i:i + batch_size] for i in range(0, len(files), batch_size)]
-        
-        # Process files in parallel batches
+        logger.info(f"Found {len(files)} audio files to process")
+
+        # Process files in parallel with progress bar
         with mp.Pool(self.workers) as pool:
-            results = list(tqdm(
-                pool.imap_unordered(self._process_batch, batches),
-                total=len(batches),
-                desc="Processing batches",
-                unit="batch"
-            ))
-        
-        # Flatten results
-        processed_files = [item for sublist in results for item in sublist]
-        processed_count = len(processed_files)
-        skipped_count = len(files) - processed_count
-        
-        logger.info(f"Processed {processed_count} files ({skipped_count} skipped)")
-        return processed_files
+            results = []
+            with tqdm(total=len(files), desc="Processing files") as pbar:
+                for result in pool.imap_unordered(self.analyzer.extract_features, files):
+                    if result:  # Only count successful analyses
+                        results.append(result)
+                    pbar.update(1)
 
-    def generate_playlists(self, output_dir, min_tracks=5):
-        """Generate playlists from analyzed features"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.execute("""
-                SELECT path, bpm, duration, beat_confidence, centroid 
-                FROM audio_files
-                WHERE bpm > 0 AND duration > 0
-                ORDER BY RANDOM()
-            """)
-            features = [dict(row) for row in cursor.fetchall()]
-        
-        if not features:
-            logger.warning("No features available for playlist generation")
-            return
-        
-        # Prepare features for clustering
-        df = pd.DataFrame(features)
-        X = df[['bpm', 'beat_confidence', 'centroid']].values
-        
-        # Dynamic cluster count based on feature diversity
-        num_clusters = min(15, max(5, len(features) // 50))
-        
-        try:
-            # Normalize and cluster
-            X_scaled = StandardScaler().fit_transform(X)
-            kmeans = KMeans(n_clusters=num_clusters, random_state=42)
-            df['cluster'] = kmeans.fit_predict(X_scaled)
-        except Exception as e:
-            logger.error(f"Clustering failed: {str(e)}")
-            df['cluster'] = 0  # Fallback to single playlist
-        
-        # Create playlists
-        os.makedirs(output_dir, exist_ok=True)
-        playlist_count = 0
-        
-        for cluster_id in sorted(df['cluster'].unique()):
-            cluster_tracks = df[df['cluster'] == cluster_id]
-            if len(cluster_tracks) < min_tracks:
-                continue
-                
-            # Get median features for naming
-            median_features = {
-                'bpm': cluster_tracks['bpm'].median(),
-                'beat_confidence': cluster_tracks['beat_confidence'].median(),
-                'centroid': cluster_tracks['centroid'].median()
-            }
-            
-            playlist_name = self._generate_playlist_name(median_features)
-            safe_name = "".join(c if c.isalnum() else "_" for c in playlist_name)
-            playlist_path = os.path.join(output_dir, f"{safe_name}.m3u")
-            
-            # Save playlist
-            with open(playlist_path, 'w') as f:
-                f.write("\n".join(cluster_tracks['path'].tolist()))
-            
-            logger.info(f"Created playlist '{playlist_name}' with {len(cluster_tracks)} tracks")
-            playlist_count += 1
-        
-        logger.info(f"Generated {playlist_count} playlists in {output_dir}")
-        return playlist_count
+        processed = len(results)
+        skipped = len(files) - processed
+        logger.info(f"Processing complete: {processed} processed, {skipped} skipped")
+        return results
 
-    def _generate_playlist_name(self, features):
-        """Generate descriptive playlist name"""
-        bpm = features.get('bpm', 0)
+    def generate_playlist_name(self, features):
+        """Generate descriptive name from audio features"""
+        bpm = features['bpm']
+        energy = features['beat_confidence']
+        centroid = features['spectral_centroid']
+
+        # BPM classification
         if bpm < 60: bpm_desc = "Glacial"
         elif bpm < 80: bpm_desc = "Chill"
         elif bpm < 100: bpm_desc = "Medium"
@@ -212,32 +116,106 @@ class PlaylistGenerator:
         elif bpm < 140: bpm_desc = "Energetic"
         else: bpm_desc = "Intense"
 
-        energy = features.get('beat_confidence', 0) * 10
-        energy_desc = "Mellow" if energy < 3 else "Moderate" if energy < 6 else "HighEnergy"
+        # Energy classification
+        energy_desc = "Mellow" if energy < 0.3 else "Moderate" if energy < 0.6 else "HighEnergy"
 
-        centroid = features.get('centroid', 0)
-        spectral_desc = "Dark" if centroid < 1000 else "Warm" if centroid < 2000 else "Bright" if centroid < 3000 else "Crisp"
+        # Spectral classification
+        spectral_desc = (
+            "Dark" if centroid < 1000 else
+            "Warm" if centroid < 2000 else
+            "Bright" if centroid < 3000 else
+            "Crisp"
+        )
 
         return f"{bpm_desc}_{energy_desc}_{spectral_desc}"
+
+    def generate_playlists(self, output_dir, min_tracks=5):
+        """
+        Generate playlists from analyzed tracks with:
+        - K-means clustering
+        - Automatic naming
+        - Minimum tracks threshold
+        """
+        # Load features from database
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT path, bpm, beat_confidence, spectral_centroid
+                FROM audio_files
+                WHERE bpm > 0 AND duration > 0
+            """)
+            features = [dict(row) for row in cursor.fetchall()]
+
+        if not features:
+            logger.error("No audio features found in database")
+            return 0
+
+        logger.info(f"Generating playlists from {len(features)} tracks")
+
+        # Prepare data for clustering
+        df = pd.DataFrame(features)
+        X = df[['bpm', 'beat_confidence', 'spectral_centroid']]
+        
+        # Normalize features
+        X_scaled = StandardScaler().fit_transform(X)
+
+        # Dynamic cluster count
+        num_clusters = min(15, max(5, len(features) // 50))
+        
+        # Cluster tracks
+        df['cluster'] = KMeans(n_clusters=num_clusters, random_state=42).fit_predict(X_scaled)
+
+        # Generate playlists
+        os.makedirs(output_dir, exist_ok=True)
+        playlist_count = 0
+
+        for cluster_id in df['cluster'].unique():
+            cluster_tracks = df[df['cluster'] == cluster_id]
+            if len(cluster_tracks) < min_tracks:
+                continue
+
+            # Get median features for naming
+            median_features = cluster_tracks.median(numeric_only=True)
+            playlist_name = self.generate_playlist_name(median_features)
+            
+            # Sanitize filename
+            safe_name = "".join(c if c.isalnum() else "_" for c in playlist_name)
+            playlist_path = os.path.join(output_dir, f"{safe_name}.m3u")
+
+            # Write playlist
+            with open(playlist_path, 'w') as f:
+                f.write("\n".join(cluster_tracks['path'].tolist()))
+
+            logger.info(f"Created {playlist_name} with {len(cluster_tracks)} tracks")
+            playlist_count += 1
+
+        logger.info(f"Generated {playlist_count} playlists in {output_dir}")
+        return playlist_count
 
 def main():
     import argparse
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
-    parser.add_argument('--music_dir', required=True)
-    parser.add_argument('--output_dir', default='/app/playlists')
-    parser.add_argument('--workers', type=int, default=max(1, mp.cpu_count() - 1))
-    parser.add_argument('--timeout', type=int, default=30)
+    parser.add_argument('--music_dir', required=True, help='Directory containing music files')
+    parser.add_argument('--output_dir', default='./playlists', help='Output directory for playlists')
+    parser.add_argument('--workers', type=int, default=max(1, mp.cpu_count() - 1), 
+                       help='Number of worker processes')
+    parser.add_argument('--timeout', type=int, default=30, 
+                       help='Timeout per file analysis in seconds')
+    parser.add_argument('--db_path', default='audio_features.db',
+                       help='Path to analysis database')
     args = parser.parse_args()
 
+    # Initialize generator
     generator = PlaylistGenerator(
+        db_path=args.db_path,
         workers=args.workers,
         timeout=args.timeout
     )
-    
+
     # Process files
     features = generator.process_directory(args.music_dir)
     
-    # Generate playlists
+    # Generate playlists if we got results
     if features:
         generator.generate_playlists(args.output_dir)
 
