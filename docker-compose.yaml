@@ -5,10 +5,12 @@ services:
       - ${HOST_MUSIC_DIR:-./music}:${MUSIC_DIR:-/music}:ro
       - ${OUTPUT_DIR:-./playlists}:/app/playlists
       - ${CACHE_DIR:-./cache}:/app/cache
+      - ${CHECKPOINT_DIR:-./checkpoints}:/app/checkpoints
     environment:
       - CACHE_DIR=/app/cache
       - TIMEOUT_SECONDS=${TIMEOUT:-30}
       - DB_POOL_SIZE=5
+      - CHECKPOINT_DIR=/app/checkpoints
     working_dir: /app
     shm_size: '256mb'
     mem_limit: 2g

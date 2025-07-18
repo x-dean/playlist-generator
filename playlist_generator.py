@@ -50,20 +50,29 @@ class PlaylistGenerator:
         self.failed_files = []
         self.container_music_dir = ""
         self.host_music_dir = ""
+        self.checkpoint_dir = os.getenv('CHECKPOINT_DIR', '/app/checkpoints')
         self.timeout_seconds = timeout_seconds
         self.batch_size = batch_size
         self.shutdown_flag = False
-        
-        # Register signal handlers
-        signal.signal(signal.SIGINT, self.handle_interrupt)
-        signal.signal(signal.SIGTERM, self.handle_interrupt)
+    
+    # Create checkpoint directory if it doesn't exist
+    os.makedirs(self.checkpoint_dir, exist_ok=True)
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, self.handle_interrupt)
+    signal.signal(signal.SIGTERM, self.handle_interrupt)
 
     def handle_interrupt(self, signum, frame):
         logger.warning(f"Received interrupt signal {signum}, shutting down gracefully...")
         self.shutdown_flag = True
 
     def analyze_directory(self, music_dir, workers=4, force_sequential=False):
-        checkpoint_file = os.path.join(self.host_music_dir, ".progress_checkpoint")
+        # Use the output directory for checkpoints instead of music directory
+        checkpoint_file = os.path.join(self.checkpoint_dir, "progress_checkpoint")
+        
+        # Create the checkpoint directory if it doesn't exist
+        os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
+        
         processed_files = set()
         
         # Load progress if exists
@@ -75,17 +84,9 @@ class PlaylistGenerator:
             except Exception as e:
                 logger.error(f"Failed to load checkpoint: {str(e)}")
 
-        file_list = [f for f in self._get_audio_files(music_dir) 
-                    if f not in processed_files]
-        logger.info(f"Found {len(file_list)} new files to process (total: {len(processed_files) + len(file_list)})")
-        
-        if not file_list:
-            return []
-
-        if force_sequential or workers <= 1 or self.shutdown_flag:
-            return self._process_sequential(file_list, checkpoint_file, processed_files)
-
-        return self._process_batches(file_list, workers, checkpoint_file, processed_files)
+    file_list = [f for f in self._get_audio_files(music_dir) 
+                if f not in processed_files]
+    logger.info(f"Found {len(file_list)} new files to process (total: {len(processed_files) + len(file_list)})")
 
     def _get_audio_files(self, music_dir):
         valid_files = []
@@ -143,10 +144,27 @@ class PlaylistGenerator:
 
     def _save_checkpoint(self, checkpoint_file, processed_files):
         try:
-            with open(checkpoint_file, 'w') as f:
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(checkpoint_file), exist_ok=True)
+            
+            # Use a temporary file to ensure atomic write
+            temp_file = checkpoint_file + '.tmp'
+            with open(temp_file, 'w') as f:
                 f.write("\n".join(processed_files))
+            
+            # Rename to final file
+            os.replace(temp_file, checkpoint_file)
         except Exception as e:
             logger.error(f"Failed to save checkpoint: {str(e)}")
+            # Fallback to saving in output directory if music directory isn't writable
+            if "No such file or directory" in str(e):
+                fallback_path = os.path.join(self.host_music_dir, ".progress_checkpoint")
+                try:
+                    with open(fallback_path, 'w') as f:
+                        f.write("\n".join(processed_files))
+                    logger.info(f"Saved checkpoint to fallback location: {fallback_path}")
+                except Exception as fallback_e:
+                    logger.error(f"Failed to save fallback checkpoint: {str(fallback_e)}")
 
     def _process_batch(self, file_batch):
         if self.shutdown_flag:
