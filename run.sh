@@ -117,8 +117,8 @@ docker compose run --rm \
   --workers "$WORKERS" \
   --num_playlists "$NUM_PLAYLISTS" \
   --chunk_size "$CHUNK_SIZE" \
-  "$( [ "$USE_DB" = true ] && echo "--use_db" )" \
-  "$( [ "$FORCE_SEQUENTIAL" = true ] && echo "--force_sequential" )"
+   $( [ "$USE_DB" = true ] && echo "--use_db" ) \
+   $( [ "$FORCE_SEQUENTIAL" = true ] && echo "--force_sequential" )
 
 echo "✅ Playlists generated successfully!"
 echo "Output available in: $OUTPUT_DIR"
