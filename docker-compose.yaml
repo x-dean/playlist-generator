@@ -12,11 +12,6 @@ services:
       - type: bind
         source: ${CACHE_DIR}
         target: /app/cache
-      - type: bind
-        source: ${CONFIG_DIR}
-        target: /app/config
     environment:
       - CACHE_DIR=/app/cache
     working_dir: /app
-
-# No named volumes needed since we're using bind mounts

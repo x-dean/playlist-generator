@@ -6,7 +6,6 @@ REBUILD=false
 MUSIC_DIR="/root/music/library"
 OUTPUT_DIR="/root/music/library/playlists/by_bpm"
 CACHE_DIR="/root/music/library/playlists/by_bpm/cache"
-CONFIG_DIR="/root/music/playlist_generator/config"
 WORKERS=$(nproc)
 NUM_PLAYLISTS=10
 CHUNK_SIZE=1000
@@ -52,10 +51,6 @@ while [[ $# -gt 0 ]]; do
             FORCE_SEQUENTIAL=true
             shift
             ;;
-        --config_dir=*)
-            CONFIG_DIR="${1#*=}"
-            shift
-            ;;
         --help|-h)
             echo "Usage: $0 [options]"
             echo "Options:"
@@ -68,7 +63,6 @@ while [[ $# -gt 0 ]]; do
             echo "  --chunk_size=<size>      Size of each chunk for processing (default: $CHUNK_SIZE)"
             echo "  --use_db                 Use database for storing features (default: false)"
             echo "  --force_sequential       Force sequential processing (default: false)"
-            echo "  --config_dir=<path>      Path to the configuration directory (default: $CONFIG_DIR)"
             echo "  --help, -h              Show this help message"
             exit 0
             ;;
@@ -98,7 +92,6 @@ echo "=== Playlist Generator Configuration ==="
 echo "Music Directory: $MUSIC_DIR"
 echo "Output Directory: $OUTPUT_DIR"
 echo "Cache Directory: $CACHE_DIR"
-echo "Config Directory: $CONFIG_DIR"
 echo "Workers: $WORKERS"
 echo "Playlists: $NUM_PLAYLISTS"
 echo "Chunk Size: $CHUNK_SIZE"
@@ -117,7 +110,6 @@ docker compose run --rm \
   -v "$MUSIC_DIR:/music:ro" \
   -v "$OUTPUT_DIR:/app/playlists" \
   -v "$CACHE_DIR:/app/cache" \
-  -v "$CONFIG_DIR:/app" \
   playlist-generator \
   --music_dir /music \
   --host_music_dir "$MUSIC_DIR" \
