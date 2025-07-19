@@ -81,7 +81,8 @@ class AudioAnalyzer:
         try:
             loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
             audio = loader()
-            return audio if len(audio) > 0 else None
+            # Return audio only if it has content
+            return audio if audio.size > 0 else None
         except Exception as e:
             logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
             return None
@@ -90,8 +91,15 @@ class AudioAnalyzer:
     def _extract_rhythm_features(self, audio):
         try:
             rhythm_extractor = es.RhythmExtractor()
-            result = rhythm_extractor(audio)
-            return float(result[0]), float(np.nanmean(result[2]))
+            bpm, _, beats_confidence, _ = rhythm_extractor(audio)
+            
+            # Handle case where beats_confidence might be a list
+            if isinstance(beats_confidence, (list, np.ndarray)):
+                beat_conf = float(np.nanmean(beats_confidence))
+            else:
+                beat_conf = float(beats_confidence)
+                
+            return float(bpm), beat_conf
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
             return 0.0, 0.0
@@ -100,7 +108,15 @@ class AudioAnalyzer:
     def _extract_spectral_features(self, audio):
         try:
             spectral = es.SpectralCentroidTime(sampleRate=44100)
-            return float(np.nanmean(spectral(audio)))
+            centroid_values = spectral(audio)
+            
+            # Ensure we're dealing with a single value
+            if isinstance(centroid_values, (list, np.ndarray)):
+                centroid = float(np.nanmean(centroid_values))
+            else:
+                centroid = float(centroid_values)
+                
+            return centroid
         except Exception as e:
             logger.warning(f"Spectral extraction failed: {str(e)}")
             return 0.0
@@ -128,7 +144,8 @@ class AudioAnalyzer:
 
             # Process new file
             logger.info(f"Processing: {os.path.basename(audio_path)}")
-            if not (audio := self._safe_audio_load(audio_path)):
+            audio = self._safe_audio_load(audio_path)
+            if audio is None:
                 return None, False, None
 
             features = {
@@ -136,8 +153,20 @@ class AudioAnalyzer:
                 'filepath': audio_path,
                 'filename': os.path.basename(audio_path)
             }
-            features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
-            features['centroid'] = self._extract_spectral_features(audio)
+            
+            # Extract features with proper error handling
+            try:
+                features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
+            except Exception as e:
+                logger.error(f"Rhythm extraction error for {audio_path}: {str(e)}")
+                features['bpm'] = 0.0
+                features['beat_confidence'] = 0.0
+                
+            try:
+                features['centroid'] = self._extract_spectral_features(audio)
+            except Exception as e:
+                logger.error(f"Spectral extraction error for {audio_path}: {str(e)}")
+                features['centroid'] = 0.0
 
             # Update cache
             with self.conn:
