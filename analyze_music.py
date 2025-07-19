@@ -7,7 +7,6 @@ import hashlib
 import signal
 from functools import wraps
 import coloredlogs
-import coloredlogs
 
 logger = logging.getLogger(__name__)
 
