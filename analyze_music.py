@@ -27,7 +27,7 @@ coloredlogs.install(
 )
 
 # Current feature version - increment when adding/removing features
-CURRENT_FEATURE_VERSION = 2
+CURRENT_FEATURE_VERSION = 3
 
 class TimeoutException(Exception):
     pass
