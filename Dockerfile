@@ -19,7 +19,8 @@ RUN pip install --no-cache-dir \
     essentia \
     numpy==1.26.4 \
     matplotlib \
-    psutil
+    psutil \
+    coloredlogs
 
 # Copy application files
 COPY playlist_generator.py /app/

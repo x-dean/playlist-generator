@@ -25,16 +25,63 @@ import psutil
 import resource
 
 
-# Improved logging setup
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(levelname)s] %(name)s: %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("playlist_generator.log", mode='w')
-    ]
-)
-logger = logging.getLogger(__name__)
+#!/usr/bin/env python3
+"""
+Optimized Music Playlist Generator with Enhanced Musical Analysis
+"""
+
+import pandas as pd
+from sklearn.cluster import MiniBatchKMeans, DBSCAN
+from sklearn.preprocessing import StandardScaler
+import multiprocessing as mp
+import argparse
+import os
+import logging
+from tqdm import tqdm
+from analyze_music import get_all_features
+import numpy as np
+import time
+import traceback
+import re
+import sqlite3
+import json
+from datetime import datetime
+import hashlib
+import queue
+import psutil
+import resource
+
+# Improved logging setup with coloredlogs
+try:
+    import coloredlogs
+    coloredlogs.install(
+        level=logging.INFO,
+        fmt='[%(levelname)s] %(name)s: %(message)s',
+        field_styles={
+            'levelname': {'bold': True, 'color': 'cyan'},
+            'name': {'color': 'blue'}
+        },
+        level_styles={
+            'debug': {'color': 'green'},
+            'info': {'color': 'white'},
+            'warning': {'color': 'yellow', 'bold': True},
+            'error': {'color': 'red', 'bold': True},
+            'critical': {'background': 'red', 'bold': True, 'color': 'white'}
+        }
+    )
+    logger = logging.getLogger(__name__)
+    logger.info("Colored logs enabled")
+except ImportError:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='[%(levelname)s] %(name)s: %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("playlist_generator.log", mode='w')
+        ]
+    )
+    logger = logging.getLogger(__name__)
+    logger.warning("coloredlogs not installed - using basic logging")
 
 def sanitize_filename(name):
     name = re.sub(r'[^\w\-_]', '_', name)
