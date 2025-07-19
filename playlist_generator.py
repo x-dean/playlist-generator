@@ -81,25 +81,47 @@ class PlaylistGenerator:
         self._init_playlist_tracker()
         
     def _init_playlist_tracker(self):
-        """Initialize playlist tracking database"""
+        """Initialize playlist tracking database with schema migration"""
         os.makedirs(os.path.dirname(self.playlist_db), exist_ok=True)
         conn = sqlite3.connect(self.playlist_db)
         cursor = conn.cursor()
+        
+        # Create playlists table with basic columns
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS playlists (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                centroid_bpm REAL,
-                centroid_centroid REAL,
-                centroid_duration REAL,
-                centroid_loudness REAL,
-                centroid_dynamics REAL,
-                centroid_rhythm REAL,
-                centroid_key TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # Migration: Check existing columns and add missing ones
+        cursor.execute("PRAGMA table_info(playlists)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        # List of required centroid columns with their types
+        centroid_columns = [
+            ('centroid_bpm', 'REAL'),
+            ('centroid_centroid', 'REAL'),
+            ('centroid_duration', 'REAL'),
+            ('centroid_loudness', 'REAL'),
+            ('centroid_dynamics', 'REAL'),
+            ('centroid_rhythm', 'REAL'),
+            ('centroid_key', 'TEXT')
+        ]
+        
+        # Add any missing columns
+        for col_name, col_type in centroid_columns:
+            if col_name not in columns:
+                try:
+                    cursor.execute(f'ALTER TABLE playlists ADD COLUMN {col_name} {col_type}')
+                    logger.info(f"Added missing column to playlists: {col_name}")
+                except sqlite3.OperationalError as e:
+                    if "duplicate column" not in str(e):
+                        logger.error(f"Error adding column {col_name}: {str(e)}")
+        
+        # Create other tables
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS playlist_songs (
                 playlist_id INTEGER,
