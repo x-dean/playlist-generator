@@ -98,12 +98,12 @@ echo "=== Playlist Generator Configuration ==="
 echo "Music Directory: $MUSIC_DIR"
 echo "Output Directory: $OUTPUT_DIR"
 echo "Cache Directory: $CACHE_DIR"
+echo "Config Directory: $CONFIG_DIR"
 echo "Workers: $WORKERS"
 echo "Playlists: $NUM_PLAYLISTS"
 echo "Chunk Size: $CHUNK_SIZE"
 echo "Use DB: $USE_DB"
 echo "Force Sequential: $FORCE_SEQUENTIAL"
-echo "Config Directory: $CONFIG_DIR"
 echo "========================================"
 
 # Build only if requested
