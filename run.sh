@@ -1,71 +1,98 @@
 #!/bin/bash
-set -eo pipefail
+set -euo pipefail
 
-# Default configuration
-HOST_MUSIC_DIR="/root/music/library"
-OUTPUT_DIR="/root/music/library/by_bpm"
-CACHE_DIR="/root/music/cache"
-WORKERS=8
-TIMEOUT=30
+# Default parameters
 REBUILD=false
+MUSIC_DIR="/root/music/library"
+OUTPUT_DIR="${PWD}/playlists"
+CACHE_DIR="${PWD}/cache"
+WORKERS=$(nproc)
+NUM_PLAYLISTS=10
+CHUNK_SIZE=1000
+USE_DB=false
+FORCE_SEQUENTIAL=false
 
-# Parse command line arguments
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        --host_music_dir=*) HOST_MUSIC_DIR="${1#*=}" ;;
-        --output_dir=*) OUTPUT_DIR="${1#*=}" ;;
-        --workers=*) WORKERS="${1#*=}" ;;
-        --timeout=*) TIMEOUT="${1#*=}" ;;
-        --rebuild) REBUILD=true ;;
-        *) echo "Unknown parameter: $1"; exit 1 ;;
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --rebuild)
+            REBUILD=true
+            shift
+            ;;
+        --music_dir=*)
+            MUSIC_DIR="${1#*=}"
+            shift
+            ;;
+        --output_dir=*)
+            OUTPUT_DIR="${1#*=}"
+            shift
+            ;;
+        --cache_dir=*)
+            CACHE_DIR="${1#*=}"
+            shift
+            ;;
+        --workers=*)
+            WORKERS="${1#*=}"
+            shift
+            ;;
+        --num_playlists=*)
+            NUM_PLAYLISTS="${1#*=}"
+            shift
+            ;;
+        --chunk_size=*)
+            CHUNK_SIZE="${1#*=}"
+            shift
+            ;;
+        --use_db)
+            USE_DB=true
+            shift
+            ;;
+        --force_sequential)
+            FORCE_SEQUENTIAL=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
     esac
-    shift
 done
 
-# Validate workers count
-if [[ ! "$WORKERS" =~ ^[0-9]+$ ]] || [[ "$WORKERS" -lt 1 ]]; then
-    echo "Workers must be a positive integer"
-    exit 1
-fi
-
-# Create necessary directories
+# Create directories
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
 
-# Performance optimization (run if root)
-if [[ $EUID -eq 0 ]]; then
-    echo "Optimizing system performance..."
-    echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
-    sync
-    echo 3 > /proc/sys/vm/drop_caches
-fi
+# Export environment variables for compose
+export MUSIC_DIR
+export OUTPUT_DIR
+export CACHE_DIR
 
-# Docker build if requested
-if [[ "$REBUILD" = true ]]; then
-    echo "Rebuilding Docker image..."
-    docker compose build --no-cache --pull
-fi
-
-echo "=== Music Playlist Generator ==="
-echo "Music Directory: $HOST_MUSIC_DIR"
+echo "=== Playlist Generator Configuration ==="
+echo "Music Directory: $MUSIC_DIR"
 echo "Output Directory: $OUTPUT_DIR"
 echo "Cache Directory: $CACHE_DIR"
 echo "Workers: $WORKERS"
-echo "Timeout: $TIMEOUT seconds"
-echo "Rebuild: $REBUILD"
+echo "Playlists: $NUM_PLAYLISTS"
+echo "Chunk Size: $CHUNK_SIZE"
+echo "Use DB: $USE_DB"
+echo "Force Sequential: $FORCE_SEQUENTIAL"
 
-# Run the generator
+# Build only if requested
+if [ "$REBUILD" = true ]; then
+    echo "=== Rebuilding Docker image ==="
+    docker compose build --no-cache
+fi
+
+# Run the generator with all parameters
 docker compose run --rm \
-  -e "WORKERS=$WORKERS" \
-  -e "TIMEOUT=$TIMEOUT" \
   playlist-generator \
-  python playlist_generator.py \
-    --music_dir /music \
-    --output_dir /playlists \
-    --workers "$WORKERS" \
-    --timeout "$TIMEOUT" \
-    --db_path /cache/audio.db
+  --music_dir /music \
+  --host_music_dir "$MUSIC_DIR" \
+  --output_dir /app/playlists \
+  --workers "$WORKERS" \
+  --num_playlists "$NUM_PLAYLISTS" \
+  --chunk_size "$CHUNK_SIZE" \
+  $( [ "$USE_DB" = true ] && echo "--use_db" ) \
+  $( [ "$FORCE_SEQUENTIAL" = true ] && echo "--force_sequential" )
 
-# Fix permissions on output
-chown -R $(id -u):$(id -g) "$OUTPUT_DIR"
-
-echo "Processing complete. Playlists available in: $OUTPUT_DIR"
+echo "✅ Playlists generated successfully!"
+echo "Output available in: $OUTPUT_DIR"

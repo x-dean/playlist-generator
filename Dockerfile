@@ -1,18 +1,29 @@
-FROM python:3.9-slim
+FROM python:3.9-slim-bullseye
 
-# Install essentia with minimal dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libavcodec-extra \
     libfftw3-dev \
-    libavcodec-dev \
-    libavformat-dev \
-    && rm -rf /var/lib/apt/lists/*
+    libtag1-dev \
+    libyaml-dev && \
+    rm -rf /var/lib/apt/lists/*
 
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    pandas \
+    scikit-learn \
+    tqdm \
+    essentia \
+    numpy==1.26.4
+
+# Copy application files
+COPY playlist_generator.py /app/
+COPY analyze_music.py /app/
+
+# Set working directory
 WORKDIR /app
-COPY . .
 
-# Set optimal environment variables
-ENV ESSENTIA_THREADS=1
-ENV OMP_NUM_THREADS=1
-ENV NUMBA_NUM_THREADS=1
-
-CMD ["python", "-O", "playlist_generator.py"]
+# Set entrypoint
+ENTRYPOINT ["python", "playlist_generator.py"]
