@@ -36,26 +36,29 @@ class AudioAnalyzer:
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-        self.conn = None
         self.timeout_seconds = 30
+        # Initialize DB connection once
+        self._init_db()
 
     def _init_db(self):
-        if not self.conn:
-            self.conn = sqlite3.connect(self.cache_file, timeout=30)
-            with self.conn:
-                self.conn.execute("""
-                CREATE TABLE IF NOT EXISTS audio_features (
-                    file_hash TEXT PRIMARY KEY,
-                    file_path TEXT NOT NULL,
-                    duration REAL,
-                    bpm REAL,
-                    beat_confidence REAL,
-                    centroid REAL,
-                    last_modified REAL,
-                    last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """)
-                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
+        self.conn = sqlite3.connect(self.cache_file, timeout=30)
+        with self.conn:
+            # Enable WAL mode for better concurrency
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA busy_timeout=30000")  # 30-second timeout
+            self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS audio_features (
+                file_hash TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL,
+                duration REAL,
+                bpm REAL,
+                beat_confidence REAL,
+                centroid REAL,
+                last_modified REAL,
+                last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
     def _get_file_info(self, filepath):
         try:
@@ -104,26 +107,24 @@ class AudioAnalyzer:
 
     def extract_features(self, audio_path):
         try:
-            self._init_db()
             file_info = self._get_file_info(audio_path)
             
             # Check cache first
-            with self.conn:
-                cursor = self.conn.cursor()
-                cursor.execute("""
-                SELECT duration, bpm, beat_confidence, centroid
-                FROM audio_features
-                WHERE file_hash = ? AND last_modified >= ?
-                """, (file_info['file_hash'], file_info['last_modified']))
-                if row := cursor.fetchone():
-                    return {
-                        'duration': row[0],
-                        'bpm': row[1],
-                        'beat_confidence': row[2],
-                        'centroid': row[3],
-                        'filepath': audio_path,
-                        'filename': os.path.basename(audio_path)
-                    }, True, file_info['file_hash']
+            cursor = self.conn.cursor()
+            cursor.execute("""
+            SELECT duration, bpm, beat_confidence, centroid
+            FROM audio_features
+            WHERE file_hash = ? AND last_modified >= ?
+            """, (file_info['file_hash'], file_info['last_modified']))
+            if row := cursor.fetchone():
+                return {
+                    'duration': row[0],
+                    'bpm': row[1],
+                    'beat_confidence': row[2],
+                    'centroid': row[3],
+                    'filepath': audio_path,
+                    'filename': os.path.basename(audio_path)
+                }, True, file_info['file_hash']
 
             # Process new file
             logger.info(f"Processing: {os.path.basename(audio_path)}")
@@ -156,10 +157,27 @@ class AudioAnalyzer:
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             return None, False, None
-        finally:
-            if self.conn:
-                self.conn.close()
-                self.conn = None
+
+    def get_all_features(self):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+            SELECT filepath, duration, bpm, beat_confidence, centroid
+            FROM audio_features
+            """)
+            return [
+                {
+                    'filepath': row[0],
+                    'duration': row[1],
+                    'bpm': row[2],
+                    'beat_confidence': row[3],
+                    'centroid': row[4],
+                }
+                for row in cursor.fetchall()
+            ]
+        except Exception as e:
+            logger.error(f"Error fetching features: {str(e)}")
+            return []
 
 # Singleton instance
 audio_analyzer = AudioAnalyzer()
@@ -171,6 +189,3 @@ def extract_features(audio_path):
 def get_all_features():
     """Get all features from the database"""
     return audio_analyzer.get_all_features()
-
-# [Keep the singleton instance at the end]
-audio_analyzer = AudioAnalyzer()

@@ -74,26 +74,37 @@ class PlaylistGenerator:
         results = []
         try:
             logger.info("Starting multiprocessing pool")
-            pool = mp.Pool(processes=min(workers, mp.cpu_count() // 2 or 1))
-            for features, filepath in tqdm(
-                pool.imap_unordered(process_file_worker, file_list),
-                total=len(file_list),
-                desc="Processing files"
-            ):
-                if features:
-                    results.append(features)
-                else:
-                    self.failed_files.append(filepath)
-            pool.close()
-            pool.join()
+            ctx = mp.get_context('spawn')
+            with ctx.Pool(processes=min(workers, mp.cpu_count() // 2 or 1)) as pool:
+                async_results = [
+                    pool.apply_async(process_file_worker, (filepath,))
+                    for filepath in file_list
+                ]
+                
+                for async_result in tqdm(
+                    async_results,
+                    total=len(file_list),
+                    desc="Processing files"
+                ):
+                    try:
+                        # Add 5-minute timeout per file
+                        features, filepath = async_result.get(timeout=300)
+                        if features:
+                            results.append(features)
+                        else:
+                            self.failed_files.append(filepath)
+                    except mp.TimeoutError:
+                        logger.error(f"Timeout processing {filepath}")
+                        self.failed_files.append(filepath)
+                    except Exception as e:
+                        logger.error(f"Error retrieving result: {str(e)}")
+                        self.failed_files.append(filepath)
+                        
             logger.info("Processing completed")
             return results
         except Exception as e:
             logger.error(f"Multiprocessing failed: {str(e)}")
             logger.error(traceback.format_exc())
-            if 'pool' in locals():
-                pool.terminate()
-                pool.join()
             return self._process_sequential(file_list)
 
     def get_all_features_from_db(self):

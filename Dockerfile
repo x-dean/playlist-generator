@@ -7,8 +7,9 @@ RUN apt-get update && \
     libavcodec-extra \
     libfftw3-dev \
     libtag1-dev \
-    libyaml-dev && \
-    rm -rf /var/lib/apt/lists/*
+    libyaml-dev \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 RUN pip install --no-cache-dir \

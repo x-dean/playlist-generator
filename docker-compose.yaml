@@ -1,29 +1,19 @@
-version: '3.8'
-
 services:
   playlist-generator:
     build: .
     volumes:
-      - music_volume:/music:ro
-      - playlists_volume:/app/playlists
-      - cache_volume:/app/cache
+      - type: bind
+        source: ${MUSIC_DIR}
+        target: /music
+        read_only: true
+      - type: bind
+        source: ${OUTPUT_DIR}
+        target: /app/playlists
+      - type: bind
+        source: ${CACHE_DIR}
+        target: /app/cache
     environment:
       - CACHE_DIR=/app/cache
     working_dir: /app
 
-volumes:
-  music_volume:
-    driver_opts:
-      type: none
-      device: /root/music/library
-      o: bind
-  playlists_volume:
-    driver_opts:
-      type: none
-      device: ${PWD}/playlists
-      o: bind
-  cache_volume:
-    driver_opts:
-      type: none
-      device: ${PWD}/cache
-      o: bind
+# No named volumes needed since we're using bind mounts

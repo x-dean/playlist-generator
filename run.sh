@@ -84,6 +84,9 @@ fi
 
 # Run the generator with all parameters
 docker compose run --rm \
+  -v "$MUSIC_DIR:/music:ro" \
+  -v "$OUTPUT_DIR:/app/playlists" \
+  -v "$CACHE_DIR:/app/cache" \
   playlist-generator \
   --music_dir /music \
   --host_music_dir "$MUSIC_DIR" \
