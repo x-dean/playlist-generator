@@ -12,14 +12,15 @@ import coloredlogs
 logger = logging.getLogger(__name__)
 coloredlogs.install(
     level='INFO',
+    logger=logger,
     fmt='%(levelname)s - %(message)s',
     field_styles={
         'levelname': {'color': 'cyan', 'bold': True},
     },
     level_styles={
         'debug': {'color': 'green'},
-        'info': {'color': 'white'},
-        'warning': {'color': 'yellow', 'bold': True},
+        'info': {'color': 39},  # Default terminal color (usually white)
+        'warning': {'color': 214},  # Orange color
         'error': {'color': 'red', 'bold': True},
         'critical': {'color': 'red', 'bold': True, 'background': 'white'},
     }
