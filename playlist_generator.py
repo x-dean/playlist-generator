@@ -34,6 +34,22 @@ def sanitize_filename(name):
     name = re.sub(r'[^\w\-_]', '_', name)
     return re.sub(r'_+', '_', name).strip('_')
 
+def process_file_worker(filepath):
+    try:
+        from analyze_music import audio_analyzer
+        result = audio_analyzer.extract_features(filepath)
+        if result:
+            features = result[0]
+            # Ensure no None values in critical features
+            for key in ['beat_confidence', 'bpm', 'centroid', 'duration']:
+                if features.get(key) is None:
+                    features[key] = 0.0
+            return features, filepath
+        return None, filepath
+    except Exception as e:
+        logger.error(f"Error processing {filepath}: {str(e)}")
+        return None, filepath
+
 class PlaylistGenerator:
     def __init__(self):
         self.failed_files = []
@@ -140,6 +156,19 @@ class PlaylistGenerator:
             logger.error(f"Database error: {str(e)}")
             return []
 
+    def convert_to_host_path(self, container_path):
+        if not self.host_music_dir or not self.container_music_dir:
+            return container_path
+
+        container_path = os.path.normpath(container_path)
+        container_music_dir = os.path.normpath(self.container_music_dir)
+
+        if not container_path.startswith(container_music_dir):
+            return container_path
+
+        rel_path = os.path.relpath(container_path, container_music_dir)
+        return os.path.join(self.host_music_dir, rel_path)
+
     def generate_playlist_name(self, features):
         required_features = ['bpm', 'centroid', 'beat_confidence', 'duration']
         for feat in required_features:
@@ -152,7 +181,6 @@ class PlaylistGenerator:
         duration = features['duration']
         beat_conf = max(0.0, min(1.0, features['beat_confidence']))
         
-        # Rest of the method remains the same...
         bpm_desc = (
             "VerySlow" if bpm < 55 else
             "Slow" if bpm < 70 else
@@ -352,22 +380,6 @@ class PlaylistGenerator:
                 host_failed = [self.convert_to_host_path(p) for p in all_failed]
                 f.write("\n".join(host_failed))
             logger.info(f"Saved {len(all_failed)} failed/missing files")
-
-    def process_file_worker(filepath):
-        try:
-            from analyze_music import audio_analyzer
-            result = audio_analyzer.extract_features(filepath)
-            if result:
-                features = result[0]
-                # Ensure no None values in critical features
-                for key in ['beat_confidence', 'bpm', 'centroid', 'duration']:
-                    if features.get(key) is None:
-                        features[key] = 0.0
-                return features, filepath
-            return None, filepath
-        except Exception as e:
-            logger.error(f"Error processing {filepath}: {str(e)}")
-            return None, filepath
 
 def main():
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
