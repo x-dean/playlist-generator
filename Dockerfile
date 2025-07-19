@@ -17,7 +17,8 @@ RUN pip install --no-cache-dir \
     scikit-learn \
     tqdm \
     essentia \
-    numpy==1.26.4
+    numpy==1.26.4 \
+    matplotlib
 
 # Copy application files
 COPY playlist_generator.py /app/
