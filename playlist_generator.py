@@ -755,37 +755,62 @@ class PlaylistGenerator:
             # Merge small clusters with their nearest neighbors
             merged_playlists = {}
             centroids = {}
-            
+
             # Sort clusters by size descending
             sorted_clusters = sorted(all_clusters.items(), key=lambda x: len(x[1]), reverse=True)
-            logger.info(f"Found {len(sorted_clusters)} clusters")
+
+            # Create a list to store clusters that couldn't be merged initially
+            unmerged_clusters = []
+
             for cluster_id, cluster_songs in sorted_clusters:
-                if len(cluster_songs) < 10:  # THIS IS THE THRESHOLD TO CHANGE
-                    # Find nearest larger cluster
+                if len(cluster_songs) < min_playlist_size:
+                    # Find nearest cluster regardless of size
                     closest_cluster = None
                     min_distance = float('inf')
                     
+                    # First check existing merged playlists
                     for target_id, target_songs in merged_playlists.items():
-                        if len(target_songs) < 10:  # Only merge into smaller playlists
-                            # Calculate distance between centroids
-                            dist = np.linalg.norm(
-                                cluster_songs[cluster_features].mean().values -
-                                target_songs[cluster_features].mean().values
-                            )
-                            if dist < min_distance:
-                                min_distance = dist
-                                closest_cluster = target_id
+                        dist = np.linalg.norm(
+                            cluster_songs[cluster_features].mean().values -
+                            target_songs[cluster_features].mean().values
+                        )
+                        if dist < min_distance:
+                            min_distance = dist
+                            closest_cluster = target_id
+                    
+                    # Then check other unmerged clusters
+                    if not closest_cluster:
+                        for other_id, other_songs in unmerged_clusters:
+                            if len(other_songs) >= min_playlist_size:  # Only merge into viable clusters
+                                dist = np.linalg.norm(
+                                    cluster_songs[cluster_features].mean().values -
+                                    other_songs[cluster_features].mean().values
+                                )
+                                if dist < min_distance:
+                                    min_distance = dist
+                                    closest_cluster = other_id
                     
                     if closest_cluster is not None:
                         # Merge with closest cluster
-                        merged_playlists[closest_cluster] = pd.concat([
-                            merged_playlists[closest_cluster],
-                            cluster_songs
-                        ])
+                        if closest_cluster in merged_playlists:
+                            merged_playlists[closest_cluster] = pd.concat([
+                                merged_playlists[closest_cluster],
+                                cluster_songs
+                            ])
+                        else:
+                            # Create new merged cluster
+                            merged_playlists[closest_cluster] = pd.concat([
+                                all_clusters[closest_cluster],
+                                cluster_songs
+                            ])
                         logger.info(f"Merged cluster {cluster_id} ({len(cluster_songs)} tracks) "
                                 f"into cluster {closest_cluster}")
                         continue
-                
+                    
+                    # If no suitable cluster found, add to unmerged list for later processing
+                    unmerged_clusters.append((cluster_id, cluster_songs))
+                    continue
+
                 # Create new playlist for this cluster
                 centroid = cluster_songs[cluster_features].mean().to_dict()
                 centroid['key'] = cluster_songs['key'].mode().iloc[0] if not cluster_songs['key'].mode().empty else 'C'
@@ -794,12 +819,52 @@ class PlaylistGenerator:
                 name = sanitize_filename(self.generate_playlist_name(centroid))
                 merged_playlists[name] = cluster_songs
                 centroids[name] = centroid
-            
+                logger.info(f"Created playlist '{name}' with {len(cluster_songs)} tracks")
+
+            # Process any remaining unmerged clusters
+            for cluster_id, cluster_songs in unmerged_clusters:
+                if not merged_playlists:
+                    # If no playlists exist yet, create one
+                    centroid = cluster_songs[cluster_features].mean().to_dict()
+                    centroid['key'] = cluster_songs['key'].mode().iloc[0] if not cluster_songs['key'].mode().empty else 'C'
+                    centroid['scale'] = cluster_songs['scale'].mode().iloc[0] if not cluster_songs['scale'].mode().empty else 'major'
+                    
+                    name = sanitize_filename(self.generate_playlist_name(centroid))
+                    merged_playlists[name] = cluster_songs
+                    centroids[name] = centroid
+                    continue
+                
+                # Find closest playlist among merged ones
+                closest_playlist = None
+                min_distance = float('inf')
+                
+                for playlist_name, playlist_songs in merged_playlists.items():
+                    dist = np.linalg.norm(
+                        cluster_songs[cluster_features].mean().values -
+                        playlist_songs[cluster_features].mean().values
+                    )
+                    if dist < min_distance:
+                        min_distance = dist
+                        closest_playlist = playlist_name
+                
+                if closest_playlist:
+                    merged_playlists[closest_playlist] = pd.concat([
+                        merged_playlists[closest_playlist],
+                        cluster_songs
+                    ])
+                    logger.info(f"Merged unmerged cluster {cluster_id} ({len(cluster_songs)} tracks) "
+                            f"into playlist '{closest_playlist}'")
+
             # Create final playlists
             playlists = {}
             for name, cluster_songs in merged_playlists.items():
+                # Final check to ensure minimum size
+                if len(cluster_songs) < min_playlist_size:
+                    logger.info(f"Skipping small playlist '{name}' with {len(cluster_songs)} tracks")
+                    continue
+                    
                 playlists[name] = cluster_songs['filepath'].tolist()
-                logger.info(f"Created playlist '{name}' with {len(playlists[name])} tracks")
+                logger.info(f"Final playlist '{name}' with {len(playlists[name])} tracks")
             
             # Update playlist tracker
             self._update_playlist_tracker(playlists, centroids)
