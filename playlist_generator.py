@@ -43,45 +43,27 @@ def sanitize_filename(name):
 def process_file_worker(filepath):
     try:
         from analyze_music import audio_analyzer
-        import multiprocessing as mp
-        from functools import partial
-        
-        # Create a helper function for timeout handling
-        def _extract_with_timeout():
-            try:
-                result = audio_analyzer.extract_features(filepath)
-                if result and result[0] is not None:
-                    features = result[0]
-                    # Ensure all critical features have values
-                    required_features = {
-                        'duration': 180,  # Default to 3 minutes
-                        'bpm': 100, 
-                        'centroid': 2000,
-                        'loudness': -15,
-                        'dynamics': 0,
-                        'rhythm_complexity': 0.5,
-                        'key': 'unknown',
-                        'scale': 'unknown',
-                        'key_confidence': 0
-                    }
-                    for key, default in required_features.items():
-                        if features.get(key) is None:
-                            features[key] = default
-                    return features, filepath
-                return None, filepath
-            except Exception as e:
-                logger.error(f"Extraction error in {filepath}: {str(e)}")
-                return None, filepath
-        
-        # Create a process for timeout control
-        ctx = mp.get_context('spawn')
-        with ctx.Pool(1) as pool:
-            result = pool.apply_async(_extract_with_timeout)
-            try:
-                return result.get(timeout=120)  # 2-minute timeout per file
-            except mp.TimeoutError:
-                logger.error(f"Timeout processing {filepath}")
-                return None, filepath
+        # Directly call extract_features without nested multiprocessing
+        result = audio_analyzer.extract_features(filepath)
+        if result and result[0] is not None:
+            features = result[0]
+            # Ensure all critical features have values
+            required_features = {
+                'duration': 180,
+                'bpm': 100, 
+                'centroid': 2000,
+                'loudness': -15,
+                'dynamics': 0,
+                'rhythm_complexity': 0.5,
+                'key': 'unknown',
+                'scale': 'unknown',
+                'key_confidence': 0
+            }
+            for key, default in required_features.items():
+                if features.get(key) is None:
+                    features[key] = default
+            return features, filepath
+        return None, filepath
     except Exception as e:
         logger.error(f"Error processing {filepath}: {str(e)}")
         return None, filepath
@@ -345,7 +327,7 @@ class PlaylistGenerator:
                     target=self._worker_task,
                     args=(file_list, i, workers, chunk_size, progress_counter, lock, result_queue)
                 )
-                p.daemon = True  # Terminate if main process exits
+                p.daemon = False  # Terminate if main process exits
                 p.start()
                 worker_processes.append(p)
                 logger.debug(f"Started worker {i}")
