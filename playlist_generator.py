@@ -969,7 +969,8 @@ class PlaylistGenerator:
             
             # Cluster the unassigned tracks
             if len(missing_tracks) > min_playlist_size:
-                missing_df = df[df['filepath'].isin(missing_tracks)]
+                # Create a copy to avoid modifying the original DataFrame
+                missing_df = df[df['filepath'].isin(missing_tracks)].copy()
                 
                 # Recluster the missing tracks
                 n_missing_clusters = min(10, len(missing_df) // min_playlist_size)
@@ -981,7 +982,9 @@ class PlaylistGenerator:
                         n_init=3,
                         max_iter=30
                     )
-                    missing_df['sub_cluster'] = kmeans_missing.fit_predict(
+                    
+                    # Use .loc to avoid SettingWithCopyWarning
+                    missing_df.loc[:, 'sub_cluster'] = kmeans_missing.fit_predict(
                         missing_df[cluster_features].values.astype(np.float32)
                     )
                     
