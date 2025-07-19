@@ -659,159 +659,172 @@ class PlaylistGenerator:
         self._save_library_state(current_state)
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
-            if not features_list:
-                logger.warning("No features to cluster")
-                return {}
+        if not features_list:
+            logger.warning("No features to cluster")
+            return {}
 
-            valid_features = []
-            for feat in features_list:
-                if not feat or 'filepath' not in feat:
-                    continue
-                if os.path.exists(feat['filepath']):
-                    # Ensure all required features exist
-                    required = ['bpm', 'centroid', 'duration', 'loudness', 
-                            'dynamics', 'rhythm_complexity', 'key', 'scale']
-                    for key in required:
-                        if feat.get(key) is None:
-                            # Set default values for missing features
-                            defaults = {
-                                'duration': 180,
-                                'bpm': 100,
-                                'centroid': 2000,
-                                'loudness': -15,
-                                'dynamics': 0,
-                                'rhythm_complexity': 0.5,
-                                'key': 'unknown',
-                                'scale': 'unknown'
-                            }
-                            feat[key] = defaults.get(key, 0)
-                            logger.warning(f"Using default for missing {key} in {feat['filepath']}")
-                    valid_features.append(feat)
-                else:
-                    logger.warning(f"File not found: {feat['filepath']}")
-                    self.failed_files.append(feat['filepath'])
-                    
-            if not valid_features:
-                logger.warning("No valid features after filtering")
-                return {}
+        valid_features = []
+        for feat in features_list:
+            if not feat or 'filepath' not in feat:
+                continue
+            if os.path.exists(feat['filepath']):
+                # Ensure all required features exist
+                required = ['bpm', 'centroid', 'duration', 'loudness', 
+                        'dynamics', 'rhythm_complexity', 'key', 'scale']
+                for key in required:
+                    if feat.get(key) is None:
+                        # Set default values for missing features
+                        defaults = {
+                            'duration': 180,
+                            'bpm': 100,
+                            'centroid': 2000,
+                            'loudness': -15,
+                            'dynamics': 0,
+                            'rhythm_complexity': 0.5,
+                            'key': 'unknown',
+                            'scale': 'unknown'
+                        }
+                        feat[key] = defaults.get(key, 0)
+                        logger.warning(f"Using default for missing {key} in {feat['filepath']}")
+                valid_features.append(feat)
+            else:
+                logger.warning(f"File not found: {feat['filepath']}")
+                self.failed_files.append(feat['filepath'])
                 
-            logger.info(f"Clustering {len(valid_features)} tracks")
+        if not valid_features:
+            logger.warning("No valid features after filtering")
+            return {}
             
-            df = pd.DataFrame(valid_features)
-            
-            # Circle of fifths mapping for key similarity
-            circle_of_fifths = {'C':0, 'G':1, 'D':2, 'A':3, 'E':4, 'B':5,
-                                'F#':6, 'C#':7, 'F':-1, 'Bb':-2, 'Eb':-3,
-                                'Ab':-4, 'Db':-5, 'Gb':-6}
-            
-            # Convert key to numerical representation
-            df['key_num'] = df['key'].apply(
-                lambda k: circle_of_fifths.get(str(k).split('/')[0], 0) if k != 'unknown' else 0
-            )
-            
-            # Convert scale to numerical (0 = minor, 1 = major)
-            df['scale_num'] = df['scale'].apply(
-                lambda s: 1 if s == 'major' else 0
-            )
-            
-            # Define features for clustering
-            cluster_features = [
-                'bpm', 'centroid', 'loudness', 
-                'dynamics', 'rhythm_complexity', 'key_num', 'scale_num'
-            ]
-            
-            # Fill missing values
-            for feat in cluster_features:
-                if feat not in df.columns:
-                    df[feat] = 0.0
-                    logger.warning(f"Added missing cluster feature column: {feat}")
-                    
-            df[cluster_features] = df[cluster_features].fillna(0)
-            
-            # Scale features
-            features_array = df[cluster_features].values.astype(np.float32)
-            features_scaled = StandardScaler().fit_transform(features_array)
-            
-            # Determine optimal cluster count
-            n_clusters = min(max(5, num_playlists), len(df), 50)
-            logger.info(f"Clustering {len(df)} tracks into {n_clusters} clusters")
-            
-            # Cluster using MiniBatchKMeans
-            kmeans = MiniBatchKMeans(
-                n_clusters=n_clusters,
-                random_state=42,
-                batch_size=min(500, len(df)),
-                n_init=3,
-                max_iter=50
-            )
-            df['cluster'] = kmeans.fit_predict(features_scaled)
-            
-            # Collect all clusters including small ones
-            all_clusters = {}
-            for cluster in df['cluster'].unique():
-                cluster_songs = df[df['cluster'] == cluster]
-                all_clusters[cluster] = cluster_songs
+        logger.info(f"Clustering {len(valid_features)} tracks")
+        
+        df = pd.DataFrame(valid_features)
+        
+        # Circle of fifths mapping for key similarity
+        circle_of_fifths = {'C':0, 'G':1, 'D':2, 'A':3, 'E':4, 'B':5,
+                            'F#':6, 'C#':7, 'F':-1, 'Bb':-2, 'Eb':-3,
+                            'Ab':-4, 'Db':-5, 'Gb':-6}
+        
+        # Convert key to numerical representation
+        df['key_num'] = df['key'].apply(
+            lambda k: circle_of_fifths.get(str(k).split('/')[0], 0) if k != 'unknown' else 0
+        )
+        
+        # Convert scale to numerical (0 = minor, 1 = major)
+        df['scale_num'] = df['scale'].apply(
+            lambda s: 1 if s == 'major' else 0
+        )
+        
+        # Define features for clustering
+        cluster_features = [
+            'bpm', 'centroid', 'loudness', 
+            'dynamics', 'rhythm_complexity', 'key_num', 'scale_num'
+        ]
+        
+        # Fill missing values
+        for feat in cluster_features:
+            if feat not in df.columns:
+                df[feat] = 0.0
+                logger.warning(f"Added missing cluster feature column: {feat}")
                 
-            # Merge small clusters with their nearest neighbors
-            merged_playlists = {}
-            centroids = {}
+        df[cluster_features] = df[cluster_features].fillna(0)
+        
+        # Scale features
+        features_array = df[cluster_features].values.astype(np.float32)
+        features_scaled = StandardScaler().fit_transform(features_array)
+        
+        # Determine optimal cluster count
+        n_clusters = min(max(5, num_playlists), len(df), 50)
+        logger.info(f"Clustering {len(df)} tracks into {n_clusters} clusters")
+        
+        # Cluster using MiniBatchKMeans
+        kmeans = MiniBatchKMeans(
+            n_clusters=n_clusters,
+            random_state=42,
+            batch_size=min(500, len(df)),
+            n_init=3,
+            max_iter=50
+        )
+        df['cluster'] = kmeans.fit_predict(features_scaled)
+        
+        # Collect all clusters including small ones
+        all_clusters = {}
+        for cluster in df['cluster'].unique():
+            cluster_songs = df[df['cluster'] == cluster]
+            all_clusters[cluster] = cluster_songs
+            
+        # Merge small clusters with their nearest neighbors
+        merged_playlists = {}
+        centroids = {}
 
-            # Sort clusters by size descending
-            sorted_clusters = sorted(all_clusters.items(), key=lambda x: len(x[1]), reverse=True)
+        # Sort clusters by size descending
+        sorted_clusters = sorted(all_clusters.items(), key=lambda x: len(x[1]), reverse=True)
 
-            # Create a list to store clusters that couldn't be merged initially
-            unmerged_clusters = []
+        # Create a list to store clusters that couldn't be merged initially
+        unmerged_clusters = []
 
-            for cluster_id, cluster_songs in sorted_clusters:
-                if len(cluster_songs) < min_playlist_size:
-                    # Find nearest cluster regardless of size
-                    closest_cluster = None
-                    min_distance = float('inf')
-                    
-                    # First check existing merged playlists
-                    for target_id, target_songs in merged_playlists.items():
-                        dist = np.linalg.norm(
-                            cluster_songs[cluster_features].mean().values -
-                            target_songs[cluster_features].mean().values
-                        )
-                        if dist < min_distance:
-                            min_distance = dist
-                            closest_cluster = target_id
-                    
-                    # Then check other unmerged clusters
-                    if not closest_cluster:
-                        for other_id, other_songs in unmerged_clusters:
-                            if len(other_songs) >= min_playlist_size:  # Only merge into viable clusters
-                                dist = np.linalg.norm(
-                                    cluster_songs[cluster_features].mean().values -
-                                    other_songs[cluster_features].mean().values
-                                )
-                                if dist < min_distance:
-                                    min_distance = dist
-                                    closest_cluster = other_id
-                    
-                    if closest_cluster is not None:
-                        # Merge with closest cluster
-                        if closest_cluster in merged_playlists:
-                            merged_playlists[closest_cluster] = pd.concat([
-                                merged_playlists[closest_cluster],
-                                cluster_songs
-                            ])
-                        else:
-                            # Create new merged cluster
-                            merged_playlists[closest_cluster] = pd.concat([
-                                all_clusters[closest_cluster],
-                                cluster_songs
-                            ])
-                        logger.info(f"Merged cluster {cluster_id} ({len(cluster_songs)} tracks) "
+        for cluster_id, cluster_songs in sorted_clusters:
+            if len(cluster_songs) < min_playlist_size:
+                # Find nearest cluster regardless of size
+                closest_cluster = None
+                min_distance = float('inf')
+                
+                # First check existing merged playlists
+                for target_id, target_songs in merged_playlists.items():
+                    dist = np.linalg.norm(
+                        cluster_songs[cluster_features].mean().values -
+                        target_songs[cluster_features].mean().values
+                    )
+                    if dist < min_distance:
+                        min_distance = dist
+                        closest_cluster = target_id
+                
+                # Then check other unmerged clusters
+                if not closest_cluster:
+                    for other_id, other_songs in unmerged_clusters:
+                        if len(other_songs) >= min_playlist_size:  # Only merge into viable clusters
+                            dist = np.linalg.norm(
+                                cluster_songs[cluster_features].mean().values -
+                                other_songs[cluster_features].mean().values
+                            )
+                            if dist < min_distance:
+                                min_distance = dist
+                                closest_cluster = other_id
+                
+                if closest_cluster is not None:
+                    # Merge with closest cluster
+                    if closest_cluster in merged_playlists:
+                        merged_playlists[closest_cluster] = pd.concat([
+                            merged_playlists[closest_cluster],
+                            cluster_songs
+                        ])
+                    else:
+                        # Create new merged cluster
+                        merged_playlists[closest_cluster] = pd.concat([
+                            all_clusters[closest_cluster],
+                            cluster_songs
+                        ])
+                    logger.info(f"Merged cluster {cluster_id} ({len(cluster_songs)} tracks) "
                                 f"into cluster {closest_cluster}")
-                        continue
-                    
-                    # If no suitable cluster found, add to unmerged list for later processing
-                    unmerged_clusters.append((cluster_id, cluster_songs))
                     continue
+                
+                # If no suitable cluster found, add to unmerged list for later processing
+                unmerged_clusters.append((cluster_id, cluster_songs))
+                continue
 
-                # Create new playlist for this cluster
+            # Create new playlist for this cluster
+            centroid = cluster_songs[cluster_features].mean().to_dict()
+            centroid['key'] = cluster_songs['key'].mode().iloc[0] if not cluster_songs['key'].mode().empty else 'C'
+            centroid['scale'] = cluster_songs['scale'].mode().iloc[0] if not cluster_songs['scale'].mode().empty else 'major'
+            
+            name = sanitize_filename(self.generate_playlist_name(centroid))
+            merged_playlists[name] = cluster_songs
+            centroids[name] = centroid
+            logger.info(f"Created playlist '{name}' with {len(cluster_songs)} tracks")
+
+        # Process any remaining unmerged clusters
+        for cluster_id, cluster_songs in unmerged_clusters:
+            if not merged_playlists:
+                # If no playlists exist yet, create one
                 centroid = cluster_songs[cluster_features].mean().to_dict()
                 centroid['key'] = cluster_songs['key'].mode().iloc[0] if not cluster_songs['key'].mode().empty else 'C'
                 centroid['scale'] = cluster_songs['scale'].mode().iloc[0] if not cluster_songs['scale'].mode().empty else 'major'
@@ -819,60 +832,75 @@ class PlaylistGenerator:
                 name = sanitize_filename(self.generate_playlist_name(centroid))
                 merged_playlists[name] = cluster_songs
                 centroids[name] = centroid
-                logger.info(f"Created playlist '{name}' with {len(cluster_songs)} tracks")
-
-            # Process any remaining unmerged clusters
-            for cluster_id, cluster_songs in unmerged_clusters:
-                if not merged_playlists:
-                    # If no playlists exist yet, create one
-                    centroid = cluster_songs[cluster_features].mean().to_dict()
-                    centroid['key'] = cluster_songs['key'].mode().iloc[0] if not cluster_songs['key'].mode().empty else 'C'
-                    centroid['scale'] = cluster_songs['scale'].mode().iloc[0] if not cluster_songs['scale'].mode().empty else 'major'
-                    
-                    name = sanitize_filename(self.generate_playlist_name(centroid))
-                    merged_playlists[name] = cluster_songs
-                    centroids[name] = centroid
-                    continue
-                
-                # Find closest playlist among merged ones
-                closest_playlist = None
-                min_distance = float('inf')
-                
-                for playlist_name, playlist_songs in merged_playlists.items():
-                    dist = np.linalg.norm(
-                        cluster_songs[cluster_features].mean().values -
-                        playlist_songs[cluster_features].mean().values
-                    )
-                    if dist < min_distance:
-                        min_distance = dist
-                        closest_playlist = playlist_name
-                
-                if closest_playlist:
-                    merged_playlists[closest_playlist] = pd.concat([
-                        merged_playlists[closest_playlist],
-                        cluster_songs
-                    ])
-                    logger.info(f"Merged unmerged cluster {cluster_id} ({len(cluster_songs)} tracks) "
+                continue
+            
+            # Find closest playlist among merged ones
+            closest_playlist = None
+            min_distance = float('inf')
+            
+            for playlist_name, playlist_songs in merged_playlists.items():
+                dist = np.linalg.norm(
+                    cluster_songs[cluster_features].mean().values -
+                    playlist_songs[cluster_features].mean().values
+                )
+                if dist < min_distance:
+                    min_distance = dist
+                    closest_playlist = playlist_name
+            
+            if closest_playlist:
+                merged_playlists[closest_playlist] = pd.concat([
+                    merged_playlists[closest_playlist],
+                    cluster_songs
+                ])
+                logger.info(f"Merged unmerged cluster {cluster_id} ({len(cluster_songs)} tracks) "
                             f"into playlist '{closest_playlist}'")
 
-            # Create final playlists
-            playlists = {}
-            for name, cluster_songs in merged_playlists.items():
-                # Final check to ensure minimum size
-                if len(cluster_songs) < min_playlist_size:
-                    logger.info(f"Skipping small playlist '{name}' with {len(cluster_songs)} tracks")
-                    continue
-                    
-                playlists[name] = cluster_songs['filepath'].tolist()
-                logger.info(f"Final playlist '{name}' with {len(playlists[name])} tracks")
-            
-            # Update playlist tracker
-            self._update_playlist_tracker(playlists, centroids)
-            
-            # Update library state
-            self._update_library_state()
-            
-            return playlists
+        # Create final playlists
+        playlists = {}
+        min_playlist_size = 3  # Minimum tracks per playlist
+        
+        # First pass: Create playlists from merged clusters
+        for name, cluster_songs in merged_playlists.items():
+            # Final check to ensure minimum size
+            if len(cluster_songs) < min_playlist_size:
+                logger.info(f"Skipping small playlist '{name}' with {len(cluster_songs)} tracks")
+                continue
+                
+            playlists[name] = cluster_songs['filepath'].tolist()
+            logger.info(f"Final playlist '{name}' with {len(playlists[name])} tracks")
+        
+        # Track all assigned filepaths
+        all_assigned = set()
+        for tracks in playlists.values():
+            all_assigned.update(tracks)
+
+        # Get all filepaths from the original DataFrame
+        all_tracks = set(df['filepath'].tolist())
+        missing_tracks = all_tracks - all_assigned
+
+        if missing_tracks:
+            logger.warning(f"{len(missing_tracks)} tracks were not assigned to any playlist. Adding to 'Miscellaneous_Uncategorized'.")
+            misc_playlist = "Miscellaneous_Uncategorized"
+            playlists[misc_playlist] = list(missing_tracks)
+            # Create a default centroid for the miscellaneous playlist
+            centroids[misc_playlist] = {
+                'bpm': 100,
+                'centroid': 2000,
+                'duration': 180,
+                'loudness': -15,
+                'dynamics': 0,
+                'rhythm_complexity': 0.5,
+                'key': 'unknown',
+                'scale': 'unknown'
+            }
+        
+        # Update playlist tracker
+        self._update_playlist_tracker(playlists, centroids)
+        
+        # Update library state
+        self._update_library_state()
+        
+        return playlists
 
     def cleanup_database(self):
         try:
