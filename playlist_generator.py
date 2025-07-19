@@ -917,61 +917,30 @@ class PlaylistGenerator:
         scaler = StandardScaler()
         features_scaled = scaler.fit_transform(features_array)
         
-        # Use DBSCAN clustering which handles outliers better
-        logger.info("Using DBSCAN clustering for better outlier handling")
+        # Use KMeans with a fixed number of clusters
+        logger.info("Using KMeans clustering for better consistency")
         
-        # Calculate appropriate epsilon based on data density
-        from sklearn.neighbors import NearestNeighbors
-        nn = NearestNeighbors(n_neighbors=5)
-        nn.fit(features_scaled)
-        distances, _ = nn.kneighbors(features_scaled)
-        distances = np.sort(distances[:, -1])
-        k = min(100, len(distances) // 10)  # Look at 10% of points
-        epsilon = distances[-k]  # Use distance at 90th percentile
+        # Determine optimal cluster count
+        n_clusters = min(max(5, num_playlists), len(df), 50)
+        logger.info(f"Clustering {len(df)} tracks into {n_clusters} clusters")
         
-        # Set min_samples based on dataset size
-        min_samples = max(5, min(20, len(features_scaled) // 100))
+        # Cluster using MiniBatchKMeans
+        kmeans = MiniBatchKMeans(
+            n_clusters=n_clusters,
+            random_state=42,
+            batch_size=min(500, len(df)),
+            n_init=3,
+            max_iter=50
+        )
+        df['cluster'] = kmeans.fit_predict(features_scaled)
         
-        # Perform DBSCAN clustering
-        dbscan = DBSCAN(eps=epsilon, min_samples=min_samples)
-        df['cluster'] = dbscan.fit_predict(features_scaled)
-        
-        # Collect all clusters
-        clusters = {}
-        for cluster_id in np.unique(df['cluster']):
-            if cluster_id == -1:  # Skip noise for now
-                continue
-            cluster_songs = df[df['cluster'] == cluster_id]
-            clusters[cluster_id] = cluster_songs
-        
-        # Handle noise (outliers) by assigning to nearest clusters
-        noise = df[df['cluster'] == -1]
-        if not noise.empty:
-            logger.info(f"Assigning {len(noise)} outliers to nearest clusters")
-            for _, row in noise.iterrows():
-                # Calculate distance to cluster centroids
-                min_dist = float('inf')
-                best_cluster = None
-                point = scaler.transform([row[cluster_features].values])[0]
-                
-                for cluster_id, cluster_songs in clusters.items():
-                    centroid = cluster_songs[cluster_features].mean().values
-                    dist = np.linalg.norm(point - centroid)
-                    if dist < min_dist:
-                        min_dist = dist
-                        best_cluster = cluster_id
-                
-                # Assign to best cluster
-                if best_cluster is not None:
-                    clusters[best_cluster] = pd.concat([clusters[best_cluster], row.to_frame().T])
-        
-        # Create playlists from clusters
+        # Create playlists directly from clusters
         playlists = {}
         centroids = {}
         
-        for cluster_id, cluster_songs in clusters.items():
-            if len(cluster_songs) < min_playlist_size:
-                # Skip very small clusters - they'll be handled later
+        for cluster_id in range(n_clusters):
+            cluster_songs = df[df['cluster'] == cluster_id]
+            if len(cluster_songs) == 0:
                 continue
                 
             centroid = cluster_songs[cluster_features].mean().to_dict()
@@ -982,31 +951,6 @@ class PlaylistGenerator:
             playlists[name] = cluster_songs['filepath'].tolist()
             centroids[name] = centroid
             logger.info(f"Created playlist '{name}' with {len(cluster_songs)} tracks")
-
-        # Track all assigned filepaths
-        all_assigned = set()
-        for tracks in playlists.values():
-            all_assigned.update(tracks)
-
-        # Get all filepaths from the original DataFrame
-        all_tracks = set(df['filepath'].tolist())
-        missing_tracks = all_tracks - all_assigned
-
-        # Add any remaining tracks to miscellaneous
-        if missing_tracks:
-            misc_playlist = "Miscellaneous_Uncategorized"
-            playlists[misc_playlist] = list(missing_tracks)
-            centroids[misc_playlist] = {
-                'bpm': 100,
-                'centroid': 2000,
-                'duration': 180,
-                'loudness': -15,
-                'dynamics': 0,
-                'rhythm_complexity': 0.5,
-                'key': 'unknown',
-                'scale': 'unknown'
-            }
-            logger.info(f"Created '{misc_playlist}' with {len(missing_tracks)} tracks")
         
         # Update playlist tracker
         self._update_playlist_tracker(playlists, centroids)
