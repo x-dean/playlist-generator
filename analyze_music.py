@@ -6,13 +6,24 @@ import sqlite3
 import hashlib
 import signal
 from functools import wraps
+import coloredlogs
 
+# Colored logging setup
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+coloredlogs.install(
+    level='INFO',
+    fmt='%(levelname)s - %(message)s',
+    field_styles={
+        'levelname': {'color': 'cyan', 'bold': True},
+    },
+    level_styles={
+        'debug': {'color': 'green'},
+        'info': {'color': 'white'},
+        'warning': {'color': 'yellow', 'bold': True},
+        'error': {'color': 'red', 'bold': True},
+        'critical': {'color': 'red', 'bold': True, 'background': 'white'},
+    }
+)
 
 # Current feature version - increment when adding/removing features
 CURRENT_FEATURE_VERSION = 2

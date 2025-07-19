@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Optimized Music Playlist Generator with Clean Logging
+Optimized Music Playlist Generator with Colored Logging
 """
 
 import pandas as pd
@@ -20,14 +20,24 @@ import sqlite3
 import json
 from datetime import datetime
 import hashlib
+import coloredlogs
 
-# Simplified logging setup
+# Colored logging setup
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+coloredlogs.install(
+    level='INFO',
+    fmt='%(levelname)s - %(message)s',
+    field_styles={
+        'levelname': {'color': 'cyan', 'bold': True},
+    },
+    level_styles={
+        'debug': {'color': 'green'},
+        'info': {'color': 'white'},
+        'warning': {'color': 'yellow', 'bold': True},
+        'error': {'color': 'red', 'bold': True},
+        'critical': {'color': 'red', 'bold': True, 'background': 'white'},
+    }
+)
 
 def sanitize_filename(name):
     name = re.sub(r'[^\w\-_]', '_', name)
@@ -802,6 +812,10 @@ def main():
                        help='Incremental update mode (only process changes)')
     args = parser.parse_args()
 
+    logger.info("Starting playlist generation")
+    logger.info(f"Music directory: {args.music_dir}")
+    logger.info(f"Output directory: {args.output_dir}")
+
     generator = PlaylistGenerator()
     generator.host_music_dir = args.host_music_dir.rstrip('/')
 
@@ -809,9 +823,11 @@ def main():
     try:
         missing_in_db = generator.cleanup_database()
         if missing_in_db:
+            logger.warning(f"Removed {len(missing_in_db)} missing files from database")
             generator.failed_files.extend(missing_in_db)
 
         if args.incremental:
+            logger.info("Running in incremental mode")
             # Load previous state
             previous_state = generator._load_library_state()
             if not previous_state:
@@ -858,7 +874,6 @@ def main():
             logger.error("No valid audio files available")
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
-        logger.error(traceback.format_exc())
     finally:
         elapsed = time.time() - start_time
         logger.info(f"Completed in {elapsed:.2f} seconds")
