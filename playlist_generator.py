@@ -44,7 +44,7 @@ def process_file_worker(filepath):
             features = result[0]
             # Ensure no None values in critical features
             for key in ['bpm', 'centroid', 'duration', 'loudness', 
-                        'dynamics', 'onset_strength', 'key_confidence']:
+                        'dynamics', 'rhythm_complexity', 'key_confidence']:
                 if features.get(key) is None:
                     features[key] = 0.0
             return features, filepath
@@ -78,7 +78,7 @@ class PlaylistGenerator:
                 centroid_duration REAL,
                 centroid_loudness REAL,
                 centroid_dynamics REAL,
-                centroid_onset REAL,
+                centroid_rhythm REAL,
                 centroid_key TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -337,7 +337,7 @@ class PlaylistGenerator:
         # Default values for missing features
         defaults = {
             'bpm': 100, 'centroid': 2000, 'duration': 180,
-            'loudness': -15, 'onset_strength': 0.3
+            'loudness': -15, 'rhythm_complexity': 0.5
         }
         for key, default in defaults.items():
             if features.get(key) is None:
@@ -348,7 +348,7 @@ class PlaylistGenerator:
         centroid = features['centroid']
         duration = features['duration']
         loudness = features['loudness']
-        onset_strength = features.get('onset_strength', 0.3)
+        rhythm_complexity = features.get('rhythm_complexity', 0.5)
         scale = features.get('scale', 'major')
         
         # BPM descriptors
@@ -391,11 +391,11 @@ class PlaylistGenerator:
             "EarBlasting"
         )
         
-        # Onset energy descriptors
-        energy_desc = (
-            "Smooth" if onset_strength < 0.1 else
-            "Pulsing" if onset_strength < 0.3 else
-            "Energetic"
+        # Rhythm complexity descriptors
+        rhythm_desc = (
+            "Steady" if rhythm_complexity < 0.3 else
+            "Grooving" if rhythm_complexity < 0.6 else
+            "Complex"
         )
         
         # Mood based on harmonic features
@@ -404,7 +404,7 @@ class PlaylistGenerator:
         # Key scale descriptor
         key_desc = "Major" if scale == "major" else "Minor"
         
-        return f"{bpm_desc}_{timbre_desc}_{key_desc}_{energy_desc}_{mood}"
+        return f"{bpm_desc}_{timbre_desc}_{key_desc}_{rhythm_desc}_{mood}"
 
     def _update_playlist_tracker(self, playlists, centroids=None):
         """Update playlist tracker with new playlist assignments"""
@@ -428,7 +428,7 @@ class PlaylistGenerator:
                 cursor.execute(
                     """INSERT INTO playlists (name, centroid_bpm, centroid_centroid, 
                     centroid_duration, centroid_loudness, centroid_dynamics, 
-                    centroid_onset, centroid_key) 
+                    centroid_rhythm, centroid_key) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (name, 
                      centroid_data.get('bpm', 0),
@@ -436,7 +436,7 @@ class PlaylistGenerator:
                      centroid_data.get('duration', 0),
                      centroid_data.get('loudness', -20),
                      centroid_data.get('dynamics', 0),
-                     centroid_data.get('onset_strength', 0.3),
+                     centroid_data.get('rhythm_complexity', 0.5),
                      centroid_data.get('key', 'C') + '-' + centroid_data.get('scale', 'major')))
                 playlist_id = cursor.lastrowid
                 existing_playlists[name] = playlist_id
@@ -527,7 +527,7 @@ class PlaylistGenerator:
         # Get all playlists with their centroids
         cursor.execute("""
             SELECT id, name, centroid_bpm, centroid_centroid, centroid_duration,
-                   centroid_loudness, centroid_dynamics, centroid_onset
+                   centroid_loudness, centroid_dynamics, centroid_rhythm
             FROM playlists
         """)
         playlists = cursor.fetchall()
@@ -553,10 +553,10 @@ class PlaylistGenerator:
             
             # Find closest playlist
             for playlist in playlists:
-                playlist_id, name, bpm, centroid, duration, loudness, dynamics, onset = playlist
+                playlist_id, name, bpm, centroid, duration, loudness, dynamics, rhythm = playlist
                 
                 # Skip playlists with missing data
-                if None in (bpm, centroid, duration, loudness, dynamics, onset):
+                if None in (bpm, centroid, duration, loudness, dynamics, rhythm):
                     continue
                 
                 # Calculate distance using weighted features
@@ -565,7 +565,7 @@ class PlaylistGenerator:
                     0.3 * abs(feature['centroid'] - centroid) +
                     0.1 * abs(feature['loudness'] - loudness) +
                     0.1 * abs(feature['dynamics'] - dynamics) +
-                    0.1 * abs(feature.get('onset_strength', 0.3) - onset)
+                    0.1 * abs(feature.get('rhythm_complexity', 0.5) - rhythm)
                 )
                 
                 # Add key distance if available
@@ -660,7 +660,7 @@ class PlaylistGenerator:
             if os.path.exists(feat['filepath']):
                 # Ensure all required features exist
                 for key in ['bpm', 'centroid', 'duration', 'loudness', 
-                           'dynamics', 'onset_strength', 'key', 'scale']:
+                           'dynamics', 'rhythm_complexity', 'key', 'scale']:
                     if feat.get(key) is None:
                         feat[key] = 0.0 if key != 'key' else 'unknown'
                 valid_features.append(feat)
@@ -692,7 +692,7 @@ class PlaylistGenerator:
         # Define features for clustering
         cluster_features = [
             'bpm', 'centroid', 'loudness', 
-            'dynamics', 'onset_strength', 'key_num', 'scale_num'
+            'dynamics', 'rhythm_complexity', 'key_num', 'scale_num'
         ]
         
         # Fill missing values
