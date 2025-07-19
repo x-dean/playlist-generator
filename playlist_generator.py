@@ -23,42 +23,19 @@ import hashlib
 import queue
 import psutil
 import resource
+import coloredlogs
 
-# Improved logging setup
 logger = logging.getLogger(__name__)
 
-# Setup coloredlogs if available
-try:
-    import coloredlogs
-    # Install coloredlogs with distinct colors for each level
-    coloredlogs.install(
-        level='INFO',
-        logger=logger,
-        fmt='[%(levelname)s] %(name)s: %(message)s',
-        level_styles={
-            'debug': {'color': 'green'},
-            'info': {'color': 'cyan'},
-            'warning': {'color': 'yellow', 'bold': True},
-            'error': {'color': 'red', 'bold': True},
-            'critical': {'color': 'white', 'background': 'red', 'bold': True}
-        },
-        field_styles={
-            'levelname': {'bold': True},
-            'name': {'color': 'blue'}
-        }
-    )
-    logger.info("Colored logs enabled - Different colors for each log level")
-except ImportError:
-    # Fallback to basic logging if coloredlogs not available
-    logging.basicConfig(
-        level=logging.INFO,
-        format='[%(levelname)s] %(name)s: %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler("playlist_generator.log", mode='w')
-        ]
-    )
-    logger.warning("coloredlogs not installed - using basic logging")
+coloredlogs.install(level='DEBUG')
+def setup_logging():
+    """Setup logging configuration"""
+    logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    coloredlogs.install(level='DEBUG', logger=logger, fmt='%(asctime)s - %(levelname)s - %(message)s')
 
 def sanitize_filename(name):
     name = re.sub(r'[^\w\-_]', '_', name)

@@ -6,34 +6,19 @@ import sqlite3
 import hashlib
 import signal
 from functools import wraps
+import coloredlogs
 
-# Setup logger
 logger = logging.getLogger(__name__)
 
-# Setup coloredlogs if available
-try:
-    import coloredlogs
-    # Install coloredlogs with distinct colors for each level
-    coloredlogs.install(
-        level='INFO',
-        logger=logger,
-        fmt='%(name)s: %(message)s',
-        level_styles={
-            'debug': {'color': 'green'},
-            'info': {'color': 'cyan'},
-            'warning': {'color': 'yellow', 'bold': True},
-            'error': {'color': 'red', 'bold': True},
-            'critical': {'color': 'white', 'background': 'red', 'bold': True}
-        },
-        field_styles={
-            'name': {'color': 'blue'}
-        }
-    )
-    logger.info("Colored logs enabled for audio analysis")
-except ImportError:
-    # Fallback to basic logging if coloredlogs not available
-    logging.basicConfig(level=logging.INFO)
-    logger.warning("coloredlogs not installed - using basic logging")
+coloredlogs.install(level='DEBUG')
+def setup_logging():
+    """Setup logging configuration"""
+    logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    coloredlogs.install(level='DEBUG', logger=logger, fmt='%(asctime)s - %(levelname)s - %(message)s')
 
 # Current feature version - increment when adding/removing features
 CURRENT_FEATURE_VERSION = 2
