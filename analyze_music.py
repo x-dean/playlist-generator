@@ -5,7 +5,6 @@ import logging
 import sqlite3
 import hashlib
 import signal
-import json
 from functools import wraps
 
 # Setup logging
@@ -53,11 +52,6 @@ class AudioAnalyzer:
                 bpm REAL,
                 beat_confidence REAL,
                 centroid REAL,
-                loudness REAL,
-                spectral_complexity REAL,
-                mfcc_mean TEXT,
-                pitch_mean REAL,
-                pitch_std REAL,
                 last_modified REAL,
                 last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -95,8 +89,14 @@ class AudioAnalyzer:
         try:
             rhythm_extractor = es.RhythmExtractor()
             bpm, _, confidence, _ = rhythm_extractor(audio)
-            beat_conf = float(np.nanmean(confidence)) if isinstance(confidence, (list, np.ndarray)) else float(confidence)
-            return float(bpm), max(0.0, min(1.0, beat_conf))
+
+            if isinstance(confidence, (list, np.ndarray)):
+                beat_conf = float(np.nanmean(confidence))
+            else:
+                beat_conf = float(confidence)
+
+            beat_conf = max(0.0, min(1.0, beat_conf))
+            return float(bpm), beat_conf
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
             return 0.0, 0.0
@@ -106,71 +106,34 @@ class AudioAnalyzer:
         try:
             spectral = es.SpectralCentroidTime(sampleRate=44100)
             centroid_values = spectral(audio)
-            return float(np.nanmean(centroid_values)) if isinstance(centroid_values, (list, np.ndarray)) else float(centroid_values)
+
+            if isinstance(centroid_values, (list, np.ndarray)):
+                centroid = float(np.nanmean(centroid_values))
+            else:
+                centroid = float(centroid_values)
+
+            return centroid
         except Exception as e:
             logger.warning(f"Spectral extraction failed: {str(e)}")
             return 0.0
 
-    @timeout()
-    def _extract_loudness(self, audio):
-        try:
-            loudness = es.Loudness()
-            return float(loudness(audio))
-        except Exception as e:
-            logger.warning(f"Loudness extraction failed: {str(e)}")
-            return 0.0
-
-    @timeout()
-    def _extract_spectral_complexity(self, audio):
-        try:
-            complexity = es.SpectralComplexity()
-            return float(complexity(audio))
-        except Exception as e:
-            logger.warning(f"Spectral complexity extraction failed: {str(e)}")
-            return 0.0
-
-    @timeout()
-    def _extract_mfcc(self, audio):
-        try:
-            w = es.Windowing(type='hann')
-            spectrum = es.Spectrum()
-            mfcc = es.MFCC()
-            mfccs = []
-            for frame in es.FrameGenerator(audio, frameSize=1024, hopSize=512, startFromZero=True):
-                mfcc_bands, mfcc_coeffs = mfcc(spectrum(w(frame)))
-                mfccs.append(mfcc_coeffs)
-            mfccs = np.array(mfccs)
-            return mfccs.mean(axis=0).tolist() if mfccs.size > 0 else [0.0] * 13
-        except Exception as e:
-            logger.warning(f"MFCC extraction failed: {str(e)}")
-            return [0.0] * 13
-
-    @timeout()
-    def _extract_pitch(self, audio):
-        try:
-            pitcher = es.PitchYinFFT(frameSize=2048, hopSize=512)
-            pitches = [pitcher(frame)[0] for frame in es.FrameGenerator(audio, frameSize=2048, hopSize=512, startFromZero=True)]
-            pitches = np.array(pitches)
-            return float(np.mean(pitches)), float(np.std(pitches))
-        except Exception as e:
-            logger.warning(f"Pitch extraction failed: {str(e)}")
-            return 0.0, 0.0
-
     def extract_features(self, audio_path):
         try:
             file_info = self._get_file_info(audio_path)
+
             cursor = self.conn.cursor()
             cursor.execute("""
-            SELECT duration, bpm, beat_confidence, centroid, loudness, spectral_complexity, mfcc_mean, pitch_mean, pitch_std
+            SELECT duration, bpm, beat_confidence, centroid
             FROM audio_features
             WHERE file_hash = ? AND last_modified >= ?
             """, (file_info['file_hash'], file_info['last_modified']))
 
             if row := cursor.fetchone():
                 return {
-                    'duration': row[0], 'bpm': row[1], 'beat_confidence': row[2], 'centroid': row[3],
-                    'loudness': row[4], 'spectral_complexity': row[5], 'mfcc_mean': json.loads(row[6]),
-                    'pitch_mean': row[7], 'pitch_std': row[8],
+                    'duration': row[0],
+                    'bpm': row[1],
+                    'beat_confidence': row[2],
+                    'centroid': row[3],
                     'filepath': audio_path,
                     'filename': os.path.basename(audio_path)
                 }, True, file_info['file_hash']
@@ -183,27 +146,33 @@ class AudioAnalyzer:
             features = {
                 'duration': len(audio) / 44100.0,
                 'filepath': audio_path,
-                'filename': os.path.basename(audio_path),
-                'bpm': 0.0, 'beat_confidence': 0.0,
-                'centroid': 0.0, 'loudness': 0.0, 'spectral_complexity': 0.0,
-                'mfcc_mean': [0.0] * 13, 'pitch_mean': 0.0, 'pitch_std': 0.0
+                'filename': os.path.basename(audio_path)
             }
 
-            features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
-            features['centroid'] = self._extract_spectral_features(audio)
-            features['loudness'] = self._extract_loudness(audio)
-            features['spectral_complexity'] = self._extract_spectral_complexity(audio)
-            features['mfcc_mean'] = self._extract_mfcc(audio)
-            features['pitch_mean'], features['pitch_std'] = self._extract_pitch(audio)
+            try:
+                features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
+            except Exception as e:
+                logger.error(f"Rhythm extraction error for {audio_path}: {str(e)}")
+                features['bpm'] = 0.0
+                features['beat_confidence'] = 0.0
+
+            try:
+                features['centroid'] = self._extract_spectral_features(audio)
+            except Exception as e:
+                logger.error(f"Spectral extraction error for {audio_path}: {str(e)}")
+                features['centroid'] = 0.0
 
             with self.conn:
                 self.conn.execute("""
-                INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
                 """, (
-                    file_info['file_hash'], audio_path, features['duration'], features['bpm'],
-                    features['beat_confidence'], features['centroid'], features['loudness'],
-                    features['spectral_complexity'], json.dumps(features['mfcc_mean']),
-                    features['pitch_mean'], features['pitch_std'], file_info['last_modified']
+                    file_info['file_hash'],
+                    audio_path,
+                    features['duration'],
+                    features['bpm'],
+                    features['beat_confidence'],
+                    features['centroid'],
+                    file_info['last_modified']
                 ))
 
             return features, False, file_info['file_hash']
@@ -215,14 +184,16 @@ class AudioAnalyzer:
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
-            SELECT file_path, duration, bpm, beat_confidence, centroid, loudness, spectral_complexity, mfcc_mean, pitch_mean, pitch_std
+            SELECT filepath, duration, bpm, beat_confidence, centroid
             FROM audio_features
             """)
             return [
                 {
-                    'filepath': row[0], 'duration': row[1], 'bpm': row[2], 'beat_confidence': row[3],
-                    'centroid': row[4], 'loudness': row[5], 'spectral_complexity': row[6],
-                    'mfcc_mean': json.loads(row[7]), 'pitch_mean': row[8], 'pitch_std': row[9]
+                    'filepath': row[0],
+                    'duration': row[1],
+                    'bpm': row[2],
+                    'beat_confidence': row[3],
+                    'centroid': row[4],
                 }
                 for row in cursor.fetchall()
             ]
