@@ -758,9 +758,9 @@ class PlaylistGenerator:
             
             # Sort clusters by size descending
             sorted_clusters = sorted(all_clusters.items(), key=lambda x: len(x[1]), reverse=True)
-            
+            logger.info(f"Found {len(sorted_clusters)} clusters")
             for cluster_id, cluster_songs in sorted_clusters:
-                if len(cluster_songs) < 3:  # Merge small clusters
+                if len(cluster_songs) < 10:  # THIS IS THE THRESHOLD TO CHANGE
                     # Find nearest larger cluster
                     closest_cluster = None
                     min_distance = float('inf')
