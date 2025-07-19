@@ -6,19 +6,13 @@ import sqlite3
 import hashlib
 import signal
 from functools import wraps
-import coloredlogs
 
 logger = logging.getLogger(__name__)
-
-coloredlogs.install(level='DEBUG')
-def setup_logging():
-    """Setup logging configuration"""
-    logger.setLevel(logging.DEBUG)
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    coloredlogs.install(level='DEBUG', logger=logger, fmt='%(asctime)s - %(levelname)s - %(message)s')
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 # Current feature version - increment when adding/removing features
 CURRENT_FEATURE_VERSION = 2
@@ -89,8 +83,6 @@ class AudioAnalyzer:
             "ALTER TABLE audio_features ADD COLUMN key_confidence REAL DEFAULT 0",
             "ALTER TABLE audio_features ADD COLUMN rhythm_complexity REAL DEFAULT 0.5",
             "ALTER TABLE audio_features ADD COLUMN feature_version INTEGER DEFAULT 1",
-            
-            # Future migrations would be added here
         ]
         
         cursor = self.conn.cursor()
@@ -98,10 +90,8 @@ class AudioAnalyzer:
             try:
                 cursor.execute(migration)
                 self.conn.commit()
-                logger.info(f"Applied database migration: {migration}")
-            except sqlite3.OperationalError as e:
-                if "duplicate column" not in str(e):
-                    logger.warning(f"Migration failed: {str(e)}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
     
     def _get_file_info(self, filepath):
         try:
@@ -112,7 +102,7 @@ class AudioAnalyzer:
                 'file_path': filepath
             }
         except Exception as e:
-            logger.warning(f"Couldn't get file stats for {filepath}: {str(e)}")
+            logger.error(f"Couldn't get file stats for {filepath}: {str(e)}")
             return {
                 'file_hash': hashlib.md5(filepath.encode()).hexdigest(),
                 'last_modified': 0,
@@ -126,7 +116,7 @@ class AudioAnalyzer:
             audio = loader()
             return audio if audio.size > 0 else None
         except Exception as e:
-            logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
+            logger.error(f"AudioLoader error for {audio_path}: {str(e)}")
             return None
 
     @timeout()
@@ -143,7 +133,7 @@ class AudioAnalyzer:
             beat_conf = max(0.0, min(1.0, beat_conf))
             return float(bpm), beat_conf
         except Exception as e:
-            logger.warning(f"Rhythm extraction failed: {str(e)}")
+            logger.error(f"Rhythm extraction failed: {str(e)}")
             return 0.0, 0.0
 
     @timeout()
@@ -159,7 +149,7 @@ class AudioAnalyzer:
 
             return centroid
         except Exception as e:
-            logger.warning(f"Spectral extraction failed: {str(e)}")
+            logger.error(f"Spectral extraction failed: {str(e)}")
             return 0.0
             
     @timeout()
@@ -168,7 +158,7 @@ class AudioAnalyzer:
             loudness = es.Loudness()(audio)
             return float(loudness)
         except Exception as e:
-            logger.warning(f"Loudness extraction failed: {str(e)}")
+            logger.error(f"Loudness extraction failed: {str(e)}")
             return 0.0
             
     @timeout()
@@ -177,7 +167,7 @@ class AudioAnalyzer:
             dynamic_complexity, _ = es.DynamicComplexity()(audio)
             return float(dynamic_complexity)
         except Exception as e:
-            logger.warning(f"Dynamic complexity extraction failed: {str(e)}")
+            logger.error(f"Dynamic complexity extraction failed: {str(e)}")
             return 0.0
             
     @timeout()
@@ -187,7 +177,7 @@ class AudioAnalyzer:
             key, scale, confidence = key_extractor(audio)
             return key, scale, float(confidence)
         except Exception as e:
-            logger.warning(f"Harmonic extraction failed: {str(e)}")
+            logger.error(f"Harmonic extraction failed: {str(e)}")
             return "unknown", "unknown", 0.0
             
     @timeout()
@@ -198,7 +188,7 @@ class AudioAnalyzer:
             danceability, _ = es.Danceability()(audio)
             return float(danceability)
         except Exception as e:
-            logger.warning(f"Rhythm complexity extraction failed: {str(e)}")
+            logger.error(f"Rhythm complexity extraction failed: {str(e)}")
             return 0.5
 
     def extract_features(self, audio_path):
@@ -235,7 +225,6 @@ class AudioAnalyzer:
                     }, True, file_info['file_hash']
 
             # If we get here, we need to process the file
-            logger.info(f"Processing: {os.path.basename(audio_path)}")
             audio = self._safe_audio_load(audio_path)
             if audio is None:
                 return None, False, None

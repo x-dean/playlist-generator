@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Optimized Music Playlist Generator with Enhanced Musical Analysis
+Optimized Music Playlist Generator with Clean Logging
 """
 
 import pandas as pd
@@ -20,19 +20,14 @@ import sqlite3
 import json
 from datetime import datetime
 import hashlib
-import coloredlogs
 
+# Simplified logging setup
 logger = logging.getLogger(__name__)
-
-coloredlogs.install(level='DEBUG')
-def setup_logging():
-    """Setup logging configuration"""
-    logger.setLevel(logging.DEBUG)
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    coloredlogs.install(level='DEBUG', logger=logger, fmt='%(levelname)s - %(message)s')
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 def sanitize_filename(name):
     name = re.sub(r'[^\w\-_]', '_', name)
@@ -45,8 +40,7 @@ def process_file_worker(filepath):
         if result and result[0] is not None:
             features = result[0]
             # Ensure critical features have values
-            required_features = ['bpm', 'centroid', 'duration']
-            for key in required_features:
+            for key in ['bpm', 'centroid', 'duration']:
                 if features.get(key) is None:
                     features[key] = 0.0
             return features, filepath
@@ -102,10 +96,8 @@ class PlaylistGenerator:
             if col_name not in columns:
                 try:
                     cursor.execute(f'ALTER TABLE playlists ADD COLUMN {col_name} {col_type}')
-                    logger.info(f"Added missing column to playlists: {col_name}")
-                except sqlite3.OperationalError as e:
-                    if "duplicate column" not in str(e):
-                        logger.error(f"Error adding column {col_name}: {str(e)}")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
         
         # Create other tables
         cursor.execute('''
@@ -275,10 +267,8 @@ class PlaylistGenerator:
 
         if workers is None:
             workers = max(1, mp.cpu_count() // 2)
-            logger.info(f"Using automatic worker count: {workers}")
 
         if force_sequential or workers <= 1:
-            logger.info("Using sequential processing")
             return self._process_sequential(file_list)
 
         return self._process_parallel(file_list, workers)
@@ -287,7 +277,6 @@ class PlaylistGenerator:
         results = []
         pbar = tqdm(file_list, desc="Processing files")
         for filepath in pbar:
-            pbar.set_postfix(file=os.path.basename(filepath)[:20])
             features, _ = process_file_worker(filepath)
             if features:
                 results.append(features)
@@ -298,7 +287,6 @@ class PlaylistGenerator:
     def _process_parallel(self, file_list, workers):
         results = []
         try:
-            logger.info(f"Starting multiprocessing pool with {workers} workers")
             ctx = mp.get_context('spawn')
             with ctx.Pool(processes=workers) as pool:
                 async_results = [
@@ -315,28 +303,21 @@ class PlaylistGenerator:
                         else:
                             self.failed_files.append(filepath)
                     except mp.TimeoutError:
-                        logger.error(f"Timeout processing {filepath}")
                         self.failed_files.append(filepath)
-                    except Exception as e:
-                        logger.error(f"Error retrieving result: {str(e)}")
+                    except Exception:
                         self.failed_files.append(filepath)
                     
                     if i % 10 == 0 or not features:
                         pbar.update(1)
                 pbar.close()
-            logger.info(f"Processing completed: {len(results)} successful, {len(self.failed_files)} failed")
             return results
-        except Exception as e:
-            logger.error(f"Parallel processing failed: {str(e)}")
-            logger.error(traceback.format_exc())
+        except Exception:
             return self._process_sequential(file_list)
 
     def get_all_features_from_db(self):
         try:
-            features = get_all_features()
-            return features
-        except Exception as e:
-            logger.error(f"Database error: {str(e)}")
+            return get_all_features()
+        except Exception:
             return []
 
     def cleanup_database(self):
@@ -353,7 +334,7 @@ class PlaylistGenerator:
                     missing_files.append(file_path)
             
             if missing_files:
-                logger.info(f"Cleaning up {len(missing_files)} missing files from database")
+                logger.info(f"Removed {len(missing_files)} missing files from database")
                 placeholders = ','.join(['?'] * len(missing_files))
                 cursor.execute(
                     f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
@@ -386,7 +367,6 @@ class PlaylistGenerator:
         required_features = ['bpm', 'centroid', 'duration']
         for feat in required_features:
             if feat not in features or features[feat] is None:
-                logger.warning(f"Missing or None feature '{feat}' in centroid data")
                 features[feat] = 0.0
 
         bpm = features['bpm']
@@ -450,9 +430,8 @@ class PlaylistGenerator:
                         feat[key] = 0.0
                 valid_features.append(feat)
             else:
-                logger.warning(f"File not found: {feat['filepath']}")
                 self.failed_files.append(feat['filepath'])
-                    
+                
         if not valid_features:
             logger.warning("No valid features after filtering")
             return {}
@@ -468,7 +447,6 @@ class PlaylistGenerator:
         for feat in cluster_features:
             if feat not in df.columns:
                 df[feat] = 0.0
-                logger.warning(f"Added missing cluster feature column: {feat}")
                 
         df[cluster_features] = df[cluster_features].fillna(0)
         
@@ -529,7 +507,7 @@ class PlaylistGenerator:
                 name_counter[final_name] = 1
                 
             playlists[final_name] = merged_songs['filepath'].tolist()
-            logger.info(f"Created playlist '{final_name}' with {len(merged_songs)} tracks (median duration: {median_duration:.1f}s)")
+            logger.info(f"Created playlist '{final_name}' with {len(merged_songs)} tracks")
         
         return playlists
 
@@ -759,48 +737,49 @@ class PlaylistGenerator:
         conn.close()
         return assigned_count
 
-    def save_playlists_from_db(self, output_dir):
-        """Save playlists based on current database state"""
-        conn = sqlite3.connect(self.playlist_db)
-        cursor = conn.cursor()
-        
-        # Get all playlists
-        cursor.execute("SELECT id, name FROM playlists")
-        playlists = cursor.fetchall()
-        
-        if not playlists:
-            logger.warning("No playlists found in database")
-            return
-        
+    def save_playlists(self, playlists, output_dir):
         os.makedirs(output_dir, exist_ok=True)
         saved_count = 0
-        
-        for playlist_id, name in playlists:
-            # Get files for this playlist
-            cursor.execute(
-                "SELECT filepath FROM playlist_songs WHERE playlist_id = ?",
-                (playlist_id,))
-            filepaths = [row[0] for row in cursor.fetchall()]
-            
-            if not filepaths:
-                logger.info(f"Skipping empty playlist: {name}")
+
+        for name, songs in playlists.items():
+            if not songs:
                 continue
-            
-            # Convert paths and save
-            host_paths = [self.convert_to_host_path(p) for p in filepaths]
-            playlist_path = os.path.join(output_dir, f"{sanitize_filename(name)}.m3u")
-            with open(playlist_path, 'w') as f:
-                f.write("\n".join(host_paths))
-            
-            saved_count += 1
-            logger.info(f"Updated playlist {name} with {len(host_paths)} tracks")
-        
-        conn.close()
-        
+
+            try:
+                host_songs = []
+                for song in songs:
+                    host_path = self.convert_to_host_path(song)
+                    # Verify path exists before adding to playlist
+                    if os.path.exists(song):  # Check container path
+                        host_songs.append(host_path)
+                
+                if not host_songs:
+                    continue
+                
+                playlist_path = os.path.join(output_dir, f"{sanitize_filename(name)}.m3u")
+                with open(playlist_path, 'w') as f:
+                    f.write("\n".join(host_songs))
+                saved_count += 1
+                logger.info(f"Saved playlist '{name}' with {len(host_songs)} tracks")
+            except Exception:
+                pass
+
         if saved_count:
-            logger.info(f"Saved {saved_count} updated playlists")
+            logger.info(f"Saved {saved_count} playlists")
         else:
             logger.warning("No playlists saved")
+
+        all_failed = list(set(self.failed_files))
+        
+        if all_failed:
+            failed_path = os.path.join(output_dir, "Failed_Files.m3u")
+            try:
+                host_failed = [self.convert_to_host_path(p) for p in all_failed]
+                with open(failed_path, 'w') as f:
+                    f.write("\n".join(host_failed))
+                logger.info(f"Saved {len(all_failed)} failed/missing files")
+            except Exception:
+                pass
 
     def _update_library_state(self):
         """Update library state after processing"""
@@ -830,7 +809,6 @@ def main():
     try:
         missing_in_db = generator.cleanup_database()
         if missing_in_db:
-            logger.info(f"Removed {len(missing_in_db)} missing files from database")
             generator.failed_files.extend(missing_in_db)
 
         if args.incremental:
@@ -851,20 +829,15 @@ def main():
                                f"{len(changes['removed'])} removed, "
                                f"{len(changes['modified'])} modified")
                     generator.incremental_update(changes, args.output_dir)
-                    
-                    # Update state after processing
-                    generator._update_library_state()
                     return
                 else:
-                    logger.info("No changes detected. Playlists are up to date.")
+                    logger.info("No changes detected")
                     return
 
         # Full processing mode
         if args.use_db:
-            logger.info("Using database features")
             features = generator.get_all_features_from_db()
         else:
-            logger.info("Analyzing directory")
             features = generator.analyze_directory(
                 args.music_dir,
                 args.workers,
@@ -886,7 +859,6 @@ def main():
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
         logger.error(traceback.format_exc())
-        raise
     finally:
         elapsed = time.time() - start_time
         logger.info(f"Completed in {elapsed:.2f} seconds")
