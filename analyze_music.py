@@ -1,205 +1,239 @@
-import pandas as pd
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.preprocessing import StandardScaler
-import multiprocessing as mp
-import argparse
+import numpy as np
+import essentia.standard as es
 import os
 import logging
-from tqdm import tqdm
-from analyze_music import get_all_features
-import numpy as np
-import time
-import traceback
-import re
 import sqlite3
+import hashlib
+import signal
 import json
-from datetime import datetime
+from functools import wraps
 
-# Improved logging setup
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(levelname)s] %(name)s: %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("playlist_generator.log", mode='w')
-    ]
-)
+# Setup logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def sanitize_filename(name):
-    name = re.sub(r'[^\w\-_]', '_', name)
-    return re.sub(r'_+', '_', name).strip('_')
+class TimeoutException(Exception):
+    pass
 
-class PlaylistGenerator:
-    def __init__(self):
-        self.failed_files = []
+def timeout(seconds=120, error_message="Processing timed out"):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            def _handle_timeout(signum, frame):
+                raise TimeoutException(error_message)
+
+            signal.signal(signal.SIGALRM, _handle_timeout)
+            signal.alarm(seconds)
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                signal.alarm(0)
+            return result
+        return wrapper
+    return decorator
+
+class AudioAnalyzer:
+    def __init__(self, cache_file=None):
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-        self.cache_file = os.path.join(cache_dir, 'audio_analysis.db')
-        self.playlist_db = os.path.join(cache_dir, 'playlist_tracker.db')
-        self._init_playlist_tracker()
+        self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
+        os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+        self.timeout_seconds = 30
+        self._init_db()
 
-    def _init_playlist_tracker(self):
-        os.makedirs(os.path.dirname(self.playlist_db), exist_ok=True)
-        conn = sqlite3.connect(self.playlist_db)
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS playlists (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    def _init_db(self):
+        self.conn = sqlite3.connect(self.cache_file, timeout=30)
+        with self.conn:
+            self.conn.execute("PRAGMA journal_mode=WAL")
+            self.conn.execute("PRAGMA busy_timeout=30000")
+            self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS audio_features (
+                file_hash TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL,
+                duration REAL,
+                bpm REAL,
+                beat_confidence REAL,
+                centroid REAL,
+                loudness REAL,
+                spectral_complexity REAL,
+                mfcc_mean TEXT,
+                pitch_mean REAL,
+                pitch_std REAL,
+                last_modified REAL,
+                last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS playlist_songs (
-                playlist_id INTEGER,
-                filepath TEXT NOT NULL,
-                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (playlist_id, filepath),
-                FOREIGN KEY (playlist_id) REFERENCES playlists(id)
-            )
-        ''')
-        conn.commit()
-        conn.close()
+            """)
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
-    def generate_playlist_name(self, features):
-        bpm = features.get('bpm', 0.0)
-        centroid = features.get('centroid', 0.0)
-        loudness = features.get('loudness', 0.0)
-        spectral_complexity = features.get('spectral_complexity', 0.0)
-        pitch_mean = features.get('pitch_mean', 0.0)
+    def _get_file_info(self, filepath):
+        try:
+            stat = os.stat(filepath)
+            return {
+                'file_hash': f"{os.path.basename(filepath)}_{stat.st_size}_{stat.st_mtime}",
+                'last_modified': stat.st_mtime,
+                'file_path': filepath
+            }
+        except Exception as e:
+            logger.warning(f"Couldn't get file stats for {filepath}: {str(e)}")
+            return {
+                'file_hash': hashlib.md5(filepath.encode()).hexdigest(),
+                'last_modified': 0,
+                'file_path': filepath
+            }
 
-        bpm_desc = (
-            "VerySlow" if bpm < 55 else
-            "Slow" if bpm < 70 else
-            "Chill" if bpm < 85 else
-            "Medium" if bpm < 100 else
-            "Upbeat" if bpm < 115 else
-            "Energetic" if bpm < 135 else
-            "Fast" if bpm < 155 else
-            "VeryFast"
-        )
+    @timeout()
+    def _safe_audio_load(self, audio_path):
+        try:
+            loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
+            audio = loader()
+            return audio if audio.size > 0 else None
+        except Exception as e:
+            logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
+            return None
 
-        timbre_desc = (
-            "Dark" if centroid < 800 else
-            "Warm" if centroid < 1500 else
-            "Mellow" if centroid < 2200 else
-            "Bright" if centroid < 3000 else
-            "Sharp" if centroid < 4000 else
-            "VerySharp"
-        )
+    @timeout()
+    def _extract_rhythm_features(self, audio):
+        try:
+            rhythm_extractor = es.RhythmExtractor()
+            bpm, _, confidence, _ = rhythm_extractor(audio)
+            beat_conf = float(np.nanmean(confidence)) if isinstance(confidence, (list, np.ndarray)) else float(confidence)
+            return float(bpm), max(0.0, min(1.0, beat_conf))
+        except Exception as e:
+            logger.warning(f"Rhythm extraction failed: {str(e)}")
+            return 0.0, 0.0
 
-        loudness_desc = (
-            "Silent" if loudness < -40 else
-            "Quiet" if loudness < -20 else
-            "Moderate" if loudness < -10 else
-            "Loud"
-        )
+    @timeout()
+    def _extract_spectral_features(self, audio):
+        try:
+            spectral = es.SpectralCentroidTime(sampleRate=44100)
+            centroid_values = spectral(audio)
+            return float(np.nanmean(centroid_values)) if isinstance(centroid_values, (list, np.ndarray)) else float(centroid_values)
+        except Exception as e:
+            logger.warning(f"Spectral extraction failed: {str(e)}")
+            return 0.0
 
-        complexity_desc = (
-            "Simple" if spectral_complexity < 10 else
-            "Moderate" if spectral_complexity < 20 else
-            "Complex"
-        )
+    @timeout()
+    def _extract_loudness(self, audio):
+        try:
+            loudness = es.Loudness()
+            return float(loudness(audio))
+        except Exception as e:
+            logger.warning(f"Loudness extraction failed: {str(e)}")
+            return 0.0
 
-        pitch_desc = (
-            "LowPitch" if pitch_mean < 100 else
-            "MidPitch" if pitch_mean < 300 else
-            "HighPitch"
-        )
+    @timeout()
+    def _extract_spectral_complexity(self, audio):
+        try:
+            complexity = es.SpectralComplexity()
+            return float(complexity(audio))
+        except Exception as e:
+            logger.warning(f"Spectral complexity extraction failed: {str(e)}")
+            return 0.0
 
-        return f"{bpm_desc}_{timbre_desc}_{loudness_desc}_{complexity_desc}_{pitch_desc}"
+    @timeout()
+    def _extract_mfcc(self, audio):
+        try:
+            w = es.Windowing(type='hann')
+            spectrum = es.Spectrum()
+            mfcc = es.MFCC()
+            mfccs = []
+            for frame in es.FrameGenerator(audio, frameSize=1024, hopSize=512, startFromZero=True):
+                mfcc_bands, mfcc_coeffs = mfcc(spectrum(w(frame)))
+                mfccs.append(mfcc_coeffs)
+            mfccs = np.array(mfccs)
+            return mfccs.mean(axis=0).tolist() if mfccs.size > 0 else [0.0] * 13
+        except Exception as e:
+            logger.warning(f"MFCC extraction failed: {str(e)}")
+            return [0.0] * 13
 
-    def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
-        if not features_list:
-            logger.warning("No features to cluster")
-            return {}
+    @timeout()
+    def _extract_pitch(self, audio):
+        try:
+            pitcher = es.PitchYinFFT(frameSize=2048, hopSize=512)
+            pitches = [pitcher(frame)[0] for frame in es.FrameGenerator(audio, frameSize=2048, hopSize=512, startFromZero=True)]
+            pitches = np.array(pitches)
+            return float(np.mean(pitches)), float(np.std(pitches))
+        except Exception as e:
+            logger.warning(f"Pitch extraction failed: {str(e)}")
+            return 0.0, 0.0
 
-        valid_features = []
-        for feat in features_list:
-            if not feat or 'filepath' not in feat:
-                continue
-            if os.path.exists(feat['filepath']):
-                if feat.get('beat_confidence', 0.0) < 0.3 or feat.get('duration', 0.0) < 30:
-                    continue  # Filter out low-quality or too-short audio
-                for key in ['bpm', 'centroid', 'duration', 'loudness', 'spectral_complexity', 'pitch_mean']:
-                    if feat.get(key) is None:
-                        feat[key] = 0.0
-                valid_features.append(feat)
-            else:
-                logger.warning(f"File not found: {feat['filepath']}")
-                self.failed_files.append(feat['filepath'])
+    def extract_features(self, audio_path):
+        try:
+            file_info = self._get_file_info(audio_path)
+            cursor = self.conn.cursor()
+            cursor.execute("""
+            SELECT duration, bpm, beat_confidence, centroid, loudness, spectral_complexity, mfcc_mean, pitch_mean, pitch_std
+            FROM audio_features
+            WHERE file_hash = ? AND last_modified >= ?
+            """, (file_info['file_hash'], file_info['last_modified']))
 
-        if not valid_features:
-            logger.warning("No valid features after filtering")
-            return {}
+            if row := cursor.fetchone():
+                return {
+                    'duration': row[0], 'bpm': row[1], 'beat_confidence': row[2], 'centroid': row[3],
+                    'loudness': row[4], 'spectral_complexity': row[5], 'mfcc_mean': json.loads(row[6]),
+                    'pitch_mean': row[7], 'pitch_std': row[8],
+                    'filepath': audio_path,
+                    'filename': os.path.basename(audio_path)
+                }, True, file_info['file_hash']
 
-        df = pd.DataFrame(valid_features)
+            logger.info(f"Processing: {os.path.basename(audio_path)}")
+            audio = self._safe_audio_load(audio_path)
+            if audio is None:
+                return None, False, None
 
-        naming_features = ['bpm', 'centroid', 'duration', 'loudness', 'spectral_complexity', 'pitch_mean']
-        cluster_features = ['bpm', 'centroid', 'loudness', 'spectral_complexity', 'pitch_mean']
+            features = {
+                'duration': len(audio) / 44100.0,
+                'filepath': audio_path,
+                'filename': os.path.basename(audio_path),
+                'bpm': 0.0, 'beat_confidence': 0.0,
+                'centroid': 0.0, 'loudness': 0.0, 'spectral_complexity': 0.0,
+                'mfcc_mean': [0.0] * 13, 'pitch_mean': 0.0, 'pitch_std': 0.0
+            }
 
-        for feat in naming_features:
-            if feat not in df.columns:
-                logger.warning(f"Adding missing feature column: {feat}")
-                df[feat] = 0.0
+            features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
+            features['centroid'] = self._extract_spectral_features(audio)
+            features['loudness'] = self._extract_loudness(audio)
+            features['spectral_complexity'] = self._extract_spectral_complexity(audio)
+            features['mfcc_mean'] = self._extract_mfcc(audio)
+            features['pitch_mean'], features['pitch_std'] = self._extract_pitch(audio)
 
-        df[naming_features] = df[naming_features].fillna(0)
+            with self.conn:
+                self.conn.execute("""
+                INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                """, (
+                    file_info['file_hash'], audio_path, features['duration'], features['bpm'],
+                    features['beat_confidence'], features['centroid'], features['loudness'],
+                    features['spectral_complexity'], json.dumps(features['mfcc_mean']),
+                    features['pitch_mean'], features['pitch_std'], file_info['last_modified']
+                ))
 
-        features_array = df[cluster_features].values.astype(np.float32)
-        features_scaled = StandardScaler().fit_transform(features_array)
+            return features, False, file_info['file_hash']
+        except Exception as e:
+            logger.error(f"Error processing {audio_path}: {str(e)}")
+            return None, False, None
 
-        kmeans = MiniBatchKMeans(
-            n_clusters=min(num_playlists, len(df)),
-            random_state=42,
-            batch_size=min(500, len(df)),
-            n_init=3,
-            max_iter=50
-        )
-        df['cluster'] = kmeans.fit_predict(features_scaled)
+    def get_all_features(self):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+            SELECT file_path, duration, bpm, beat_confidence, centroid, loudness, spectral_complexity, mfcc_mean, pitch_mean, pitch_std
+            FROM audio_features
+            """)
+            return [
+                {
+                    'filepath': row[0], 'duration': row[1], 'bpm': row[2], 'beat_confidence': row[3],
+                    'centroid': row[4], 'loudness': row[5], 'spectral_complexity': row[6],
+                    'mfcc_mean': json.loads(row[7]), 'pitch_mean': row[8], 'pitch_std': row[9]
+                }
+                for row in cursor.fetchall()
+            ]
+        except Exception as e:
+            logger.error(f"Error fetching features: {str(e)}")
+            return []
 
-        playlists = {}
-        for cluster in df['cluster'].unique():
-            cluster_songs = df[df['cluster'] == cluster].copy()
-            centroid = cluster_songs[naming_features].mean().to_dict()
-            name = sanitize_filename(self.generate_playlist_name(centroid))
-            cluster_songs['distance_to_center'] = np.linalg.norm(
-                features_scaled[cluster_songs.index] - kmeans.cluster_centers_[cluster], axis=1
-            )
-            sorted_paths = cluster_songs.sort_values(by='distance_to_center')['filepath'].tolist()
-            playlists[name] = sorted_paths
-            if output_dir:
-                self._export_m3u_playlist(name, sorted_paths, output_dir)
+audio_analyzer = AudioAnalyzer()
 
-        self._update_playlist_tracker(playlists)
-        return {k: v for k, v in playlists.items() if len(v) >= 5}
+def extract_features(audio_path):
+    return audio_analyzer.extract_features(audio_path)
 
-    def _export_m3u_playlist(self, name, paths, output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-        playlist_path = os.path.join(output_dir, f"{name}.m3u")
-        with open(playlist_path, 'w', encoding='utf-8') as f:
-            for track in paths:
-                f.write(track + '\n')
-        logger.info(f"Exported playlist: {playlist_path}")
-
-    def _update_playlist_tracker(self, playlists):
-        conn = sqlite3.connect(self.playlist_db)
-        cursor = conn.cursor()
-
-        for name, songs in playlists.items():
-            cursor.execute("SELECT id FROM playlists WHERE name = ?", (name,))
-            row = cursor.fetchone()
-            if row:
-                playlist_id = row[0]
-                cursor.execute("UPDATE playlists SET last_updated = CURRENT_TIMESTAMP WHERE id = ?", (playlist_id,))
-            else:
-                cursor.execute("INSERT INTO playlists (name) VALUES (?)", (name,))
-                playlist_id = cursor.lastrowid
-
-            for song in songs:
-                cursor.execute("""
-                    INSERT OR IGNORE INTO playlist_songs (playlist_id, filepath) VALUES (?, ?)
-                """, (playlist_id, song))
-
-        conn.commit()
-        conn.close()
+def get_all_features():
+    return audio_analyzer.get_all_features()

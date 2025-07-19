@@ -19,6 +19,7 @@ import re
 import sqlite3
 import json
 from datetime import datetime
+import hashlib
 
 # Improved logging setup
 logging.basicConfig(
@@ -59,6 +60,7 @@ class PlaylistGenerator:
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = os.path.join(cache_dir, 'audio_analysis.db')
         self.playlist_db = os.path.join(cache_dir, 'playlist_tracker.db')
+        self.state_file = os.path.join(cache_dir, 'library_state.json')
         self._init_playlist_tracker()
         
     def _init_playlist_tracker(self):
@@ -70,6 +72,9 @@ class PlaylistGenerator:
             CREATE TABLE IF NOT EXISTS playlists (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
+                centroid_bpm REAL,
+                centroid_centroid REAL,
+                centroid_duration REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -83,8 +88,146 @@ class PlaylistGenerator:
                 FOREIGN KEY (playlist_id) REFERENCES playlists(id)
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS library_state (
+                filepath TEXT PRIMARY KEY,
+                mtime REAL NOT NULL,
+                size INTEGER NOT NULL,
+                checksum TEXT
+            )
+        ''')
         conn.commit()
         conn.close()
+
+    def _get_file_metadata(self, filepath):
+        """Get file metadata for state tracking"""
+        try:
+            stat = os.stat(filepath)
+            return {
+                'mtime': stat.st_mtime,
+                'size': stat.st_size,
+                'checksum': self._calculate_checksum(filepath) if stat.st_size < 10000000 else None
+            }
+        except Exception as e:
+            logger.error(f"Error getting metadata for {filepath}: {str(e)}")
+            return None
+
+    def _calculate_checksum(self, filepath):
+        """Calculate MD5 checksum for file (for small files only)"""
+        if not os.path.exists(filepath):
+            return None
+        try:
+            hash_md5 = hashlib.md5()
+            with open(filepath, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_md5.update(chunk)
+            return hash_md5.hexdigest()
+        except Exception as e:
+            logger.error(f"Error calculating checksum for {filepath}: {str(e)}")
+            return None
+
+    def _save_library_state(self, state):
+        """Save current library state to file and database"""
+        # Save to JSON file
+        with open(self.state_file, 'w') as f:
+            json.dump(state, f, indent=2)
+        
+        # Save to database for more robust tracking
+        conn = sqlite3.connect(self.playlist_db)
+        cursor = conn.cursor()
+        
+        # Clear existing state
+        cursor.execute("DELETE FROM library_state")
+        
+        # Insert new state
+        for filepath, metadata in state.items():
+            cursor.execute('''
+                INSERT INTO library_state (filepath, mtime, size, checksum)
+                VALUES (?, ?, ?, ?)
+            ''', (filepath, metadata['mtime'], metadata['size'], metadata.get('checksum')))
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"Saved library state with {len(state)} files")
+
+    def _load_library_state(self):
+        """Load previous library state from file or database"""
+        # Try to load from JSON file first
+        state = {}
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, 'r') as f:
+                    state = json.load(f)
+                logger.info(f"Loaded library state from file with {len(state)} files")
+                return state
+            except Exception as e:
+                logger.error(f"Error loading state file: {str(e)}")
+        
+        # If file loading fails, try database
+        conn = sqlite3.connect(self.playlist_db)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT filepath, mtime, size, checksum FROM library_state")
+            for row in cursor.fetchall():
+                state[row[0]] = {
+                    'mtime': row[1],
+                    'size': row[2],
+                    'checksum': row[3]
+                }
+            logger.info(f"Loaded library state from database with {len(state)} files")
+            return state
+        except Exception as e:
+            logger.error(f"Error loading state from database: {str(e)}")
+            return {}
+        finally:
+            conn.close()
+
+    def _scan_music_directory(self, music_dir):
+        """Scan music directory and build file list with metadata"""
+        file_metadata = {}
+        for root, _, files in os.walk(music_dir):
+            for file in files:
+                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg')):
+                    filepath = os.path.join(root, file)
+                    metadata = self._get_file_metadata(filepath)
+                    if metadata:
+                        file_metadata[filepath] = metadata
+        return file_metadata
+
+    def _get_file_changes(self, current_state, previous_state):
+        """Identify added, removed, and modified files"""
+        added = []
+        removed = []
+        modified = []
+        
+        current_files = set(current_state.keys())
+        previous_files = set(previous_state.keys())
+        
+        # Find removed files
+        for filepath in previous_files - current_files:
+            removed.append(filepath)
+        
+        # Check existing files for modifications
+        for filepath in current_files & previous_files:
+            current_meta = current_state[filepath]
+            prev_meta = previous_state[filepath]
+            
+            # Check if modified based on metadata
+            if (current_meta['mtime'] != prev_meta['mtime'] or
+                current_meta['size'] != prev_meta['size'] or
+                (current_meta['checksum'] and prev_meta['checksum'] and 
+                 current_meta['checksum'] != prev_meta['checksum'])):
+                modified.append(filepath)
+        
+        # Find added files
+        for filepath in current_files - previous_files:
+            added.append(filepath)
+        
+        return {
+            'added': added,
+            'removed': removed,
+            'modified': modified
+        }
 
     def analyze_directory(self, music_dir, workers=None, force_sequential=False):
         file_list = []
@@ -132,7 +275,7 @@ class PlaylistGenerator:
             with ctx.Pool(processes=workers) as pool:
                 # Use imap_unordered for better progress tracking
                 pbar = tqdm(total=len(file_list), desc="Processing files")
-                for i, (features, filepath) in enumerate(pool.imap_unordered(process_file_worker, file_list)):
+                for features, filepath in pool.imap_unordered(process_file_worker, file_list):
                     if features:
                         results.append(features)
                     else:
@@ -216,7 +359,7 @@ class PlaylistGenerator:
         
         return f"{bpm_desc}_{timbre_desc}_{duration_desc}_{mood}"
 
-    def _update_playlist_tracker(self, playlists):
+    def _update_playlist_tracker(self, playlists, centroids=None):
         """Update playlist tracker with new playlist assignments"""
         conn = sqlite3.connect(self.playlist_db)
         cursor = conn.cursor()
@@ -232,11 +375,15 @@ class PlaylistGenerator:
                 playlist_id = existing_playlists[name]
                 cursor.execute(
                     "UPDATE playlists SET last_updated = ? WHERE id = ?",
-                    (datetime.now(), playlist_id)
-                )
+                    (datetime.now(), playlist_id))
             else:
+                centroid_data = centroids.get(name, {}) if centroids else {}
                 cursor.execute(
-                    "INSERT INTO playlists (name) VALUES (?)", (name,))
+                    "INSERT INTO playlists (name, centroid_bpm, centroid_centroid, centroid_duration) VALUES (?, ?, ?, ?)",
+                    (name, 
+                     centroid_data.get('bpm', 0),
+                     centroid_data.get('centroid', 0),
+                     centroid_data.get('duration', 0)))
                 playlist_id = cursor.lastrowid
                 existing_playlists[name] = playlist_id
             
@@ -262,70 +409,162 @@ class PlaylistGenerator:
         conn.commit()
         conn.close()
 
-    def _get_incremental_updates(self, new_files, removed_files):
-        """Update playlists based on added/removed files"""
+    def incremental_update(self, changes, output_dir):
+        """Update playlists incrementally based on file changes"""
+        logger.info("Performing incremental update")
+        start_time = time.time()
+        
+        # Process removed files
+        if changes['removed']:
+            self._remove_files_from_playlists(changes['removed'])
+        
+        # Process added and modified files
+        files_to_process = changes['added'] + changes['modified']
+        if not files_to_process:
+            logger.info("No files to process in incremental update")
+            return
+        
+        # Analyze new/modified files
+        features = []
+        if len(files_to_process) > 50:  # Use parallel for large batches
+            logger.info(f"Processing {len(files_to_process)} files in parallel")
+            features = self._process_parallel(files_to_process, workers=max(1, mp.cpu_count() // 2))
+        else:
+            logger.info(f"Processing {len(files_to_process)} files sequentially")
+            features = []
+            for filepath in tqdm(files_to_process, desc="Processing files"):
+                feat, _ = process_file_worker(filepath)
+                if feat:
+                    features.append(feat)
+        
+        # Assign files to existing playlists
+        assigned_count = self._assign_to_existing_playlists(features)
+        logger.info(f"Assigned {assigned_count} files to existing playlists")
+        
+        # Save updated playlists
+        self.save_playlists_from_db(output_dir)
+        
+        # Update library state
+        self._update_library_state()
+        
+        elapsed = time.time() - start_time
+        logger.info(f"Incremental update completed in {elapsed:.2f} seconds")
+
+    def _remove_files_from_playlists(self, filepaths):
+        """Remove files from all playlists"""
+        conn = sqlite3.connect(self.playlist_db)
+        cursor = conn.cursor()
+        for filepath in filepaths:
+            cursor.execute(
+                "DELETE FROM playlist_songs WHERE filepath = ?", 
+                (filepath,))
+        conn.commit()
+        conn.close()
+        logger.info(f"Removed {len(filepaths)} files from playlists")
+
+    def _assign_to_existing_playlists(self, features):
+        """Assign files to existing playlists based on similarity"""
         conn = sqlite3.connect(self.playlist_db)
         cursor = conn.cursor()
         
-        # Remove deleted files from all playlists
-        for filepath in removed_files:
-            cursor.execute(
-                "DELETE FROM playlist_songs WHERE filepath = ?", (filepath,))
-        
-        # Analyze new files
-        new_features = []
-        if new_files:
-            logger.info(f"Analyzing {len(new_files)} new files")
-            if len(new_files) > 100:  # Use parallel processing for large batches
-                results = self._process_parallel(new_files, workers=max(1, mp.cpu_count() // 2))
-                new_features = [r for r in results if r]
-            else:
-                new_features = []
-                for filepath in tqdm(new_files, desc="Processing new files"):
-                    features, _ = process_file_worker(filepath)
-                    if features:
-                        new_features.append(features)
-        
-        # Get existing playlists and centroids
+        # Get all playlists with their centroids
         cursor.execute("""
-            SELECT p.id, p.name, 
-                AVG(f.bpm) as avg_bpm, 
-                AVG(f.centroid) as avg_centroid,
-                AVG(f.duration) as avg_duration
-            FROM playlists p
-            JOIN playlist_songs ps ON p.id = ps.playlist_id
-            JOIN audio_features f ON ps.filepath = f.file_path
-            GROUP BY p.id
+            SELECT id, name, centroid_bpm, centroid_centroid, centroid_duration 
+            FROM playlists
         """)
-        playlist_data = cursor.fetchall()
+        playlists = cursor.fetchall()
         
-        # Assign new files to nearest playlist
-        for features in new_features:
+        if not playlists:
+            logger.warning("No existing playlists found for assignment")
+            return 0
+        
+        assigned_count = 0
+        for feature in features:
+            filepath = feature['filepath']
             min_distance = float('inf')
             best_playlist = None
             
-            for playlist_id, name, avg_bpm, avg_centroid, avg_duration in playlist_data:
-                # Simple distance metric based on key features
+            # Find closest playlist
+            for playlist_id, name, bpm, centroid, duration in playlists:
+                # Skip playlists with missing data
+                if bpm is None or centroid is None or duration is None:
+                    continue
+                
+                # Calculate distance using key features
                 distance = (
-                    abs(features['bpm'] - avg_bpm) +
-                    abs(features['centroid'] - avg_centroid) +
-                    abs(features['duration'] - avg_duration)
+                    abs(feature['bpm'] - bpm) +
+                    abs(feature['centroid'] - centroid) +
+                    abs(feature['duration'] - duration)
                 )
                 
                 if distance < min_distance:
                     min_distance = distance
                     best_playlist = (playlist_id, name)
             
+            # Assign to best playlist
             if best_playlist:
                 playlist_id, name = best_playlist
-                cursor.execute(
-                    "INSERT INTO playlist_songs (playlist_id, filepath) VALUES (?, ?)",
-                    (playlist_id, features['filepath']))
-                logger.info(f"Added {os.path.basename(features['filepath'])} to playlist {name}")
+                try:
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO playlist_songs (playlist_id, filepath) VALUES (?, ?)",
+                        (playlist_id, filepath))
+                    assigned_count += 1
+                    logger.debug(f"Assigned {os.path.basename(filepath)} to playlist {name}")
+                except sqlite3.IntegrityError:
+                    # Already assigned, skip
+                    pass
         
         conn.commit()
         conn.close()
-        return len(new_features)
+        return assigned_count
+
+    def save_playlists_from_db(self, output_dir):
+        """Save playlists based on current database state"""
+        conn = sqlite3.connect(self.playlist_db)
+        cursor = conn.cursor()
+        
+        # Get all playlists
+        cursor.execute("SELECT id, name FROM playlists")
+        playlists = cursor.fetchall()
+        
+        if not playlists:
+            logger.warning("No playlists found in database")
+            return
+        
+        os.makedirs(output_dir, exist_ok=True)
+        saved_count = 0
+        
+        for playlist_id, name in playlists:
+            # Get files for this playlist
+            cursor.execute(
+                "SELECT filepath FROM playlist_songs WHERE playlist_id = ?",
+                (playlist_id,))
+            filepaths = [row[0] for row in cursor.fetchall()]
+            
+            if not filepaths:
+                logger.info(f"Skipping empty playlist: {name}")
+                continue
+            
+            # Convert paths and save
+            host_paths = [self.convert_to_host_path(p) for p in filepaths]
+            playlist_path = os.path.join(output_dir, f"{sanitize_filename(name)}.m3u")
+            with open(playlist_path, 'w') as f:
+                f.write("\n".join(host_paths))
+            
+            saved_count += 1
+            logger.info(f"Updated playlist {name} with {len(host_paths)} tracks")
+        
+        conn.close()
+        
+        if saved_count:
+            logger.info(f"Saved {saved_count} updated playlists")
+        else:
+            logger.warning("No playlists saved")
+
+    def _update_library_state(self):
+        """Update library state after processing"""
+        current_state = self._scan_music_directory(self.container_music_dir)
+        self._save_library_state(current_state)
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         if not features_list:
@@ -376,6 +615,7 @@ class PlaylistGenerator:
         df['cluster'] = kmeans.fit_predict(features_scaled)
         
         playlists = {}
+        centroids = {}
         for cluster in df['cluster'].unique():
             cluster_songs = df[df['cluster'] == cluster]
             centroid = cluster_songs[naming_features].mean().to_dict()
@@ -384,9 +624,13 @@ class PlaylistGenerator:
             if name not in playlists:
                 playlists[name] = []
             playlists[name].extend(cluster_songs['filepath'].tolist())
+            centroids[name] = centroid
         
         # Update playlist tracker
-        self._update_playlist_tracker(playlists)
+        self._update_playlist_tracker(playlists, centroids)
+        
+        # Update library state
+        self._update_library_state()
         
         return {k:v for k,v in playlists.items() if len(v) >= 5}
 
@@ -474,16 +718,32 @@ def main():
             generator.failed_files.extend(missing_in_db)
 
         if args.incremental:
-            logger.info("Running in incremental update mode")
-            # Implementation would compare current files with previous state
-            # For simplicity, we'll show the structure but skip full implementation
-            # In a real system, we would:
-            #   1. Get previous file state
-            #   2. Find new and removed files
-            #   3. Call generator._get_incremental_updates(new_files, removed_files)
-            logger.warning("Full incremental implementation requires state tracking - running full scan instead")
-            # Fall through to full processing
+            # Load previous state
+            previous_state = generator._load_library_state()
+            if not previous_state:
+                logger.warning("No previous state found. Doing full run.")
+            else:
+                # Scan current directory
+                current_state = generator._scan_music_directory(args.music_dir)
+                
+                # Compute changes
+                changes = generator._get_file_changes(current_state, previous_state)
+                
+                # Process incremental update if changes found
+                if any(changes.values()):
+                    logger.info(f"Changes detected: {len(changes['added'])} added, "
+                               f"{len(changes['removed'])} removed, "
+                               f"{len(changes['modified'])} modified")
+                    generator.incremental_update(changes, args.output_dir)
+                    
+                    # Update state after processing
+                    generator._update_library_state()
+                    return
+                else:
+                    logger.info("No changes detected. Playlists are up to date.")
+                    return
 
+        # Full processing mode
         if args.use_db:
             logger.info("Using database features")
             features = generator.get_all_features_from_db()
