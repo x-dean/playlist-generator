@@ -18,7 +18,8 @@ RUN pip install --no-cache-dir \
     tqdm \
     essentia \
     numpy==1.26.4 \
-    matplotlib
+    matplotlib \
+    psutil
 
 # Copy application files
 COPY playlist_generator.py /app/
