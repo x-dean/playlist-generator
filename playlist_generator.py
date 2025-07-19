@@ -20,6 +20,10 @@ import sqlite3
 import json
 from datetime import datetime
 import hashlib
+import queue
+import psutil
+import resource
+
 
 # Improved logging setup
 logging.basicConfig(
@@ -39,26 +43,45 @@ def sanitize_filename(name):
 def process_file_worker(filepath):
     try:
         from analyze_music import audio_analyzer
-        result = audio_analyzer.extract_features(filepath)
-        if result and result[0] is not None:
-            features = result[0]
-            # Ensure all critical features have values
-            required_features = {
-                'duration': 180,  # Default to 3 minutes
-                'bpm': 100, 
-                'centroid': 2000,
-                'loudness': -15,
-                'dynamics': 0,
-                'rhythm_complexity': 0.5,
-                'key': 'unknown',
-                'scale': 'unknown',
-                'key_confidence': 0
-            }
-            for key, default in required_features.items():
-                if features.get(key) is None:
-                    features[key] = default
-            return features, filepath
-        return None, filepath
+        import multiprocessing as mp
+        from functools import partial
+        
+        # Create a helper function for timeout handling
+        def _extract_with_timeout():
+            try:
+                result = audio_analyzer.extract_features(filepath)
+                if result and result[0] is not None:
+                    features = result[0]
+                    # Ensure all critical features have values
+                    required_features = {
+                        'duration': 180,  # Default to 3 minutes
+                        'bpm': 100, 
+                        'centroid': 2000,
+                        'loudness': -15,
+                        'dynamics': 0,
+                        'rhythm_complexity': 0.5,
+                        'key': 'unknown',
+                        'scale': 'unknown',
+                        'key_confidence': 0
+                    }
+                    for key, default in required_features.items():
+                        if features.get(key) is None:
+                            features[key] = default
+                    return features, filepath
+                return None, filepath
+            except Exception as e:
+                logger.error(f"Extraction error in {filepath}: {str(e)}")
+                return None, filepath
+        
+        # Create a process for timeout control
+        ctx = mp.get_context('spawn')
+        with ctx.Pool(1) as pool:
+            result = pool.apply_async(_extract_with_timeout)
+            try:
+                return result.get(timeout=120)  # 2-minute timeout per file
+            except mp.TimeoutError:
+                logger.error(f"Timeout processing {filepath}")
+                return None, filepath
     except Exception as e:
         logger.error(f"Error processing {filepath}: {str(e)}")
         return None, filepath
@@ -283,26 +306,179 @@ class PlaylistGenerator:
         return results
 
     def _process_parallel(self, file_list, workers):
+        # Set memory limits
+        try:
+            soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+            new_limit = (min(4 * 1024**3, hard), hard)  # 4GB soft limit
+            resource.setrlimit(resource.RLIMIT_AS, new_limit)
+            logger.info("Set memory limit: 4GB")
+        except Exception as e:
+            logger.warning(f"Could not set memory limits: {str(e)}")
+        
+        # Log initial memory
+        try:
+            mem = psutil.virtual_memory()
+            logger.info(f"Memory usage: {mem.used/1024/1024:.2f}MB used, "
+                       f"{mem.available/1024/1024:.2f}MB available")
+        except Exception as e:
+            logger.warning(f"Memory check failed: {str(e)}")
+        
         results = []
         try:
             logger.info(f"Starting multiprocessing pool with {workers} workers")
             ctx = mp.get_context('spawn')
-            with ctx.Pool(processes=workers) as pool:
-                # Use imap_unordered for better progress tracking
-                pbar = tqdm(total=len(file_list), desc="Processing files")
-                for features, filepath in pool.imap_unordered(process_file_worker, file_list):
-                    if features:
-                        results.append(features)
-                    else:
-                        self.failed_files.append(filepath)
-                    pbar.update(1)  # Update for each processed file
-                pbar.close()
-            logger.info("Processing completed")
+            
+            # Create a manager for shared state
+            manager = mp.Manager()
+            progress_counter = manager.Value('i', 0)
+            lock = manager.Lock()
+            result_queue = manager.Queue()
+            
+            # Calculate chunk size for better load balancing
+            chunk_size = max(1, len(file_list) // (workers * 4))
+            logger.info(f"Using chunk size: {chunk_size} files per worker batch")
+            
+            # Create worker processes
+            worker_processes = []
+            for i in range(workers):
+                p = ctx.Process(
+                    target=self._worker_task,
+                    args=(file_list, i, workers, chunk_size, progress_counter, lock, result_queue)
+                )
+                p.daemon = True  # Terminate if main process exits
+                p.start()
+                worker_processes.append(p)
+                logger.debug(f"Started worker {i}")
+            
+            # Create progress bar
+            pbar = tqdm(total=len(file_list), desc="Processing files")
+            
+            # Monitor progress
+            processed_count = 0
+            last_log_time = time.time()
+            last_mem_check = time.time()
+            
+            # Adaptive timeout parameters
+            MIN_TIMEOUT = 30.0  # Minimum timeout in seconds
+            MAX_TIMEOUT = 300.0  # Maximum timeout in seconds
+            TIMEOUT_GROWTH_RATE = 0.1  # Timeout increase per processed file
+            
+            while processed_count < len(file_list):
+                try:
+                    # Calculate adaptive timeout
+                    timeout_value = min(MAX_TIMEOUT, MIN_TIMEOUT + (processed_count * TIMEOUT_GROWTH_RATE))
+                    
+                    # Get next result with timeout
+                    result = result_queue.get(timeout=timeout_value)
+                    if result is not None:
+                        features, filepath = result
+                        if features:
+                            results.append(features)
+                        else:
+                            self.failed_files.append(filepath)
+                    processed_count += 1
+                    pbar.update(1)
+                    
+                    # Log progress every 30 seconds
+                    current_time = time.time()
+                    if current_time - last_log_time > 30:
+                        last_log_time = current_time
+                        with lock:
+                            current_progress = progress_counter.value
+                        logger.info(f"Progress: {current_progress}/{len(file_list)} "
+                                f"({processed_count} completed)")
+                    
+                    # Check memory every 15 seconds
+                    if current_time - last_mem_check > 15:
+                        last_mem_check = current_time
+                        try:
+                            mem = psutil.virtual_memory()
+                            logger.info(f"Memory update: {mem.used/1024/1024:.2f}MB used, "
+                                      f"{mem.percent}% utilization")
+                        except Exception:
+                            pass
+                    
+                    # Worker health check every 10 processed files
+                    if processed_count % 10 == 0:
+                        alive_count = 0
+                        dead_workers = []
+                        for i, p in enumerate(worker_processes):
+                            if p.is_alive():
+                                alive_count += 1
+                            else:
+                                exitcode = p.exitcode
+                                if exitcode is not None and exitcode != 0:
+                                    logger.error(f"Worker {i} died with exit code {exitcode}")
+                                    dead_workers.append(i)
+                        
+                        logger.info(f"Worker status: {alive_count}/{workers} alive")
+                        
+                        # Restart dead workers if needed
+                        if dead_workers and alive_count < workers * 0.75:  # If more than 25% died
+                            logger.warning("Restarting dead workers")
+                            for i in dead_workers:
+                                if worker_processes[i].is_alive():
+                                    continue
+                                new_p = ctx.Process(
+                                    target=self._worker_task,
+                                    args=(file_list, i, workers, chunk_size, progress_counter, lock, result_queue)
+                                )
+                                new_p.daemon = True
+                                new_p.start()
+                                worker_processes[i] = new_p
+                                logger.info(f"Restarted worker {i}")
+                
+                except queue.Empty:
+                    # Check if any workers are still alive
+                    alive_workers = sum(p.is_alive() for p in worker_processes)
+                    if alive_workers == 0:
+                        logger.error("All workers died unexpectedly")
+                        break
+                    
+                    # Log timeout but continue waiting
+                    with lock:
+                        current_progress = progress_counter.value
+                    logger.warning(f"Timeout ({timeout_value:.1f}s) waiting for results. Workers progress: "
+                                f"{current_progress}/{len(file_list)}")
+            
+            pbar.close()
+            
+            # Terminate any remaining workers
+            for p in worker_processes:
+                if p.is_alive():
+                    p.terminate()
+                    p.join(timeout=1.0)
+            
+            logger.info(f"Processing completed: {len(results)} successful, {len(self.failed_files)} failed")
             return results
         except Exception as e:
-            logger.error(f"Multiprocessing failed: {str(e)}")
+            logger.error(f"Parallel processing failed: {str(e)}")
             logger.error(traceback.format_exc())
             return self._process_sequential(file_list)
+
+    def _worker_task(self, file_list, worker_id, total_workers, chunk_size, progress_counter, lock, result_queue):
+        """Worker process task with per-file timeout"""
+        try:
+            # Calculate worker's file range
+            start_index = worker_id * chunk_size
+            for i in range(start_index, len(file_list), total_workers * chunk_size):
+                batch = file_list[i:i+chunk_size]
+                for filepath in batch:
+                    try:
+                        # Process file with timeout
+                        features, _ = process_file_worker(filepath)
+                        result_queue.put((features, filepath))
+                    except Exception as e:
+                        logger.error(f"Worker error on {filepath}: {str(e)}")
+                        result_queue.put((None, filepath))
+                    finally:
+                        # Update progress counter
+                        with lock:
+                            progress_counter.value += 1
+        except Exception as e:
+            logger.error(f"Worker {worker_id} crashed: {str(e)}")
+        finally:
+            logger.info(f"Worker {worker_id} exiting")
 
     def get_all_features_from_db(self):
         try:
