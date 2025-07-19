@@ -277,15 +277,16 @@ class PlaylistGenerator:
 
     def _process_sequential(self, file_list):
         results = []
-        pbar = tqdm(file_list, desc="Processing files")
-        for filepath in pbar:
-            pbar.set_postfix(file=os.path.basename(filepath)[:20])
+        pbar = tqdm(total=len(file_list) // 10, desc="Processing files (every 10 files)")
+        for i, filepath in enumerate(file_list):
             features, _ = process_file_worker(filepath)
             if features:
                 results.append(features)
             else:
                 self.failed_files.append(filepath)
-            pbar.update(1)  # Ensure progress bar updates per file
+            if (i + 1) % 10 == 0:  # Update progress bar every 10 files
+                pbar.update(1)
+        pbar.close()
         return results
 
     def _process_parallel(self, file_list, workers):
