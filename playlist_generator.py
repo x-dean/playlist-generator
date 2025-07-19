@@ -125,57 +125,6 @@ class PlaylistGenerator:
             logger.error(traceback.format_exc())
             return self._process_sequential(file_list)
 
-    def _process_sequential(self, file_list):
-        results = []
-        for filepath in tqdm(file_list, desc="Processing files"):
-            features, _ = process_file_worker(filepath)
-            if features:
-                results.append(features)
-                if 'beat_confidence' in features:
-                    self.beat_confidences.append(features['beat_confidence'])
-            else:
-                self.failed_files.append(filepath)
-        return results
-
-    def _process_parallel(self, file_list, workers):
-        results = []
-        try:
-            logger.info(f"Starting multiprocessing pool with {workers} workers")
-            ctx = mp.get_context('spawn')
-            with ctx.Pool(processes=workers) as pool:
-                async_results = [
-                    pool.apply_async(process_file_worker, (filepath,))
-                    for filepath in file_list
-                ]
-                
-                for async_result in tqdm(
-                    async_results,
-                    total=len(file_list),
-                    desc="Processing files"
-                ):
-                    try:
-                        # Increased timeout to 10 minutes
-                        features, filepath = async_result.get(timeout=600)
-                        if features:
-                            results.append(features)
-                            if 'beat_confidence' in features:
-                                self.beat_confidences.append(features['beat_confidence'])
-                        else:
-                            self.failed_files.append(filepath)
-                    except mp.TimeoutError:
-                        logger.error(f"Timeout processing {filepath}")
-                        self.failed_files.append(filepath)
-                    except Exception as e:
-                        logger.error(f"Error retrieving result: {str(e)}")
-                        self.failed_files.append(filepath)
-                        
-            logger.info("Processing completed")
-            return results
-        except Exception as e:
-            logger.error(f"Multiprocessing failed: {str(e)}")
-            logger.error(traceback.format_exc())
-            return self._process_sequential(file_list)
-
     def get_all_features_from_db(self):
         try:
             return get_all_features()
@@ -197,8 +146,21 @@ class PlaylistGenerator:
         return os.path.join(self.host_music_dir, rel_path)
 
     def generate_playlist_name(self, features):
-        # More granular BPM classification (8 levels)
+        """Generate playlist name from audio features with safety checks"""
+        # Ensure all required features are present
+        required_features = ['bpm', 'centroid', 'beat_confidence', 'duration']
+        for feat in required_features:
+            if feat not in features:
+                logger.warning(f"Missing feature '{feat}' in centroid data")
+                features[feat] = 0.0  # Provide default value
+
+        # Now safely access the features
         bpm = features['bpm']
+        centroid = features['centroid']
+        duration = features['duration']
+        beat_conf = features['beat_confidence']
+        
+        # More granular BPM classification (8 levels)
         bpm_desc = (
             "VerySlow" if bpm < 55 else
             "Slow" if bpm < 70 else
@@ -211,7 +173,6 @@ class PlaylistGenerator:
         )
         
         # More detailed timbre classification (6 levels)
-        centroid = features['centroid']
         timbre_desc = (
             "Dark" if centroid < 800 else
             "Warm" if centroid < 1500 else
@@ -222,7 +183,6 @@ class PlaylistGenerator:
         )
         
         # Duration with more ranges (5 levels)
-        duration = features['duration']
         duration_desc = (
             "Brief" if duration < 60 else
             "Short" if duration < 120 else
@@ -232,9 +192,6 @@ class PlaylistGenerator:
         )
         
         # Revised energy scaling with better granularity
-        beat_conf = features['beat_confidence']
-        
-        # Combination of scaling methods for better granularity
         if beat_conf > 0.9:
             # Power scaling for high values: creates more differentiation at top end
             energy_level = 8 + min(2, int((beat_conf - 0.9) * 20))
@@ -281,6 +238,18 @@ class PlaylistGenerator:
             return {}
             
         df = pd.DataFrame(valid_features)
+        
+        # We need these features for playlist naming
+        naming_features = ['bpm', 'beat_confidence', 'centroid', 'duration']
+        
+        # Ensure we have all required features
+        for feat in naming_features:
+            if feat not in df.columns:
+                logger.warning(f"Adding missing feature column: {feat}")
+                df[feat] = 0.0
+                
+        # Fill any remaining NaNs
+        df[naming_features] = df[naming_features].fillna(0)
         
         # Analyze beat confidence distribution
         if 'beat_confidence' in df and not df.empty:
@@ -334,7 +303,8 @@ class PlaylistGenerator:
         playlists = {}
         for cluster in df['cluster'].unique():
             cluster_songs = df[df['cluster'] == cluster]
-            centroid = cluster_songs[cluster_features].mean().to_dict()
+            # Calculate centroid using ALL naming features
+            centroid = cluster_songs[naming_features].mean().to_dict()
             name = sanitize_filename(self.generate_playlist_name(centroid))
             
             if name not in playlists:
