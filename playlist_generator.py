@@ -16,6 +16,7 @@ import numpy as np
 import time
 import traceback
 import re
+import sqlite3  # Added for database cleanup
 
 # Logging setup
 logging.basicConfig(
@@ -38,6 +39,7 @@ class PlaylistGenerator:
         self.failed_files = []
         self.container_music_dir = ""
         self.host_music_dir = ""
+        self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')  # Added cache file path
 
     def analyze_directory(self, music_dir, workers=4, force_sequential=False):
         file_list = []
@@ -181,7 +183,20 @@ class PlaylistGenerator:
             logger.warning("No features to cluster")
             return {}
 
-        df = pd.DataFrame(features_list)
+        # Filter out files that no longer exist
+        valid_features = []
+        for feat in features_list:
+            if os.path.exists(feat['filepath']):
+                valid_features.append(feat)
+            else:
+                logger.warning(f"File not found: {feat['filepath']}")
+                self.failed_files.append(feat['filepath'])
+                
+        if not valid_features:
+            logger.warning("No valid features after filtering")
+            return {}
+            
+        df = pd.DataFrame(valid_features)
         
         # Create enhanced features
         numeric_cols = ['bpm', 'beat_confidence', 'centroid', 'duration']
@@ -219,6 +234,34 @@ class PlaylistGenerator:
         # Filter out very small playlists
         return {k:v for k,v in playlists.items() if len(v) >= 5}  # Minimum 5 tracks
 
+    def cleanup_database(self):
+        """Remove missing files from database"""
+        try:
+            conn = sqlite3.connect(self.cache_file)
+            cursor = conn.cursor()
+            cursor.execute("SELECT file_path FROM audio_features")
+            db_files = [row[0] for row in cursor.fetchall()]
+            
+            missing_files = []
+            for file_path in db_files:
+                if not os.path.exists(file_path):
+                    missing_files.append(file_path)
+            
+            if missing_files:
+                logger.info(f"Cleaning up {len(missing_files)} missing files from database")
+                placeholders = ','.join(['?'] * len(missing_files))
+                cursor.execute(
+                    f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
+                    missing_files
+                )
+                conn.commit()
+                
+            conn.close()
+            return missing_files
+        except Exception as e:
+            logger.error(f"Database cleanup failed: {str(e)}")
+            return []
+
     def save_playlists(self, playlists, output_dir):
         os.makedirs(output_dir, exist_ok=True)
         saved_count = 0
@@ -227,23 +270,29 @@ class PlaylistGenerator:
             if not songs:
                 continue
 
+            # Convert container paths to host paths while preserving original paths
+            host_songs = [self.convert_to_host_path(song) for song in songs]
+            
             playlist_path = os.path.join(output_dir, f"{name}.m3u")
             with open(playlist_path, 'w') as f:
-                f.write("\n".join(songs))
+                f.write("\n".join(host_songs))
             saved_count += 1
-            logger.info(f"Saved {name} with {len(songs)} tracks")
+            logger.info(f"Saved {name} with {len(host_songs)} tracks")
 
         if saved_count:
             logger.info(f"Saved {saved_count} playlists")
         else:
             logger.warning("No playlists saved")
 
-        if self.failed_files:
+        # Combine processing failures and missing DB entries
+        all_failed = list(set(self.failed_files))
+        
+        if all_failed:
             failed_path = os.path.join(output_dir, "Failed_Files.m3u")
             with open(failed_path, 'w') as f:
-                host_failed = [self.convert_to_host_path(p) for p in self.failed_files]
+                host_failed = [self.convert_to_host_path(p) for p in all_failed]
                 f.write("\n".join(host_failed))
-            logger.info(f"Saved {len(self.failed_files)} failed files")
+            logger.info(f"Saved {len(all_failed)} failed/missing files")
 
 def process_file_worker(filepath):
     try:
@@ -275,6 +324,12 @@ def main():
 
     start_time = time.time()
     try:
+        # Clean up database before processing
+        missing_in_db = generator.cleanup_database()
+        if missing_in_db:
+            logger.info(f"Removed {len(missing_in_db)} missing files from database")
+            generator.failed_files.extend(missing_in_db)
+
         if args.use_db:
             logger.info("Using database features")
             features = generator.get_all_features_from_db()
