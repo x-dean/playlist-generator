@@ -937,112 +937,78 @@ class PlaylistGenerator:
             cluster_songs = df[df['cluster'] == cluster]
             all_clusters[cluster] = cluster_songs
                 
-            # Merge small clusters with their nearest neighbors
-            merged_playlists = {}
-            centroids = {}
-
-            # Sort clusters by size descending
-            sorted_clusters = sorted(all_clusters.items(), key=lambda x: len(x[1]), reverse=True)
-
-            # Create a list to store clusters that couldn't be merged initially
-            unmerged_clusters = []
-
-            for cluster_id, cluster_songs in sorted_clusters:
-                # Reduce the size threshold for merging
-                if len(cluster_songs) < min_playlist_size * 2:  # Reduced threshold
-                    # Find nearest cluster regardless of size
-                    closest_cluster = None
-                    min_distance = float('inf')
-                    
-                    # First check existing merged playlists
-                    for target_id, target_songs in merged_playlists.items():
-                        dist = np.linalg.norm(
-                            cluster_songs[cluster_features].mean().values -
-                            target_songs[cluster_features].mean().values
-                        )
-                        if dist < min_distance:
-                            min_distance = dist
-                            closest_cluster = target_id
-                    
-                    # Then check other unmerged clusters
-                    if not closest_cluster:
-                        for other_id, other_songs in unmerged_clusters:
-                            dist = np.linalg.norm(
-                                cluster_songs[cluster_features].mean().values -
-                                other_songs[cluster_features].mean().values
-                            )
-                            if dist < min_distance:
-                                min_distance = dist
-                                closest_cluster = other_id
-                    
-                    if closest_cluster is not None:
-                        # Merge with closest cluster
-                        if closest_cluster in merged_playlists:
-                            merged_playlists[closest_cluster] = pd.concat([
-                                merged_playlists[closest_cluster],
-                                cluster_songs
-                            ])
-                        else:
-                            # Create new merged cluster
-                            merged_playlists[closest_cluster] = pd.concat([
-                                all_clusters[closest_cluster],
-                                cluster_songs
-                            ])
-                        logger.info(f"Merged cluster {cluster_id} ({len(cluster_songs)} tracks) "
-                                    f"into cluster {closest_cluster}")
-                        continue
-                    
-                    # If no suitable cluster found, add to unmerged list for later processing
-                    unmerged_clusters.append((cluster_id, cluster_songs))
-                    continue
-
-                # Create new playlist for this cluster
-                centroid = cluster_songs[cluster_features].mean().to_dict()
-                centroid['key'] = cluster_songs['key'].mode().iloc[0] if not cluster_songs['key'].mode().empty else 'C'
-                centroid['scale'] = cluster_songs['scale'].mode().iloc[0] if not cluster_songs['scale'].mode().empty else 'major'
+        # Create playlists directly from clusters
+        playlists = {}
+        centroids = {}
+        
+        for cluster_id, cluster_songs in all_clusters.items():
+            if len(cluster_songs) < min_playlist_size:
+                # Skip very small clusters - they'll be handled later
+                continue
                 
-                name = sanitize_filename(self.generate_playlist_name(centroid))
-                merged_playlists[name] = cluster_songs
-                centroids[name] = centroid
-                logger.info(f"Created playlist '{name}' with {len(cluster_songs)} tracks")
-
-            # Process any remaining unmerged clusters
-            for cluster_id, cluster_songs in unmerged_clusters:
-                # Create playlists for unmerged clusters regardless of size
-                centroid = cluster_songs[cluster_features].mean().to_dict()
-                centroid['key'] = cluster_songs['key'].mode().iloc[0] if not cluster_songs['key'].mode().empty else 'C'
-                centroid['scale'] = cluster_songs['scale'].mode().iloc[0] if not cluster_songs['scale'].mode().empty else 'major'
-                
-                name = sanitize_filename(self.generate_playlist_name(centroid))
-                merged_playlists[name] = cluster_songs
-                centroids[name] = centroid
-                logger.info(f"Created small playlist '{name}' with {len(cluster_songs)} tracks")
-
-            # Create final playlists - REMOVE THE SIZE CHECK
-            playlists = {}
-            for name, cluster_songs in merged_playlists.items():
-                # Only skip completely empty playlists
-                if len(cluster_songs) == 0:
-                    logger.info(f"Skipping empty playlist: {name}")
-                    continue
-                    
-                playlists[name] = cluster_songs['filepath'].tolist()
-                logger.info(f"Final playlist '{name}' with {len(playlists[name])} tracks")
+            centroid = cluster_songs[cluster_features].mean().to_dict()
+            centroid['key'] = cluster_songs['key'].mode().iloc[0] if not cluster_songs['key'].mode().empty else 'C'
+            centroid['scale'] = cluster_songs['scale'].mode().iloc[0] if not cluster_songs['scale'].mode().empty else 'major'
             
-            # Track all assigned filepaths
-            all_assigned = set()
-            for tracks in playlists.values():
-                all_assigned.update(tracks)
+            name = sanitize_filename(self.generate_playlist_name(centroid))
+            playlists[name] = cluster_songs['filepath'].tolist()
+            centroids[name] = centroid
+            logger.info(f"Created playlist '{name}' with {len(cluster_songs)} tracks")
 
-            # Get all filepaths from the original DataFrame
-            all_tracks = set(df['filepath'].tolist())
-            missing_tracks = all_tracks - all_assigned
+        # Track all assigned filepaths
+        all_assigned = set()
+        for tracks in playlists.values():
+            all_assigned.update(tracks)
 
+        # Get all filepaths from the original DataFrame
+        all_tracks = set(df['filepath'].tolist())
+        missing_tracks = all_tracks - all_assigned
+
+        if missing_tracks:
+            logger.warning(f"{len(missing_tracks)} tracks were not assigned to playlists. Creating new playlists for them.")
+            
+            # Cluster the unassigned tracks
+            if len(missing_tracks) > min_playlist_size:
+                missing_df = df[df['filepath'].isin(missing_tracks)]
+                
+                # Recluster the missing tracks
+                n_missing_clusters = min(10, len(missing_df) // min_playlist_size)
+                if n_missing_clusters > 1:
+                    kmeans_missing = MiniBatchKMeans(
+                        n_clusters=n_missing_clusters,
+                        random_state=42,
+                        batch_size=min(500, len(missing_df)),
+                        n_init=3,
+                        max_iter=30
+                    )
+                    missing_df['sub_cluster'] = kmeans_missing.fit_predict(
+                        missing_df[cluster_features].values.astype(np.float32)
+                    )
+                    
+                    # Create playlists from subclusters
+                    for sub_cluster in missing_df['sub_cluster'].unique():
+                        sub_songs = missing_df[missing_df['sub_cluster'] == sub_cluster]
+                        if len(sub_songs) < min_playlist_size:
+                            continue
+                            
+                        centroid = sub_songs[cluster_features].mean().to_dict()
+                        centroid['key'] = sub_songs['key'].mode().iloc[0] if not sub_songs['key'].mode().empty else 'C'
+                        centroid['scale'] = sub_songs['scale'].mode().iloc[0] if not sub_songs['scale'].mode().empty else 'major'
+                        
+                        name = sanitize_filename(self.generate_playlist_name(centroid))
+                        playlists[name] = sub_songs['filepath'].tolist()
+                        centroids[name] = centroid
+                        logger.info(f"Created playlist for unassigned tracks: '{name}' with {len(sub_songs)} tracks")
+                    
+                    # Update assigned tracks
+                    for tracks in playlists.values():
+                        all_assigned.update(tracks)
+                    missing_tracks = all_tracks - all_assigned
+            
+            # Add any remaining tracks to miscellaneous
             if missing_tracks:
-                logger.warning(f"{len(missing_tracks)} tracks were not assigned to any playlist. Adding to 'Miscellaneous_Uncategorized'.")
                 misc_playlist = "Miscellaneous_Uncategorized"
                 playlists[misc_playlist] = list(missing_tracks)
-                # Create a default centroid for the miscellaneous playlist
                 centroids[misc_playlist] = {
                     'bpm': 100,
                     'centroid': 2000,
@@ -1053,14 +1019,15 @@ class PlaylistGenerator:
                     'key': 'unknown',
                     'scale': 'unknown'
                 }
-            
-            # Update playlist tracker
-            self._update_playlist_tracker(playlists, centroids)
-            
-            # Update library state
-            self._update_library_state()
-            
-            return playlists
+                logger.info(f"Created '{misc_playlist}' with {len(missing_tracks)} tracks")
+        
+        # Update playlist tracker
+        self._update_playlist_tracker(playlists, centroids)
+        
+        # Update library state
+        self._update_library_state()
+        
+        return playlists
 
     def cleanup_database(self):
         try:
