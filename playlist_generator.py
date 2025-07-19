@@ -21,9 +21,6 @@ import json
 from datetime import datetime
 import hashlib
 import coloredlogs
-import queue
-import psutil
-import resource
 
 logger = logging.getLogger(__name__)
 
@@ -334,195 +331,6 @@ class PlaylistGenerator:
             logger.error(traceback.format_exc())
             return self._process_sequential(file_list)
 
-    def _process_sequential(self, file_list):
-        results = []
-        pbar = tqdm(total=len(file_list) // 10, desc="Processing files (every 10 files)")
-        for i, filepath in enumerate(file_list):
-            features, _ = process_file_worker(filepath)
-            if features:
-                results.append(features)
-            else:
-                self.failed_files.append(filepath)
-            if (i + 1) % 10 == 0:  # Update progress bar every 10 files
-                pbar.update(1)
-        pbar.close()
-        return results
-
-    def _process_parallel(self, file_list, workers):
-        # Set memory limits
-        try:
-            soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-            new_limit = (min(4 * 1024**3, hard), hard)  # 4GB soft limit
-            resource.setrlimit(resource.RLIMIT_AS, new_limit)
-            logger.info("Set memory limit: 4GB")
-        except Exception as e:
-            logger.warning(f"Could not set memory limits: {str(e)}")
-        
-        # Log initial memory
-        try:
-            mem = psutil.virtual_memory()
-            logger.info(f"Memory usage: {mem.used/1024/1024:.2f}MB used, "
-                       f"{mem.available/1024/1024:.2f}MB available")
-        except Exception as e:
-            logger.warning(f"Memory check failed: {str(e)}")
-        
-        results = []
-        try:
-            logger.info(f"Starting multiprocessing pool with {workers} workers")
-            ctx = mp.get_context('spawn')
-            
-            # Create a manager for shared state
-            manager = mp.Manager()
-            progress_counter = manager.Value('i', 0)
-            lock = manager.Lock()
-            result_queue = manager.Queue()
-            
-            # Calculate chunk size for better load balancing
-            chunk_size = max(1, len(file_list) // (workers * 4))
-            logger.info(f"Using chunk size: {chunk_size} files per worker batch")
-            
-            # Create worker processes
-            worker_processes = []
-            for i in range(workers):
-                p = ctx.Process(
-                    target=self._worker_task,
-                    args=(file_list, i, workers, chunk_size, progress_counter, lock, result_queue)
-                )
-                p.daemon = False  # Terminate if main process exits
-                p.start()
-                worker_processes.append(p)
-                logger.debug(f"Started worker {i}")
-            
-            # Create progress bar
-            pbar = tqdm(total=len(file_list), desc="Processing files")
-            
-            # Monitor progress
-            processed_count = 0
-            last_log_time = time.time()
-            last_mem_check = time.time()
-            
-            # Adaptive timeout parameters
-            MIN_TIMEOUT = 30.0  # Minimum timeout in seconds
-            MAX_TIMEOUT = 300.0  # Maximum timeout in seconds
-            TIMEOUT_GROWTH_RATE = 0.1  # Timeout increase per processed file
-            
-            while processed_count < len(file_list):
-                try:
-                    # Calculate adaptive timeout
-                    timeout_value = min(MAX_TIMEOUT, MIN_TIMEOUT + (processed_count * TIMEOUT_GROWTH_RATE))
-                    
-                    # Get next result with timeout
-                    result = result_queue.get(timeout=timeout_value)
-                    if result is not None:
-                        features, filepath = result
-                        if features:
-                            results.append(features)
-                        else:
-                            self.failed_files.append(filepath)
-                    processed_count += 1
-                    pbar.update(1)
-                    
-                    # Log progress every 30 seconds
-                    current_time = time.time()
-                    if current_time - last_log_time > 30:
-                        last_log_time = current_time
-                        with lock:
-                            current_progress = progress_counter.value
-                        logger.info(f"Progress: {current_progress}/{len(file_list)} "
-                                f"({processed_count} completed)")
-                    
-                    # Check memory every 15 seconds
-                    if current_time - last_mem_check > 15:
-                        last_mem_check = current_time
-                        try:
-                            mem = psutil.virtual_memory()
-                            logger.info(f"Memory update: {mem.used/1024/1024:.2f}MB used, "
-                                      f"{mem.percent}% utilization")
-                        except Exception:
-                            pass
-                    
-                    # Worker health check every 10 processed files
-                    if processed_count % 10 == 0:
-                        alive_count = 0
-                        dead_workers = []
-                        for i, p in enumerate(worker_processes):
-                            if p.is_alive():
-                                alive_count += 1
-                            else:
-                                exitcode = p.exitcode
-                                if exitcode is not None and exitcode != 0:
-                                    logger.error(f"Worker {i} died with exit code {exitcode}")
-                                    dead_workers.append(i)
-                        
-                        logger.info(f"Worker status: {alive_count}/{workers} alive")
-                        
-                        # Restart dead workers if needed
-                        if dead_workers and alive_count < workers * 0.75:  # If more than 25% died
-                            logger.warning("Restarting dead workers")
-                            for i in dead_workers:
-                                if worker_processes[i].is_alive():
-                                    continue
-                                new_p = ctx.Process(
-                                    target=self._worker_task,
-                                    args=(file_list, i, workers, chunk_size, progress_counter, lock, result_queue)
-                                )
-                                new_p.daemon = True
-                                new_p.start()
-                                worker_processes[i] = new_p
-                                logger.info(f"Restarted worker {i}")
-                
-                except queue.Empty:
-                    # Check if any workers are still alive
-                    alive_workers = sum(p.is_alive() for p in worker_processes)
-                    if alive_workers == 0:
-                        logger.error("All workers died unexpectedly")
-                        break
-                    
-                    # Log timeout but continue waiting
-                    with lock:
-                        current_progress = progress_counter.value
-                    logger.warning(f"Timeout ({timeout_value:.1f}s) waiting for results. Workers progress: "
-                                f"{current_progress}/{len(file_list)}")
-            
-            pbar.close()
-            
-            # Terminate any remaining workers
-            for p in worker_processes:
-                if p.is_alive():
-                    p.terminate()
-                    p.join(timeout=1.0)
-            
-            logger.info(f"Processing completed: {len(results)} successful, {len(self.failed_files)} failed")
-            return results
-        except Exception as e:
-            logger.error(f"Parallel processing failed: {str(e)}")
-            logger.error(traceback.format_exc())
-            return self._process_sequential(file_list)
-
-    def _worker_task(self, file_list, worker_id, total_workers, chunk_size, progress_counter, lock, result_queue):
-        """Worker process task with per-file timeout"""
-        try:
-            # Calculate worker's file range
-            start_index = worker_id * chunk_size
-            for i in range(start_index, len(file_list), total_workers * chunk_size):
-                batch = file_list[i:i+chunk_size]
-                for filepath in batch:
-                    try:
-                        # Process file with timeout
-                        features, _ = process_file_worker(filepath)
-                        result_queue.put((features, filepath))
-                    except Exception as e:
-                        logger.error(f"Worker error on {filepath}: {str(e)}")
-                        result_queue.put((None, filepath))
-                    finally:
-                        # Update progress counter
-                        with lock:
-                            progress_counter.value += 1
-        except Exception as e:
-            logger.error(f"Worker {worker_id} crashed: {str(e)}")
-        finally:
-            logger.info(f"Worker {worker_id} exiting")
-
     def get_all_features_from_db(self):
         try:
             features = get_all_features()
@@ -543,339 +351,6 @@ class PlaylistGenerator:
 
         rel_path = os.path.relpath(container_path, container_music_dir)
         return os.path.join(self.host_music_dir, rel_path)
-
-    def _categorize_mood(self, features):
-        """Categorize mood based on harmonic and dynamic features"""
-        scale = features.get('scale', 'unknown')
-        bpm = features.get('bpm', 0)
-        loudness = features.get('loudness', -20)
-        
-        if scale == 'minor':
-            if bpm < 90: 
-                return "Melancholic"
-            return "Intense"
-        else:
-            if loudness < -15: 
-                return "Calm"
-            if bpm > 120: 
-                return "Euphoric"
-            return "Upbeat"
-
-    def generate_playlist_name(self, features):
-        """Generate meaningful playlist name using multiple features"""
-        # Default values for missing features
-        defaults = {
-            'bpm': 100, 'centroid': 2000, 'duration': 180,
-            'loudness': -15, 'rhythm_complexity': 0.5
-        }
-        for key, default in defaults.items():
-            if features.get(key) is None:
-                features[key] = default
-                logger.warning(f"Using default value for missing feature: {key}")
-
-        bpm = features['bpm']
-        centroid = features['centroid']
-        duration = features['duration']
-        loudness = features['loudness']
-        rhythm_complexity = features.get('rhythm_complexity', 0.5)
-        scale = features.get('scale', 'major')
-        
-        # BPM descriptors
-        bpm_desc = (
-            "VerySlow" if bpm < 55 else
-            "Slow" if bpm < 70 else
-            "Chill" if bpm < 85 else
-            "Medium" if bpm < 100 else
-            "Upbeat" if bpm < 115 else
-            "Energetic" if bpm < 135 else
-            "Fast" if bpm < 155 else
-            "VeryFast"
-        )
-        
-        # Timbre descriptors
-        timbre_desc = (
-            "Dark" if centroid < 800 else
-            "Warm" if centroid < 1500 else
-            "Mellow" if centroid < 2200 else
-            "Bright" if centroid < 3000 else
-            "Sharp" if centroid < 4000 else
-            "VerySharp"
-        )
-        
-        # Duration descriptors
-        duration_desc = (
-            "Brief" if duration < 60 else
-            "Short" if duration < 120 else
-            "Medium" if duration < 180 else
-            "Long" if duration < 240 else
-            "VeryLong"
-        )
-        
-        # Loudness descriptors
-        loudness_desc = (
-            "Whisper" if loudness < -30 else
-            "Soft" if loudness < -20 else
-            "Balanced" if loudness < -10 else
-            "Loud" if loudness < -5 else 
-            "EarBlasting"
-        )
-        
-        # Rhythm complexity descriptors
-        rhythm_desc = (
-            "Steady" if rhythm_complexity < 0.3 else
-            "Grooving" if rhythm_complexity < 0.6 else
-            "Complex"
-        )
-        
-        # Mood based on harmonic features
-        mood = self._categorize_mood(features)
-        
-        # Key scale descriptor
-        key_desc = "Major" if scale == "major" else "Minor"
-        
-        return f"{bpm_desc}_{timbre_desc}_{key_desc}_{rhythm_desc}_{mood}"
-
-    def _update_playlist_tracker(self, playlists, centroids=None):
-        """Update playlist tracker with new playlist assignments"""
-        conn = sqlite3.connect(self.playlist_db)
-        cursor = conn.cursor()
-        
-        # Get existing playlists
-        cursor.execute("SELECT id, name FROM playlists")
-        existing_playlists = {name: id for id, name in cursor.fetchall()}
-        
-        # Process each playlist
-        for name, filepaths in playlists.items():
-            # Get or create playlist
-            if name in existing_playlists:
-                playlist_id = existing_playlists[name]
-                cursor.execute(
-                    "UPDATE playlists SET last_updated = ? WHERE id = ?",
-                    (datetime.now(), playlist_id))
-            else:
-                centroid_data = centroids.get(name, {}) if centroids else {}
-                cursor.execute(
-                    """INSERT INTO playlists (name, centroid_bpm, centroid_centroid, 
-                    centroid_duration, centroid_loudness, centroid_dynamics, 
-                    centroid_rhythm, centroid_key) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (name, 
-                     centroid_data.get('bpm', 0),
-                     centroid_data.get('centroid', 0),
-                     centroid_data.get('duration', 0),
-                     centroid_data.get('loudness', -20),
-                     centroid_data.get('dynamics', 0),
-                     centroid_data.get('rhythm_complexity', 0.5),
-                     centroid_data.get('key', 'C') + '-' + centroid_data.get('scale', 'major')))
-                playlist_id = cursor.lastrowid
-                existing_playlists[name] = playlist_id
-            
-            # Get current songs in playlist
-            cursor.execute(
-                "SELECT filepath FROM playlist_songs WHERE playlist_id = ?",
-                (playlist_id,))
-            current_files = {row[0] for row in cursor.fetchall()}
-            new_files = set(filepaths)
-            
-            # Add new files
-            for filepath in new_files - current_files:
-                cursor.execute(
-                    "INSERT OR IGNORE INTO playlist_songs (playlist_id, filepath) VALUES (?, ?)",
-                    (playlist_id, filepath))
-            
-            # Remove deleted files
-            for filepath in current_files - new_files:
-                cursor.execute(
-                    "DELETE FROM playlist_songs WHERE playlist_id = ? AND filepath = ?",
-                    (playlist_id, filepath))
-        
-        conn.commit()
-        conn.close()
-
-    def incremental_update(self, changes, output_dir):
-        """Update playlists incrementally based on file changes"""
-        logger.info("Performing incremental update")
-        start_time = time.time()
-        
-        # Process removed files
-        if changes['removed']:
-            self._remove_files_from_playlists(changes['removed'])
-        
-        # Process added and modified files - prioritize high-energy tracks
-        files_to_process = changes['added'] + changes['modified']
-        if not files_to_process:
-            logger.info("No files to process in incremental update")
-            return
-        
-        # Sort by likely energy (duration * bpm) for processing priority
-        files_to_process.sort(key=lambda x: os.path.getsize(x), reverse=True)
-        
-        # Analyze new/modified files
-        features = []
-        if len(files_to_process) > 50:  # Use parallel for large batches
-            logger.info(f"Processing {len(files_to_process)} files in parallel")
-            features = self._process_parallel(files_to_process, workers=max(1, mp.cpu_count() // 2))
-        else:
-            logger.info(f"Processing {len(files_to_process)} files sequentially")
-            features = []
-            for filepath in tqdm(files_to_process, desc="Processing files"):
-                feat, _ = process_file_worker(filepath)
-                if feat:
-                    features.append(feat)
-        
-        # Assign files to existing playlists
-        assigned_count = self._assign_to_existing_playlists(features)
-        logger.info(f"Assigned {assigned_count} files to existing playlists")
-        
-        # Save updated playlists
-        self.save_playlists_from_db(output_dir)
-        
-        # Update library state
-        self._update_library_state()
-        
-        elapsed = time.time() - start_time
-        logger.info(f"Incremental update completed in {elapsed:.2f} seconds")
-
-    def _remove_files_from_playlists(self, filepaths):
-        """Remove files from all playlists"""
-        conn = sqlite3.connect(self.playlist_db)
-        cursor = conn.cursor()
-        for filepath in filepaths:
-            cursor.execute(
-                "DELETE FROM playlist_songs WHERE filepath = ?", 
-                (filepath,))
-        conn.commit()
-        conn.close()
-        logger.info(f"Removed {len(filepaths)} files from playlists")
-
-    def _assign_to_existing_playlists(self, features):
-        """Assign files to existing playlists based on similarity"""
-        conn = sqlite3.connect(self.playlist_db)
-        cursor = conn.cursor()
-        
-        # Get all playlists with their centroids
-        cursor.execute("""
-            SELECT id, name, centroid_bpm, centroid_centroid, centroid_duration,
-                   centroid_loudness, centroid_dynamics, centroid_rhythm
-            FROM playlists
-        """)
-        playlists = cursor.fetchall()
-        
-        if not playlists:
-            logger.warning("No existing playlists found for assignment")
-            return 0
-        
-        # Circle of fifths mapping for key similarity
-        circle_of_fifths = {'C':0, 'G':1, 'D':2, 'A':3, 'E':4, 'B':5,
-                            'F#':6, 'C#':7, 'F':-1, 'Bb':-2, 'Eb':-3,
-                            'Ab':-4, 'Db':-5, 'Gb':-6}
-        
-        assigned_count = 0
-        for feature in features:
-            filepath = feature['filepath']
-            min_distance = float('inf')
-            best_playlist = None
-            
-            # Extract key from centroid if available
-            file_key = feature.get('key', 'C')
-            file_key_num = circle_of_fifths.get(file_key.split('/')[0], 0)
-            
-            # Find closest playlist
-            for playlist in playlists:
-                playlist_id, name, bpm, centroid, duration, loudness, dynamics, rhythm = playlist
-                
-                # Skip playlists with missing data
-                if None in (bpm, centroid, duration, loudness, dynamics, rhythm):
-                    continue
-                
-                # Calculate distance using weighted features
-                distance = (
-                    0.4 * abs(feature['bpm'] - bpm) +
-                    0.3 * abs(feature['centroid'] - centroid) +
-                    0.1 * abs(feature['loudness'] - loudness) +
-                    0.1 * abs(feature['dynamics'] - dynamics) +
-                    0.1 * abs(feature.get('rhythm_complexity', 0.5) - rhythm)
-                )
-                
-                # Add key distance if available
-                if file_key != 'unknown':
-                    # Extract base key from centroid_key format (e.g., "C-major")
-                    centroid_key = name.split('_')[2] if '_' in name else 'C'
-                    centroid_key_num = circle_of_fifths.get(centroid_key, 0)
-                    key_distance = min(
-                        abs(file_key_num - centroid_key_num),
-                        12 - abs(file_key_num - centroid_key_num)
-                    ) / 12.0
-                    distance += 0.2 * key_distance
-                
-                if distance < min_distance:
-                    min_distance = distance
-                    best_playlist = (playlist_id, name)
-            
-            # Assign to best playlist
-            if best_playlist:
-                playlist_id, name = best_playlist
-                try:
-                    cursor.execute(
-                        "INSERT OR REPLACE INTO playlist_songs (playlist_id, filepath) VALUES (?, ?)",
-                        (playlist_id, filepath))
-                    assigned_count += 1
-                    logger.debug(f"Assigned {os.path.basename(filepath)} to playlist {name}")
-                except sqlite3.IntegrityError:
-                    # Already assigned, skip
-                    pass
-        
-        conn.commit()
-        conn.close()
-        return assigned_count
-
-    def save_playlists_from_db(self, output_dir):
-        """Save playlists based on current database state"""
-        conn = sqlite3.connect(self.playlist_db)
-        cursor = conn.cursor()
-        
-        # Get all playlists
-        cursor.execute("SELECT id, name FROM playlists")
-        playlists = cursor.fetchall()
-        
-        if not playlists:
-            logger.warning("No playlists found in database")
-            return
-        
-        os.makedirs(output_dir, exist_ok=True)
-        saved_count = 0
-        
-        for playlist_id, name in playlists:
-            # Get files for this playlist
-            cursor.execute(
-                "SELECT filepath FROM playlist_songs WHERE playlist_id = ?",
-                (playlist_id,))
-            filepaths = [row[0] for row in cursor.fetchall()]
-            
-            if not filepaths:
-                logger.info(f"Skipping empty playlist: {name}")
-                continue
-            
-            # Convert paths and save
-            host_paths = [self.convert_to_host_path(p) for p in filepaths]
-            playlist_path = os.path.join(output_dir, f"{sanitize_filename(name)}.m3u")
-            with open(playlist_path, 'w') as f:
-                f.write("\n".join(host_paths))
-            
-            saved_count += 1
-            logger.info(f"Updated playlist {name} with {len(host_paths)} tracks")
-        
-        conn.close()
-        
-        if saved_count:
-            logger.info(f"Saved {saved_count} updated playlists")
-        else:
-            logger.warning("No playlists saved")
-
-    def _update_library_state(self):
-        """Update library state after processing"""
-        current_state = self._scan_music_directory(self.container_music_dir)
-        self._save_library_state(current_state)
 
     def generate_playlist_name(self, features):
         """Simplified playlist name generation"""
@@ -931,6 +406,34 @@ class PlaylistGenerator:
         )
         
         return f"{bpm_desc}_{timbre_desc}_{duration_desc}_{mood}"
+
+    def cleanup_database(self):
+        """Remove entries for files that no longer exist"""
+        try:
+            conn = sqlite3.connect(self.cache_file)
+            cursor = conn.cursor()
+            cursor.execute("SELECT file_path FROM audio_features")
+            db_files = [row[0] for row in cursor.fetchall()]
+            
+            missing_files = []
+            for file_path in db_files:
+                if not os.path.exists(file_path):
+                    missing_files.append(file_path)
+            
+            if missing_files:
+                logger.info(f"Cleaning up {len(missing_files)} missing files from database")
+                placeholders = ','.join(['?'] * len(missing_files))
+                cursor.execute(
+                    f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
+                    missing_files
+                )
+                conn.commit()
+                
+            conn.close()
+            return missing_files
+        except Exception as e:
+            logger.error(f"Database cleanup failed: {str(e)}")
+            return []
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         if not features_list:
@@ -1061,6 +564,221 @@ class PlaylistGenerator:
                 logger.info(f"Saved {len(all_failed)} failed/missing files to {failed_path}")
             except Exception as e:
                 logger.error(f"Failed to save failed files list: {str(e)}")
+
+    def _update_playlist_tracker(self, playlists, centroids=None):
+        """Update playlist tracker with new playlist assignments"""
+        conn = sqlite3.connect(self.playlist_db)
+        cursor = conn.cursor()
+        
+        # Get existing playlists
+        cursor.execute("SELECT id, name FROM playlists")
+        existing_playlists = {name: id for id, name in cursor.fetchall()}
+        
+        # Process each playlist
+        for name, filepaths in playlists.items():
+            # Get or create playlist
+            if name in existing_playlists:
+                playlist_id = existing_playlists[name]
+                cursor.execute(
+                    "UPDATE playlists SET last_updated = ? WHERE id = ?",
+                    (datetime.now(), playlist_id))
+            else:
+                centroid_data = centroids.get(name, {}) if centroids else {}
+                cursor.execute(
+                    """INSERT INTO playlists (name, centroid_bpm, centroid_centroid, 
+                    centroid_duration, centroid_loudness, centroid_dynamics, 
+                    centroid_rhythm, centroid_key) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (name, 
+                     centroid_data.get('bpm', 0),
+                     centroid_data.get('centroid', 0),
+                     centroid_data.get('duration', 0),
+                     centroid_data.get('loudness', -20),
+                     centroid_data.get('dynamics', 0),
+                     centroid_data.get('rhythm_complexity', 0.5),
+                     centroid_data.get('key', 'C') + '-' + centroid_data.get('scale', 'major')))
+                playlist_id = cursor.lastrowid
+                existing_playlists[name] = playlist_id
+            
+            # Get current songs in playlist
+            cursor.execute(
+                "SELECT filepath FROM playlist_songs WHERE playlist_id = ?",
+                (playlist_id,))
+            current_files = {row[0] for row in cursor.fetchall()}
+            new_files = set(filepaths)
+            
+            # Add new files
+            for filepath in new_files - current_files:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO playlist_songs (playlist_id, filepath) VALUES (?, ?)",
+                    (playlist_id, filepath))
+            
+            # Remove deleted files
+            for filepath in current_files - new_files:
+                cursor.execute(
+                    "DELETE FROM playlist_songs WHERE playlist_id = ? AND filepath = ?",
+                    (playlist_id, filepath))
+        
+        conn.commit()
+        conn.close()
+
+    def incremental_update(self, changes, output_dir):
+        """Update playlists incrementally based on file changes"""
+        logger.info("Performing incremental update")
+        start_time = time.time()
+        
+        # Process removed files
+        if changes['removed']:
+            self._remove_files_from_playlists(changes['removed'])
+        
+        # Process added and modified files
+        files_to_process = changes['added'] + changes['modified']
+        if not files_to_process:
+            logger.info("No files to process in incremental update")
+            return
+        
+        # Analyze new/modified files
+        features = []
+        if len(files_to_process) > 50:  # Use parallel for large batches
+            logger.info(f"Processing {len(files_to_process)} files in parallel")
+            features = self._process_parallel(files_to_process, workers=max(1, mp.cpu_count() // 2))
+        else:
+            logger.info(f"Processing {len(files_to_process)} files sequentially")
+            features = []
+            for filepath in tqdm(files_to_process, desc="Processing files"):
+                feat, _ = process_file_worker(filepath)
+                if feat:
+                    features.append(feat)
+        
+        # Assign files to existing playlists
+        assigned_count = self._assign_to_existing_playlists(features)
+        logger.info(f"Assigned {assigned_count} files to existing playlists")
+        
+        # Save updated playlists
+        self.save_playlists_from_db(output_dir)
+        
+        # Update library state
+        self._update_library_state()
+        
+        elapsed = time.time() - start_time
+        logger.info(f"Incremental update completed in {elapsed:.2f} seconds")
+
+    def _remove_files_from_playlists(self, filepaths):
+        """Remove files from all playlists"""
+        conn = sqlite3.connect(self.playlist_db)
+        cursor = conn.cursor()
+        for filepath in filepaths:
+            cursor.execute(
+                "DELETE FROM playlist_songs WHERE filepath = ?", 
+                (filepath,))
+        conn.commit()
+        conn.close()
+        logger.info(f"Removed {len(filepaths)} files from playlists")
+
+    def _assign_to_existing_playlists(self, features):
+        """Assign files to existing playlists based on similarity"""
+        conn = sqlite3.connect(self.playlist_db)
+        cursor = conn.cursor()
+        
+        # Get all playlists with their centroids
+        cursor.execute("""
+            SELECT id, name, centroid_bpm, centroid_centroid
+            FROM playlists
+        """)
+        playlists = cursor.fetchall()
+        
+        if not playlists:
+            logger.warning("No existing playlists found for assignment")
+            return 0
+        
+        assigned_count = 0
+        for feature in features:
+            filepath = feature['filepath']
+            min_distance = float('inf')
+            best_playlist = None
+            
+            # Find closest playlist
+            for playlist in playlists:
+                playlist_id, name, bpm, centroid = playlist
+                
+                # Skip playlists with missing data
+                if None in (bpm, centroid):
+                    continue
+                
+                # Calculate distance using weighted features
+                distance = (
+                    0.7 * abs(feature['bpm'] - bpm) +
+                    0.3 * abs(feature['centroid'] - centroid)
+                )
+                
+                if distance < min_distance:
+                    min_distance = distance
+                    best_playlist = (playlist_id, name)
+            
+            # Assign to best playlist
+            if best_playlist:
+                playlist_id, name = best_playlist
+                try:
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO playlist_songs (playlist_id, filepath) VALUES (?, ?)",
+                        (playlist_id, filepath))
+                    assigned_count += 1
+                    logger.debug(f"Assigned {os.path.basename(filepath)} to playlist {name}")
+                except sqlite3.IntegrityError:
+                    # Already assigned, skip
+                    pass
+        
+        conn.commit()
+        conn.close()
+        return assigned_count
+
+    def save_playlists_from_db(self, output_dir):
+        """Save playlists based on current database state"""
+        conn = sqlite3.connect(self.playlist_db)
+        cursor = conn.cursor()
+        
+        # Get all playlists
+        cursor.execute("SELECT id, name FROM playlists")
+        playlists = cursor.fetchall()
+        
+        if not playlists:
+            logger.warning("No playlists found in database")
+            return
+        
+        os.makedirs(output_dir, exist_ok=True)
+        saved_count = 0
+        
+        for playlist_id, name in playlists:
+            # Get files for this playlist
+            cursor.execute(
+                "SELECT filepath FROM playlist_songs WHERE playlist_id = ?",
+                (playlist_id,))
+            filepaths = [row[0] for row in cursor.fetchall()]
+            
+            if not filepaths:
+                logger.info(f"Skipping empty playlist: {name}")
+                continue
+            
+            # Convert paths and save
+            host_paths = [self.convert_to_host_path(p) for p in filepaths]
+            playlist_path = os.path.join(output_dir, f"{sanitize_filename(name)}.m3u")
+            with open(playlist_path, 'w') as f:
+                f.write("\n".join(host_paths))
+            
+            saved_count += 1
+            logger.info(f"Updated playlist {name} with {len(host_paths)} tracks")
+        
+        conn.close()
+        
+        if saved_count:
+            logger.info(f"Saved {saved_count} updated playlists")
+        else:
+            logger.warning("No playlists saved")
+
+    def _update_library_state(self):
+        """Update library state after processing"""
+        current_state = self._scan_music_directory(self.container_music_dir)
+        self._save_library_state(current_state)
 
 def main():
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
