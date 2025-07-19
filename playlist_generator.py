@@ -17,7 +17,6 @@ import time
 import traceback
 import re
 import sqlite3
-import matplotlib.pyplot as plt
 
 # Logging setup
 logging.basicConfig(
@@ -41,7 +40,7 @@ def process_file_worker(filepath):
         if result:
             features = result[0]
             # Ensure no None values in critical features
-            for key in ['beat_confidence', 'bpm', 'centroid', 'duration']:
+            for key in ['bpm', 'centroid', 'duration']:
                 if features.get(key) is None:
                     features[key] = 0.0
             return features, filepath
@@ -56,15 +55,11 @@ class PlaylistGenerator:
         self.container_music_dir = ""
         self.host_music_dir = ""
         self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')
-        self.beat_confidences = []
-        self.energy_levels = []
 
     def analyze_directory(self, music_dir, workers=None, force_sequential=False):
         file_list = []
         self.failed_files = []
         self.container_music_dir = music_dir.rstrip('/')
-        self.beat_confidences = []
-        self.energy_levels = []
 
         for root, _, files in os.walk(music_dir):
             for file in files:
@@ -93,11 +88,7 @@ class PlaylistGenerator:
             pbar.set_postfix(file=os.path.basename(filepath)[:20])
             features, _ = process_file_worker(filepath)
             if features:
-                # Handle None values for beat_confidence
-                if features.get('beat_confidence') is None:
-                    features['beat_confidence'] = 0.0
                 results.append(features)
-                self.beat_confidences.append(features['beat_confidence'])
             else:
                 self.failed_files.append(filepath)
         return results
@@ -118,11 +109,7 @@ class PlaylistGenerator:
                     try:
                         features, filepath = async_result.get(timeout=600)
                         if features:
-                            # Handle None values for beat_confidence
-                            if features.get('beat_confidence') is None:
-                                features['beat_confidence'] = 0.0
                             results.append(features)
-                            self.beat_confidences.append(features['beat_confidence'])
                         else:
                             self.failed_files.append(filepath)
                     except mp.TimeoutError:
@@ -145,12 +132,6 @@ class PlaylistGenerator:
     def get_all_features_from_db(self):
         try:
             features = get_all_features()
-            # Ensure beat_confidence is within [0,1] range and not None
-            for feat in features:
-                if feat.get('beat_confidence') is None:
-                    feat['beat_confidence'] = 0.0
-                else:
-                    feat['beat_confidence'] = max(0.0, min(1.0, feat['beat_confidence']))
             return features
         except Exception as e:
             logger.error(f"Database error: {str(e)}")
@@ -170,7 +151,7 @@ class PlaylistGenerator:
         return os.path.join(self.host_music_dir, rel_path)
 
     def generate_playlist_name(self, features):
-        required_features = ['bpm', 'centroid', 'beat_confidence', 'duration']
+        required_features = ['bpm', 'centroid', 'duration']
         for feat in required_features:
             if feat not in features or features[feat] is None:
                 logger.warning(f"Missing or None feature '{feat}' in centroid data")
@@ -179,7 +160,6 @@ class PlaylistGenerator:
         bpm = features['bpm']
         centroid = features['centroid']
         duration = features['duration']
-        beat_conf = max(0.0, min(1.0, features['beat_confidence']))
         
         bpm_desc = (
             "VerySlow" if bpm < 55 else
@@ -209,27 +189,15 @@ class PlaylistGenerator:
             "VeryLong"
         )
         
-        if beat_conf > 0.9:
-            energy_level = 8 + min(2, int((beat_conf - 0.9) * 20))
-        elif beat_conf > 0.5:
-            scaled = np.log10((beat_conf - 0.4) * 10) * 8
-            energy_level = min(8, max(1, int(scaled)))
-        elif beat_conf > 0:
-            energy_level = min(5, int(beat_conf * 10))
-        else:
-            energy_level = 0
-            
-        self.energy_levels.append(energy_level)
-        
         mood = (
             "Ambient" if bpm < 75 and centroid < 1200 else
-            "Downtempo" if bpm < 95 and energy_level < 4 else
-            "Dance" if bpm > 125 and energy_level > 7 else
-            "Dynamic" if centroid > 3000 and energy_level > 5 else
+            "Downtempo" if bpm < 95 else
+            "Dance" if bpm > 125 else
+            "Dynamic" if centroid > 3000 else
             "Balanced"
         )
         
-        return f"{bpm_desc}_{timbre_desc}_{duration_desc}_E{energy_level}_{mood}"
+        return f"{bpm_desc}_{timbre_desc}_{duration_desc}_{mood}"
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         if not features_list:
@@ -240,13 +208,10 @@ class PlaylistGenerator:
         for feat in features_list:
             if os.path.exists(feat['filepath']):
                 # Handle None values for all features
-                for key in ['beat_confidence', 'bpm', 'centroid', 'duration']:
+                for key in ['bpm', 'centroid', 'duration']:
                     if feat.get(key) is None:
                         feat[key] = 0.0
                         logger.warning(f"Found None value for {key} in {feat['filepath']}")
-                
-                # Ensure beat_confidence is within [0,1] range
-                feat['beat_confidence'] = max(0.0, min(1.0, feat['beat_confidence']))
                 valid_features.append(feat)
             else:
                 logger.warning(f"File not found: {feat['filepath']}")
@@ -258,7 +223,7 @@ class PlaylistGenerator:
             
         df = pd.DataFrame(valid_features)
         
-        naming_features = ['bpm', 'beat_confidence', 'centroid', 'duration']
+        naming_features = ['bpm', 'centroid', 'duration']
         
         for feat in naming_features:
             if feat not in df.columns:
@@ -266,38 +231,8 @@ class PlaylistGenerator:
                 df[feat] = 0.0
                 
         df[naming_features] = df[naming_features].fillna(0)
-        if 'beat_confidence' in df:
-            df['beat_confidence'] = df['beat_confidence'].clip(0.0, 1.0)
         
-        if 'beat_confidence' in df and not df.empty:
-            logger.info(f"Beat confidence statistics:")
-            logger.info(f"  Min:    {df['beat_confidence'].min():.6f}")
-            logger.info(f"  Max:    {df['beat_confidence'].max():.6f}")
-            logger.info(f"  Mean:   {df['beat_confidence'].mean():.6f}")
-            logger.info(f"  Median: {df['beat_confidence'].median():.6f}")
-            logger.info(f"  95th %: {df['beat_confidence'].quantile(0.95):.6f}")
-            logger.info(f"  99th %: {df['beat_confidence'].quantile(0.99):.6f}")
-            
-            if output_dir:
-                plt.figure(figsize=(12, 8))
-                n, bins, patches = plt.hist(
-                    df['beat_confidence'], 
-                    bins=np.arange(0, 1.01, 0.01),
-                    alpha=0.7, 
-                    color='blue'
-                )
-                plt.title('Beat Confidence Distribution')
-                plt.xlabel('Beat Confidence')
-                plt.ylabel('Frequency')
-                plt.grid(True)
-                plt.axvline(x=0.9, color='red', linestyle='--', label='90%')
-                plt.axvline(x=0.99, color='green', linestyle='--', label='99%')
-                plt.legend()
-                plot_path = os.path.join(output_dir, 'beat_confidence_distribution.png')
-                plt.savefig(plot_path, dpi=150)
-                logger.info(f"Saved beat_confidence_distribution.png at {plot_path}")
-        
-        cluster_features = ['bpm', 'beat_confidence', 'centroid']
+        cluster_features = ['bpm', 'centroid']
         df[cluster_features] = df[cluster_features].fillna(0)
         
         kmeans = MiniBatchKMeans(
