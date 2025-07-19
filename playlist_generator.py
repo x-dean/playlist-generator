@@ -24,6 +24,7 @@ import queue
 import psutil
 import resource
 import coloredlogs
+import coloredlogs
 
 logger = logging.getLogger(__name__)
 
