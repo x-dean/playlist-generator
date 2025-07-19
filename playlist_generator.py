@@ -4,7 +4,7 @@ Optimized Music Playlist Generator with Enhanced Musical Analysis
 """
 
 import pandas as pd
-from sklearn.cluster import MiniBatchKMeans, DBSCAN
+from sklearn.cluster import MiniBatchKMeans
 from sklearn.preprocessing import StandardScaler
 import multiprocessing as mp
 import argparse
@@ -20,10 +20,10 @@ import sqlite3
 import json
 from datetime import datetime
 import hashlib
+import coloredlogs
 import queue
 import psutil
 import resource
-import coloredlogs
 
 logger = logging.getLogger(__name__)
 
@@ -44,25 +44,14 @@ def sanitize_filename(name):
 def process_file_worker(filepath):
     try:
         from analyze_music import audio_analyzer
-        # Directly call extract_features without nested multiprocessing
         result = audio_analyzer.extract_features(filepath)
         if result and result[0] is not None:
             features = result[0]
-            # Ensure all critical features have values
-            required_features = {
-                'duration': 180,
-                'bpm': 100, 
-                'centroid': 2000,
-                'loudness': -15,
-                'dynamics': 0,
-                'rhythm_complexity': 0.5,
-                'key': 'unknown',
-                'scale': 'unknown',
-                'key_confidence': 0
-            }
-            for key, default in required_features.items():
+            # Ensure critical features have values
+            required_features = ['bpm', 'centroid', 'duration']
+            for key in required_features:
                 if features.get(key) is None:
-                    features[key] = default
+                    features[key] = 0.0
             return features, filepath
         return None, filepath
     except Exception as e:
@@ -296,6 +285,54 @@ class PlaylistGenerator:
             return self._process_sequential(file_list)
 
         return self._process_parallel(file_list, workers)
+
+    def _process_sequential(self, file_list):
+        results = []
+        pbar = tqdm(file_list, desc="Processing files")
+        for filepath in pbar:
+            pbar.set_postfix(file=os.path.basename(filepath)[:20])
+            features, _ = process_file_worker(filepath)
+            if features:
+                results.append(features)
+            else:
+                self.failed_files.append(filepath)
+        return results
+
+    def _process_parallel(self, file_list, workers):
+        results = []
+        try:
+            logger.info(f"Starting multiprocessing pool with {workers} workers")
+            ctx = mp.get_context('spawn')
+            with ctx.Pool(processes=workers) as pool:
+                async_results = [
+                    pool.apply_async(process_file_worker, (filepath,))
+                    for filepath in file_list
+                ]
+                
+                pbar = tqdm(total=len(file_list), desc="Processing files")
+                for i, async_result in enumerate(async_results):
+                    try:
+                        features, filepath = async_result.get(timeout=600)
+                        if features:
+                            results.append(features)
+                        else:
+                            self.failed_files.append(filepath)
+                    except mp.TimeoutError:
+                        logger.error(f"Timeout processing {filepath}")
+                        self.failed_files.append(filepath)
+                    except Exception as e:
+                        logger.error(f"Error retrieving result: {str(e)}")
+                        self.failed_files.append(filepath)
+                    
+                    if i % 10 == 0 or not features:
+                        pbar.update(1)
+                pbar.close()
+            logger.info(f"Processing completed: {len(results)} successful, {len(self.failed_files)} failed")
+            return results
+        except Exception as e:
+            logger.error(f"Parallel processing failed: {str(e)}")
+            logger.error(traceback.format_exc())
+            return self._process_sequential(file_list)
 
     def _process_sequential(self, file_list):
         results = []
@@ -840,9 +877,62 @@ class PlaylistGenerator:
         current_state = self._scan_music_directory(self.container_music_dir)
         self._save_library_state(current_state)
 
-    def generate_playlists(self, features_list, num_playlists=3, chunk_size=1000, output_dir=None):
-        min_playlist_size = 3  # Minimum tracks per playlist
+    def generate_playlist_name(self, features):
+        """Simplified playlist name generation"""
+        # Ensure critical features have values
+        required_features = ['bpm', 'centroid', 'duration']
+        for feat in required_features:
+            if feat not in features or features[feat] is None:
+                logger.warning(f"Missing or None feature '{feat}' in centroid data")
+                features[feat] = 0.0
+
+        bpm = features['bpm']
+        centroid = features['centroid']
+        duration = features['duration']
         
+        # BPM descriptors
+        bpm_desc = (
+            "VerySlow" if bpm < 55 else
+            "Slow" if bpm < 70 else
+            "Chill" if bpm < 85 else
+            "Medium" if bpm < 100 else
+            "Upbeat" if bpm < 115 else
+            "Energetic" if bpm < 135 else
+            "Fast" if bpm < 155 else
+            "VeryFast"
+        )
+        
+        # Timbre descriptors
+        timbre_desc = (
+            "Dark" if centroid < 800 else
+            "Warm" if centroid < 1500 else
+            "Mellow" if centroid < 2200 else
+            "Bright" if centroid < 3000 else
+            "Sharp" if centroid < 4000 else
+            "VerySharp"
+        )
+        
+        # Duration descriptors
+        duration_desc = (
+            "Brief" if duration < 60 else
+            "Short" if duration < 120 else
+            "Medium" if duration < 180 else
+            "Long" if duration < 240 else
+            "VeryLong"
+        )
+        
+        # Mood descriptor based on tempo
+        mood = (
+            "Ambient" if bpm < 75 else
+            "Downtempo" if bpm < 95 else
+            "Dance" if bpm > 125 else
+            "Dynamic" if centroid > 3000 else
+            "Balanced"
+        )
+        
+        return f"{bpm_desc}_{timbre_desc}_{duration_desc}_{mood}"
+
+    def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         if not features_list:
             logger.warning("No features to cluster")
             return {}
@@ -852,24 +942,10 @@ class PlaylistGenerator:
             if not feat or 'filepath' not in feat:
                 continue
             if os.path.exists(feat['filepath']):
-                # Ensure all required features exist
-                required = ['bpm', 'centroid', 'duration', 'loudness', 
-                        'dynamics', 'rhythm_complexity', 'key', 'scale']
-                for key in required:
+                # Handle None values for critical features
+                for key in ['bpm', 'centroid', 'duration']:
                     if feat.get(key) is None:
-                        # Set default values for missing features
-                        defaults = {
-                            'duration': 180,
-                            'bpm': 100,
-                            'centroid': 2000,
-                            'loudness': -15,
-                            'dynamics': 0,
-                            'rhythm_complexity': 0.5,
-                            'key': 'unknown',
-                            'scale': 'unknown'
-                        }
-                        feat[key] = defaults.get(key, 0)
-                        logger.warning(f"Using default for missing {key} in {feat['filepath']}")
+                        feat[key] = 0.0
                 valid_features.append(feat)
             else:
                 logger.warning(f"File not found: {feat['filepath']}")
@@ -883,26 +959,8 @@ class PlaylistGenerator:
         
         df = pd.DataFrame(valid_features)
         
-        # Circle of fifths mapping for key similarity
-        circle_of_fifths = {'C':0, 'G':1, 'D':2, 'A':3, 'E':4, 'B':5,
-                            'F#':6, 'C#':7, 'F':-1, 'Bb':-2, 'Eb':-3,
-                            'Ab':-4, 'Db':-5, 'Gb':-6}
-        
-        # Convert key to numerical representation
-        df['key_num'] = df['key'].apply(
-            lambda k: circle_of_fifths.get(str(k).split('/')[0], 0) if k != 'unknown' else 0
-        )
-        
-        # Convert scale to numerical (0 = minor, 1 = major)
-        df['scale_num'] = df['scale'].apply(
-            lambda s: 1 if s == 'major' else 0
-        )
-        
         # Define features for clustering
-        cluster_features = [
-            'bpm', 'centroid', 'loudness', 
-            'dynamics', 'rhythm_complexity', 'key_num', 'scale_num'
-        ]
+        cluster_features = ['bpm', 'centroid']
         
         # Fill missing values
         for feat in cluster_features:
@@ -914,19 +972,11 @@ class PlaylistGenerator:
         
         # Scale features
         features_array = df[cluster_features].values.astype(np.float32)
-        scaler = StandardScaler()
-        features_scaled = scaler.fit_transform(features_array)
-        
-        # Use KMeans with a fixed number of clusters
-        logger.info("Using KMeans clustering for better consistency")
-        
-        # Determine optimal cluster count
-        n_clusters = min(max(5, num_playlists), len(df), 50)
-        logger.info(f"Clustering {len(df)} tracks into {n_clusters} clusters")
+        features_scaled = StandardScaler().fit_transform(features_array)
         
         # Cluster using MiniBatchKMeans
         kmeans = MiniBatchKMeans(
-            n_clusters=n_clusters,
+            n_clusters=min(50, len(df)),
             random_state=42,
             batch_size=min(500, len(df)),
             n_init=3,
@@ -934,77 +984,69 @@ class PlaylistGenerator:
         )
         df['cluster'] = kmeans.fit_predict(features_scaled)
         
-        # Create playlists directly from clusters
+        # Create playlists from clusters
         playlists = {}
-        centroids = {}
-        
-        for cluster_id in range(n_clusters):
-            cluster_songs = df[df['cluster'] == cluster_id]
-            if len(cluster_songs) == 0:
+        for cluster in df['cluster'].unique():
+            cluster_songs = df[df['cluster'] == cluster]
+            if len(cluster_songs) < 5:  # Skip small clusters
                 continue
                 
             centroid = cluster_songs[cluster_features].mean().to_dict()
-            centroid['key'] = cluster_songs['key'].mode().iloc[0] if not cluster_songs['key'].mode().empty else 'C'
-            centroid['scale'] = cluster_songs['scale'].mode().iloc[0] if not cluster_songs['scale'].mode().empty else 'major'
-            
             name = sanitize_filename(self.generate_playlist_name(centroid))
+            
+            # Ensure unique playlist names
+            if name in playlists:
+                name = f"{name}_{cluster}"
+                
             playlists[name] = cluster_songs['filepath'].tolist()
-            centroids[name] = centroid
             logger.info(f"Created playlist '{name}' with {len(cluster_songs)} tracks")
         
-        # Update playlist tracker
-        self._update_playlist_tracker(playlists, centroids)
-        
-        # Update library state
-        self._update_library_state()
-        
         return playlists
-
-    def cleanup_database(self):
-        try:
-            conn = sqlite3.connect(self.cache_file)
-            cursor = conn.cursor()
-            cursor.execute("SELECT file_path FROM audio_features")
-            db_files = [row[0] for row in cursor.fetchall()]
-            
-            missing_files = []
-            for file_path in db_files:
-                if not os.path.exists(file_path):
-                    missing_files.append(file_path)
-            
-            if missing_files:
-                logger.info(f"Cleaning up {len(missing_files)} missing files from database")
-                placeholders = ','.join(['?'] * len(missing_files))
-                cursor.execute(
-                    f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
-                    missing_files
-                )
-                conn.commit()
-                
-            conn.close()
-            return missing_files
-        except Exception as e:
-            logger.error(f"Database cleanup failed: {str(e)}")
-            return []
 
     def save_playlists(self, playlists, output_dir):
         os.makedirs(output_dir, exist_ok=True)
         saved_count = 0
 
+        logger.info(f"Saving playlists to: {output_dir}")
+        
         for name, songs in playlists.items():
             if not songs:
+                logger.warning(f"Playlist '{name}' is empty, skipping")
                 continue
 
-            host_songs = [self.convert_to_host_path(song) for song in songs]
-            
-            playlist_path = os.path.join(output_dir, f"{sanitize_filename(name)}.m3u")
-            with open(playlist_path, 'w') as f:
-                f.write("\n".join(host_songs))
-            saved_count += 1
-            logger.info(f"Saved {name} with {len(host_songs)} tracks")
+            try:
+                logger.debug(f"Processing playlist: {name} with {len(songs)} songs")
+                host_songs = []
+                missing_count = 0
+                
+                for song in songs:
+                    host_path = self.convert_to_host_path(song)
+                    # Verify path exists before adding to playlist
+                    if os.path.exists(song):  # Check container path
+                        host_songs.append(host_path)
+                    else:
+                        missing_count += 1
+                        logger.debug(f"File not found: {song} (host path: {host_path})")
+                
+                if not host_songs:
+                    logger.warning(f"No valid songs found for playlist '{name}'")
+                    continue
+                
+                playlist_path = os.path.join(output_dir, f"{sanitize_filename(name)}.m3u")
+                with open(playlist_path, 'w') as f:
+                    f.write("\n".join(host_songs))
+                saved_count += 1
+                
+                msg = f"Saved playlist '{name}' to {playlist_path} with {len(host_songs)} tracks"
+                if missing_count:
+                    msg += f" ({missing_count} missing files)"
+                logger.info(msg)
+            except Exception as e:
+                logger.error(f"Error saving playlist '{name}': {str(e)}")
+                logger.error(traceback.format_exc())
 
         if saved_count:
-            logger.info(f"Saved {saved_count} playlists")
+            logger.info(f"Saved {saved_count} playlists to {output_dir}")
         else:
             logger.warning("No playlists saved")
 
@@ -1012,10 +1054,13 @@ class PlaylistGenerator:
         
         if all_failed:
             failed_path = os.path.join(output_dir, "Failed_Files.m3u")
-            with open(failed_path, 'w') as f:
+            try:
                 host_failed = [self.convert_to_host_path(p) for p in all_failed]
-                f.write("\n".join(host_failed))
-            logger.info(f"Saved {len(all_failed)} failed/missing files")
+                with open(failed_path, 'w') as f:
+                    f.write("\n".join(host_failed))
+                logger.info(f"Saved {len(all_failed)} failed/missing files to {failed_path}")
+            except Exception as e:
+                logger.error(f"Failed to save failed files list: {str(e)}")
 
 def main():
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
