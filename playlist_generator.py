@@ -339,6 +339,34 @@ class PlaylistGenerator:
             logger.error(f"Database error: {str(e)}")
             return []
 
+    def cleanup_database(self):
+        """Remove entries for files that no longer exist"""
+        try:
+            conn = sqlite3.connect(self.cache_file)
+            cursor = conn.cursor()
+            cursor.execute("SELECT file_path FROM audio_features")
+            db_files = [row[0] for row in cursor.fetchall()]
+            
+            missing_files = []
+            for file_path in db_files:
+                if not os.path.exists(file_path):
+                    missing_files.append(file_path)
+            
+            if missing_files:
+                logger.info(f"Cleaning up {len(missing_files)} missing files from database")
+                placeholders = ','.join(['?'] * len(missing_files))
+                cursor.execute(
+                    f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
+                    missing_files
+                )
+                conn.commit()
+                
+            conn.close()
+            return missing_files
+        except Exception as e:
+            logger.error(f"Database cleanup failed: {str(e)}")
+            return []
+
     def convert_to_host_path(self, container_path):
         if not self.host_music_dir or not self.container_music_dir:
             return container_path
