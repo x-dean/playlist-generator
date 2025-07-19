@@ -42,12 +42,14 @@ class PlaylistGenerator:
         self.host_music_dir = ""
         self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')
         self.beat_confidences = []
+        self.energy_levels = []
 
     def analyze_directory(self, music_dir, workers=None, force_sequential=False):
         file_list = []
         self.failed_files = []
         self.container_music_dir = music_dir.rstrip('/')
         self.beat_confidences = []
+        self.energy_levels = []
 
         for root, _, files in os.walk(music_dir):
             for file in files:
@@ -69,6 +71,59 @@ class PlaylistGenerator:
             return self._process_sequential(file_list)
 
         return self._process_parallel(file_list, workers)
+
+    def _process_sequential(self, file_list):
+        results = []
+        pbar = tqdm(file_list, desc="Processing files")
+        for filepath in pbar:
+            pbar.set_postfix(file=os.path.basename(filepath)[:20])
+            features, _ = process_file_worker(filepath)
+            if features:
+                results.append(features)
+                if 'beat_confidence' in features:
+                    self.beat_confidences.append(features['beat_confidence'])
+            else:
+                self.failed_files.append(filepath)
+        return results
+
+    def _process_parallel(self, file_list, workers):
+        results = []
+        try:
+            logger.info(f"Starting multiprocessing pool with {workers} workers")
+            ctx = mp.get_context('spawn')
+            with ctx.Pool(processes=workers) as pool:
+                async_results = [
+                    pool.apply_async(process_file_worker, (filepath,))
+                    for filepath in file_list
+                ]
+                
+                pbar = tqdm(total=len(file_list), desc="Processing files")
+                for i, async_result in enumerate(async_results):
+                    try:
+                        features, filepath = async_result.get(timeout=600)
+                        if features:
+                            results.append(features)
+                            if 'beat_confidence' in features:
+                                self.beat_confidences.append(features['beat_confidence'])
+                        else:
+                            self.failed_files.append(filepath)
+                    except mp.TimeoutError:
+                        logger.error(f"Timeout processing {filepath}")
+                        self.failed_files.append(filepath)
+                    except Exception as e:
+                        logger.error(f"Error retrieving result: {str(e)}")
+                        self.failed_files.append(filepath)
+                    
+                    # Update progress every 10 files or immediately for errors
+                    if i % 10 == 0 or not features:
+                        pbar.update(1)
+                pbar.close()
+            logger.info("Processing completed")
+            return results
+        except Exception as e:
+            logger.error(f"Multiprocessing failed: {str(e)}")
+            logger.error(traceback.format_exc())
+            return self._process_sequential(file_list)
 
     def _process_sequential(self, file_list):
         results = []
@@ -176,22 +231,25 @@ class PlaylistGenerator:
             "VeryLong"
         )
         
-        # NEW: Enhanced energy scaling for high-confidence values
+        # Revised energy scaling with better granularity
         beat_conf = features['beat_confidence']
         
-        # Transform to emphasize differences near 1.0
-        if beat_conf > 0.99:
-            # Use exponential scaling for values > 0.99
-            energy_level = 9 + min(1, int((beat_conf - 0.99) * 1000))
-        elif beat_conf > 0.9:
-            # Linear scaling for 0.9-0.99
-            energy_level = 8 + min(1, int((beat_conf - 0.9) * 10))
+        # Combination of scaling methods for better granularity
+        if beat_conf > 0.9:
+            # Power scaling for high values: creates more differentiation at top end
+            energy_level = 8 + min(2, int((beat_conf - 0.9) * 20))
+        elif beat_conf > 0.5:
+            # Logarithmic scaling for mid-range values
+            scaled = np.log10((beat_conf - 0.4) * 10) * 8
+            energy_level = min(8, max(1, int(scaled)))
         elif beat_conf > 0:
-            # Logarithmic scaling for lower values
-            log_energy = np.log10(beat_conf * 9 + 1)
-            energy_level = min(8, int(log_energy * 10))
+            # Linear scaling for low values
+            energy_level = min(5, int(beat_conf * 10))
         else:
             energy_level = 0
+            
+        # Track for analysis
+        self.energy_levels.append(energy_level)
         
         # Enhanced mood detection
         mood = (
@@ -204,7 +262,7 @@ class PlaylistGenerator:
         
         return f"{bpm_desc}_{timbre_desc}_{duration_desc}_E{energy_level}_{mood}"
 
-    def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000):
+    def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         if not features_list:
             logger.warning("No features to cluster")
             return {}
@@ -234,52 +292,51 @@ class PlaylistGenerator:
             logger.info(f"  95th %: {df['beat_confidence'].quantile(0.95):.6f}")
             logger.info(f"  99th %: {df['beat_confidence'].quantile(0.99):.6f}")
             
-            # Plot distribution
-            plt.figure(figsize=(12, 8))
-            n, bins, patches = plt.hist(
-                df['beat_confidence'], 
-                bins=np.arange(0, 1.01, 0.01),
-                alpha=0.7, 
-                color='blue'
-            )
-            plt.title('Beat Confidence Distribution')
-            plt.xlabel('Beat Confidence')
-            plt.ylabel('Frequency')
-            plt.grid(True)
-            plt.axvline(x=0.99, color='red', linestyle='--', label='99% Threshold')
-            plt.legend()
-            plt.savefig('beat_confidence_distribution.png', dpi=150)
-            logger.info("Saved beat_confidence_distribution.png")
+            # Plot distribution in output directory
+            if output_dir:
+                plt.figure(figsize=(12, 8))
+                n, bins, patches = plt.hist(
+                    df['beat_confidence'], 
+                    bins=np.arange(0, 1.01, 0.01),
+                    alpha=0.7, 
+                    color='blue'
+                )
+                plt.title('Beat Confidence Distribution')
+                plt.xlabel('Beat Confidence')
+                plt.ylabel('Frequency')
+                plt.grid(True)
+                plt.axvline(x=0.9, color='red', linestyle='--', label='90%')
+                plt.axvline(x=0.99, color='green', linestyle='--', label='99%')
+                plt.legend()
+                plot_path = os.path.join(output_dir, 'beat_confidence_distribution.png')
+                plt.savefig(plot_path, dpi=150)
+                logger.info(f"Saved beat_confidence_distribution.png at {plot_path}")
         
-        # Create enhanced features
-        numeric_cols = ['bpm', 'beat_confidence', 'centroid', 'duration']
-        df[numeric_cols] = df[numeric_cols].fillna(0)
+        # Use only essential features for clustering to reduce memory
+        cluster_features = ['bpm', 'beat_confidence', 'centroid']
+        df[cluster_features] = df[cluster_features].fillna(0)
         
-        # Add weighted combination features
-        df['energy'] = df['beat_confidence'] * 1.5
-        df['tempo_timbre'] = (df['bpm']/200) * (df['centroid']/4000) * 2
-        cluster_features = numeric_cols + ['energy', 'tempo_timbre']
-        
-        # Improved clustering with more iterations
+        # Optimized clustering with reduced memory footprint
         kmeans = MiniBatchKMeans(
-            n_clusters=min(num_playlists*2, len(df)),
+            n_clusters=min(50, len(df)),  # Max 50 clusters
             random_state=42,
-            batch_size=min(100, len(df)),
-            n_init=5,
-            max_iter=100
+            batch_size=min(500, len(df)),  # Smaller batches
+            n_init=3,    # Fewer initializations
+            max_iter=50   # Fewer iterations
         )
         
-        features_scaled = StandardScaler().fit_transform(df[cluster_features])
+        # Use float32 to reduce memory usage
+        features_array = df[cluster_features].values.astype(np.float32)
+        features_scaled = StandardScaler().fit_transform(features_array)
         df['cluster'] = kmeans.fit_predict(features_scaled)
         
-        # Group by playlist name instead of cluster number
+        # Group by playlist name
         playlists = {}
         for cluster in df['cluster'].unique():
             cluster_songs = df[df['cluster'] == cluster]
             centroid = cluster_songs[cluster_features].mean().to_dict()
             name = sanitize_filename(self.generate_playlist_name(centroid))
             
-            # Merge clusters with the same name
             if name not in playlists:
                 playlists[name] = []
             playlists[name].extend(cluster_songs['filepath'].tolist())
@@ -364,7 +421,7 @@ def main():
     parser.add_argument('--host_music_dir', required=True, help='Host music directory')
     parser.add_argument('--output_dir', default='./playlists', help='Output directory')
     parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists')
-    parser.add_argument('--workers', type=int, default=None,  # Changed to None
+    parser.add_argument('--workers', type=int, default=None, 
                        help='Number of workers (default: auto)')
     parser.add_argument('--chunk_size', type=int, default=1000, help='Clustering chunk size')
     parser.add_argument('--use_db', action='store_true', help='Use database only')
@@ -390,7 +447,7 @@ def main():
             logger.info("Analyzing directory")
             features = generator.analyze_directory(
                 args.music_dir,
-                args.workers,  # Now passed correctly
+                args.workers,
                 args.force_sequential
             )
         
@@ -400,7 +457,8 @@ def main():
             playlists = generator.generate_playlists(
                 features,
                 args.num_playlists,
-                args.chunk_size
+                args.chunk_size,
+                args.output_dir  # Pass output_dir for PNG
             )
             generator.save_playlists(playlists, args.output_dir)
         else:
