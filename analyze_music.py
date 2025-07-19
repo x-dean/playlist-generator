@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class TimeoutException(Exception):
     pass
 
-def timeout(seconds=30, error_message="Processing timed out"):
+def timeout(seconds=120, error_message="Processing timed out"):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
