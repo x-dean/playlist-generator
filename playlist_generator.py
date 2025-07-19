@@ -24,33 +24,6 @@ import queue
 import psutil
 import resource
 
-
-#!/usr/bin/env python3
-"""
-Optimized Music Playlist Generator with Enhanced Musical Analysis
-"""
-
-import pandas as pd
-from sklearn.cluster import MiniBatchKMeans, DBSCAN
-from sklearn.preprocessing import StandardScaler
-import multiprocessing as mp
-import argparse
-import os
-import logging
-from tqdm import tqdm
-from analyze_music import get_all_features
-import numpy as np
-import time
-import traceback
-import re
-import sqlite3
-import json
-from datetime import datetime
-import hashlib
-import queue
-import psutil
-import resource
-
 # Improved logging setup with coloredlogs
 try:
     import coloredlogs
