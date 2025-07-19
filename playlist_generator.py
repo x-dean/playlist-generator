@@ -659,6 +659,9 @@ class PlaylistGenerator:
         self._save_library_state(current_state)
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
+        # Define minimum playlist size
+        min_playlist_size = 5  # Minimum tracks per playlist
+        
         if not features_list:
             logger.warning("No features to cluster")
             return {}
@@ -857,7 +860,6 @@ class PlaylistGenerator:
 
         # Create final playlists
         playlists = {}
-        min_playlist_size = 3  # Minimum tracks per playlist
         
         # First pass: Create playlists from merged clusters
         for name, cluster_songs in merged_playlists.items():
