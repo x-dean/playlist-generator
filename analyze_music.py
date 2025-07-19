@@ -57,7 +57,7 @@ class AudioAnalyzer:
                 key TEXT,
                 scale TEXT,
                 key_confidence REAL,
-                onset_strength REAL,
+                rhythm_complexity REAL,
                 last_modified REAL,
                 last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -152,15 +152,15 @@ class AudioAnalyzer:
             return "unknown", "unknown", 0.0
             
     @timeout()
-    def _extract_onset_strength(self, audio):
+    def _extract_rhythm_complexity(self, audio):
+        """Alternative rhythm feature when onset strength isn't available"""
         try:
-            onset_strength = es.OnsetStrength()(audio)
-            if isinstance(onset_strength, (list, np.ndarray)):
-                return float(np.nanmean(onset_strength))
-            return float(onset_strength)
+            # Using Danceability as a rhythm complexity measure
+            danceability, _ = es.Danceability()(audio)
+            return float(danceability)
         except Exception as e:
-            logger.warning(f"Onset strength extraction failed: {str(e)}")
-            return 0.0
+            logger.warning(f"Rhythm complexity extraction failed: {str(e)}")
+            return 0.5
 
     def extract_features(self, audio_path):
         try:
@@ -168,7 +168,7 @@ class AudioAnalyzer:
 
             cursor = self.conn.cursor()
             cursor.execute("""
-            SELECT duration, bpm, beat_confidence, centroid, loudness, dynamics, key, scale, key_confidence, onset_strength
+            SELECT duration, bpm, beat_confidence, centroid, loudness, dynamics, key, scale, key_confidence, rhythm_complexity
             FROM audio_features
             WHERE file_hash = ? AND last_modified >= ?
             """, (file_info['file_hash'], file_info['last_modified']))
@@ -184,7 +184,7 @@ class AudioAnalyzer:
                     'key': row[6],
                     'scale': row[7],
                     'key_confidence': row[8],
-                    'onset_strength': row[9],
+                    'rhythm_complexity': row[9],
                     'filepath': audio_path,
                     'filename': os.path.basename(audio_path)
                 }, True, file_info['file_hash']
@@ -235,10 +235,10 @@ class AudioAnalyzer:
                 features['key_confidence'] = 0.0
                 
             try:
-                features['onset_strength'] = self._extract_onset_strength(audio)
+                features['rhythm_complexity'] = self._extract_rhythm_complexity(audio)
             except Exception as e:
-                logger.error(f"Onset strength error: {str(e)}")
-                features['onset_strength'] = 0.0
+                logger.error(f"Rhythm complexity error: {str(e)}")
+                features['rhythm_complexity'] = 0.5
 
             with self.conn:
                 self.conn.execute("""
@@ -255,7 +255,7 @@ class AudioAnalyzer:
                     features['key'],
                     features['scale'],
                     features['key_confidence'],
-                    features['onset_strength'],
+                    features['rhythm_complexity'],
                     file_info['last_modified']
                 ))
 
@@ -269,7 +269,7 @@ class AudioAnalyzer:
             cursor = self.conn.cursor()
             cursor.execute("""
             SELECT filepath, duration, bpm, beat_confidence, centroid, 
-                   loudness, dynamics, key, scale, key_confidence, onset_strength
+                   loudness, dynamics, key, scale, key_confidence, rhythm_complexity
             FROM audio_features
             """)
             return [
@@ -284,7 +284,7 @@ class AudioAnalyzer:
                     'key': row[7],
                     'scale': row[8],
                     'key_confidence': row[9],
-                    'onset_strength': row[10],
+                    'rhythm_complexity': row[10],
                 }
                 for row in cursor.fetchall()
             ]
