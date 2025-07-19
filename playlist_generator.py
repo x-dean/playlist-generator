@@ -17,7 +17,7 @@ import time
 import traceback
 import re
 import sqlite3
-import matplotlib.pyplot as plt  # For energy distribution analysis
+import matplotlib.pyplot as plt
 
 # Logging setup
 logging.basicConfig(
@@ -41,13 +41,13 @@ class PlaylistGenerator:
         self.container_music_dir = ""
         self.host_music_dir = ""
         self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')
-        self.beat_confidences = []  # Track beat confidence values for analysis
+        self.beat_confidences = []
 
-    def analyze_directory(self, music_dir, workers=4, force_sequential=False):
+    def analyze_directory(self, music_dir, workers=None, force_sequential=False):
         file_list = []
         self.failed_files = []
         self.container_music_dir = music_dir.rstrip('/')
-        self.beat_confidences = []  # Reset for each run
+        self.beat_confidences = []
 
         for root, _, files in os.walk(music_dir):
             for file in files:
@@ -58,6 +58,11 @@ class PlaylistGenerator:
         if not file_list:
             logger.warning("No valid audio files found")
             return []
+
+        # Set default workers if not provided
+        if workers is None:
+            workers = max(1, mp.cpu_count() // 2)
+            logger.info(f"Using automatic worker count: {workers}")
 
         if force_sequential or workers <= 1:
             logger.info("Using sequential processing")
@@ -71,7 +76,6 @@ class PlaylistGenerator:
             features, _ = process_file_worker(filepath)
             if features:
                 results.append(features)
-                # Track beat confidence for analysis
                 if 'beat_confidence' in features:
                     self.beat_confidences.append(features['beat_confidence'])
             else:
@@ -81,9 +85,9 @@ class PlaylistGenerator:
     def _process_parallel(self, file_list, workers):
         results = []
         try:
-            logger.info("Starting multiprocessing pool")
+            logger.info(f"Starting multiprocessing pool with {workers} workers")
             ctx = mp.get_context('spawn')
-            with ctx.Pool(processes=min(workers, mp.cpu_count() // 2 or 1)) as pool:
+            with ctx.Pool(processes=workers) as pool:
                 async_results = [
                     pool.apply_async(process_file_worker, (filepath,))
                     for filepath in file_list
@@ -95,11 +99,10 @@ class PlaylistGenerator:
                     desc="Processing files"
                 ):
                     try:
-                        # Increase timeout to 10 minutes (600 seconds)
+                        # Increased timeout to 10 minutes
                         features, filepath = async_result.get(timeout=600)
                         if features:
                             results.append(features)
-                            # Track beat confidence for analysis
                             if 'beat_confidence' in features:
                                 self.beat_confidences.append(features['beat_confidence'])
                         else:
@@ -173,14 +176,20 @@ class PlaylistGenerator:
             "VeryLong"
         )
         
-        # Revised energy scaling with better distribution
+        # NEW: Enhanced energy scaling for high-confidence values
         beat_conf = features['beat_confidence']
         
-        # Use logarithmic scaling to distribute values better
-        if beat_conf > 0:
-            # Transform to logarithmic scale (0-1) then scale to 0-10
-            log_energy = np.log10(beat_conf * 9 + 1)  # +1 to avoid log(0)
-            energy_level = min(10, int(log_energy * 10))
+        # Transform to emphasize differences near 1.0
+        if beat_conf > 0.99:
+            # Use exponential scaling for values > 0.99
+            energy_level = 9 + min(1, int((beat_conf - 0.99) * 1000))
+        elif beat_conf > 0.9:
+            # Linear scaling for 0.9-0.99
+            energy_level = 8 + min(1, int((beat_conf - 0.9) * 10))
+        elif beat_conf > 0:
+            # Logarithmic scaling for lower values
+            log_energy = np.log10(beat_conf * 9 + 1)
+            energy_level = min(8, int(log_energy * 10))
         else:
             energy_level = 0
         
@@ -216,21 +225,30 @@ class PlaylistGenerator:
         df = pd.DataFrame(valid_features)
         
         # Analyze beat confidence distribution
-        if 'beat_confidence' in df:
+        if 'beat_confidence' in df and not df.empty:
             logger.info(f"Beat confidence statistics:")
-            logger.info(f"  Min: {df['beat_confidence'].min():.4f}")
-            logger.info(f"  Max: {df['beat_confidence'].max():.4f}")
-            logger.info(f"  Mean: {df['beat_confidence'].mean():.4f}")
-            logger.info(f"  Median: {df['beat_confidence'].median():.4f}")
+            logger.info(f"  Min:    {df['beat_confidence'].min():.6f}")
+            logger.info(f"  Max:    {df['beat_confidence'].max():.6f}")
+            logger.info(f"  Mean:   {df['beat_confidence'].mean():.6f}")
+            logger.info(f"  Median: {df['beat_confidence'].median():.6f}")
+            logger.info(f"  95th %: {df['beat_confidence'].quantile(0.95):.6f}")
+            logger.info(f"  99th %: {df['beat_confidence'].quantile(0.99):.6f}")
             
-            # Plot distribution for visual analysis
-            plt.figure(figsize=(10, 6))
-            plt.hist(df['beat_confidence'], bins=20, alpha=0.7, color='blue')
+            # Plot distribution
+            plt.figure(figsize=(12, 8))
+            n, bins, patches = plt.hist(
+                df['beat_confidence'], 
+                bins=np.arange(0, 1.01, 0.01),
+                alpha=0.7, 
+                color='blue'
+            )
             plt.title('Beat Confidence Distribution')
             plt.xlabel('Beat Confidence')
             plt.ylabel('Frequency')
             plt.grid(True)
-            plt.savefig('beat_confidence_distribution.png')
+            plt.axvline(x=0.99, color='red', linestyle='--', label='99% Threshold')
+            plt.legend()
+            plt.savefig('beat_confidence_distribution.png', dpi=150)
             logger.info("Saved beat_confidence_distribution.png")
         
         # Create enhanced features
@@ -244,11 +262,11 @@ class PlaylistGenerator:
         
         # Improved clustering with more iterations
         kmeans = MiniBatchKMeans(
-            n_clusters=min(num_playlists*2, len(df)),  # Start with more clusters
+            n_clusters=min(num_playlists*2, len(df)),
             random_state=42,
             batch_size=min(100, len(df)),
-            n_init=5,    # More initializations
-            max_iter=100  # More iterations
+            n_init=5,
+            max_iter=100
         )
         
         features_scaled = StandardScaler().fit_transform(df[cluster_features])
@@ -267,7 +285,7 @@ class PlaylistGenerator:
             playlists[name].extend(cluster_songs['filepath'].tolist())
         
         # Filter out very small playlists
-        return {k:v for k,v in playlists.items() if len(v) >= 5}  # Minimum 5 tracks
+        return {k:v for k,v in playlists.items() if len(v) >= 5}
 
     def cleanup_database(self):
         """Remove missing files from database"""
@@ -346,8 +364,8 @@ def main():
     parser.add_argument('--host_music_dir', required=True, help='Host music directory')
     parser.add_argument('--output_dir', default='./playlists', help='Output directory')
     parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists')
-    parser.add_argument('--workers', type=int, default=max(1, mp.cpu_count() // 2), 
-                       help='Number of workers')
+    parser.add_argument('--workers', type=int, default=None,  # Changed to None
+                       help='Number of workers (default: auto)')
     parser.add_argument('--chunk_size', type=int, default=1000, help='Clustering chunk size')
     parser.add_argument('--use_db', action='store_true', help='Use database only')
     parser.add_argument('--force_sequential', action='store_true', 
@@ -372,7 +390,7 @@ def main():
             logger.info("Analyzing directory")
             features = generator.analyze_directory(
                 args.music_dir,
-                args.workers,
+                args.workers,  # Now passed correctly
                 args.force_sequential
             )
         
