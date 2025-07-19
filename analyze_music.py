@@ -89,12 +89,12 @@ class AudioAnalyzer:
         try:
             rhythm_extractor = es.RhythmExtractor()
             bpm, _, confidence, _ = rhythm_extractor(audio)
-            
+
             if isinstance(confidence, (list, np.ndarray)):
                 beat_conf = float(np.nanmean(confidence))
             else:
                 beat_conf = float(confidence)
-            
+
             beat_conf = max(0.0, min(1.0, beat_conf))
             return float(bpm), beat_conf
         except Exception as e:
@@ -106,12 +106,12 @@ class AudioAnalyzer:
         try:
             spectral = es.SpectralCentroidTime(sampleRate=44100)
             centroid_values = spectral(audio)
-            
+
             if isinstance(centroid_values, (list, np.ndarray)):
                 centroid = float(np.nanmean(centroid_values))
             else:
                 centroid = float(centroid_values)
-                
+
             return centroid
         except Exception as e:
             logger.warning(f"Spectral extraction failed: {str(e)}")
@@ -120,14 +120,14 @@ class AudioAnalyzer:
     def extract_features(self, audio_path):
         try:
             file_info = self._get_file_info(audio_path)
-            
+
             cursor = self.conn.cursor()
             cursor.execute("""
             SELECT duration, bpm, beat_confidence, centroid
             FROM audio_features
             WHERE file_hash = ? AND last_modified >= ?
             """, (file_info['file_hash'], file_info['last_modified']))
-            
+
             if row := cursor.fetchone():
                 return {
                     'duration': row[0],
@@ -148,14 +148,14 @@ class AudioAnalyzer:
                 'filepath': audio_path,
                 'filename': os.path.basename(audio_path)
             }
-            
+
             try:
                 features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
             except Exception as e:
                 logger.error(f"Rhythm extraction error for {audio_path}: {str(e)}")
                 features['bpm'] = 0.0
                 features['beat_confidence'] = 0.0
-                
+
             try:
                 features['centroid'] = self._extract_spectral_features(audio)
             except Exception as e:

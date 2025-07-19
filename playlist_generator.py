@@ -37,7 +37,7 @@ def process_file_worker(filepath):
     try:
         from analyze_music import audio_analyzer
         result = audio_analyzer.extract_features(filepath)
-        if result:
+        if result and result[0] is not None:  # FIX: Added check for None features
             features = result[0]
             # Ensure no None values in critical features
             for key in ['bpm', 'centroid', 'duration']:
@@ -206,6 +206,10 @@ class PlaylistGenerator:
 
         valid_features = []
         for feat in features_list:
+            # Skip if features are missing
+            if not feat or 'filepath' not in feat:
+                continue
+                
             if os.path.exists(feat['filepath']):
                 # Handle None values for all features
                 for key in ['bpm', 'centroid', 'duration']:
