@@ -77,9 +77,11 @@ class PlaylistGenerator:
             pbar.set_postfix(file=os.path.basename(filepath)[:20])
             features, _ = process_file_worker(filepath)
             if features:
+                # Handle None values for beat_confidence
+                if features.get('beat_confidence') is None:
+                    features['beat_confidence'] = 0.0
                 results.append(features)
-                if 'beat_confidence' in features:
-                    self.beat_confidences.append(max(0.0, min(1.0, features['beat_confidence'])))
+                self.beat_confidences.append(features['beat_confidence'])
             else:
                 self.failed_files.append(filepath)
         return results
@@ -100,9 +102,11 @@ class PlaylistGenerator:
                     try:
                         features, filepath = async_result.get(timeout=600)
                         if features:
+                            # Handle None values for beat_confidence
+                            if features.get('beat_confidence') is None:
+                                features['beat_confidence'] = 0.0
                             results.append(features)
-                            if 'beat_confidence' in features:
-                                self.beat_confidences.append(max(0.0, min(1.0, features['beat_confidence'])))
+                            self.beat_confidences.append(features['beat_confidence'])
                         else:
                             self.failed_files.append(filepath)
                     except mp.TimeoutError:
@@ -125,33 +129,22 @@ class PlaylistGenerator:
     def get_all_features_from_db(self):
         try:
             features = get_all_features()
-            # Ensure beat_confidence is within [0,1] range
+            # Ensure beat_confidence is within [0,1] range and not None
             for feat in features:
-                if 'beat_confidence' in feat:
+                if feat.get('beat_confidence') is None:
+                    feat['beat_confidence'] = 0.0
+                else:
                     feat['beat_confidence'] = max(0.0, min(1.0, feat['beat_confidence']))
             return features
         except Exception as e:
             logger.error(f"Database error: {str(e)}")
             return []
 
-    def convert_to_host_path(self, container_path):
-        if not self.host_music_dir or not self.container_music_dir:
-            return container_path
-
-        container_path = os.path.normpath(container_path)
-        container_music_dir = os.path.normpath(self.container_music_dir)
-
-        if not container_path.startswith(container_music_dir):
-            return container_path
-
-        rel_path = os.path.relpath(container_path, container_music_dir)
-        return os.path.join(self.host_music_dir, rel_path)
-
     def generate_playlist_name(self, features):
         required_features = ['bpm', 'centroid', 'beat_confidence', 'duration']
         for feat in required_features:
-            if feat not in features:
-                logger.warning(f"Missing feature '{feat}' in centroid data")
+            if feat not in features or features[feat] is None:
+                logger.warning(f"Missing or None feature '{feat}' in centroid data")
                 features[feat] = 0.0
 
         bpm = features['bpm']
@@ -159,6 +152,7 @@ class PlaylistGenerator:
         duration = features['duration']
         beat_conf = max(0.0, min(1.0, features['beat_confidence']))
         
+        # Rest of the method remains the same...
         bpm_desc = (
             "VerySlow" if bpm < 55 else
             "Slow" if bpm < 70 else
@@ -217,8 +211,14 @@ class PlaylistGenerator:
         valid_features = []
         for feat in features_list:
             if os.path.exists(feat['filepath']):
-                if 'beat_confidence' in feat:
-                    feat['beat_confidence'] = max(0.0, min(1.0, feat['beat_confidence']))
+                # Handle None values for all features
+                for key in ['beat_confidence', 'bpm', 'centroid', 'duration']:
+                    if feat.get(key) is None:
+                        feat[key] = 0.0
+                        logger.warning(f"Found None value for {key} in {feat['filepath']}")
+                
+                # Ensure beat_confidence is within [0,1] range
+                feat['beat_confidence'] = max(0.0, min(1.0, feat['beat_confidence']))
                 valid_features.append(feat)
             else:
                 logger.warning(f"File not found: {feat['filepath']}")
@@ -353,16 +353,21 @@ class PlaylistGenerator:
                 f.write("\n".join(host_failed))
             logger.info(f"Saved {len(all_failed)} failed/missing files")
 
-def process_file_worker(filepath):
-    try:
-        from analyze_music import audio_analyzer
-        result = audio_analyzer.extract_features(filepath)
-        if result:
-            return result[0], filepath
-        return None, filepath
-    except Exception as e:
-        logger.error(f"Error processing {filepath}: {str(e)}")
-        return None, filepath
+    def process_file_worker(filepath):
+        try:
+            from analyze_music import audio_analyzer
+            result = audio_analyzer.extract_features(filepath)
+            if result:
+                features = result[0]
+                # Ensure no None values in critical features
+                for key in ['beat_confidence', 'bpm', 'centroid', 'duration']:
+                    if features.get(key) is None:
+                        features[key] = 0.0
+                return features, filepath
+            return None, filepath
+        except Exception as e:
+            logger.error(f"Error processing {filepath}: {str(e)}")
+            return None, filepath
 
 def main():
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
