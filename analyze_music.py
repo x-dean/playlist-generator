@@ -7,38 +7,32 @@ import hashlib
 import signal
 from functools import wraps
 
-import numpy as np
-import essentia.standard as es
-import os
-import logging
-import sqlite3
-import hashlib
-import signal
-from functools import wraps
+# Setup logger
+logger = logging.getLogger(__name__)
 
-# Setup logging with coloredlogs
+# Setup coloredlogs if available
 try:
     import coloredlogs
+    # Install coloredlogs with distinct colors for each level
     coloredlogs.install(
-        level=logging.INFO,
+        level='INFO',
+        logger=logger,
         fmt='%(name)s: %(message)s',
-        field_styles={
-            'levelname': {'bold': True, 'color': 'cyan'},
-            'name': {'color': 'blue'}
-        },
         level_styles={
             'debug': {'color': 'green'},
-            'info': {'color': 'white'},
+            'info': {'color': 'cyan'},
             'warning': {'color': 'yellow', 'bold': True},
             'error': {'color': 'red', 'bold': True},
-            'critical': {'background': 'red', 'bold': True, 'color': 'white'}
+            'critical': {'color': 'white', 'background': 'red', 'bold': True}
+        },
+        field_styles={
+            'name': {'color': 'blue'}
         }
     )
-    logger = logging.getLogger(__name__)
     logger.info("Colored logs enabled for audio analysis")
 except ImportError:
+    # Fallback to basic logging if coloredlogs not available
     logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
     logger.warning("coloredlogs not installed - using basic logging")
 
 # Current feature version - increment when adding/removing features

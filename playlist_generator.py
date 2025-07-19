@@ -24,27 +24,32 @@ import queue
 import psutil
 import resource
 
-# Improved logging setup with coloredlogs
+# Improved logging setup
+logger = logging.getLogger(__name__)
+
+# Setup coloredlogs if available
 try:
     import coloredlogs
+    # Install coloredlogs with distinct colors for each level
     coloredlogs.install(
-        level=logging.INFO,
+        level='INFO',
+        logger=logger,
         fmt='[%(levelname)s] %(name)s: %(message)s',
-        field_styles={
-            'levelname': {'bold': True, 'color': 'cyan'},
-            'name': {'color': 'blue'}
-        },
         level_styles={
             'debug': {'color': 'green'},
-            'info': {'color': 'white'},
+            'info': {'color': 'cyan'},
             'warning': {'color': 'yellow', 'bold': True},
             'error': {'color': 'red', 'bold': True},
-            'critical': {'background': 'red', 'bold': True, 'color': 'white'}
+            'critical': {'color': 'white', 'background': 'red', 'bold': True}
+        },
+        field_styles={
+            'levelname': {'bold': True},
+            'name': {'color': 'blue'}
         }
     )
-    logger = logging.getLogger(__name__)
-    logger.info("Colored logs enabled")
+    logger.info("Colored logs enabled - Different colors for each log level")
 except ImportError:
+    # Fallback to basic logging if coloredlogs not available
     logging.basicConfig(
         level=logging.INFO,
         format='[%(levelname)s] %(name)s: %(message)s',
@@ -53,7 +58,6 @@ except ImportError:
             logging.FileHandler("playlist_generator.log", mode='w')
         ]
     )
-    logger = logging.getLogger(__name__)
     logger.warning("coloredlogs not installed - using basic logging")
 
 def sanitize_filename(name):
