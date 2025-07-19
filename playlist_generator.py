@@ -16,7 +16,8 @@ import numpy as np
 import time
 import traceback
 import re
-import sqlite3  # Added for database cleanup
+import sqlite3
+import matplotlib.pyplot as plt  # For energy distribution analysis
 
 # Logging setup
 logging.basicConfig(
@@ -39,12 +40,14 @@ class PlaylistGenerator:
         self.failed_files = []
         self.container_music_dir = ""
         self.host_music_dir = ""
-        self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')  # Added cache file path
+        self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')
+        self.beat_confidences = []  # Track beat confidence values for analysis
 
     def analyze_directory(self, music_dir, workers=4, force_sequential=False):
         file_list = []
         self.failed_files = []
         self.container_music_dir = music_dir.rstrip('/')
+        self.beat_confidences = []  # Reset for each run
 
         for root, _, files in os.walk(music_dir):
             for file in files:
@@ -68,6 +71,9 @@ class PlaylistGenerator:
             features, _ = process_file_worker(filepath)
             if features:
                 results.append(features)
+                # Track beat confidence for analysis
+                if 'beat_confidence' in features:
+                    self.beat_confidences.append(features['beat_confidence'])
             else:
                 self.failed_files.append(filepath)
         return results
@@ -89,10 +95,13 @@ class PlaylistGenerator:
                     desc="Processing files"
                 ):
                     try:
-                        # Add 5-minute timeout per file
-                        features, filepath = async_result.get(timeout=300)
+                        # Increase timeout to 10 minutes (600 seconds)
+                        features, filepath = async_result.get(timeout=600)
                         if features:
                             results.append(features)
+                            # Track beat confidence for analysis
+                            if 'beat_confidence' in features:
+                                self.beat_confidences.append(features['beat_confidence'])
                         else:
                             self.failed_files.append(filepath)
                     except mp.TimeoutError:
@@ -164,8 +173,16 @@ class PlaylistGenerator:
             "VeryLong"
         )
         
-        # More sensitive energy scaling (0-10)
-        energy_level = min(10, int(features['beat_confidence'] * 12))
+        # Revised energy scaling with better distribution
+        beat_conf = features['beat_confidence']
+        
+        # Use logarithmic scaling to distribute values better
+        if beat_conf > 0:
+            # Transform to logarithmic scale (0-1) then scale to 0-10
+            log_energy = np.log10(beat_conf * 9 + 1)  # +1 to avoid log(0)
+            energy_level = min(10, int(log_energy * 10))
+        else:
+            energy_level = 0
         
         # Enhanced mood detection
         mood = (
@@ -197,6 +214,24 @@ class PlaylistGenerator:
             return {}
             
         df = pd.DataFrame(valid_features)
+        
+        # Analyze beat confidence distribution
+        if 'beat_confidence' in df:
+            logger.info(f"Beat confidence statistics:")
+            logger.info(f"  Min: {df['beat_confidence'].min():.4f}")
+            logger.info(f"  Max: {df['beat_confidence'].max():.4f}")
+            logger.info(f"  Mean: {df['beat_confidence'].mean():.4f}")
+            logger.info(f"  Median: {df['beat_confidence'].median():.4f}")
+            
+            # Plot distribution for visual analysis
+            plt.figure(figsize=(10, 6))
+            plt.hist(df['beat_confidence'], bins=20, alpha=0.7, color='blue')
+            plt.title('Beat Confidence Distribution')
+            plt.xlabel('Beat Confidence')
+            plt.ylabel('Frequency')
+            plt.grid(True)
+            plt.savefig('beat_confidence_distribution.png')
+            logger.info("Saved beat_confidence_distribution.png")
         
         # Create enhanced features
         numeric_cols = ['bpm', 'beat_confidence', 'centroid', 'duration']

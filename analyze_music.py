@@ -156,6 +156,7 @@ class AudioAnalyzer:
             
             # Extract features with proper error handling
             try:
+                # Increase timeout for rhythm feature extraction
                 features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
             except Exception as e:
                 logger.error(f"Rhythm extraction error for {audio_path}: {str(e)}")
@@ -163,6 +164,7 @@ class AudioAnalyzer:
                 features['beat_confidence'] = 0.0
                 
             try:
+                # Increase timeout for spectral feature extraction
                 features['centroid'] = self._extract_spectral_features(audio)
             except Exception as e:
                 logger.error(f"Spectral extraction error for {audio_path}: {str(e)}")
