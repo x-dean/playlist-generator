@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Optimized Music Playlist Generator with Enhanced Naming and Playlist Tracking
+Optimized Music Playlist Generator with Enhanced Musical Analysis
 """
 
 import pandas as pd
-from sklearn.cluster import MiniBatchKMeans
+from sklearn.cluster import MiniBatchKMeans, DBSCAN
 from sklearn.preprocessing import StandardScaler
 import multiprocessing as mp
 import argparse
@@ -43,7 +43,8 @@ def process_file_worker(filepath):
         if result and result[0] is not None:
             features = result[0]
             # Ensure no None values in critical features
-            for key in ['bpm', 'centroid', 'duration']:
+            for key in ['bpm', 'centroid', 'duration', 'loudness', 
+                        'dynamics', 'onset_strength', 'key_confidence']:
                 if features.get(key) is None:
                     features[key] = 0.0
             return features, filepath
@@ -75,6 +76,10 @@ class PlaylistGenerator:
                 centroid_bpm REAL,
                 centroid_centroid REAL,
                 centroid_duration REAL,
+                centroid_loudness REAL,
+                centroid_dynamics REAL,
+                centroid_onset REAL,
+                centroid_key TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -310,17 +315,43 @@ class PlaylistGenerator:
         rel_path = os.path.relpath(container_path, container_music_dir)
         return os.path.join(self.host_music_dir, rel_path)
 
+    def _categorize_mood(self, features):
+        """Categorize mood based on harmonic and dynamic features"""
+        scale = features.get('scale', 'unknown')
+        bpm = features.get('bpm', 0)
+        loudness = features.get('loudness', -20)
+        
+        if scale == 'minor':
+            if bpm < 90: 
+                return "Melancholic"
+            return "Intense"
+        else:
+            if loudness < -15: 
+                return "Calm"
+            if bpm > 120: 
+                return "Euphoric"
+            return "Upbeat"
+
     def generate_playlist_name(self, features):
-        required_features = ['bpm', 'centroid', 'duration']
-        for feat in required_features:
-            if feat not in features or features[feat] is None:
-                logger.warning(f"Missing or None feature '{feat}' in centroid data")
-                features[feat] = 0.0
+        """Generate meaningful playlist name using multiple features"""
+        # Default values for missing features
+        defaults = {
+            'bpm': 100, 'centroid': 2000, 'duration': 180,
+            'loudness': -15, 'onset_strength': 0.3
+        }
+        for key, default in defaults.items():
+            if features.get(key) is None:
+                features[key] = default
+                logger.warning(f"Using default value for missing feature: {key}")
 
         bpm = features['bpm']
         centroid = features['centroid']
         duration = features['duration']
+        loudness = features['loudness']
+        onset_strength = features.get('onset_strength', 0.3)
+        scale = features.get('scale', 'major')
         
+        # BPM descriptors
         bpm_desc = (
             "VerySlow" if bpm < 55 else
             "Slow" if bpm < 70 else
@@ -332,6 +363,7 @@ class PlaylistGenerator:
             "VeryFast"
         )
         
+        # Timbre descriptors
         timbre_desc = (
             "Dark" if centroid < 800 else
             "Warm" if centroid < 1500 else
@@ -341,6 +373,7 @@ class PlaylistGenerator:
             "VerySharp"
         )
         
+        # Duration descriptors
         duration_desc = (
             "Brief" if duration < 60 else
             "Short" if duration < 120 else
@@ -349,15 +382,29 @@ class PlaylistGenerator:
             "VeryLong"
         )
         
-        mood = (
-            "Ambient" if bpm < 75 and centroid < 1200 else
-            "Downtempo" if bpm < 95 else
-            "Dance" if bpm > 125 else
-            "Dynamic" if centroid > 3000 else
-            "Balanced"
+        # Loudness descriptors
+        loudness_desc = (
+            "Whisper" if loudness < -30 else
+            "Soft" if loudness < -20 else
+            "Balanced" if loudness < -10 else
+            "Loud" if loudness < -5 else 
+            "EarBlasting"
         )
         
-        return f"{bpm_desc}_{timbre_desc}_{duration_desc}_{mood}"
+        # Onset energy descriptors
+        energy_desc = (
+            "Smooth" if onset_strength < 0.1 else
+            "Pulsing" if onset_strength < 0.3 else
+            "Energetic"
+        )
+        
+        # Mood based on harmonic features
+        mood = self._categorize_mood(features)
+        
+        # Key scale descriptor
+        key_desc = "Major" if scale == "major" else "Minor"
+        
+        return f"{bpm_desc}_{timbre_desc}_{key_desc}_{energy_desc}_{mood}"
 
     def _update_playlist_tracker(self, playlists, centroids=None):
         """Update playlist tracker with new playlist assignments"""
@@ -379,11 +426,18 @@ class PlaylistGenerator:
             else:
                 centroid_data = centroids.get(name, {}) if centroids else {}
                 cursor.execute(
-                    "INSERT INTO playlists (name, centroid_bpm, centroid_centroid, centroid_duration) VALUES (?, ?, ?, ?)",
+                    """INSERT INTO playlists (name, centroid_bpm, centroid_centroid, 
+                    centroid_duration, centroid_loudness, centroid_dynamics, 
+                    centroid_onset, centroid_key) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (name, 
                      centroid_data.get('bpm', 0),
                      centroid_data.get('centroid', 0),
-                     centroid_data.get('duration', 0)))
+                     centroid_data.get('duration', 0),
+                     centroid_data.get('loudness', -20),
+                     centroid_data.get('dynamics', 0),
+                     centroid_data.get('onset_strength', 0.3),
+                     centroid_data.get('key', 'C') + '-' + centroid_data.get('scale', 'major')))
                 playlist_id = cursor.lastrowid
                 existing_playlists[name] = playlist_id
             
@@ -418,11 +472,14 @@ class PlaylistGenerator:
         if changes['removed']:
             self._remove_files_from_playlists(changes['removed'])
         
-        # Process added and modified files
+        # Process added and modified files - prioritize high-energy tracks
         files_to_process = changes['added'] + changes['modified']
         if not files_to_process:
             logger.info("No files to process in incremental update")
             return
+        
+        # Sort by likely energy (duration * bpm) for processing priority
+        files_to_process.sort(key=lambda x: os.path.getsize(x), reverse=True)
         
         # Analyze new/modified files
         features = []
@@ -469,7 +526,8 @@ class PlaylistGenerator:
         
         # Get all playlists with their centroids
         cursor.execute("""
-            SELECT id, name, centroid_bpm, centroid_centroid, centroid_duration 
+            SELECT id, name, centroid_bpm, centroid_centroid, centroid_duration,
+                   centroid_loudness, centroid_dynamics, centroid_onset
             FROM playlists
         """)
         playlists = cursor.fetchall()
@@ -478,24 +536,48 @@ class PlaylistGenerator:
             logger.warning("No existing playlists found for assignment")
             return 0
         
+        # Circle of fifths mapping for key similarity
+        circle_of_fifths = {'C':0, 'G':1, 'D':2, 'A':3, 'E':4, 'B':5,
+                            'F#':6, 'C#':7, 'F':-1, 'Bb':-2, 'Eb':-3,
+                            'Ab':-4, 'Db':-5, 'Gb':-6}
+        
         assigned_count = 0
         for feature in features:
             filepath = feature['filepath']
             min_distance = float('inf')
             best_playlist = None
             
+            # Extract key from centroid if available
+            file_key = feature.get('key', 'C')
+            file_key_num = circle_of_fifths.get(file_key.split('/')[0], 0)
+            
             # Find closest playlist
-            for playlist_id, name, bpm, centroid, duration in playlists:
+            for playlist in playlists:
+                playlist_id, name, bpm, centroid, duration, loudness, dynamics, onset = playlist
+                
                 # Skip playlists with missing data
-                if bpm is None or centroid is None or duration is None:
+                if None in (bpm, centroid, duration, loudness, dynamics, onset):
                     continue
                 
-                # Calculate distance using key features
+                # Calculate distance using weighted features
                 distance = (
-                    abs(feature['bpm'] - bpm) +
-                    abs(feature['centroid'] - centroid) +
-                    abs(feature['duration'] - duration)
+                    0.4 * abs(feature['bpm'] - bpm) +
+                    0.3 * abs(feature['centroid'] - centroid) +
+                    0.1 * abs(feature['loudness'] - loudness) +
+                    0.1 * abs(feature['dynamics'] - dynamics) +
+                    0.1 * abs(feature.get('onset_strength', 0.3) - onset)
                 )
+                
+                # Add key distance if available
+                if file_key != 'unknown':
+                    # Extract base key from centroid_key format (e.g., "C-major")
+                    centroid_key = name.split('_')[2] if '_' in name else 'C'
+                    centroid_key_num = circle_of_fifths.get(centroid_key, 0)
+                    key_distance = min(
+                        abs(file_key_num - centroid_key_num),
+                        12 - abs(file_key_num - centroid_key_num)
+                    ) / 12.0
+                    distance += 0.2 * key_distance
                 
                 if distance < min_distance:
                     min_distance = distance
@@ -576,9 +658,11 @@ class PlaylistGenerator:
             if not feat or 'filepath' not in feat:
                 continue
             if os.path.exists(feat['filepath']):
-                for key in ['bpm', 'centroid', 'duration']:
+                # Ensure all required features exist
+                for key in ['bpm', 'centroid', 'duration', 'loudness', 
+                           'dynamics', 'onset_strength', 'key', 'scale']:
                     if feat.get(key) is None:
-                        feat[key] = 0.0
+                        feat[key] = 0.0 if key != 'key' else 'unknown'
                 valid_features.append(feat)
             else:
                 logger.warning(f"File not found: {feat['filepath']}")
@@ -590,18 +674,39 @@ class PlaylistGenerator:
             
         df = pd.DataFrame(valid_features)
         
-        naming_features = ['bpm', 'centroid', 'duration']
+        # Circle of fifths mapping for key similarity
+        circle_of_fifths = {'C':0, 'G':1, 'D':2, 'A':3, 'E':4, 'B':5,
+                            'F#':6, 'C#':7, 'F':-1, 'Bb':-2, 'Eb':-3,
+                            'Ab':-4, 'Db':-5, 'Gb':-6}
         
-        for feat in naming_features:
+        # Convert key to numerical representation
+        df['key_num'] = df['key'].apply(
+            lambda k: circle_of_fifths.get(k.split('/')[0], 0) if isinstance(k, str) else 0
+        )
+        
+        # Convert scale to numerical (0 = minor, 1 = major)
+        df['scale_num'] = df['scale'].apply(
+            lambda s: 1 if s == 'major' else 0
+        )
+        
+        # Define features for clustering
+        cluster_features = [
+            'bpm', 'centroid', 'loudness', 
+            'dynamics', 'onset_strength', 'key_num', 'scale_num'
+        ]
+        
+        # Fill missing values
+        for feat in cluster_features:
             if feat not in df.columns:
-                logger.warning(f"Adding missing feature column: {feat}")
                 df[feat] = 0.0
                 
-        df[naming_features] = df[naming_features].fillna(0)
-        
-        cluster_features = ['bpm', 'centroid']
         df[cluster_features] = df[cluster_features].fillna(0)
         
+        # Scale features
+        features_array = df[cluster_features].values.astype(np.float32)
+        features_scaled = StandardScaler().fit_transform(features_array)
+        
+        # Cluster using MiniBatchKMeans
         kmeans = MiniBatchKMeans(
             n_clusters=min(50, len(df)),
             random_state=42,
@@ -609,16 +714,29 @@ class PlaylistGenerator:
             n_init=3,
             max_iter=50
         )
-        
-        features_array = df[cluster_features].values.astype(np.float32)
-        features_scaled = StandardScaler().fit_transform(features_array)
         df['cluster'] = kmeans.fit_predict(features_scaled)
+        
+        # Alternatively use DBSCAN for natural clusters
+        # dbscan = DBSCAN(eps=0.5, min_samples=5)
+        # df['cluster'] = dbscan.fit_predict(features_scaled)
         
         playlists = {}
         centroids = {}
         for cluster in df['cluster'].unique():
             cluster_songs = df[df['cluster'] == cluster]
-            centroid = cluster_songs[naming_features].mean().to_dict()
+            
+            # Skip clusters with too few songs
+            if len(cluster_songs) < 5:
+                continue
+                
+            # Calculate centroid features
+            centroid = cluster_songs[cluster_features].mean().to_dict()
+            
+            # Add key and scale to centroid
+            centroid['key'] = cluster_songs['key'].mode().get(0, 'C')
+            centroid['scale'] = cluster_songs['scale'].mode().get(0, 'major')
+            
+            # Generate playlist name
             name = sanitize_filename(self.generate_playlist_name(centroid))
             
             if name not in playlists:
@@ -632,7 +750,7 @@ class PlaylistGenerator:
         # Update library state
         self._update_library_state()
         
-        return {k:v for k,v in playlists.items() if len(v) >= 5}
+        return playlists
 
     def cleanup_database(self):
         try:
@@ -671,7 +789,7 @@ class PlaylistGenerator:
 
             host_songs = [self.convert_to_host_path(song) for song in songs]
             
-            playlist_path = os.path.join(output_dir, f"{name}.m3u")
+            playlist_path = os.path.join(output_dir, f"{sanitize_filename(name)}.m3u")
             with open(playlist_path, 'w') as f:
                 f.write("\n".join(host_songs))
             saved_count += 1

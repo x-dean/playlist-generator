@@ -52,6 +52,12 @@ class AudioAnalyzer:
                 bpm REAL,
                 beat_confidence REAL,
                 centroid REAL,
+                loudness REAL,
+                dynamics REAL,
+                key TEXT,
+                scale TEXT,
+                key_confidence REAL,
+                onset_strength REAL,
                 last_modified REAL,
                 last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -116,6 +122,45 @@ class AudioAnalyzer:
         except Exception as e:
             logger.warning(f"Spectral extraction failed: {str(e)}")
             return 0.0
+            
+    @timeout()
+    def _extract_loudness(self, audio):
+        try:
+            loudness = es.Loudness()(audio)
+            return float(loudness)
+        except Exception as e:
+            logger.warning(f"Loudness extraction failed: {str(e)}")
+            return 0.0
+            
+    @timeout()
+    def _extract_dynamics(self, audio):
+        try:
+            dynamic_complexity, _ = es.DynamicComplexity()(audio)
+            return float(dynamic_complexity)
+        except Exception as e:
+            logger.warning(f"Dynamic complexity extraction failed: {str(e)}")
+            return 0.0
+            
+    @timeout()
+    def _extract_harmonic_features(self, audio):
+        try:
+            key_extractor = es.KeyExtractor()
+            key, scale, confidence = key_extractor(audio)
+            return key, scale, float(confidence)
+        except Exception as e:
+            logger.warning(f"Harmonic extraction failed: {str(e)}")
+            return "unknown", "unknown", 0.0
+            
+    @timeout()
+    def _extract_onset_strength(self, audio):
+        try:
+            onset_strength = es.OnsetStrength()(audio)
+            if isinstance(onset_strength, (list, np.ndarray)):
+                return float(np.nanmean(onset_strength))
+            return float(onset_strength)
+        except Exception as e:
+            logger.warning(f"Onset strength extraction failed: {str(e)}")
+            return 0.0
 
     def extract_features(self, audio_path):
         try:
@@ -123,7 +168,7 @@ class AudioAnalyzer:
 
             cursor = self.conn.cursor()
             cursor.execute("""
-            SELECT duration, bpm, beat_confidence, centroid
+            SELECT duration, bpm, beat_confidence, centroid, loudness, dynamics, key, scale, key_confidence, onset_strength
             FROM audio_features
             WHERE file_hash = ? AND last_modified >= ?
             """, (file_info['file_hash'], file_info['last_modified']))
@@ -134,6 +179,12 @@ class AudioAnalyzer:
                     'bpm': row[1],
                     'beat_confidence': row[2],
                     'centroid': row[3],
+                    'loudness': row[4],
+                    'dynamics': row[5],
+                    'key': row[6],
+                    'scale': row[7],
+                    'key_confidence': row[8],
+                    'onset_strength': row[9],
                     'filepath': audio_path,
                     'filename': os.path.basename(audio_path)
                 }, True, file_info['file_hash']
@@ -149,22 +200,49 @@ class AudioAnalyzer:
                 'filename': os.path.basename(audio_path)
             }
 
+            # Extract features with individual error handling
             try:
                 features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
             except Exception as e:
-                logger.error(f"Rhythm extraction error for {audio_path}: {str(e)}")
+                logger.error(f"Rhythm extraction error: {str(e)}")
                 features['bpm'] = 0.0
                 features['beat_confidence'] = 0.0
 
             try:
                 features['centroid'] = self._extract_spectral_features(audio)
             except Exception as e:
-                logger.error(f"Spectral extraction error for {audio_path}: {str(e)}")
+                logger.error(f"Spectral extraction error: {str(e)}")
                 features['centroid'] = 0.0
+                
+            try:
+                features['loudness'] = self._extract_loudness(audio)
+            except Exception as e:
+                logger.error(f"Loudness extraction error: {str(e)}")
+                features['loudness'] = 0.0
+                
+            try:
+                features['dynamics'] = self._extract_dynamics(audio)
+            except Exception as e:
+                logger.error(f"Dynamic complexity error: {str(e)}")
+                features['dynamics'] = 0.0
+                
+            try:
+                features['key'], features['scale'], features['key_confidence'] = self._extract_harmonic_features(audio)
+            except Exception as e:
+                logger.error(f"Harmonic analysis error: {str(e)}")
+                features['key'] = "unknown"
+                features['scale'] = "unknown"
+                features['key_confidence'] = 0.0
+                
+            try:
+                features['onset_strength'] = self._extract_onset_strength(audio)
+            except Exception as e:
+                logger.error(f"Onset strength error: {str(e)}")
+                features['onset_strength'] = 0.0
 
             with self.conn:
                 self.conn.execute("""
-                INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
                 """, (
                     file_info['file_hash'],
                     audio_path,
@@ -172,6 +250,12 @@ class AudioAnalyzer:
                     features['bpm'],
                     features['beat_confidence'],
                     features['centroid'],
+                    features['loudness'],
+                    features['dynamics'],
+                    features['key'],
+                    features['scale'],
+                    features['key_confidence'],
+                    features['onset_strength'],
                     file_info['last_modified']
                 ))
 
@@ -184,7 +268,8 @@ class AudioAnalyzer:
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
-            SELECT filepath, duration, bpm, beat_confidence, centroid
+            SELECT filepath, duration, bpm, beat_confidence, centroid, 
+                   loudness, dynamics, key, scale, key_confidence, onset_strength
             FROM audio_features
             """)
             return [
@@ -194,6 +279,12 @@ class AudioAnalyzer:
                     'bpm': row[2],
                     'beat_confidence': row[3],
                     'centroid': row[4],
+                    'loudness': row[5],
+                    'dynamics': row[6],
+                    'key': row[7],
+                    'scale': row[8],
+                    'key_confidence': row[9],
+                    'onset_strength': row[10],
                 }
                 for row in cursor.fetchall()
             ]
