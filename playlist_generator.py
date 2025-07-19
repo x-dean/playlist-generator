@@ -31,7 +31,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def sanitize_filename(name):
-    """Convert to Linux-friendly filename"""
     name = re.sub(r'[^\w\-_]', '_', name)
     return re.sub(r'_+', '_', name).strip('_')
 
@@ -61,7 +60,6 @@ class PlaylistGenerator:
             logger.warning("No valid audio files found")
             return []
 
-        # Set default workers if not provided
         if workers is None:
             workers = max(1, mp.cpu_count() // 2)
             logger.info(f"Using automatic worker count: {workers}")
@@ -81,7 +79,7 @@ class PlaylistGenerator:
             if features:
                 results.append(features)
                 if 'beat_confidence' in features:
-                    self.beat_confidences.append(features['beat_confidence'])
+                    self.beat_confidences.append(max(0.0, min(1.0, features['beat_confidence'])))
             else:
                 self.failed_files.append(filepath)
         return results
@@ -104,7 +102,7 @@ class PlaylistGenerator:
                         if features:
                             results.append(features)
                             if 'beat_confidence' in features:
-                                self.beat_confidences.append(features['beat_confidence'])
+                                self.beat_confidences.append(max(0.0, min(1.0, features['beat_confidence'])))
                         else:
                             self.failed_files.append(filepath)
                     except mp.TimeoutError:
@@ -114,7 +112,6 @@ class PlaylistGenerator:
                         logger.error(f"Error retrieving result: {str(e)}")
                         self.failed_files.append(filepath)
                     
-                    # Update progress every 10 files or immediately for errors
                     if i % 10 == 0 or not features:
                         pbar.update(1)
                 pbar.close()
@@ -127,7 +124,12 @@ class PlaylistGenerator:
 
     def get_all_features_from_db(self):
         try:
-            return get_all_features()
+            features = get_all_features()
+            # Ensure beat_confidence is within [0,1] range
+            for feat in features:
+                if 'beat_confidence' in feat:
+                    feat['beat_confidence'] = max(0.0, min(1.0, feat['beat_confidence']))
+            return features
         except Exception as e:
             logger.error(f"Database error: {str(e)}")
             return []
@@ -146,21 +148,17 @@ class PlaylistGenerator:
         return os.path.join(self.host_music_dir, rel_path)
 
     def generate_playlist_name(self, features):
-        """Generate playlist name from audio features with safety checks"""
-        # Ensure all required features are present
         required_features = ['bpm', 'centroid', 'beat_confidence', 'duration']
         for feat in required_features:
             if feat not in features:
                 logger.warning(f"Missing feature '{feat}' in centroid data")
-                features[feat] = 0.0  # Provide default value
+                features[feat] = 0.0
 
-        # Now safely access the features
         bpm = features['bpm']
         centroid = features['centroid']
         duration = features['duration']
-        beat_conf = features['beat_confidence']
+        beat_conf = max(0.0, min(1.0, features['beat_confidence']))
         
-        # More granular BPM classification (8 levels)
         bpm_desc = (
             "VerySlow" if bpm < 55 else
             "Slow" if bpm < 70 else
@@ -172,7 +170,6 @@ class PlaylistGenerator:
             "VeryFast"
         )
         
-        # More detailed timbre classification (6 levels)
         timbre_desc = (
             "Dark" if centroid < 800 else
             "Warm" if centroid < 1500 else
@@ -182,7 +179,6 @@ class PlaylistGenerator:
             "VerySharp"
         )
         
-        # Duration with more ranges (5 levels)
         duration_desc = (
             "Brief" if duration < 60 else
             "Short" if duration < 120 else
@@ -191,24 +187,18 @@ class PlaylistGenerator:
             "VeryLong"
         )
         
-        # Revised energy scaling with better granularity
         if beat_conf > 0.9:
-            # Power scaling for high values: creates more differentiation at top end
             energy_level = 8 + min(2, int((beat_conf - 0.9) * 20))
         elif beat_conf > 0.5:
-            # Logarithmic scaling for mid-range values
             scaled = np.log10((beat_conf - 0.4) * 10) * 8
             energy_level = min(8, max(1, int(scaled)))
         elif beat_conf > 0:
-            # Linear scaling for low values
             energy_level = min(5, int(beat_conf * 10))
         else:
             energy_level = 0
             
-        # Track for analysis
         self.energy_levels.append(energy_level)
         
-        # Enhanced mood detection
         mood = (
             "Ambient" if bpm < 75 and centroid < 1200 else
             "Downtempo" if bpm < 95 and energy_level < 4 else
@@ -224,10 +214,11 @@ class PlaylistGenerator:
             logger.warning("No features to cluster")
             return {}
 
-        # Filter out files that no longer exist
         valid_features = []
         for feat in features_list:
             if os.path.exists(feat['filepath']):
+                if 'beat_confidence' in feat:
+                    feat['beat_confidence'] = max(0.0, min(1.0, feat['beat_confidence']))
                 valid_features.append(feat)
             else:
                 logger.warning(f"File not found: {feat['filepath']}")
@@ -239,19 +230,17 @@ class PlaylistGenerator:
             
         df = pd.DataFrame(valid_features)
         
-        # We need these features for playlist naming
         naming_features = ['bpm', 'beat_confidence', 'centroid', 'duration']
         
-        # Ensure we have all required features
         for feat in naming_features:
             if feat not in df.columns:
                 logger.warning(f"Adding missing feature column: {feat}")
                 df[feat] = 0.0
                 
-        # Fill any remaining NaNs
         df[naming_features] = df[naming_features].fillna(0)
+        if 'beat_confidence' in df:
+            df['beat_confidence'] = df['beat_confidence'].clip(0.0, 1.0)
         
-        # Analyze beat confidence distribution
         if 'beat_confidence' in df and not df.empty:
             logger.info(f"Beat confidence statistics:")
             logger.info(f"  Min:    {df['beat_confidence'].min():.6f}")
@@ -261,7 +250,6 @@ class PlaylistGenerator:
             logger.info(f"  95th %: {df['beat_confidence'].quantile(0.95):.6f}")
             logger.info(f"  99th %: {df['beat_confidence'].quantile(0.99):.6f}")
             
-            # Plot distribution in output directory
             if output_dir:
                 plt.figure(figsize=(12, 8))
                 n, bins, patches = plt.hist(
@@ -281,29 +269,24 @@ class PlaylistGenerator:
                 plt.savefig(plot_path, dpi=150)
                 logger.info(f"Saved beat_confidence_distribution.png at {plot_path}")
         
-        # Use only essential features for clustering to reduce memory
         cluster_features = ['bpm', 'beat_confidence', 'centroid']
         df[cluster_features] = df[cluster_features].fillna(0)
         
-        # Optimized clustering with reduced memory footprint
         kmeans = MiniBatchKMeans(
-            n_clusters=min(50, len(df)),  # Max 50 clusters
+            n_clusters=min(50, len(df)),
             random_state=42,
-            batch_size=min(500, len(df)),  # Smaller batches
-            n_init=3,    # Fewer initializations
-            max_iter=50   # Fewer iterations
+            batch_size=min(500, len(df)),
+            n_init=3,
+            max_iter=50
         )
         
-        # Use float32 to reduce memory usage
         features_array = df[cluster_features].values.astype(np.float32)
         features_scaled = StandardScaler().fit_transform(features_array)
         df['cluster'] = kmeans.fit_predict(features_scaled)
         
-        # Group by playlist name
         playlists = {}
         for cluster in df['cluster'].unique():
             cluster_songs = df[df['cluster'] == cluster]
-            # Calculate centroid using ALL naming features
             centroid = cluster_songs[naming_features].mean().to_dict()
             name = sanitize_filename(self.generate_playlist_name(centroid))
             
@@ -311,11 +294,9 @@ class PlaylistGenerator:
                 playlists[name] = []
             playlists[name].extend(cluster_songs['filepath'].tolist())
         
-        # Filter out very small playlists
         return {k:v for k,v in playlists.items() if len(v) >= 5}
 
     def cleanup_database(self):
-        """Remove missing files from database"""
         try:
             conn = sqlite3.connect(self.cache_file)
             cursor = conn.cursor()
@@ -350,7 +331,6 @@ class PlaylistGenerator:
             if not songs:
                 continue
 
-            # Convert container paths to host paths while preserving original paths
             host_songs = [self.convert_to_host_path(song) for song in songs]
             
             playlist_path = os.path.join(output_dir, f"{name}.m3u")
@@ -364,7 +344,6 @@ class PlaylistGenerator:
         else:
             logger.warning("No playlists saved")
 
-        # Combine processing failures and missing DB entries
         all_failed = list(set(self.failed_files))
         
         if all_failed:
@@ -378,8 +357,8 @@ def process_file_worker(filepath):
     try:
         from analyze_music import audio_analyzer
         result = audio_analyzer.extract_features(filepath)
-        if result:  # Returns (features, from_cache, file_hash)
-            return result[0], filepath  # Return only features and filepath
+        if result:
+            return result[0], filepath
         return None, filepath
     except Exception as e:
         logger.error(f"Error processing {filepath}: {str(e)}")
@@ -404,7 +383,6 @@ def main():
 
     start_time = time.time()
     try:
-        # Clean up database before processing
         missing_in_db = generator.cleanup_database()
         if missing_in_db:
             logger.info(f"Removed {len(missing_in_db)} missing files from database")
@@ -428,7 +406,7 @@ def main():
                 features,
                 args.num_playlists,
                 args.chunk_size,
-                args.output_dir  # Pass output_dir for PNG
+                args.output_dir
             )
             generator.save_playlists(playlists, args.output_dir)
         else:
