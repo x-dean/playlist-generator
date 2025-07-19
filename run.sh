@@ -7,7 +7,6 @@ docker run --rm \
   -v /root/music/cache:/cache \
   -e ESSENTIA_THREADS=8 \
   playlist-generator-playlist-generator \
-  --music_dir /music \
   --output_dir /output \
   --workers 8 \
   --db_path /cache/audio.db
