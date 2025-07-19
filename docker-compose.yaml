@@ -2,9 +2,9 @@ services:
   playlist-generator:
     build: .
     volumes:
-      - ${HOST_MUSIC_DIR:-./music}:${MUSIC_DIR:-/music}:ro
-      - ${OUTPUT_DIR:-./playlists}:/app/playlists
-      - ${DB_DIR:-./db}:/app/db  # Database volume
+      - ${HOST_MUSIC_DIR:-./music}:/music:ro
+      - ${OUTPUT_DIR:-./playlists}:/playlists
+      - ${CACHE_DIR:-./cache}:/cache
     environment:
-      - DB_PATH=/app/db/audio_features.db
-    working_dir: /app
+      - WORKERS=${WORKERS:-8}
+      - TIMEOUT=${TIMEOUT:-30}

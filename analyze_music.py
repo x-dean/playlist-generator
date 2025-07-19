@@ -4,84 +4,93 @@ import hashlib
 import essentia.standard as es
 import numpy as np
 import logging
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
 class AudioAnalyzer:
-    def __init__(self, db_path='audio_features.db'):
+    def __init__(self, db_path, timeout=30):
         self.db_path = os.path.abspath(db_path)
+        self.timeout = timeout
         self._init_db()
 
     def _init_db(self):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA synchronous = NORMAL")
-            conn.execute("PRAGMA cache_size = -10000")  # 10MB cache
             conn.commit()
 
     def _file_hash(self, filepath):
-        """Fast consistent hash"""
         stat = os.stat(filepath)
-        return hashlib.md5(f"{filepath}-{stat.st_size}-{stat.st_mtime}".encode()).hexdigest()
+        return hashlib.sha256(
+            f"{filepath}-{stat.st_size}-{stat.st_mtime}".encode()
+        ).hexdigest()
+
+    @contextmanager
+    def _timeout_context(self):
+        def handler(signum, frame):
+            raise TimeoutError("Analysis timed out")
+        
+        import signal
+        signal.signal(signal.SIGALRM, handler)
+        signal.alarm(self.timeout)
+        try:
+            yield
+        finally:
+            signal.alarm(0)
 
     def extract_features(self, filepath):
-        """Fast feature extraction with caching"""
         file_hash = self._file_hash(filepath)
         
-        # Check cache first
+        # Check cache
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute(
-                "SELECT * FROM audio_files WHERE file_hash = ?",
+            cached = conn.execute(
+                "SELECT * FROM tracks WHERE file_hash = ?", 
                 (file_hash,)
-            )
-            if row := cursor.fetchone():
-                return dict(row)
+            ).fetchone()
+            if cached:
+                return dict(cached)
 
         try:
-            # Fast loading with reduced quality
-            loader = es.MonoLoader(
-                filename=filepath,
-                sampleRate=22050,  # Lower sample rate
-                resampleQuality=1,   # Faster resampling
-                downmix='left'       # Mono analysis
-            )
-            audio = loader()
-            
-            # Only analyze first 2 minutes
-            max_samples = 22050 * 120
-            if len(audio) > max_samples:
-                audio = audio[:max_samples]
+            with self._timeout_context():
+                # Professional-grade analysis
+                audio = es.MonoLoader(
+                    filename=filepath,
+                    sampleRate=44100,
+                    resampleQuality=3
+                )()
+                
+                # Rhythm analysis
+                bpm, _, confidence, _, _ = es.RhythmExtractor2013()(audio)
+                
+                # Spectral analysis
+                centroid = es.SpectralCentroidTime()(audio[:44100*30])  # First 30s
+                
+                features = {
+                    'path': filepath,
+                    'file_hash': file_hash,
+                    'bpm': float(bpm),
+                    'duration': len(audio)/44100,
+                    'energy': float(np.mean(confidence)),
+                    'spectral_centroid': float(np.mean(centroid)),
+                    'last_modified': os.path.getmtime(filepath)
+                }
 
-            # Fast rhythm analysis
-            rhythm = es.RhythmExtractor2013(method="degara")
-            bpm, _, confidence, _, _ = rhythm(audio)
-            
-            # Fast spectral analysis (first 30s only)
-            spectral = es.SpectralCentroidTime(sampleRate=22050)
-            centroid = spectral(audio[:22050*30])
-            
-            features = {
-                'path': filepath,
-                'file_hash': file_hash,
-                'bpm': float(bpm),
-                'duration': len(audio)/22050,
-                'beat_confidence': float(np.mean(confidence)),
-                'spectral_centroid': float(np.mean(centroid)),
-                'last_modified': os.path.getmtime(filepath)
-            }
-
-            # Cache results
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute("""
-                    INSERT OR REPLACE INTO audio_files 
-                    VALUES (:path, :file_hash, :bpm, :duration, 
-                            :beat_confidence, :spectral_centroid, :last_modified)
-                    """, features)
-                conn.commit()
-            
-            return features
-            
+                # Cache results
+                with sqlite3.connect(self.db_path) as conn:
+                    conn.execute("""
+                        INSERT OR REPLACE INTO tracks 
+                        VALUES (:path, :file_hash, :bpm, :duration, 
+                                :energy, :spectral_centroid, :last_modified)
+                        """, features)
+                    conn.commit()
+                
+                return features
+                
+        except TimeoutError:
+            logger.warning(f"Timeout processing {os.path.basename(filepath)}")
         except Exception as e:
-            logger.warning(f"Error processing {filepath}: {str(e)}")
-            return None
+            logger.error(f"Error processing {filepath}: {str(e)}")
+        
+        return None
