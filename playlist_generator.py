@@ -233,6 +233,7 @@ class PlaylistGenerator:
                 cursor.execute(
                     "UPDATE playlists SET last_updated = ? WHERE id = ?",
                     (datetime.now(), playlist_id)
+                )
             else:
                 cursor.execute(
                     "INSERT INTO playlists (name) VALUES (?)", (name,))
