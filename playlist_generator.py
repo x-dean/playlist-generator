@@ -353,7 +353,7 @@ class PlaylistGenerator:
         return os.path.join(self.host_music_dir, rel_path)
 
     def generate_playlist_name(self, features):
-        """Simplified playlist name generation"""
+        """Improved playlist name generation with accurate duration"""
         # Ensure critical features have values
         required_features = ['bpm', 'centroid', 'duration']
         for feat in required_features:
@@ -387,13 +387,12 @@ class PlaylistGenerator:
             "VerySharp"
         )
         
-        # Duration descriptors
+        # Duration descriptors - use the actual duration value
         duration_desc = (
-            "Brief" if duration < 60 else
-            "Short" if duration < 120 else
-            "Medium" if duration < 180 else
-            "Long" if duration < 240 else
-            "VeryLong"
+            "Brief" if duration < 120 else  # Less than 2 minutes
+            "Medium" if duration < 240 else  # 2-4 minutes
+            "Long" if duration < 480 else    # 4-8 minutes
+            "Extended"                      # More than 8 minutes
         )
         
         # Mood descriptor based on tempo
@@ -406,34 +405,6 @@ class PlaylistGenerator:
         )
         
         return f"{bpm_desc}_{timbre_desc}_{duration_desc}_{mood}"
-
-    def cleanup_database(self):
-        """Remove entries for files that no longer exist"""
-        try:
-            conn = sqlite3.connect(self.cache_file)
-            cursor = conn.cursor()
-            cursor.execute("SELECT file_path FROM audio_features")
-            db_files = [row[0] for row in cursor.fetchall()]
-            
-            missing_files = []
-            for file_path in db_files:
-                if not os.path.exists(file_path):
-                    missing_files.append(file_path)
-            
-            if missing_files:
-                logger.info(f"Cleaning up {len(missing_files)} missing files from database")
-                placeholders = ','.join(['?'] * len(missing_files))
-                cursor.execute(
-                    f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
-                    missing_files
-                )
-                conn.commit()
-                
-            conn.close()
-            return missing_files
-        except Exception as e:
-            logger.error(f"Database cleanup failed: {str(e)}")
-            return []
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         if not features_list:
@@ -453,7 +424,7 @@ class PlaylistGenerator:
             else:
                 logger.warning(f"File not found: {feat['filepath']}")
                 self.failed_files.append(feat['filepath'])
-                
+                    
         if not valid_features:
             logger.warning("No valid features after filtering")
             return {}
@@ -487,22 +458,50 @@ class PlaylistGenerator:
         )
         df['cluster'] = kmeans.fit_predict(features_scaled)
         
-        # Create playlists from clusters
-        playlists = {}
+        # Group clusters by their characteristics
+        playlist_groups = {}
         for cluster in df['cluster'].unique():
             cluster_songs = df[df['cluster'] == cluster]
             if len(cluster_songs) < 5:  # Skip small clusters
                 continue
                 
+            # Get median duration for accurate naming
+            median_duration = cluster_songs['duration'].median()
             centroid = cluster_songs[cluster_features].mean().to_dict()
-            name = sanitize_filename(self.generate_playlist_name(centroid))
+            centroid['duration'] = median_duration
             
-            # Ensure unique playlist names
-            if name in playlists:
-                name = f"{name}_{cluster}"
+            base_name = sanitize_filename(self.generate_playlist_name(centroid))
+            
+            # Group clusters with similar characteristics
+            if base_name not in playlist_groups:
+                playlist_groups[base_name] = []
+            playlist_groups[base_name].append(cluster_songs)
+        
+        # Create playlists from grouped clusters
+        playlists = {}
+        name_counter = {}
+        
+        for base_name, clusters in playlist_groups.items():
+            # Merge clusters with similar characteristics
+            merged_songs = pd.concat(clusters)
+            
+            # Recalculate centroid with median duration
+            median_duration = merged_songs['duration'].median()
+            centroid = merged_songs[cluster_features].mean().to_dict()
+            centroid['duration'] = median_duration
+            
+            # Generate final name
+            final_name = sanitize_filename(self.generate_playlist_name(centroid))
+            
+            # Ensure unique name
+            if final_name in name_counter:
+                name_counter[final_name] += 1
+                final_name = f"{final_name}_{name_counter[final_name]}"
+            else:
+                name_counter[final_name] = 1
                 
-            playlists[name] = cluster_songs['filepath'].tolist()
-            logger.info(f"Created playlist '{name}' with {len(cluster_songs)} tracks")
+            playlists[final_name] = merged_songs['filepath'].tolist()
+            logger.info(f"Created playlist '{final_name}' with {len(merged_songs)} tracks (median duration: {median_duration:.1f}s)")
         
         return playlists
 
