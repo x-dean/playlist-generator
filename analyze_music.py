@@ -38,6 +38,7 @@ class AudioAnalyzer:
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
         self.timeout_seconds = 30
         self._init_db()
+        self._migrate_db()
 
     def _init_db(self):
         self.conn = sqlite3.connect(self.cache_file, timeout=30)
@@ -52,18 +53,36 @@ class AudioAnalyzer:
                 bpm REAL,
                 beat_confidence REAL,
                 centroid REAL,
-                loudness REAL,
-                dynamics REAL,
-                key TEXT,
-                scale TEXT,
-                key_confidence REAL,
-                rhythm_complexity REAL,
                 last_modified REAL,
                 last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """)
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
+    def _migrate_db(self):
+        """Migrate database schema to current version"""
+        migrations = [
+            # Migration 1: Add new features
+            "ALTER TABLE audio_features ADD COLUMN loudness REAL DEFAULT 0",
+            "ALTER TABLE audio_features ADD COLUMN dynamics REAL DEFAULT 0",
+            "ALTER TABLE audio_features ADD COLUMN key TEXT DEFAULT 'unknown'",
+            "ALTER TABLE audio_features ADD COLUMN scale TEXT DEFAULT 'unknown'",
+            "ALTER TABLE audio_features ADD COLUMN key_confidence REAL DEFAULT 0",
+            "ALTER TABLE audio_features ADD COLUMN rhythm_complexity REAL DEFAULT 0.5",
+            
+            # Future migrations would be added here
+        ]
+        
+        cursor = self.conn.cursor()
+        for migration in migrations:
+            try:
+                cursor.execute(migration)
+                self.conn.commit()
+                logger.info(f"Applied database migration: {migration}")
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e):
+                    logger.warning(f"Migration failed: {str(e)}")
+    
     def _get_file_info(self, filepath):
         try:
             stat = os.stat(filepath)
@@ -168,7 +187,8 @@ class AudioAnalyzer:
 
             cursor = self.conn.cursor()
             cursor.execute("""
-            SELECT duration, bpm, beat_confidence, centroid, loudness, dynamics, key, scale, key_confidence, rhythm_complexity
+            SELECT duration, bpm, beat_confidence, centroid, 
+                   loudness, dynamics, key, scale, key_confidence, rhythm_complexity
             FROM audio_features
             WHERE file_hash = ? AND last_modified >= ?
             """, (file_info['file_hash'], file_info['last_modified']))
@@ -242,7 +262,10 @@ class AudioAnalyzer:
 
             with self.conn:
                 self.conn.execute("""
-                INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                INSERT OR REPLACE INTO audio_features (
+                    file_hash, file_path, duration, bpm, beat_confidence, centroid, 
+                    loudness, dynamics, key, scale, key_confidence, rhythm_complexity, last_modified
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
                     file_info['file_hash'],
                     audio_path,
