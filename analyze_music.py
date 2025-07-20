@@ -183,30 +183,32 @@ class AudioAnalyzer:
     @timeout()
     def _extract_onset_rate(self, audio):
         try:
+            # Skip if audio is too short (less than 1 second)
+            if len(audio) < 44100:
+                return 0.0
+                
             # Get the raw result from Essentia
             result = es.OnsetRate()(audio)
             
-            # Handle numpy arrays
-            if isinstance(result, np.ndarray):
-                if result.size == 1:
-                    return float(result.item())  # Convert single-element array to float
-                elif result.size > 1:
-                    return float(result[0])  # Take first element if multiple
-                else:
-                    return 0.0  # Empty array
-            
-            # Handle tuples (rate, onset_times)
-            elif isinstance(result, tuple):
-                if len(result) > 0:
-                    return float(result[0])
-                else:
-                    return 0.0
-                    
-            # Handle single value
-            elif result is not None:
+            # Case 1: Result is already a single number
+            if isinstance(result, (int, float)):
                 return float(result)
                 
-            # Default case
+            # Case 2: Result is a numpy array
+            if isinstance(result, np.ndarray):
+                if result.size == 1:
+                    return float(result.item())  # Convert single-element array
+                return float(result[0])  # Take first element if multiple
+                
+            # Case 3: Result is a tuple (rate, onset_times)
+            if isinstance(result, tuple) and len(result) > 0:
+                return float(result[0])
+                
+            # Case 4: Result is a list
+            if isinstance(result, list) and len(result) > 0:
+                return float(result[0])
+                
+            # Default fallback
             return 0.0
             
         except Exception as e:
