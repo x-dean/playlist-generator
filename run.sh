@@ -17,35 +17,66 @@ CONTAINER_MUSIC="/music"
 CONTAINER_OUTPUT="/app/playlists"
 CONTAINER_CACHE="/app/cache"
 
-# Parse command-line arguments
+# Enhanced argument parsing
 while [[ $# -gt 0 ]]; do
-    case "$1" in
+    key="$1"
+    case $key in
         --rebuild)
             REBUILD=true
             shift
             ;;
-        --music_dir=*)
-            MUSIC_DIR="${1#*=}"
+        --host_music_dir|--host_music_dir=*)
+            if [[ $key == *=* ]]; then
+                MUSIC_DIR="${key#*=}"
+            else
+                MUSIC_DIR="$2"
+                shift
+            fi
             shift
             ;;
-        --output_dir=*)
-            OUTPUT_DIR="${1#*=}"
+        --host_output_dir|--host_output_dir=*)
+            if [[ $key == *=* ]]; then
+                OUTPUT_DIR="${key#*=}"
+            else
+                OUTPUT_DIR="$2"
+                shift
+            fi
             shift
             ;;
-        --cache_dir=*)
-            CACHE_DIR="${1#*=}"
+        --host_cache_dir|--host_cache_dir=*)
+            if [[ $key == *=* ]]; then
+                CACHE_DIR="${key#*=}"
+            else
+                CACHE_DIR="$2"
+                shift
+            fi
             shift
             ;;
-        --workers=*)
-            WORKERS="${1#*=}"
+        --workers|--workers=*)
+            if [[ $key == *=* ]]; then
+                WORKERS="${key#*=}"
+            else
+                WORKERS="$2"
+                shift
+            fi
             shift
             ;;
-        --num_playlists=*)
-            NUM_PLAYLISTS="${1#*=}"
+        --num_playlists|--num_playlists=*)
+            if [[ $key == *=* ]]; then
+                NUM_PLAYLISTS="${key#*=}"
+            else
+                NUM_PLAYLISTS="$2"
+                shift
+            fi
             shift
             ;;
-        --chunk_size=*)
-            CHUNK_SIZE="${1#*=}"
+        --chunk_size|--chunk_size=*)
+            if [[ $key == *=* ]]; then
+                CHUNK_SIZE="${key#*=}"
+            else
+                CHUNK_SIZE="$2"
+                shift
+            fi
             shift
             ;;
         --use_db)
@@ -60,14 +91,14 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [options]"
             echo "Options:"
             echo "  --rebuild                Rebuild the Docker image"
-            echo "  --music_dir=<path>       Host path to music directory (default: $MUSIC_DIR)"
-            echo "  --output_dir=<path>      Host path for output playlists (default: $OUTPUT_DIR)"
-            echo "  --cache_dir=<path>       Host path for cache (default: $CACHE_DIR)"
-            echo "  --workers=<num>          Number of worker threads (default: $(nproc))"
-            echo "  --num_playlists=<num>    Number of playlists to generate (default: $NUM_PLAYLISTS)"
-            echo "  --chunk_size=<size>      Size of each chunk for processing (default: $CHUNK_SIZE)"
-            echo "  --use_db                 Use database for storing features (default: false)"
-            echo "  --force_sequential       Force sequential processing (default: false)"
+            echo "  --host_music_dir PATH    Host path to music directory"
+            echo "  --host_output_dir PATH   Host path for output playlists"
+            echo "  --host_cache_dir PATH    Host path for cache"
+            echo "  --workers NUM            Number of worker threads"
+            echo "  --num_playlists NUM      Number of playlists to generate"
+            echo "  --chunk_size SIZE        Size of each chunk for processing"
+            echo "  --use_db                 Use database for storing features"
+            echo "  --force_sequential       Force sequential processing"
             echo ""
             echo "Container Paths (fixed):"
             echo "  Music: $CONTAINER_MUSIC"
@@ -82,27 +113,21 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Portable path resolution (replaces realpath -m)
+# Resolve paths
 resolve_path() {
     local path="$1"
-    # If path is relative, prepend current directory
     if [[ "$path" != /* ]]; then
         path="${PWD%/}/${path}"
     fi
-    # Normalize path (remove .., ., etc)
-    while [[ "$path" =~ (.*)/[^/]+/\.\.(.*) ]]; do
-        path="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
-    done
-    path="${path//\/.\//\/}"
+    path="${path//\/\//\/}"
     echo "${path%/}"
 }
 
-# Resolve all paths to absolute form
 MUSIC_DIR=$(resolve_path "$MUSIC_DIR")
 OUTPUT_DIR=$(resolve_path "$OUTPUT_DIR")
 CACHE_DIR=$(resolve_path "$CACHE_DIR")
 
-# Create directories with proper permissions
+# Create directories
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
 chmod -R a+rwX "$OUTPUT_DIR" "$CACHE_DIR"
 
@@ -133,7 +158,7 @@ if [ "$REBUILD" = true ]; then
     docker compose build --no-cache
 fi
 
-# Run the generator with all parameters
+# Run the generator
 docker compose run --rm \
   -v "$MUSIC_DIR:$CONTAINER_MUSIC:ro" \
   -v "$OUTPUT_DIR:$CONTAINER_OUTPUT" \
