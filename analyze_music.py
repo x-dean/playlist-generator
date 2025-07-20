@@ -183,7 +183,11 @@ class AudioAnalyzer:
     @timeout()
     def _extract_onset_rate(self, audio):
         try:
-            return float(es.OnsetRate()(audio))
+            onset_rate = es.OnsetRate()(audio)
+            # Handle case where OnsetRate returns a tuple (onset_rate, onset_times)
+            if isinstance(onset_rate, tuple):
+                return float(onset_rate[0])  # Take the first element which is the rate
+            return float(onset_rate)
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
             return 0.0
@@ -253,31 +257,37 @@ class AudioAnalyzer:
             'filename': os.path.basename(audio_path)
         }
 
+        # Initialize all features with default values first
+        default_features = {
+            'bpm': 0.0,
+            'beat_confidence': 0.0,
+            'centroid': 0.0,
+            'loudness': 0.0,
+            'danceability': 0.0,
+            'key': -1,
+            'scale': 0,
+            'onset_rate': 0.0,
+            'zcr': 0.0
+        }
+        features.update(default_features)
+
         if len(audio) >= 44100:  # At least 1 second
-            features.update({
-                'bpm': self._ensure_float(self._extract_rhythm_features(audio)[0]),
-                'beat_confidence': self._ensure_float(self._extract_rhythm_features(audio)[1]),
-                'centroid': self._ensure_float(self._extract_spectral_features(audio)),
-                'loudness': self._ensure_float(self._extract_loudness(audio)),
-                'danceability': self._ensure_float(self._extract_danceability(audio)),
-                'key': self._ensure_int(self._extract_key(audio)[0]),
-                'scale': self._ensure_int(self._extract_key(audio)[1]),
-                'onset_rate': self._ensure_float(self._extract_onset_rate(audio)),
-                'zcr': self._ensure_float(self._extract_zcr(audio))
-            })
-        else:
-            logger.warning(f"Audio file too short for full feature extraction: {audio_path}")
-            features.update({
-                'bpm': 0.0,
-                'beat_confidence': 0.0,
-                'centroid': 0.0,
-                'loudness': 0.0,
-                'danceability': 0.0,
-                'key': -1,
-                'scale': 0,
-                'onset_rate': 0.0,
-                'zcr': 0.0
-            })
+            try:
+                bpm, confidence = self._extract_rhythm_features(audio)
+                features.update({
+                    'bpm': self._ensure_float(bpm),
+                    'beat_confidence': self._ensure_float(confidence),
+                    'centroid': self._ensure_float(self._extract_spectral_features(audio)),
+                    'loudness': self._ensure_float(self._extract_loudness(audio)),
+                    'danceability': self._ensure_float(self._extract_danceability(audio)),
+                    'key': self._ensure_int(self._extract_key(audio)[0]),
+                    'scale': self._ensure_int(self._extract_key(audio)[1]),
+                    'onset_rate': self._ensure_float(self._extract_onset_rate(audio)),
+                    'zcr': self._ensure_float(self._extract_zcr(audio))
+                })
+            except Exception as e:
+                logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
+        
         return features
 
     def _save_features_to_db(self, file_info, features):
