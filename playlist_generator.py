@@ -352,7 +352,7 @@ class PlaylistGenerator:
             cluster_songs = df[df['cluster'] == cluster]
             
             # Skip very small clusters
-            if len(cluster_songs) < 5:
+            if len(cluster_songs) < 30:
                 continue
                 
             # Calculate cluster centroid for naming
