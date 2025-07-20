@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class TimeoutException(Exception):
     pass
 
-def timeout(seconds=120, error_message="Processing timed out"):
+def timeout(seconds=60, error_message="Processing timed out"):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -136,28 +136,93 @@ class AudioAnalyzer:
             return self._repair_audio(audio_path)
 
     def _repair_audio(self, audio_path):
-        """Attempt to repair problematic audio files"""
+        """Attempt to repair problematic audio files with better error handling"""
         try:
-            # Create a temporary repaired file
             import tempfile
             from pydub import AudioSegment
+            from pydub.exceptions import CouldntDecodeError
+            
+            # First check if file is valid using ffprobe
+            if not self._is_valid_audio(audio_path):
+                logger.warning(f"File is not valid audio: {audio_path}")
+                return None
+
+            tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+            
+            try:
+                # Read with pydub
+                sound = AudioSegment.from_file(audio_path)
+                
+                # Check for valid audio properties
+                if sound.channels == 0 or sound.frame_count() == 0:
+                    logger.warning(f"Invalid audio properties in {audio_path}: {sound.channels} channels, {sound.frame_count()} frames")
+                    return None
+                    
+                # Convert to standard format
+                sound = sound.set_channels(1).set_frame_rate(44100)
+                sound.export(tmp_file, format="wav")
+                
+                # Load the repaired version
+                loader = es.MonoLoader(filename=tmp_file, sampleRate=44100)
+                audio = loader()
+                return audio
+            except CouldntDecodeError:
+                # Try alternative decoding method
+                return self._decode_with_ffmpeg(audio_path)
+            finally:
+                try:
+                    os.unlink(tmp_file)
+                except:
+                    pass
+        except Exception as e:
+            logger.warning(f"Repair failed for {audio_path}: {str(e)}")
+            return None
+
+    def _is_valid_audio(self, filepath):
+        """Check if file is a valid audio file using ffprobe"""
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", 
+                "-of", "csv=p=0", filepath],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10
+            )
+            return "audio" in result.stdout
+        except:
+            return False
+
+    def _decode_with_ffmpeg(self, audio_path):
+        """Directly decode with ffmpeg as last resort"""
+        try:
+            import subprocess
+            import tempfile
             
             tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
             
-            # Read with pydub which is more tolerant of file issues
-            sound = AudioSegment.from_file(audio_path)
-            sound.export(tmp_file, format="wav")
+            cmd = [
+                "ffmpeg", "-y", "-i", audio_path,
+                "-ac", "1", "-ar", "44100", 
+                "-acodec", "pcm_s16le", tmp_file
+            ]
             
-            # Now try loading the repaired version
-            loader = es.MonoLoader(filename=tmp_file, sampleRate=44100)
-            audio = loader()
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30
+            )
             
-            # Clean up temporary file
-            os.unlink(tmp_file)
-            
-            return audio
+            if result.returncode == 0 and os.path.getsize(tmp_file) > 0:
+                loader = es.MonoLoader(filename=tmp_file, sampleRate=44100)
+                audio = loader()
+                os.unlink(tmp_file)
+                return audio
+            return None
         except Exception as e:
-            logger.warning(f"Could not repair {audio_path}: {str(e)}")
+            logger.warning(f"FFmpeg decode failed for {audio_path}: {str(e)}")
             return None
 
     @timeout()

@@ -59,6 +59,9 @@ def process_file_worker(filepath):
         # Skip files that are too small to be valid audio files
         if os.path.getsize(filepath) < 1024:  # 1KB minimum
             return None, filepath
+                # Skip non-audio files
+        if not is_audio_file(filepath):
+            return None, filepath
             
         from analyze_music import audio_analyzer
         result = audio_analyzer.extract_features(filepath)
@@ -79,6 +82,23 @@ def process_file_worker(filepath):
     except Exception as e:
         logger.error(f"Error processing {filepath}: {str(e)}")
         return None, filepath
+
+def is_audio_file(filepath):
+    """Check if file is an audio file by extension and magic number"""
+    # First check extension
+    audio_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')
+    if not filepath.lower().endswith(audio_ext):
+        return False
+        
+    # Then check magic number
+    try:
+        import magic
+        mime = magic.Magic(mime=True)
+        file_type = mime.from_file(filepath)
+        return file_type.startswith('audio/')
+    except:
+        # Fallback to extension check if magic not available
+        return True
 
 class PlaylistGenerator:
     def __init__(self):
