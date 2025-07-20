@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# Default parameters (with more flexible defaults)
+# Default parameters
 REBUILD=false
-MUSIC_DIR="${HOME}/music/library"  # Changed from /root to $HOME
+MUSIC_DIR="${HOME}/music/library"
 OUTPUT_DIR="${HOME}/music/playlists/by_bpm"
 CACHE_DIR="${HOME}/music/playlists/by_bpm/cache"
 WORKERS=$(nproc)
@@ -12,7 +12,7 @@ CHUNK_SIZE=1000
 USE_DB=false
 FORCE_SEQUENTIAL=false
 
-# Fixed container paths (shouldn't change)
+# Fixed container paths
 CONTAINER_MUSIC="/music"
 CONTAINER_OUTPUT="/app/playlists"
 CONTAINER_CACHE="/app/cache"
@@ -139,15 +139,14 @@ docker compose run --rm \
   -v "$OUTPUT_DIR:$CONTAINER_OUTPUT" \
   -v "$CACHE_DIR:$CONTAINER_CACHE" \
   playlist-generator \
-  --music_dir "$CONTAINER_MUSIC" \
   --host_music_dir "$MUSIC_DIR" \
-  --output_dir "$CONTAINER_OUTPUT" \
-  --cache_dir "$CONTAINER_CACHE" \
-  --workers "$WORKERS" \
+  --host_output_dir "$OUTPUT_DIR" \
+  $( [ -n "$CACHE_DIR" ] && echo "--host_cache_dir $CACHE_DIR" ) \
   --num_playlists "$NUM_PLAYLISTS" \
+  --workers "$WORKERS" \
   --chunk_size "$CHUNK_SIZE" \
   $( [ "$USE_DB" = true ] && echo "--use_db" ) \
   $( [ "$FORCE_SEQUENTIAL" = true ] && echo "--force_sequential" )
 
-echo "✅ Playlists generated successfully!"
+echo "Playlists generated!"
 echo "Output available in: $OUTPUT_DIR"
