@@ -231,9 +231,16 @@ class AudioAnalyzer:
 
             row = cursor.fetchone()
             if row:
+                logger.info(f"Using cached features for {audio_path}")
+                valid_cache = True
+                # FIXED: Proper indentation and logic
+                for i, feat in enumerate(['duration', 'bpm', 'centroid', 'loudness']):
+                    if i < len(row) and (row[i] is None or row[i] < 0):
+                        valid_cache = False
+                        break
                 # Check feature version
                 db_version = row[10] if len(row) > 10 else 1
-                if db_version >= CURRENT_FEATURE_VERSION:
+                if valid_cache and db_version >= CURRENT_FEATURE_VERSION:
                     return {
                         'duration': row[0],
                         'bpm': row[1],

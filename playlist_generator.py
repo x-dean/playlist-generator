@@ -22,6 +22,7 @@ from datetime import datetime
 import hashlib
 import coloredlogs
 from concurrent.futures import ProcessPoolExecutor, as_completed, TimeoutError
+import resource
 
 
 # Colored logging setup
@@ -59,8 +60,18 @@ def process_file_worker(filepath):
 def safe_analyze(filepath):
     """Wrap analysis in a try-except to prevent worker crashes"""
     try:
-        from analyze_music import audio_analyzer
-        result = audio_analyzer.extract_features(filepath)
+        # Set resource limits before processing
+        try:
+            # Set 2GB memory limit
+            resource.setrlimit(resource.RLIMIT_AS, (2 * 1024**3, 2 * 1024**3))
+            # Set 30 second CPU time limit
+            resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
+        except:
+            pass  # Not available on all systems
+
+        # Use direct import instead of from analyze_music
+        import analyze_music
+        result = analyze_music.audio_analyzer.extract_features(filepath)
         if result and result[0] is not None:
             features = result[0]
             for key in ['bpm', 'centroid', 'duration']:
@@ -85,6 +96,40 @@ class PlaylistGenerator:
         self.playlist_db = os.path.join(cache_dir, 'playlist_tracker.db')
         self.state_file = os.path.join(cache_dir, 'library_state.json')
         self._init_playlist_tracker()
+        self.blacklisted_files = set()
+        self.load_blacklist()
+
+    def load_blacklist(self):
+        cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+        blacklist_file = os.path.join(cache_dir, 'blacklist.txt')
+        if os.path.exists(blacklist_file):
+            try:
+                with open(blacklist_file, 'r') as f:
+                    self.blacklisted_files = set(f.read().splitlines())
+            except Exception as e:
+                logger.error(f"Error loading blacklist: {str(e)}")
+
+    def add_to_blacklist(self, filepath):
+        self.blacklisted_files.add(filepath)
+        cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+        blacklist_file = os.path.join(cache_dir, 'blacklist.txt')
+        try:
+            with open(blacklist_file, 'a') as f:
+                f.write(f"{filepath}\n")
+        except Exception as e:
+            logger.error(f"Error updating blacklist: {str(e)}")
+            
+    def analyze_directory(self, music_dir, workers=None, force_sequential=False):
+        file_list = []
+        self.failed_files = []
+        self.container_music_dir = music_dir.rstrip('/')
+
+        for root, _, files in os.walk(music_dir):
+            for file in files:
+                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg')):
+                    filepath = os.path.join(root, file)
+                    if filepath not in self.blacklisted_files:
+                        file_list.append(filepath)
         
     def _init_playlist_tracker(self):
         """Initialize playlist tracking database with schema migration"""
