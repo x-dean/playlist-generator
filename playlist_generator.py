@@ -58,32 +58,21 @@ def sanitize_filename(name):
     return re.sub(r'_+', '_', name).strip('_')
 
 def safe_analyze(filepath):
-    """Robust analysis with process-based timeout"""
+    """Standalone analysis without nested multiprocessing"""
     try:
         from analyze_music import audio_analyzer
         
-        # Create a single-worker pool just for this task
-        with mp.Pool(processes=1) as pool:
-            # Wrap the extract_features call
-            result = pool.apply_async(audio_analyzer.extract_features, (filepath,))
-            
-            try:
-                # Wait for result with timeout
-                features, from_cache, file_hash = result.get(timeout=180)  # 3 minute timeout
-                
-                if features:
-                    # Ensure critical features have values
-                    for key in ['bpm', 'centroid', 'duration', 'loudness', 'dynamics']:
-                        if features.get(key) is None:
-                            features[key] = 0.0
-                    return features
-                return None
-                
-            except TimeoutError:
-                logger.warning(f"Timeout processing {filepath}")
-                pool.terminate()
-                return None
-                
+        # Direct call without creating new pool
+        result = audio_analyzer.extract_features(filepath)
+        
+        if result and result[0] is not None:
+            features = result[0]
+            # Ensure critical features have values
+            for key in ['bpm', 'centroid', 'duration', 'loudness', 'dynamics']:
+                if features.get(key) is None:
+                    features[key] = 0.0
+            return features
+        return None
     except Exception as e:
         logger.error(f"Error processing {filepath}: {str(e)}")
         return None
@@ -133,30 +122,22 @@ class PlaylistGenerator:
             return []
 
     def analyze_directory(self, music_dir, workers=None, force_sequential=False):
-        file_list = []
-        self.failed_files = []
-        self.container_music_dir = music_dir.rstrip('/')
-
-        # Build file list
-        for root, _, files in os.walk(music_dir):
-            for file in files:
-                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg')):
-                    filepath = os.path.join(root, file)
-                    file_list.append(filepath)
-
-        logger.info(f"Found {len(file_list)} audio files")
+        file_list = [
+            os.path.join(root, f) 
+            for root, _, files in os.walk(music_dir) 
+            for f in files 
+            if f.lower().endswith(('.mp3', '.wav', '.flac', '.ogg'))
+            and validate_audio_file(os.path.join(root, f))
+        ]
+        
         if not file_list:
-            logger.warning("No valid audio files found")
+            logger.error("No valid audio files found")
             return []
 
-        if workers is None:
-            workers = max(1, mp.cpu_count() // 2)
-            logger.info(f"Using automatic worker count: {workers}")
-
-        if force_sequential or workers <= 1:
-            logger.info("Using sequential processing")
+        if force_sequential or workers == 1:
             return self._process_sequential(file_list)
-
+            
+        workers = min(mp.cpu_count(), len(file_list)) if workers is None else workers
         return self._process_parallel(file_list, workers)
 
     def _process_sequential(self, file_list):
@@ -171,16 +152,28 @@ class PlaylistGenerator:
                 self.failed_files.append(filepath)
         return results
 
+    def validate_audio_file(filepath):
+        """Quick check if file is valid before processing"""
+        try:
+            return os.path.isfile(filepath) and os.path.getsize(filepath) > 1024
+        except:
+            return False
+
     def _process_parallel(self, file_list, workers):
-        """Parallel processing with robust timeout handling"""
+        """Parallel processing with error handling"""
         results = []
         try:
-            # Create worker pool with maxtasksperchild to prevent memory leaks
-            with mp.Pool(processes=workers, maxtasksperchild=100) as pool:
-                # Process files with progress tracking
+            ctx = mp.get_context('spawn')  # Use spawn to avoid fork issues
+            with ctx.Pool(processes=workers, maxtasksperchild=50) as pool:
+                # Process files in chunks
+                chunk_size = min(100, len(file_list)//workers + 1)
+                
                 with tqdm(total=len(file_list), desc="Processing files") as pbar:
-                    # Use imap_unordered for better performance
-                    for features, filepath in pool.imap_unordered(process_file_worker, file_list):
+                    for features, filepath in pool.imap_unordered(
+                        process_file_worker, 
+                        file_list,
+                        chunksize=chunk_size
+                    ):
                         if features:
                             results.append(features)
                         else:
