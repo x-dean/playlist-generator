@@ -186,34 +186,33 @@ class AudioAnalyzer:
             # Skip if audio is too short (less than 1 second)
             if len(audio) < 44100:
                 return 0.0
-                
+
             # Get the raw result from Essentia
             result = es.OnsetRate()(audio)
-            
-            # Case 1: Result is already a single number
-            if isinstance(result, (int, float)):
+
+            # Debug logging to inspect the raw result
+            logger.debug(f"Raw OnsetRate result: {result}, type: {type(result)}")
+
+            # Handle all possible return types
+            if hasattr(result, '__len__'):
+                # Case: Result is array-like (numpy array, list, tuple)
+                if len(result) > 0:
+                    first_element = result[0]
+                    if isinstance(first_element, (np.ndarray, list, tuple)):
+                        # Handle nested arrays (unlikely but possible)
+                        if len(first_element) > 0:
+                            return float(first_element[0])
+                        return 0.0
+                    return float(first_element)
+                return 0.0
+            elif result is not None:
+                # Case: Result is a single value
                 return float(result)
-                
-            # Case 2: Result is a numpy array
-            if isinstance(result, np.ndarray):
-                if result.size == 1:
-                    return float(result.item())  # Convert single-element array
-                return float(result[0])  # Take first element if multiple
-                
-            # Case 3: Result is a tuple (rate, onset_times)
-            if isinstance(result, tuple) and len(result) > 0:
-                return float(result[0])
-                
-            # Case 4: Result is a list
-            if isinstance(result, list) and len(result) > 0:
-                return float(result[0])
-                
-            # Default fallback
-            return 0.0
             
+            return 0.0
+
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
-            return 0.0
 
     @timeout()
     def _extract_zcr(self, audio):
