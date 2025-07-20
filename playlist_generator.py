@@ -3,10 +3,11 @@
 Optimized Music Playlist Generator with Enhanced Features
 """
 
-# Global logger declaration must come first
+# Declare logger as global at module level
 global logger
+logger = None  # Initialize as None
 
-# Then proceed with imports
+# Imports
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.preprocessing import StandardScaler
@@ -29,6 +30,8 @@ from typing import List, Dict, Optional, Tuple, Any
 # === Color logger ===
 def setup_logger(level=logging.INFO) -> logging.Logger:
     """Configure and return a color logger with both console and file handlers."""
+    global logger  # Declare we're using the global logger
+    
     logger = colorlog.getLogger('playlist_generator')
     logger.propagate = False  # Prevent duplicate logs
     
@@ -59,7 +62,7 @@ def setup_logger(level=logging.INFO) -> logging.Logger:
     logger.setLevel(level)
     return logger
 
-# Initialize the global logger
+# Initialize the logger
 logger = setup_logger()
 
 # === Worker Initialization ===
@@ -408,6 +411,8 @@ class PlaylistGenerator:
 
 def main():
     """Main entry point for the playlist generator."""
+    global logger  # Declare we're using the global logger
+    
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
     parser.add_argument('--log_level', default='INFO', 
                        help='Logging level (DEBUG, INFO, WARNING, ERROR)')
@@ -436,8 +441,8 @@ def main():
         logger.error(f"Host music directory does not exist: {args.host_music_dir}")
         sys.exit(1)
 
-    # Set up logger with requested level
-    logger = setup_logger(getattr(logging, args.log_level.upper(), logging.INFO))
+    # Update logger level if needed
+    logger.setLevel(getattr(logging, args.log_level.upper(), logging.INFO))
     
     generator = PlaylistGenerator()
     generator.host_music_dir = str(Path(args.host_music_dir).resolve())
