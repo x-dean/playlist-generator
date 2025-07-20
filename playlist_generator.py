@@ -3,6 +3,10 @@
 Optimized Music Playlist Generator with Enhanced Features
 """
 
+# Global logger declaration must come first
+global logger
+
+# Then proceed with imports
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.preprocessing import StandardScaler
@@ -55,6 +59,7 @@ def setup_logger(level=logging.INFO) -> logging.Logger:
     logger.setLevel(level)
     return logger
 
+# Initialize the global logger
 logger = setup_logger()
 
 # === Worker Initialization ===
@@ -432,7 +437,6 @@ def main():
         sys.exit(1)
 
     # Set up logger with requested level
-    global logger
     logger = setup_logger(getattr(logging, args.log_level.upper(), logging.INFO))
     
     generator = PlaylistGenerator()
