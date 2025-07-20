@@ -7,6 +7,7 @@ import sqlite3
 import hashlib
 import signal
 from functools import wraps
+import traceback
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -45,25 +46,20 @@ class AudioAnalyzer:
         with self.conn:
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA busy_timeout=30000")
-            self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS audio_features (
-                file_hash TEXT PRIMARY KEY,
-                file_path TEXT NOT NULL,
-                duration REAL,
-                bpm REAL,
-                beat_confidence REAL,
-                centroid REAL,
-                loudness REAL,
-                danceability REAL,
-                key INTEGER,
-                scale INTEGER,
-                onset_rate REAL,
-                zcr REAL,
-                last_modified REAL,
-                last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """)
-            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
+            
+            # Check if we need to migrate schema
+            cursor = self.conn.cursor()
+            cursor.execute("PRAGMA table_info(audio_features)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'loudness' not in columns:
+                logger.info("Migrating database schema to add new features")
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN loudness REAL DEFAULT 0")
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN danceability REAL DEFAULT 0")
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN key INTEGER DEFAULT -1")
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN scale INTEGER DEFAULT 0")
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN onset_rate REAL DEFAULT 0")
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN zcr REAL DEFAULT 0")
 
     def _get_file_info(self, filepath):
         try:
@@ -145,9 +141,16 @@ class AudioAnalyzer:
     @timeout()
     def _extract_key(self, audio):
         try:
+            # Ensure audio is long enough for key detection
+            if len(audio) < 44100:  # At least 1 second of audio
+                return -1, 0
+                
             key, scale, _ = es.Key()(audio)
             keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-            key_index = keys.index(key) if key in keys else -1
+            try:
+                key_index = keys.index(key) if key in keys else -1
+            except ValueError:
+                key_index = -1
             scale_index = 1 if scale == 'major' else 0
             return key_index, scale_index
         except Exception as e:
@@ -175,11 +178,10 @@ class AudioAnalyzer:
     def extract_features(self, audio_path):
         try:
             file_info = self._get_file_info(audio_path)
-
             cursor = self.conn.cursor()
             cursor.execute("""
             SELECT duration, bpm, beat_confidence, centroid, 
-                   loudness, danceability, key, scale, onset_rate, zcr
+                loudness, danceability, key, scale, onset_rate, zcr
             FROM audio_features
             WHERE file_hash = ? AND last_modified >= ?
             """, (file_info['file_hash'], file_info['last_modified']))
@@ -211,55 +213,71 @@ class AudioAnalyzer:
                 'filename': os.path.basename(audio_path)
             }
 
-            try:
-                features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
-            except Exception as e:
-                logger.error(f"Rhythm extraction error for {audio_path}: {str(e)}")
-                features['bpm'] = 0.0
-                features['beat_confidence'] = 0.0
+            # Only extract features if we have enough audio
+            if len(audio) >= 44100:  # At least 1 second
+                try:
+                    features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
+                except Exception as e:
+                    logger.error(f"Rhythm extraction error for {audio_path}: {str(e)}")
+                    features['bpm'] = 0.0
+                    features['beat_confidence'] = 0.0
 
-            try:
-                features['centroid'] = self._extract_spectral_features(audio)
-            except Exception as e:
-                logger.error(f"Spectral extraction error for {audio_path}: {str(e)}")
-                features['centroid'] = 0.0
-                
-            try:
-                features['loudness'] = self._extract_loudness(audio)
-            except Exception as e:
-                logger.error(f"Loudness extraction error for {audio_path}: {str(e)}")
-                features['loudness'] = 0.0
-                
-            try:
-                features['danceability'] = self._extract_danceability(audio)
-            except Exception as e:
-                logger.error(f"Danceability extraction error for {audio_path}: {str(e)}")
-                features['danceability'] = 0.0
-                
-            try:
-                features['key'], features['scale'] = self._extract_key(audio)
-            except Exception as e:
-                logger.error(f"Key extraction error for {audio_path}: {str(e)}")
-                features['key'] = -1
-                features['scale'] = 0
-                
-            try:
-                features['onset_rate'] = self._extract_onset_rate(audio)
-            except Exception as e:
-                logger.error(f"Onset rate extraction error for {audio_path}: {str(e)}")
-                features['onset_rate'] = 0.0
-                
-            try:
-                features['zcr'] = self._extract_zcr(audio)
-            except Exception as e:
-                logger.error(f"Zero crossing rate extraction error for {audio_path}: {str(e)}")
-                features['zcr'] = 0.0
+                try:
+                    features['centroid'] = self._extract_spectral_features(audio)
+                except Exception as e:
+                    logger.error(f"Spectral extraction error for {audio_path}: {str(e)}")
+                    features['centroid'] = 0.0
+                    
+                try:
+                    features['loudness'] = self._extract_loudness(audio)
+                except Exception as e:
+                    logger.error(f"Loudness extraction error for {audio_path}: {str(e)}")
+                    features['loudness'] = 0.0
+                    
+                try:
+                    features['danceability'] = self._extract_danceability(audio)
+                except Exception as e:
+                    logger.error(f"Danceability extraction error for {audio_path}: {str(e)}")
+                    features['danceability'] = 0.0
+                    
+                try:
+                    features['key'], features['scale'] = self._extract_key(audio)
+                except Exception as e:
+                    logger.error(f"Key extraction error for {audio_path}: {str(e)}")
+                    features['key'] = -1
+                    features['scale'] = 0
+                    
+                try:
+                    features['onset_rate'] = self._extract_onset_rate(audio)
+                except Exception as e:
+                    logger.error(f"Onset rate extraction error for {audio_path}: {str(e)}")
+                    features['onset_rate'] = 0.0
+                    
+                try:
+                    features['zcr'] = self._extract_zcr(audio)
+                except Exception as e:
+                    logger.error(f"Zero crossing rate extraction error for {audio_path}: {str(e)}")
+                    features['zcr'] = 0.0
+            else:
+                logger.warning(f"Audio file too short for feature extraction: {audio_path}")
+                # Set default values for short files
+                features.update({
+                    'bpm': 0.0,
+                    'beat_confidence': 0.0,
+                    'centroid': 0.0,
+                    'loudness': 0.0,
+                    'danceability': 0.0,
+                    'key': -1,
+                    'scale': 0,
+                    'onset_rate': 0.0,
+                    'zcr': 0.0
+                })
 
             with self.conn:
                 self.conn.execute("""
                 INSERT OR REPLACE INTO audio_features 
                 (file_hash, file_path, duration, bpm, beat_confidence, centroid, 
-                 loudness, danceability, key, scale, onset_rate, zcr, last_modified)
+                loudness, danceability, key, scale, onset_rate, zcr, last_modified)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     file_info['file_hash'],
