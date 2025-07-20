@@ -1,9 +1,8 @@
-# analyze_music.py (final complete version)
+# analyze_music.py (fixed logging version)
 import numpy as np
 import essentia.standard as es
 import os
-import logging
-from colorlog import ColoredFormatter
+import logging  # Keep logging import but don't configure
 import sys
 import sqlite3
 import hashlib
@@ -11,30 +10,8 @@ import signal
 from functools import wraps
 import traceback
 
-# Setup logging
-def setup_logging():
-    """Configure colored logging"""
-    formatter = ColoredFormatter(
-        "%(log_color)s%(asctime)s %(levelname)s %(message)s",
-        datefmt="%H:%M:%S",
-        log_colors={
-            'DEBUG': 'cyan',
-            'INFO': 'green',
-            'WARNING': 'yellow',
-            'ERROR': 'red',
-            'CRITICAL': 'red,bg_white',
-        }
-    )
-    
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(formatter)
-    
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
-    return logger
-
-logger = setup_logging()
+# Use module-level logger without configuring handlers
+logger = logging.getLogger(__name__)
 
 class TimeoutException(Exception):
     pass
@@ -262,7 +239,7 @@ class AudioAnalyzer:
                 return cached_features
 
             # Process new file
-            logger.info(f"Processing: {os.path.basename(audio_path)}")
+            logger.debug(f"Using cached features for {file_info['file_path']}")
             audio = self._safe_audio_load(audio_path)
             if audio is None:
                 return None, False, None
@@ -286,6 +263,7 @@ class AudioAnalyzer:
         """, (file_info['file_hash'], file_info['last_modified']))
 
         if row := cursor.fetchone():
+            logger.debug(f"Using cached features for {file_info['file_path']}")
             return {
                 'duration': row[0],
                 'bpm': row[1],

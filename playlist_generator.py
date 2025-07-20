@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Optimized Music Playlist Generator with Enhanced Naming
-"""
+"""Optimized Music Playlist Generator with Enhanced Naming"""
 
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
@@ -127,36 +125,66 @@ class PlaylistGenerator:
             ctx = mp.get_context('spawn')
             
             with ctx.Pool(processes=workers) as pool:
-                # Initialize progress bar
+                chunksize = min(10, len(file_list)//workers + 1)
                 with tqdm(total=len(file_list), desc="Processing files",
-                        bar_format="{l_bar}{bar:40}{r_bar}",
-                        file=sys.stdout) as pbar:
+                         bar_format="{l_bar}{bar:40}{r_bar}",
+                         file=sys.stdout) as pbar:
                     
-                    # Process files in chunks
-                    chunksize = min(10, len(file_list)//workers + 1)
-                    futures = []
-                    
-                    for filepath in file_list:
-                        future = pool.apply_async(
-                            process_file_worker, 
-                            (filepath,),
-                            callback=lambda x: (results.append(x[0]) if x[0] else None, 
-                                            pbar.update(1))
-                        )
-                        futures.append(future)
-                    
-                    # Wait for completion and handle results
-                    for future in futures:
-                        try:
-                            features, filepath = future.get(timeout=600)
-                            if not features:
+                    # Process in chunks for better progress tracking
+                    for i in range(0, len(file_list), chunksize):
+                        chunk = file_list[i:i+chunksize]
+                        for features, filepath in pool.map(process_file_worker, chunk):
+                            if features:
+                                results.append(features)
+                            else:
                                 self.failed_files.append(filepath)
-                            pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
-                        except Exception as e:
                             pbar.update(1)
-                            logger.error(f"Processing error: {str(e)}")
+                            pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
                     
             logger.info(f"Processing completed - {len(results)} successful, {len(self.failed_files)} failed")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Multiprocessing failed: {str(e)}")
+            return self._process_sequential(file_list)
+
+    def _process_sequential(self, file_list):
+        results = []
+        with tqdm(file_list, desc="Analyzing files", 
+                bar_format="{l_bar}{bar:40}{r_bar}", 
+                file=sys.stdout) as pbar:
+            for filepath in pbar:
+                try:
+                    features, _ = process_file_worker(filepath)
+                    if features:
+                        results.append(features)
+                    else:
+                        self.failed_files.append(filepath)
+                    pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
+                except Exception as e:
+                    self.failed_files.append(filepath)
+                    logger.error(f"Error processing {filepath}: {str(e)}")
+        return results
+
+    def _process_parallel(self, file_list, workers):
+        results = []
+        try:
+            logger.info(f"Starting multiprocessing with {workers} workers")
+            ctx = mp.get_context('spawn')
+            
+            with ctx.Pool(processes=workers) as pool:
+                chunksize = min(10, len(file_list)//workers + 1)
+                results = []
+                with tqdm(total=len(file_list), desc="Processing files") as pbar:
+                    for i in range(0, len(file_list), chunksize):
+                        chunk = file_list[i:i+chunksize]
+                        for features, filepath in pool.map(process_file_worker, chunk):
+                            if features:
+                                results.append(features)
+                            else:
+                                self.failed_files.append(filepath)
+                            pbar.update(1)
+                            pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
             return results
             
         except Exception as e:
@@ -190,64 +218,43 @@ class PlaylistGenerator:
         
         # Safely extract all features with defaults
         try:
-            key_idx = int(features.get('key', -1))
-            scale = int(features.get('scale', 0))
             bpm = float(features.get('bpm', 0))
             centroid = float(features.get('centroid', 0))
             danceability = float(features.get('danceability', 0))
-            duration = float(features.get('duration', 0))
         except (TypeError, ValueError) as e:
             logger.warning(f"Feature conversion error: {str(e)}")
-            key_idx, scale, bpm, centroid, danceability, duration = -1, 0, 0, 0, 0, 0
+            bpm, centroid, danceability = 0, 0, 0
 
-        # Key and scale
-        key_str = keys[key_idx] if 0 <= key_idx < len(keys) else 'Unknown'
-        scale_str = "Maj" if scale == 1 else "Min"
-        
-        # BPM categories
+        # New descriptive categories
         bpm_desc = (
-            "Largo" if bpm < 50 else
-            "Adagio" if bpm < 70 else
-            "Moderato" if bpm < 90 else
-            "Allegro" if bpm < 120 else
-            "Vivace" if bpm < 150 else
-            "Presto"
+            "Slow" if bpm < 70 else
+            "Medium" if bpm < 100 else
+            "Upbeat" if bpm < 130 else
+            "Fast"
         )
         
-        # Timbre descriptions
-        timbre_desc = (
-            "SubBass" if centroid < 150 else
-            "Dark" if centroid < 300 else
-            "Warm" if centroid < 1000 else
-            "Neutral" if centroid < 2000 else
-            "Bright" if centroid < 4000 else
-            "Crisp" if centroid < 6000 else
-            "Shrill"
-        )
-        
-        # Danceability
         dance_desc = (
-            "Static" if danceability < 0.3 else
-            "Pulse" if danceability < 0.5 else
-            "Groove" if danceability < 0.7 else
+            "Chill" if danceability < 0.3 else
+            "Easy" if danceability < 0.5 else
+            "Groovy" if danceability < 0.7 else
             "Dance" if danceability < 0.85 else
             "Energetic"
         )
         
-        # Duration
-        duration_desc = (
-            "Short" if duration < 120 else
-            "Medium" if duration < 240 else
-            "Long" if duration < 360 else
-            "Epic"
+        mood_desc = (
+            "Relaxing" if centroid < 300 else
+            "Mellow" if centroid < 1000 else
+            "Balanced" if centroid < 2000 else
+            "Bright" if centroid < 4000 else
+            "Intense"
         )
         
-        return f"{key_str}{scale_str}_{bpm_desc}_{timbre_desc}_{dance_desc}_{duration_desc}"
+        return f"{bpm_desc} {dance_desc} {mood_desc}"
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         """Generate playlists with comprehensive error handling for musical keys"""
         playlists = {}
-        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        key = keys.index(raw_key.strip().upper().replace('B', 'Bb').replace('FL', '#'))
         
         try:
             if not features_list:
