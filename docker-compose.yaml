@@ -1,17 +1,25 @@
 services:
   playlist-generator:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     volumes:
       - type: bind
-        source: ${MUSIC_DIR}
+        source: ${MUSIC_DIR:-./music}  # Default to ./music if not set
         target: /music
         read_only: true
       - type: bind
-        source: ${OUTPUT_DIR}
+        source: ${OUTPUT_DIR:-./playlists}  # Default to ./playlists if not set
         target: /app/playlists
       - type: bind
-        source: ${CACHE_DIR}
+        source: ${CACHE_DIR:-./cache}  # Default to ./cache if not set
         target: /app/cache
     environment:
       - CACHE_DIR=/app/cache
+      - MUSIC_DIR=/music
+      - OUTPUT_DIR=/app/playlists
+      - NUM_WORKERS=${WORKERS:-auto}  # Pass through worker count
     working_dir: /app
+    stdin_open: true
+    tty: true
+    restart: on-failure
