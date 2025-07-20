@@ -19,21 +19,19 @@ import re
 import sqlite3
 import colorlog
 import sys
-import multiprocessing as mp
-from multiprocessing import TimeoutError
-import queue
-import signal
-from functools import partial
+from pathlib import Path
+from typing import List, Dict, Optional, Tuple, Any
 
 # === Color logger ===
-def setup_logger(level=logging.INFO):
+def setup_logger(level=logging.INFO) -> logging.Logger:
+    """Configure and return a color logger with both console and file handlers."""
     logger = colorlog.getLogger('playlist_generator')
     logger.propagate = False  # Prevent duplicate logs
     
     # Remove existing handlers to avoid duplicates
     logger.handlers = []
     
-    # Console handler
+    # Console handler with colors
     console_handler = colorlog.StreamHandler()
     console_handler.setFormatter(colorlog.ColoredFormatter(
         "%(log_color)s[%(levelname)s] %(name)s: %(message)s",
@@ -47,89 +45,71 @@ def setup_logger(level=logging.INFO):
     ))
     logger.addHandler(console_handler)
     
-    # File handler
+    # File handler with detailed format
     file_handler = logging.FileHandler("playlist_generator.log", mode='w')
-    file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(message)s'
+    ))
     logger.addHandler(file_handler)
     
+    logger.setLevel(level)
     return logger
 
 logger = setup_logger()
 
 # === Worker Initialization ===
 def init_worker():
-    """Initialize worker processes to ignore SIGINT"""
+    """Initialize worker processes to ignore SIGINT."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-def sanitize_filename(name):
+def sanitize_filename(name: str) -> str:
+    """Sanitize a string to be safe for filenames."""
     name = re.sub(r'[^\w\-_]', '_', name)
     return re.sub(r'_+', '_', name).strip('_')
 
-def process_file_worker(filepath):
-    """Worker function with robust timeout handling"""
-    try:
-        # Set timeout at the system level
-        import signal
-        def handler(signum, frame):
-            raise TimeoutError(f"Timeout processing {filepath}")
-        
-        signal.signal(signal.SIGALRM, handler)
-        signal.alarm(180)  # 3 minute timeout
-        
-        from analyze_music import audio_analyzer
-        result = audio_analyzer.extract_features(filepath)
-        signal.alarm(0)  # Disable the alarm
-        
-        if result and result[0] is not None:
-            features = result[0]
-            # Ensure no None values in critical features
-            for key in ['bpm', 'centroid', 'duration']:
-                if features.get(key) is None:
-                    features[key] = 0.0
-            return features, filepath
-        return None, filepath
-        
-    except TimeoutError:
-        logger.warning(f"Timeout processing {filepath}")
-        return None, filepath
-    except Exception as e:
-        logger.error(f"Error processing {filepath}: {str(e)}")
-        return None, filepath
-    
-def _analyze_worker(filepath):
-    """Standalone worker function that can be pickled"""
+def process_file_worker(filepath: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Worker function to process a single audio file with robust error handling."""
     try:
         from analyze_music import audio_analyzer
         result = audio_analyzer.extract_features(filepath)
         if result and result[0] is not None:
             features = result[0]
-            # Set defaults for missing features
-            defaults = {'bpm': 0.0, 'centroid': 0.0, 'duration': 0.0,
-                       'loudness': -20.0, 'dynamics': 0.0}
+            # Ensure required features have defaults
+            defaults = {
+                'bpm': 0.0, 
+                'centroid': 0.0, 
+                'duration': 0.0,
+                'loudness': -20.0, 
+                'dynamics': 0.0,
+                'filepath': filepath
+            }
             for k, v in defaults.items():
                 if features.get(k) is None:
                     features[k] = v
             return features, filepath
         return None, filepath
     except Exception as e:
+        logger.error(f"Error processing {filepath}: {str(e)}")
         return None, filepath
 
 class PlaylistGenerator:
     def __init__(self):
-        self.failed_files = []
-        self.container_music_dir = ""
-        self.host_music_dir = ""
-        self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')
+        self.failed_files: List[str] = []
+        self.container_music_dir: str = ""
+        self.host_music_dir: str = ""
+        cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+        self.cache_file = str(Path(cache_dir) / 'audio_analysis.db')
 
-    def _validate_audio_file(self, filepath):
-        """Check if file exists and has valid audio extension"""
+    def _validate_audio_file(self, filepath: str) -> bool:
+        """Check if file exists and has valid audio extension."""
         valid_extensions = ('.mp3', '.wav', '.flac', '.ogg', '.m4a')
-        return (os.path.isfile(filepath) and \
-               (os.path.getsize(filepath) > 1024) and \
-               (filepath.lower().endswith(valid_extensions)))
-    
-    def _check_stuck_process(self, processes, timeout=300):
-        """Monitor processes for hangs"""
+        filepath = str(filepath)
+        return (Path(filepath).is_file() and 
+                Path(filepath).stat().st_size > 1024 and
+                filepath.lower().endswith(valid_extensions))
+
+    def _check_stuck_process(self, processes: List[mp.Process], timeout: int = 300) -> bool:
+        """Monitor processes for hangs."""
         start_time = time.time()
         while True:
             if all(not p.is_alive() for p in processes):
@@ -138,51 +118,59 @@ class PlaylistGenerator:
                 return True
             time.sleep(5)
 
-    def _cleanup_processes(self, processes):
-        """Ensure all processes are terminated"""
+    def _cleanup_processes(self, processes: List[mp.Process]):
+        """Ensure all processes are terminated properly."""
         for p in processes:
             if p.is_alive():
                 p.terminate()
-        for p in processes:
-            p.join()
+                p.join()
 
-    def cleanup_database(self):
-        """Remove entries for missing files from database"""
+    def cleanup_database(self) -> List[str]:
+        """Remove entries for missing files from database."""
         try:
             conn = sqlite3.connect(self.cache_file)
             cursor = conn.cursor()
-            cursor.execute("SELECT file_path FROM audio_features")
-            db_files = [row[0] for row in cursor.fetchall()]
             
-            missing_files = []
-            for file_path in db_files:
-                if not os.path.exists(file_path):
-                    missing_files.append(file_path)
+            # Get all files from database
+            cursor.execute("SELECT file_path FROM audio_features")
+            db_files = {row[0] for row in cursor.fetchall()}
+            
+            # Check which files exist
+            missing_files = [path for path in db_files if not Path(path).exists()]
             
             if missing_files:
                 logger.info(f"Cleaning up {len(missing_files)} missing files from database")
-                placeholders = ','.join(['?'] * len(missing_files))
-                cursor.execute(
-                    f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
-                    missing_files
-                )
+                # Delete in batches to avoid SQL parameter limits
+                batch_size = 500
+                for i in range(0, len(missing_files), batch_size):
+                    batch = missing_files[i:i+batch_size]
+                    placeholders = ','.join(['?'] * len(batch))
+                    cursor.execute(
+                        f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
+                        batch
+                    )
                 conn.commit()
                 
             conn.close()
             return missing_files
         except Exception as e:
             logger.error(f"Database cleanup failed: {str(e)}")
+            try:
+                conn.close()
+            except:
+                pass
             return []
 
-    def analyze_directory(self, music_dir, workers=None, force_sequential=False):
-        """Scan directory for valid audio files"""
-        self.container_music_dir = music_dir.rstrip('/')
+    def analyze_directory(self, music_dir: str, workers: Optional[int] = None, 
+                         force_sequential: bool = False) -> List[Dict[str, Any]]:
+        """Scan directory for valid audio files and extract features."""
+        self.container_music_dir = str(Path(music_dir).resolve())
         
         # Build file list with validation
         file_list = []
         for root, _, files in os.walk(music_dir):
             for file in files:
-                filepath = os.path.join(root, file)
+                filepath = str(Path(root) / file)
                 if self._validate_audio_file(filepath):
                     file_list.append(filepath)
 
@@ -199,27 +187,22 @@ class PlaylistGenerator:
         return (self._process_sequential(file_list) if force_sequential or workers <= 1
                 else self._process_parallel(file_list, workers))
 
-    def _process_sequential(self, file_list):
+    def _process_sequential(self, file_list: List[str]) -> List[Dict[str, Any]]:
+        """Process files sequentially with progress bar."""
         results = []
         pbar = tqdm(file_list, desc="Processing files")
         for filepath in pbar:
-            pbar.set_postfix(file=os.path.basename(filepath)[:20])
-            features, _ = process_file_worker(filepath)  # Use the same worker function
+            pbar.set_postfix(file=Path(filepath).name[:20])
+            features, _ = process_file_worker(filepath)
             if features:
                 results.append(features)
             else:
                 self.failed_files.append(filepath)
+                logger.debug(f"Failed to process: {filepath}")
         return results
 
-    def validate_audio_file(filepath):
-        """Quick check if file is valid before processing"""
-        try:
-            return os.path.isfile(filepath) and os.path.getsize(filepath) > 1024
-        except:
-            return False
-
-    def _process_parallel(self, file_list, workers):
-        """Robust parallel processing with watchdog"""
+    def _process_parallel(self, file_list: List[str], workers: int) -> List[Dict[str, Any]]:
+        """Robust parallel processing with watchdog."""
         results = []
         self.failed_files = []
         
@@ -227,6 +210,7 @@ class PlaylistGenerator:
             ctx = mp.get_context('spawn')
             with ctx.Pool(
                 processes=workers,
+                initializer=init_worker,
                 maxtasksperchild=50,  # Recycle workers periodically
             ) as pool:
                 # Process in chunks for better performance
@@ -243,6 +227,7 @@ class PlaylistGenerator:
                             results.append(features)
                         else:
                             self.failed_files.append(filepath)
+                            logger.debug(f"Failed to process: {filepath}")
                         pbar.update()
                         
             return results
@@ -250,7 +235,8 @@ class PlaylistGenerator:
             logger.error(f"Parallel processing failed: {str(e)}")
             return self._process_sequential(file_list)
 
-    def get_all_features_from_db(self):
+    def get_all_features_from_db(self) -> List[Dict[str, Any]]:
+        """Get all features from the database."""
         try:
             features = get_all_features()
             return features
@@ -258,25 +244,34 @@ class PlaylistGenerator:
             logger.error(f"Database error: {str(e)}")
             return []
 
-    def convert_to_host_path(self, container_path):
-        """Convert container path to host path for playlist files"""
+    def convert_to_host_path(self, container_path: str) -> str:
+        """Convert container path to host path for playlist files."""
         if not self.host_music_dir or not self.container_music_dir:
-            return container_path
+            return str(container_path)
             
-        # Simple path replacement
-        if container_path.startswith(self.container_music_dir):
-            rel_path = os.path.relpath(container_path, self.container_music_dir)
-            return os.path.join(self.host_music_dir, rel_path)
-            
-        return container_path
+        container_norm = str(Path(self.container_music_dir).resolve())
+        host_norm = str(Path(self.host_music_dir).resolve())
+        
+        # Handle case where paths are already the same
+        if container_norm == host_norm:
+            return str(container_path)
+        
+        # Convert path
+        try:
+            rel_path = os.path.relpath(
+                str(Path(container_path).resolve()),
+                container_norm
+            )
+            return str(Path(host_norm) / rel_path)
+        except ValueError:
+            # Paths on different drives (Windows) or other error
+            return str(container_path)
 
-    def generate_playlist_name(self, features):
-        """Generate descriptive playlist name from features"""
-        # Default values for missing features
+    def generate_playlist_name(self, features: Dict[str, Any]) -> str:
+        """Generate descriptive playlist name from features."""
+        # Get features with defaults
         bpm = features.get('bpm', 0)
         centroid = features.get('centroid', 0)
-        duration = features.get('duration', 0)
-        loudness = features.get('loudness', -20)
         dynamics = features.get('dynamics', 0)
         
         # BPM descriptors
@@ -312,22 +307,37 @@ class PlaylistGenerator:
         
         return f"{bpm_desc}_{timbre_desc}_{mood}"
 
-    def generate_playlists(self, features_list, num_playlists=8, output_dir=None):
+    def generate_playlists(self, features_list: List[Dict[str, Any]], 
+                          num_playlists: int = 8, 
+                          output_dir: Optional[str] = None) -> Dict[str, List[str]]:
+        """Generate playlists by clustering audio features."""
         if not features_list:
             logger.warning("No features to cluster")
+            return {}
+
+        # Validate and filter features
+        valid_features = []
+        for f in features_list:
+            if not isinstance(f, dict):
+                continue
+            if not f.get('filepath') or not Path(f['filepath']).exists():
+                continue
+            valid_features.append(f)
+        
+        if not valid_features:
+            logger.warning("No valid features to cluster")
             return {}
 
         # Create dataframe with validated features
         df = pd.DataFrame([
             {**f, **{k: 0.0 for k in ['bpm', 'centroid', 'loudness', 'dynamics'] if k not in f}}
-            for f in features_list
+            for f in valid_features
         ])
         
         # Cluster features
         cluster_features = ['bpm', 'centroid', 'loudness', 'dynamics']
         features_scaled = StandardScaler().fit_transform(
-            df[cluster_features].values.astype(np.float32)
-        )
+            df[cluster_features].values.astype(np.float32))
         
         # Smart cluster sizing
         min_clusters = min(8, len(df))
@@ -354,8 +364,10 @@ class PlaylistGenerator:
         
         return playlists
 
-    def save_playlists(self, playlists, output_dir):
-        os.makedirs(output_dir, exist_ok=True)
+    def save_playlists(self, playlists: Dict[str, List[str]], output_dir: str):
+        """Save playlists to files in the specified directory."""
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
         saved_count = 0
 
         for name, songs in playlists.items():
@@ -367,43 +379,64 @@ class PlaylistGenerator:
                 host_path = self.convert_to_host_path(song)
                 host_songs.append(host_path)
                 
-            playlist_path = os.path.join(output_dir, f"{name}.m3u")
-            with open(playlist_path, 'w') as f:
-                f.write("\n".join(host_songs))
-            
-            saved_count += 1
-            logger.info(f"Saved {name} with {len(host_songs)} tracks")
+            playlist_path = output_path / f"{name}.m3u"
+            try:
+                with open(playlist_path, 'w', encoding='utf-8') as f:
+                    f.write("\n".join(host_songs))
+                saved_count += 1
+                logger.info(f"Saved {name} with {len(host_songs)} tracks")
+            except Exception as e:
+                logger.error(f"Failed to save playlist {name}: {str(e)}")
 
         logger.info(f"Saved {saved_count} playlists total")
         
         # Save failed files list
         if self.failed_files:
-            failed_path = os.path.join(output_dir, "Failed_Files.m3u")
-            with open(failed_path, 'w') as f:
-                host_failed = [self.convert_to_host_path(p) for p in self.failed_files]
-                f.write("\n".join(host_failed))
-            logger.info(f"Saved {len(self.failed_files)} failed/missing files")
+            failed_path = output_path / "Failed_Files.m3u"
+            try:
+                with open(failed_path, 'w', encoding='utf-8') as f:
+                    host_failed = [self.convert_to_host_path(p) for p in self.failed_files]
+                    f.write("\n".join(host_failed))
+                logger.info(f"Saved {len(self.failed_files)} failed/missing files")
+            except Exception as e:
+                logger.error(f"Failed to save failed files list: {str(e)}")
 
 def main():
+    """Main entry point for the playlist generator."""
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
-    parser.add_argument('--log_level', default='INFO', help='Logging level (DEBUG, INFO, WARNING, ERROR)')
-    parser.add_argument('--music_dir', required=True, help='Music directory in container')
-    parser.add_argument('--host_music_dir', required=True, help='Host music directory')
-    parser.add_argument('--output_dir', default='./playlists', help='Output directory')
-    parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists')
+    parser.add_argument('--log_level', default='INFO', 
+                       help='Logging level (DEBUG, INFO, WARNING, ERROR)')
+    parser.add_argument('--music_dir', required=True, 
+                       help='Music directory in container')
+    parser.add_argument('--host_music_dir', required=True, 
+                       help='Host music directory')
+    parser.add_argument('--output_dir', default='./playlists', 
+                       help='Output directory')
+    parser.add_argument('--num_playlists', type=int, default=8, 
+                       help='Number of playlists')
     parser.add_argument('--workers', type=int, default=None, 
                        help='Number of workers (default: auto)')
-    parser.add_argument('--use_db', action='store_true', help='Use database only')
+    parser.add_argument('--use_db', action='store_true', 
+                       help='Use database only')
     parser.add_argument('--force_sequential', action='store_true', 
                        help='Force sequential processing')
     args = parser.parse_args()
+
+    # Validate arguments
+    if not Path(args.music_dir).exists():
+        logger.error(f"Music directory does not exist: {args.music_dir}")
+        sys.exit(1)
+
+    if not Path(args.host_music_dir).exists():
+        logger.error(f"Host music directory does not exist: {args.host_music_dir}")
+        sys.exit(1)
 
     # Set up logger with requested level
     global logger
     logger = setup_logger(getattr(logging, args.log_level.upper(), logging.INFO))
     
     generator = PlaylistGenerator()
-    generator.host_music_dir = args.host_music_dir.rstrip('/')
+    generator.host_music_dir = str(Path(args.host_music_dir).resolve())
     logger.info(f"Starting playlist generation with {args.workers} workers")
 
     start_time = time.time()
@@ -428,6 +461,9 @@ def main():
             generator.save_playlists(playlists, args.output_dir)
         else:
             logger.error("No valid audio files available")
+    except KeyboardInterrupt:
+        logger.info("Processing interrupted by user")
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
         logger.error(traceback.format_exc())
