@@ -168,14 +168,21 @@ class AudioAnalyzer:
     @timeout()
     def _extract_key(self, audio):
         try:
-            min_length = 44100 * 3  # 3 seconds minimum
-            if len(audio) < min_length:
-                audio = np.pad(audio, (0, max(0, min_length - len(audio))), 'constant')
-            
+            if len(audio) < 44100 * 3:  # Need at least 3 seconds
+                return -1, 0
+                
             key, scale, _ = es.KeyExtractor(frameSize=4096, hopSize=2048)(audio)
+            
+            # Convert key to numerical index
             keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-            key_index = keys.index(key) if key in keys else -1
-            return key_index, 1 if scale == 'major' else 0
+            try:
+                key_idx = keys.index(key) if key in keys else -1
+            except ValueError:
+                key_idx = -1
+                
+            scale_idx = 1 if scale == 'major' else 0
+            return key_idx, scale_idx
+            
         except Exception as e:
             logger.warning(f"Key extraction failed: {str(e)}")
             return -1, 0

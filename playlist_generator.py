@@ -153,17 +153,15 @@ class PlaylistGenerator:
     def generate_playlist_name(self, features):
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         
-        # Safely get all features with proper type conversion
-        key_idx = int(features.get('key', -1))
-        scale = int(features.get('scale', 0))
-        bpm = float(features.get('bpm', 0))
-        centroid = float(features.get('centroid', 0))
-        danceability = float(features.get('danceability', 0))
-        duration = float(features.get('duration', 0))
+        # Handle key whether it's index or note name
+        key_idx = features.get('key', -1)
+        if isinstance(key_idx, str):
+            key_idx = keys.index(key_idx) if key_idx in keys else -1
+        else:
+            key_idx = int(key_idx) if key_idx is not None else -1
         
-        # Key and scale
-        key_str = keys[key_idx] if 0 <= key_idx < len(keys) else 'Keyless'
-        scale_str = "Maj" if scale == 1 else "Min"
+        key_str = keys[key_idx] if 0 <= key_idx < len(keys) else 'Unknown'
+        scale_str = "Maj" if int(features.get('scale', 0)) == 1 else "Min"
         
         # BPM categories (more musical terms)
         bpm_desc = (
@@ -203,53 +201,116 @@ class PlaylistGenerator:
             "Epic"
         )
         
-        return f"{key_str}{scale_str}_{bpm_desc}_{timbre_desc}_{dance_desc}_{duration_desc}"
+        bpm = float(features.get('bpm', 0))
+        centroid = float(features.get('centroid', 0))
+        danceability = float(features.get('danceability', 0))
+        
+        bpm_desc = ("Largo" if bpm < 50 else "Adagio" if bpm < 70 else
+                "Moderato" if bpm < 90 else "Allegro" if bpm < 120 else
+                "Vivace" if bpm < 150 else "Presto")
+        
+        return f"{key_str}{scale_str}_{bpm_desc}_{timbre_desc}_{dance_desc}_{duration_desc}".replace(' ', '_').replace('__', '_').strip('_')
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
-        """Generate playlists from audio features with proper error handling"""
+        """Generate playlists with comprehensive error handling for musical keys"""
         playlists = {}
+        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         
         try:
             if not features_list:
                 logger.warning("No features provided for playlist generation")
                 return playlists
 
-            # 1. Prepare DataFrame with strict type enforcement
+            # 1. Prepare DataFrame with bulletproof type conversion
             data = []
+            valid_tracks = 0
+            skipped_tracks = 0
+            
             for f in features_list:
+                if not f or 'filepath' not in f:
+                    skipped_tracks += 1
+                    continue
+                    
                 try:
-                    if not f or 'filepath' not in f:
-                        continue
-                        
+                    # Robust key conversion
+                    raw_key = f.get('key', -1)
+                    key = -1  # Default unknown key
+                    
+                    if isinstance(raw_key, str):
+                        try:
+                            key = keys.index(raw_key.upper().replace('B', 'Bb')) if raw_key else -1
+                        except ValueError:
+                            # Handle alternate notations (like 'Db' vs 'C#')
+                            if raw_key.upper() == 'DB':
+                                key = keys.index('C#')
+                            elif raw_key.upper() == 'EB':
+                                key = keys.index('D#')
+                            elif raw_key.upper() == 'GB':
+                                key = keys.index('F#')
+                            elif raw_key.upper() == 'AB':
+                                key = keys.index('G#')
+                            elif raw_key.upper() == 'BB':
+                                key = keys.index('A#')
+                            else:
+                                key = -1
+                    else:
+                        try:
+                            key = int(raw_key) if raw_key is not None else -1
+                        except (TypeError, ValueError):
+                            key = -1
+                    
+                    # Validate key range
+                    key = key if 0 <= key < len(keys) else -1
+                    
+                    # Handle scale
+                    raw_scale = f.get('scale', 0)
+                    scale = 0  # Default minor
+                    if isinstance(raw_scale, str):
+                        scale = 1 if raw_scale.lower() in ['major', 'maj', '1'] else 0
+                    else:
+                        try:
+                            scale = int(raw_scale) if raw_scale is not None else 0
+                        except (TypeError, ValueError):
+                            scale = 0
+                    
                     data.append({
                         'filepath': str(f['filepath']),
-                        'bpm': float(f.get('bpm', 0)),
-                        'centroid': float(f.get('centroid', 0)),
-                        'danceability': float(f.get('danceability', 0)),
-                        'key': int(f.get('key', -1)),
-                        'scale': int(f.get('scale', 0)),
-                        'duration': float(f.get('duration', 0))
+                        'bpm': max(0, float(f.get('bpm', 0))),
+                        'centroid': max(0, float(f.get('centroid', 0))),
+                        'danceability': min(1.0, max(0, float(f.get('danceability', 0)))),
+                        'key': key,
+                        'scale': 1 if scale == 1 else 0,  # Force binary scale
+                        'duration': max(0, float(f.get('duration', 0)))
                     })
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Skipping malformed feature entry: {str(e)}")
+                    valid_tracks += 1
+                    
+                except Exception as e:
+                    skipped_tracks += 1
+                    logger.debug(f"Skipping track {f.get('filepath','unknown')}: {str(e)}")
                     continue
 
+            logger.info(f"Processed {valid_tracks} valid tracks, skipped {skipped_tracks}")
+            
             if not data:
-                logger.warning("No valid features after filtering")
+                logger.warning("No valid tracks after filtering")
                 return playlists
                 
             df = pd.DataFrame(data)
 
-            # 2. Feature processing and clustering
+            # 2. Feature processing with weights
             try:
                 cluster_features = ['bpm', 'centroid', 'danceability']
-                weights = np.array([1.5, 1.0, 1.2])
+                weights = np.array([1.5, 1.0, 1.2])  # bpm, centroid, danceability
                 
                 scaler = StandardScaler()
                 scaled_features = scaler.fit_transform(df[cluster_features])
                 weighted_features = scaled_features * weights
 
-                optimal_clusters = min(max(5, len(df)//10), 50)
+                # Dynamic cluster sizing
+                min_clusters = min(5, len(df))
+                max_clusters = min(50, len(df))
+                optimal_clusters = max(min_clusters, min(max_clusters, len(df)//10))
+
                 kmeans = MiniBatchKMeans(
                     n_clusters=optimal_clusters,
                     random_state=42,
@@ -257,8 +318,22 @@ class PlaylistGenerator:
                 )
                 df['cluster'] = kmeans.fit_predict(weighted_features)
 
-                # 3. Generate playlists
-                MIN_TRACKS = max(5, len(df)//20)
+                # 3. Playlist generation with cluster merging
+                MIN_TRACKS = max(5, len(df)//20)  # At least 5 or 5% of tracks
+                cluster_counts = df['cluster'].value_counts()
+                
+                # Merge small clusters
+                for cluster in cluster_counts[cluster_counts < MIN_TRACKS].index:
+                    # Find nearest cluster center
+                    distances = np.linalg.norm(
+                        kmeans.cluster_centers_ - kmeans.cluster_centers_[cluster],
+                        axis=1
+                    )
+                    distances[cluster] = np.inf  # Ignore self
+                    nearest_cluster = np.argmin(distances)
+                    df.loc[df['cluster'] == cluster, 'cluster'] = nearest_cluster
+
+                # Generate final playlists
                 for cluster, group in df.groupby('cluster'):
                     if len(group) < MIN_TRACKS:
                         continue
@@ -267,12 +342,16 @@ class PlaylistGenerator:
                         'bpm': group['bpm'].median(),
                         'centroid': group['centroid'].median(),
                         'danceability': group['danceability'].median(),
+                        'duration': group['duration'].median(),
                         'key': group['key'].mode()[0] if not group['key'].mode().empty else -1,
                         'scale': group['scale'].mode()[0] if not group['scale'].mode().empty else 0
                     }
+                    
                     name = self.generate_playlist_name(centroid)
                     playlists[name] = group['filepath'].tolist()
 
+                logger.info(f"Generated {len(playlists)} playlists from {len(df)} tracks")
+                
             except Exception as e:
                 logger.error(f"Clustering failed: {str(e)}")
                 logger.error(traceback.format_exc())
