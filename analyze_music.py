@@ -11,6 +11,8 @@ from functools import wraps
 import traceback
 import warnings
 import pydub
+import resource
+import gc
 
 # Use module-level logger without configuring handlers
 logger = logging.getLogger(__name__)
@@ -35,6 +37,16 @@ def timeout(seconds=60, error_message="Processing timed out"):
         return wrapper
     return decorator
 
+# Set memory limit to 4 GiB
+MEMORY_LIMIT = 4 * 1024 * 1024 * 1024  # 4 GiB in bytes
+try:
+    resource.setrlimit(resource.RLIMIT_AS, (MEMORY_LIMIT, MEMORY_LIMIT))
+    logger.info(f"Memory limit set to 4 GiB")
+except (ValueError, resource.error) as e:
+    logger.warning(f"Could not set memory limit: {str(e)}")
+# Disable warnings from Essentia
+warnings.filterwarnings("ignore", category=UserWarning, module='essentia')
+
 class AudioAnalyzer:
     def __init__(self, cache_file=None):
         self.timeout_seconds = 60
@@ -44,7 +56,7 @@ class AudioAnalyzer:
         self._init_db()
 
     def _init_db(self):
-        self.conn = sqlite3.connect(self.cache_file, timeout=30)
+        self.conn = sqlite3.connect(self.cache_file, timeout=600)
         with self.conn:
             self.conn.execute("PRAGMA journal_mode=WAL")
             self.conn.execute("PRAGMA busy_timeout=30000")
@@ -122,61 +134,29 @@ class AudioAnalyzer:
     @timeout()
     def _safe_audio_load(self, audio_path):
         try:
-            # First try standard loading
+            # Check memory before loading
+            if self._memory_usage() > 0.8:  # 80% of 4 GiB
+                logger.warning(f"Skipping {audio_path} due to high memory usage")
+                return None
+                
             loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
             audio = loader()
-            if audio.size > 0:
-                return audio
-            
-            # If empty, try repairing
-            return self._repair_audio(audio_path)
+            return audio if audio.size > 0 else None
+        except MemoryError:
+            logger.error(f"Memory error loading {audio_path}")
+            gc.collect()
+            return None
         except Exception as e:
             logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
-            # Try repairing as fallback
-            return self._repair_audio(audio_path)
-
-    def _repair_audio(self, audio_path):
-        """Attempt to repair problematic audio files with better error handling"""
-        try:
-            import tempfile
-            from pydub import AudioSegment
-            from pydub.exceptions import CouldntDecodeError
-            
-            # First check if file is valid using ffprobe
-            if not self._is_valid_audio(audio_path):
-                logger.warning(f"File is not valid audio: {audio_path}")
-                return None
-
-            tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
-            
-            try:
-                # Read with pydub
-                sound = AudioSegment.from_file(audio_path)
-                
-                # Check for valid audio properties
-                if sound.channels == 0 or sound.frame_count() == 0:
-                    logger.warning(f"Invalid audio properties in {audio_path}: {sound.channels} channels, {sound.frame_count()} frames")
-                    return None
-                    
-                # Convert to standard format
-                sound = sound.set_channels(1).set_frame_rate(44100)
-                sound.export(tmp_file, format="wav")
-                
-                # Load the repaired version
-                loader = es.MonoLoader(filename=tmp_file, sampleRate=44100)
-                audio = loader()
-                return audio
-            except CouldntDecodeError:
-                # Try alternative decoding method
-                return self._decode_with_ffmpeg(audio_path)
-            finally:
-                try:
-                    os.unlink(tmp_file)
-                except:
-                    pass
-        except Exception as e:
-            logger.warning(f"Repair failed for {audio_path}: {str(e)}")
             return None
+            
+    def _memory_usage(self):
+        """Get current memory usage as fraction of limit (0-1)"""
+        try:
+            process = psutil.Process(os.getpid())
+            return process.memory_info().rss / MEMORY_LIMIT
+        except:
+            return 0
 
     def _is_valid_audio(self, filepath):
         """Check if file is a valid audio file using ffprobe"""
@@ -193,37 +173,6 @@ class AudioAnalyzer:
             return "audio" in result.stdout
         except:
             return False
-
-    def _decode_with_ffmpeg(self, audio_path):
-        """Directly decode with ffmpeg as last resort"""
-        try:
-            import subprocess
-            import tempfile
-            
-            tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
-            
-            cmd = [
-                "ffmpeg", "-y", "-i", audio_path,
-                "-ac", "1", "-ar", "44100", 
-                "-acodec", "pcm_s16le", tmp_file
-            ]
-            
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=30
-            )
-            
-            if result.returncode == 0 and os.path.getsize(tmp_file) > 0:
-                loader = es.MonoLoader(filename=tmp_file, sampleRate=44100)
-                audio = loader()
-                os.unlink(tmp_file)
-                return audio
-            return None
-        except Exception as e:
-            logger.warning(f"FFmpeg decode failed for {audio_path}: {str(e)}")
-            return None
 
     @timeout()
     def _extract_rhythm_features(self, audio):
@@ -328,6 +277,8 @@ class AudioAnalyzer:
             return 0.0
 
     def extract_features(self, audio_path):
+        if self._memory_usage() > 0.7:
+            gc.collect()
         try:
             file_info = self._get_file_info(audio_path)
             

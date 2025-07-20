@@ -19,6 +19,10 @@ import time
 import traceback
 import re
 import sqlite3
+import psutil
+import resource
+import gc
+import magic
 
 # Logging setup
 def setup_colored_logging():
@@ -58,16 +62,18 @@ def process_file_worker(filepath):
     try:
         # Skip files that are too small to be valid audio files
         if os.path.getsize(filepath) < 1024:  # 1KB minimum
+            logger.warning(f"Skipping small file: {filepath}")
             return None, filepath
-                # Skip non-audio files
-        if not is_audio_file(filepath):
+            
+        # Skip non-audio files
+        if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
             return None, filepath
             
         from analyze_music import audio_analyzer
         result = audio_analyzer.extract_features(filepath)
         
         # If we got a timeout, try again once
-        if result is None:
+        if result is None or (result[0] is None and "timeout" in str(result).lower()):
             logger.warning(f"Retrying {filepath} after timeout")
             result = audio_analyzer.extract_features(filepath)
             
@@ -83,22 +89,46 @@ def process_file_worker(filepath):
         logger.error(f"Error processing {filepath}: {str(e)}")
         return None, filepath
 
-def is_audio_file(filepath):
-    """Check if file is an audio file by extension and magic number"""
-    # First check extension
-    audio_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')
-    if not filepath.lower().endswith(audio_ext):
-        return False
-        
-    # Then check magic number
+# Set memory limit
+MEMORY_LIMIT = 4 * 1024 * 1024 * 1024  # 4 GiB in bytes
+try:
+    resource.setrlimit(resource.RLIMIT_AS, (MEMORY_LIMIT, MEMORY_LIMIT))
+    logger.info(f"Memory limit set to 4 GiB")
+except (ValueError, resource.error) as e:
+    logger.warning(f"Could not set memory limit: {str(e)}")
+
+def memory_usage():
+    """Get current memory usage as fraction of limit (0-1)"""
     try:
-        import magic
-        mime = magic.Magic(mime=True)
-        file_type = mime.from_file(filepath)
-        return file_type.startswith('audio/')
+        process = psutil.Process(os.getpid())
+        return process.memory_info().rss / MEMORY_LIMIT
     except:
-        # Fallback to extension check if magic not available
-        return True
+        return 0
+
+def setup_playlist_db(cache_file):
+    conn = sqlite3.connect(cache_file, timeout=60)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=60000")
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS playlists (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS playlist_tracks (
+        playlist_id INTEGER,
+        file_hash TEXT,
+        added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(playlist_id) REFERENCES playlists(id),
+        FOREIGN KEY(file_hash) REFERENCES audio_features(file_hash),
+        PRIMARY KEY (playlist_id, file_hash)
+    )
+    """)
+    conn.commit()
+    conn.close()
 
 class PlaylistGenerator:
     def __init__(self):
@@ -106,6 +136,7 @@ class PlaylistGenerator:
         self.container_music_dir = ""
         self.host_music_dir = ""
         self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')
+        setup_playlist_db(self.cache_file)
 
     def analyze_directory(self, music_dir, workers=None, force_sequential=False):
         file_list = []
@@ -114,7 +145,7 @@ class PlaylistGenerator:
 
         for root, _, files in os.walk(music_dir):
             for file in files:
-                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg')):
+                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
                     file_list.append(os.path.join(root, file))
 
         logger.info(f"Found {len(file_list)} audio files")
@@ -134,58 +165,85 @@ class PlaylistGenerator:
 
     def _process_sequential(self, file_list):
         results = []
-        with tqdm(file_list, desc="Analyzing files", 
-                bar_format="{l_bar}{bar:40}{r_bar}", 
-                file=sys.stdout) as pbar:
+        with tqdm(file_list, desc="Analyzing files") as pbar:
             for filepath in pbar:
+                # Check memory before each file
+                if memory_usage() > 0.8:
+                    logger.warning("High memory usage, skipping remaining files")
+                    self.failed_files.extend(file_list[pbar.n:])
+                    break
+                    
                 try:
+                    # Free memory periodically
+                    if pbar.n % 10 == 0:
+                        gc.collect()
+                        
                     features, _ = process_file_worker(filepath)
                     if features:
                         results.append(features)
                     else:
                         self.failed_files.append(filepath)
-                    pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
                 except Exception as e:
                     self.failed_files.append(filepath)
                     logger.error(f"Error processing {filepath}: {str(e)}")
+                    
+                pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
         return results
 
     def _process_parallel(self, file_list, workers):
         results = []
-        try:
-            logger.info(f"Starting multiprocessing with {workers} workers")
-            ctx = mp.get_context('spawn')
-            
-            # Process in smaller batches to avoid hangs
-            batch_size = min(50, len(file_list))  # Process in batches of 50
-            
-            for i in range(0, len(file_list), batch_size):
-                batch = file_list[i:i+batch_size]
+        max_retries = 3
+        retries = 0
+        batch_size = min(50, len(file_list))  # Process in batches of 50
+        
+        while file_list and retries < max_retries:
+            try:
+                logger.info(f"Starting multiprocessing with {workers} workers (retry {retries})")
+                ctx = mp.get_context('spawn')
                 
-                with ctx.Pool(processes=workers) as pool:
-                    with tqdm(total=len(batch), desc=f"Processing batch {i//batch_size+1}",
-                             bar_format="{l_bar}{bar:40}{r_bar}",
-                             file=sys.stdout) as pbar:
+                # Process in smaller batches to avoid hangs
+                for i in range(0, len(file_list), batch_size):
+                    batch = file_list[i:i+batch_size]
+                    
+                    # Check memory before processing batch
+                    if memory_usage() > 0.8:
+                        logger.warning("High memory usage, skipping batch")
+                        self.failed_files.extend(batch)
+                        continue
                         
-                        # Use imap_unordered for better performance
-                        for features, filepath in pool.imap_unordered(process_file_worker, batch):
-                            if features:
-                                results.append(features)
-                            else:
-                                self.failed_files.append(filepath)
-                            pbar.update(1)
-                            pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
+                    with ctx.Pool(processes=workers) as pool:
+                        with tqdm(total=len(batch), desc=f"Processing batch {i//batch_size+1}",
+                                 bar_format="{l_bar}{bar:40}{r_bar}",
+                                 file=sys.stdout) as pbar:
+                            
+                            # Use imap_unordered for better performance
+                            for features, filepath in pool.imap_unordered(process_file_worker, batch):
+                                if features:
+                                    results.append(features)
+                                else:
+                                    self.failed_files.append(filepath)
+                                pbar.update(1)
+                                pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
+                    
+                    # Clear pool after each batch to prevent resource buildup
+                    pool.close()
+                    pool.join()
                 
-                # Clear pool after each batch to prevent resource buildup
-                pool.close()
-                pool.join()
-            
-            logger.info(f"Processing completed - {len(results)} successful, {len(self.failed_files)} failed")
-            return results
-            
-        except Exception as e:
-            logger.error(f"Multiprocessing failed: {str(e)}")
-            return self._process_sequential(file_list)
+                # Successfully processed all batches
+                logger.info(f"Processing completed - {len(results)} successful, {len(self.failed_files)} failed")
+                return results
+                
+            except (mp.TimeoutError, BrokenPipeError, ConnectionResetError) as e:
+                logger.error(f"Multiprocessing error: {str(e)}")
+                retries += 1
+                # Skip the batch that caused the failure
+                file_list = file_list[i+batch_size:] if 'i' in locals() else file_list
+                logger.warning(f"Retrying with {len(file_list)} remaining files")
+        
+        # If we exhausted retries, fall back to sequential
+        logger.error(f"Max retries reached, switching to sequential for remaining files")
+        results.extend(self._process_sequential(file_list))
+        return results
 
     def get_all_features_from_db(self):
         try:
@@ -244,6 +302,135 @@ class PlaylistGenerator:
         )
         
         return f"{bpm_desc} {dance_desc} {mood_desc}"
+
+    def generate_playlists_from_db(self):
+        """Generate playlists from database with tracking"""
+        playlists = {}
+        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        
+        try:
+            conn = sqlite3.connect(self.cache_file, timeout=60)
+            cursor = conn.cursor()
+            
+            # Create playlist grouping query
+            cursor.execute("""
+            SELECT 
+                CASE 
+                    WHEN bpm < 70 THEN 'Slow'
+                    WHEN bpm < 100 THEN 'Medium'
+                    WHEN bpm < 130 THEN 'Upbeat'
+                    ELSE 'Fast'
+                END as bpm_group,
+                CASE 
+                    WHEN centroid < 300 THEN 'Relaxing'
+                    WHEN centroid < 1000 THEN 'Mellow'
+                    WHEN centroid < 2000 THEN 'Balanced'
+                    WHEN centroid < 4000 THEN 'Bright'
+                    ELSE 'Intense'
+                END as mood_group,
+                CASE 
+                    WHEN danceability < 0.3 THEN 'Chill'
+                    WHEN danceability < 0.5 THEN 'Easy'
+                    WHEN danceability < 0.7 THEN 'Groovy'
+                    WHEN danceability < 0.85 THEN 'Dance'
+                    ELSE 'Energetic'
+                END as energy_group,
+                key,
+                scale,
+                file_hash
+            FROM audio_features
+            """)
+            
+            # Create playlists based on feature groups
+            for row in cursor.fetchall():
+                bpm_group, mood_group, energy_group, key, scale, file_hash = row
+                
+                # Convert key index to name
+                key_name = keys[key] if 0 <= key < len(keys) else "Unknown"
+                scale_name = "Major" if scale == 1 else "Minor"
+                
+                # Create playlist name
+                name = f"{bpm_group}_{energy_group}_{mood_group}_{key_name}_{scale_name}"
+                
+                if name not in playlists:
+                    playlists[name] = {'tracks': [], 'hashes': set()}
+                
+                # Add track if not already in playlist
+                if file_hash not in playlists[name]['hashes']:
+                    playlists[name]['hashes'].add(file_hash)
+                    
+                    # Get file path from database
+                    track_cursor = conn.cursor()
+                    track_cursor.execute("SELECT file_path FROM audio_features WHERE file_hash = ?", (file_hash,))
+                    if file_path := track_cursor.fetchone():
+                        playlists[name]['tracks'].append(file_path[0])
+            
+            # Create playlist records
+            cursor.execute("DELETE FROM playlists")  # Clear existing playlists
+            for name, data in playlists.items():
+                cursor.execute("INSERT INTO playlists (name) VALUES (?)", (name,))
+                playlist_id = cursor.lastrowid
+                
+                # Add tracks to playlist
+                for file_hash in data['hashes']:
+                    cursor.execute("""
+                    INSERT INTO playlist_tracks (playlist_id, file_hash)
+                    VALUES (?, ?)
+                    """, (playlist_id, file_hash))
+            
+            conn.commit()
+            return playlists
+            
+        except Exception as e:
+            logger.error(f"Database playlist generation failed: {str(e)}")
+            return {}
+        finally:
+            conn.close()
+
+    def update_playlists(self, changed_files=None):
+        """Update playlists based on changed files"""
+        try:
+            conn = sqlite3.connect(self.cache_file, timeout=60)
+            cursor = conn.cursor()
+            
+            # Get changed files if not provided
+            if changed_files is None:
+                cursor.execute("""
+                SELECT file_path, file_hash 
+                FROM audio_features 
+                WHERE last_analyzed > (
+                    SELECT MAX(last_updated) FROM playlists
+                )
+                """)
+                changed_files = [row[0] for row in cursor.fetchall()]
+            
+            if not changed_files:
+                logger.info("No changed files, playlists up-to-date")
+                return
+                
+            logger.info(f"Updating playlists for {len(changed_files)} changed files")
+            
+            # Remove affected tracks from all playlists
+            placeholders = ','.join(['?'] * len(changed_files))
+            cursor.execute(f"""
+            DELETE FROM playlist_tracks
+            WHERE file_hash IN (
+                SELECT file_hash FROM audio_features
+                WHERE file_path IN ({placeholders})
+            )
+            """, changed_files)
+            
+            # Regenerate playlists
+            self.generate_playlists_from_db()
+            
+            # Update playlist timestamp
+            cursor.execute("UPDATE playlists SET last_updated = CURRENT_TIMESTAMP")
+            conn.commit()
+            
+        except Exception as e:
+            logger.error(f"Playlist update failed: {str(e)}")
+        finally:
+            conn.close()
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         """Generate playlists with underscored names and merged similar clusters"""
@@ -351,7 +538,7 @@ class PlaylistGenerator:
     def cleanup_database(self):
         """Clean up database entries for missing files"""
         try:
-            conn = sqlite3.connect(self.cache_file)
+            conn = sqlite3.connect(self.cache_file, timeout=60)
             cursor = conn.cursor()
             cursor.execute("SELECT file_path FROM audio_features")
             db_files = [row[0] for row in cursor.fetchall()]
@@ -382,7 +569,7 @@ class PlaylistGenerator:
         total_tracks = 0
 
         for name, playlist_data in playlists.items():
-            songs = playlist_data['tracks']
+            songs = playlist_data.get('tracks', [])
             if not songs:
                 continue
 
@@ -395,17 +582,17 @@ class PlaylistGenerator:
             saved_count += 1
             logger.info(f"Saved {name} with {len(host_songs)} tracks")
 
-        # Create ALL_TRACKS playlist
+        # Create All_Successful_Tracks playlist
         all_tracks = []
         for playlist_data in playlists.values():
-            all_tracks.extend(playlist_data['tracks'])
+            all_tracks.extend(playlist_data.get('tracks', []))
         
         if all_tracks:
             host_all_tracks = [self.convert_to_host_path(song) for song in all_tracks]
-            all_path = os.path.join(output_dir, "ALL_TRACKS.m3u")
+            all_path = os.path.join(output_dir, "All_Successful_Tracks.m3u")
             with open(all_path, 'w') as f:
                 f.write("\n".join(host_all_tracks))
-            logger.info(f"Saved ALL_TRACKS with {len(host_all_tracks)} tracks")
+            logger.info(f"Saved All_Successful_Tracks with {len(host_all_tracks)} tracks")
         
         # Save failed files
         all_failed = list(set(self.failed_files))
@@ -428,6 +615,8 @@ def main():
     parser.add_argument('--use_db', action='store_true', help='Use database only')
     parser.add_argument('--force_sequential', action='store_true', 
                        help='Force sequential processing')
+    parser.add_argument('--update', action='store_true', 
+                       help='Update existing playlists instead of recreating')
     args = parser.parse_args()
 
     generator = PlaylistGenerator()
@@ -440,9 +629,15 @@ def main():
             logger.info(f"Removed {len(missing_in_db)} missing files from database")
             generator.failed_files.extend(missing_in_db)
 
-        if args.use_db:
-            logger.info("Using database features")
-            features = generator.get_all_features_from_db()
+        if args.update:
+            logger.info("Updating playlists from database")
+            generator.update_playlists()
+            playlists = generator.generate_playlists_from_db()
+            generator.save_playlists(playlists, args.output_dir)
+        elif args.use_db:
+            logger.info("Generating playlists from database")
+            playlists = generator.generate_playlists_from_db()
+            generator.save_playlists(playlists, args.output_dir)
         else:
             logger.info("Analyzing directory")
             features = generator.analyze_directory(
@@ -450,19 +645,19 @@ def main():
                 args.workers,
                 args.force_sequential
             )
-        
-        logger.info(f"Processed {len(features)} files, {len(generator.failed_files)} failed")
-        
-        if features:
-            playlists = generator.generate_playlists(
-                features,
-                args.num_playlists,
-                args.chunk_size,
-                args.output_dir
-            )
-            generator.save_playlists(playlists, args.output_dir)
-        else:
-            logger.error("No valid audio files available")
+            
+            logger.info(f"Processed {len(features)} files, {len(generator.failed_files)} failed")
+            
+            if features:
+                playlists = generator.generate_playlists(
+                    features,
+                    args.num_playlists,
+                    args.chunk_size,
+                    args.output_dir
+                )
+                generator.save_playlists(playlists, args.output_dir)
+            else:
+                logger.error("No valid audio files available")
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
         logger.error(traceback.format_exc())
@@ -471,6 +666,7 @@ def main():
         elapsed = time.time() - start_time
         logger.info(f"Completed in {elapsed:.2f} seconds")
     
+    # Clean up Essentia resources
     os.environ['ESSENTIA_LOGGING_LEVEL'] = 'ERROR'
     os.environ['ESSENTIA_LOG_FILE'] = '/dev/null'
 
