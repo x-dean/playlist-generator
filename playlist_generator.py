@@ -206,90 +206,82 @@ class PlaylistGenerator:
         return f"{key_str}{scale_str}_{bpm_desc}_{timbre_desc}_{dance_desc}_{duration_desc}"
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
-        if not features_list:
-            return {}
-
-        # Convert to DataFrame with proper types
-        df = pd.DataFrame([{
-            'filepath': f['filepath'],
-            'bpm': float(f.get('bpm', 0)),
-            'centroid': float(f.get('centroid', 0)),
-            'danceability': float(f.get('danceability', 0)),
-            'key': int(f.get('key', -1)),
-            'scale': int(f.get('scale', 0)),
-            'duration': float(f.get('duration', 0))
-        } for f in features_list if f and 'filepath' in f])
-
-        if df.empty:
-            return {}
-
-        # Feature weights - adjust these based on importance
-        feature_weights = np.array([1.5, 1.0, 1.2])  # bpm, centroid, danceability
-        cluster_features = ['bpm', 'centroid', 'danceability']
-        
-        # 1. Standardize features
-        scaler = StandardScaler()
-        features_scaled = scaler.fit_transform(df[cluster_features])
-        
-        # 2. Apply weights while preserving standardization
-        weighted_features = features_scaled * feature_weights
-        
-        # Determine optimal cluster count
-        min_clusters = min(5, len(df))
-        max_clusters = min(50, len(df))
-        optimal_clusters = max(min_clusters, min(max_clusters, len(df)//10))
-
-        # Perform clustering
-        kmeans = MiniBatchKMeans(
-            n_clusters=optimal_clusters,
-            random_state=42,
-            batch_size=min(500, len(df))
-        df['cluster'] = kmeans.fit_predict(weighted_features)
-
-        from sklearn.metrics import silhouette_score
-        if len(df['cluster'].unique()) > 1:
-            score = silhouette_score(features_scaled, df['cluster'])
-            logger.info(f"Clustering quality (silhouette score): {score:.2f}")
-
-        # Merge small clusters (less than 5% of total files)
-        MIN_CLUSTER_SIZE = max(5, len(df) * 0.05)
-        cluster_counts = df['cluster'].value_counts()
-        small_clusters = cluster_counts[cluster_counts < MIN_CLUSTER_SIZE].index.tolist()
-
-        if small_clusters:
-            # Find nearest large cluster for each small cluster
-            cluster_centers = kmeans.cluster_centers_
-            for small_cluster in small_clusters:
-                # Find nearest large cluster
-                distances = np.linalg.norm(
-                    cluster_centers[small_cluster] - cluster_centers, 
-                    axis=1
-                )
-                # Set distance to self as infinity
-                distances[small_cluster] = np.inf
-                nearest_cluster = np.argmin(distances)
-                # Reassign
-                df.loc[df['cluster'] == small_cluster, 'cluster'] = nearest_cluster
-
-        # Generate playlists
+        """Generate playlists from audio features with proper error handling"""
         playlists = {}
-        for cluster in df['cluster'].unique():
-            cluster_songs = df[df['cluster'] == cluster]
-            
-            # Get centroid features
-            centroid = {
-                'bpm': cluster_songs['bpm'].median(),
-                'centroid': cluster_songs['centroid'].median(),
-                'danceability': cluster_songs['danceability'].median(),
-                'duration': cluster_songs['duration'].median(),
-                'key': cluster_songs['key'].mode()[0] if not cluster_songs['key'].mode().empty else -1,
-                'scale': cluster_songs['scale'].mode()[0] if not cluster_songs['scale'].mode().empty else 0
-            }
+        
+        try:
+            if not features_list:
+                logger.warning("No features provided for playlist generation")
+                return playlists
 
-            name = self.generate_playlist_name(centroid)
-            playlists[name] = cluster_songs['filepath'].tolist()
+            # 1. Prepare DataFrame with strict type enforcement
+            data = []
+            for f in features_list:
+                try:
+                    if not f or 'filepath' not in f:
+                        continue
+                        
+                    data.append({
+                        'filepath': str(f['filepath']),
+                        'bpm': float(f.get('bpm', 0)),
+                        'centroid': float(f.get('centroid', 0)),
+                        'danceability': float(f.get('danceability', 0)),
+                        'key': int(f.get('key', -1)),
+                        'scale': int(f.get('scale', 0)),
+                        'duration': float(f.get('duration', 0))
+                    })
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Skipping malformed feature entry: {str(e)}")
+                    continue
 
-        return {k: v for k, v in playlists.items() if len(v) >= MIN_CLUSTER_SIZE}
+            if not data:
+                logger.warning("No valid features after filtering")
+                return playlists
+                
+            df = pd.DataFrame(data)
+
+            # 2. Feature processing and clustering
+            try:
+                cluster_features = ['bpm', 'centroid', 'danceability']
+                weights = np.array([1.5, 1.0, 1.2])
+                
+                scaler = StandardScaler()
+                scaled_features = scaler.fit_transform(df[cluster_features])
+                weighted_features = scaled_features * weights
+
+                optimal_clusters = min(max(5, len(df)//10), 50)
+                kmeans = MiniBatchKMeans(
+                    n_clusters=optimal_clusters,
+                    random_state=42,
+                    batch_size=min(500, len(df))
+                )
+                df['cluster'] = kmeans.fit_predict(weighted_features)
+
+                # 3. Generate playlists
+                MIN_TRACKS = max(5, len(df)//20)
+                for cluster, group in df.groupby('cluster'):
+                    if len(group) < MIN_TRACKS:
+                        continue
+                        
+                    centroid = {
+                        'bpm': group['bpm'].median(),
+                        'centroid': group['centroid'].median(),
+                        'danceability': group['danceability'].median(),
+                        'key': group['key'].mode()[0] if not group['key'].mode().empty else -1,
+                        'scale': group['scale'].mode()[0] if not group['scale'].mode().empty else 0
+                    }
+                    name = self.generate_playlist_name(centroid)
+                    playlists[name] = group['filepath'].tolist()
+
+            except Exception as e:
+                logger.error(f"Clustering failed: {str(e)}")
+                logger.error(traceback.format_exc())
+
+        except Exception as e:
+            logger.error(f"Playlist generation failed: {str(e)}")
+            logger.error(traceback.format_exc())
+        
+        return playlists
 
     def cleanup_database(self):
         try:
