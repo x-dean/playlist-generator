@@ -10,6 +10,7 @@ import signal
 from functools import wraps
 import traceback
 import warnings
+import pydub
 
 # Use module-level logger without configuring handlers
 logger = logging.getLogger(__name__)

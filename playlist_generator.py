@@ -130,7 +130,6 @@ class PlaylistGenerator:
                     logger.error(f"Error processing {filepath}: {str(e)}")
         return results
 
-class PlaylistGenerator:
     def _process_parallel(self, file_list, workers):
         results = []
         try:
