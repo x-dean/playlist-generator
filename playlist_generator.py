@@ -224,7 +224,6 @@ class PlaylistGenerator:
                 for f in features_list:
                     if not f or 'filepath' not in f:
                         continue
-                        
                     try:
                         # Key conversion
                         raw_key = f.get('key', -1)
@@ -268,60 +267,74 @@ class PlaylistGenerator:
                     logger.warning("No valid tracks after filtering")
                     return playlists
                     
-                df = pd.DataFrame(data)  # Now properly defined
+                df = pd.DataFrame(data)
 
-            except Exception as e:
-                logger.error(f"DataFrame creation failed: {str(e)}")
-                logger.error(traceback.format_exc())
-                return playlists
-
-            # 2. Feature processing with error handling
-            try:
-                if len(df) < num_playlists:
-                    logger.warning(f"Only {len(df)} tracks available - reducing playlists from {num_playlists} to {len(df)}")
-                    num_playlists = len(df)
-
-                cluster_features = ['bpm', 'centroid', 'danceability']
-                weights = np.array([1.5, 1.0, 1.2])
-                
-                scaler = StandardScaler()
-                scaled_features = scaler.fit_transform(df[cluster_features])
-                weighted_features = scaled_features * weights
-
-                kmeans = MiniBatchKMeans(
-                    n_clusters=num_playlists,
-                    random_state=42,
-                    batch_size=min(500, len(df))
-                )
-                df['cluster'] = kmeans.fit_predict(weighted_features)
-
-                # 3. Playlist generation
-                for cluster, group in df.groupby('cluster'):
-                    centroid = {
-                        'bpm': group['bpm'].median(),
-                        'centroid': group['centroid'].median(),
-                        'danceability': group['danceability'].median(),
-                    }
+                # 2. Clustering with merging similar playlists
+                try:
+                    cluster_features = ['bpm', 'centroid', 'danceability']
+                    weights = np.array([1.5, 1.0, 1.2])
                     
-                    name = self.generate_playlist_name(centroid)
-                    playlists[name] = {
-                        'tracks': group['filepath'].tolist(),
-                        'size': len(group),
-                        'features': centroid
-                    }
-                    logger.info(f"Created playlist {name} with {len(group)} tracks")
+                    scaler = StandardScaler()
+                    scaled_features = scaler.fit_transform(df[cluster_features])
+                    weighted_features = scaled_features * weights
 
-                logger.info(f"Generated {len(playlists)} playlists from {len(df)} tracks")
-                
+                    kmeans = MiniBatchKMeans(
+                        n_clusters=min(num_playlists, len(df)),
+                        random_state=42,
+                        batch_size=min(500, len(df))
+                    )
+                    df['cluster'] = kmeans.fit_predict(weighted_features)
+
+                    # 3. Generate playlist names and merge similar ones
+                    temp_playlists = {}
+                    for cluster, group in df.groupby('cluster'):
+                        centroid = {
+                            'bpm': group['bpm'].median(),
+                            'centroid': group['centroid'].median(),
+                            'danceability': group['danceability'].median(),
+                        }
+                        
+                        # Generate name with underscores instead of spaces
+                        name = self.generate_playlist_name(centroid).replace(" ", "_")
+                        
+                        if name not in temp_playlists:
+                            temp_playlists[name] = {
+                                'tracks': group['filepath'].tolist(),
+                                'size': len(group),
+                                'features': centroid
+                            }
+                        else:
+                            # Merge with existing playlist
+                            temp_playlists[name]['tracks'].extend(group['filepath'].tolist())
+                            temp_playlists[name]['size'] += len(group)
+                            # Update features with new median values
+                            combined = pd.concat([pd.DataFrame([temp_playlists[name]['features']]), 
+                                            pd.DataFrame([centroid])])
+                            temp_playlists[name]['features'] = {
+                                'bpm': combined['bpm'].median(),
+                                'centroid': combined['centroid'].median(),
+                                'danceability': combined['danceability'].median()
+                            }
+
+                    # Final playlists with merged similar ones
+                    playlists = temp_playlists
+                    
+                    # Verify all tracks are distributed
+                    distributed_tracks = sum(len(p['tracks']) for p in playlists.values())
+                    if distributed_tracks != len(df):
+                        logger.warning(f"Track distribution mismatch: {distributed_tracks} vs {len(df)}")
+                        
+                    logger.info(f"Generated {len(playlists)} playlists from {len(df)} tracks")
+                    
+                except Exception as e:
+                    logger.error(f"Clustering failed: {str(e)}")
+                    logger.error(traceback.format_exc())
+
             except Exception as e:
-                logger.error(f"Clustering failed: {str(e)}")
+                logger.error(f"Playlist generation failed: {str(e)}")
                 logger.error(traceback.format_exc())
-
-        except Exception as e:
-            logger.error(f"Playlist generation failed: {str(e)}")
-            logger.error(traceback.format_exc())
-        
-        return playlists
+            
+            return playlists
 
     def cleanup_database(self):
         try:
