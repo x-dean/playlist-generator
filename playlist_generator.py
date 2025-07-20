@@ -209,7 +209,7 @@ class PlaylistGenerator:
         return f"{bpm_desc} {dance_desc} {mood_desc}"
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
-        """Generate playlists with all tracks included"""
+        """Generate playlists with proper DataFrame initialization"""
         playlists = {}
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         
@@ -218,17 +218,69 @@ class PlaylistGenerator:
                 logger.warning("No features provided for playlist generation")
                 return playlists
 
-            # All logic inside this try block
-            data = []
-            valid_tracks = 0
-            skipped_tracks = 0
-
-            for f in features_list:
-                if not f or 'filepath' not in f:
-                    skipped_tracks += 1
-                    continue
-
+            # 1. Proper DataFrame initialization with error handling
             try:
+                data = []
+                for f in features_list:
+                    if not f or 'filepath' not in f:
+                        continue
+                        
+                    try:
+                        # Key conversion
+                        raw_key = f.get('key', -1)
+                        key = -1
+                        if isinstance(raw_key, str):
+                            try:
+                                key = keys.index(raw_key.strip().upper().replace('B', 'Bb').replace('FL', '#'))
+                            except ValueError:
+                                key = -1
+                        else:
+                            try:
+                                key = int(raw_key) if raw_key is not None else -1
+                            except (TypeError, ValueError):
+                                key = -1
+                        
+                        # Scale conversion
+                        raw_scale = f.get('scale', 0)
+                        scale = 0
+                        if isinstance(raw_scale, str):
+                            scale = 1 if raw_scale.lower() in ['major', 'maj', '1'] else 0
+                        else:
+                            try:
+                                scale = int(raw_scale) if raw_scale is not None else 0
+                            except (TypeError, ValueError):
+                                scale = 0
+                        
+                        data.append({
+                            'filepath': str(f['filepath']),
+                            'bpm': max(0, float(f.get('bpm', 0))),
+                            'centroid': max(0, float(f.get('centroid', 0))),
+                            'danceability': min(1.0, max(0, float(f.get('danceability', 0)))),
+                            'key': key,
+                            'scale': scale,
+                            'duration': max(0, float(f.get('duration', 0)))
+                        })
+                    except Exception as e:
+                        logger.debug(f"Skipping track {f.get('filepath','unknown')}: {str(e)}")
+                        continue
+
+                if not data:
+                    logger.warning("No valid tracks after filtering")
+                    return playlists
+                    
+                df = pd.DataFrame(data)  # Now properly defined
+
+            except Exception as e:
+                logger.error(f"DataFrame creation failed: {str(e)}")
+                logger.error(traceback.format_exc())
+                return playlists
+
+            # 2. Feature processing with error handling
+            try:
+                if len(df) < num_playlists:
+                    logger.warning(f"Only {len(df)} tracks available - reducing playlists from {num_playlists} to {len(df)}")
+                    num_playlists = len(df)
+
                 cluster_features = ['bpm', 'centroid', 'danceability']
                 weights = np.array([1.5, 1.0, 1.2])
                 
@@ -236,7 +288,6 @@ class PlaylistGenerator:
                 scaled_features = scaler.fit_transform(df[cluster_features])
                 weighted_features = scaled_features * weights
 
-                # Use requested number of playlists
                 kmeans = MiniBatchKMeans(
                     n_clusters=num_playlists,
                     random_state=42,
@@ -244,7 +295,7 @@ class PlaylistGenerator:
                 )
                 df['cluster'] = kmeans.fit_predict(weighted_features)
 
-                # Generate playlists - ALL TRACKS INCLUDED
+                # 3. Playlist generation
                 for cluster, group in df.groupby('cluster'):
                     centroid = {
                         'bpm': group['bpm'].median(),
