@@ -141,7 +141,6 @@ echo "Container Output Mount: $CONTAINER_OUTPUT"
 echo "Container Cache Mount: $CONTAINER_CACHE"
 echo "Workers: $WORKERS"
 echo "Playlists: $NUM_PLAYLISTS"
-echo "Chunk Size: $CHUNK_SIZE"
 echo "Use DB: $USE_DB"
 echo "Force Sequential: $FORCE_SEQUENTIAL"
 echo "========================================"
@@ -169,7 +168,6 @@ docker compose run --rm \
   $( [ -n "$CACHE_DIR" ] && echo "--host_cache_dir $CACHE_DIR" ) \
   --num_playlists "$NUM_PLAYLISTS" \
   --workers "$WORKERS" \
-  --chunk_size "$CHUNK_SIZE" \
   $( [ "$USE_DB" = true ] && echo "--use_db" ) \
   $( [ "$FORCE_SEQUENTIAL" = true ] && echo "--force_sequential" )
 
