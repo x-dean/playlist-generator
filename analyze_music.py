@@ -6,29 +6,17 @@ import sqlite3
 import hashlib
 import signal
 from functools import wraps
-import coloredlogs
 import resource
 
-
-# Colored logging setup
+# Enhanced logging
 logger = logging.getLogger(__name__)
-coloredlogs.install(
-    level='INFO',
-    logger=logger,
-    fmt='%(levelname)s - %(message)s',
-    field_styles={
-        'levelname': {'color': 'cyan', 'bold': True},
-    },
-    level_styles={
-        'debug': {'color': 'green'},
-        'info': {'color': 39},  # Default terminal color (usually white)
-        'warning': {'color': 214},  # Orange color
-        'error': {'color': 'red', 'bold': True},
-        'critical': {'color': 'red', 'bold': True, 'background': 'white'},
-    }
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    handlers=[logging.StreamHandler()]
 )
 
-# Current feature version - increment when adding/removing features
+# Current feature version
 CURRENT_FEATURE_VERSION = 3
 
 class TimeoutException(Exception):
@@ -52,21 +40,10 @@ def timeout(seconds=120, error_message="Processing timed out"):
     return decorator
 
 class AudioAnalyzer:
-    def set_resource_limits(self):
-        """Prevent system resource exhaustion"""
-        try:
-            # Set 2GB memory limit
-            resource.setrlimit(resource.RLIMIT_AS, (4 * 1024**3, 4 * 1024**3))
-            # Set 30 second CPU time limit
-            resource.setrlimit(resource.RLIMIT_CPU, (120, 120))
-        except:
-            pass  # Not available on all systems
-
     def __init__(self, cache_file=None):
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-        self.timeout_seconds = 30
         self._init_db()
         self._migrate_db()
 
@@ -97,26 +74,25 @@ class AudioAnalyzer:
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
     def _migrate_db(self):
-        """Migrate database schema to current version"""
+        """Add new columns if they don't exist"""
+        cursor = self.conn.cursor()
         migrations = [
-            # Migration 1: Add new features
             "ALTER TABLE audio_features ADD COLUMN loudness REAL DEFAULT 0",
             "ALTER TABLE audio_features ADD COLUMN dynamics REAL DEFAULT 0",
             "ALTER TABLE audio_features ADD COLUMN key TEXT DEFAULT 'unknown'",
             "ALTER TABLE audio_features ADD COLUMN scale TEXT DEFAULT 'unknown'",
             "ALTER TABLE audio_features ADD COLUMN key_confidence REAL DEFAULT 0",
             "ALTER TABLE audio_features ADD COLUMN rhythm_complexity REAL DEFAULT 0.5",
-            "ALTER TABLE audio_features ADD COLUMN feature_version INTEGER DEFAULT 1",
+            "ALTER TABLE audio_features ADD COLUMN feature_version INTEGER DEFAULT 1"
         ]
         
-        cursor = self.conn.cursor()
         for migration in migrations:
             try:
                 cursor.execute(migration)
                 self.conn.commit()
             except sqlite3.OperationalError:
                 pass  # Column already exists
-    
+
     def _get_file_info(self, filepath):
         try:
             stat = os.stat(filepath)
@@ -126,7 +102,7 @@ class AudioAnalyzer:
                 'file_path': filepath
             }
         except Exception as e:
-            logger.error(f"Couldn't get file stats for {filepath}: {str(e)}")
+            logger.warning(f"Couldn't get file stats for {filepath}: {str(e)}")
             return {
                 'file_hash': hashlib.md5(filepath.encode()).hexdigest(),
                 'last_modified': 0,
@@ -140,7 +116,7 @@ class AudioAnalyzer:
             audio = loader()
             return audio if audio.size > 0 else None
         except Exception as e:
-            logger.error(f"AudioLoader error for {audio_path}: {str(e)}")
+            logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
             return None
 
     @timeout(120)
@@ -157,7 +133,7 @@ class AudioAnalyzer:
             beat_conf = max(0.0, min(1.0, beat_conf))
             return float(bpm), beat_conf
         except Exception as e:
-            logger.error(f"Rhythm extraction failed: {str(e)}")
+            logger.warning(f"Rhythm extraction failed: {str(e)}")
             return 0.0, 0.0
 
     @timeout(120)
@@ -173,17 +149,17 @@ class AudioAnalyzer:
 
             return centroid
         except Exception as e:
-            logger.error(f"Spectral extraction failed: {str(e)}")
+            logger.warning(f"Spectral extraction failed: {str(e)}")
             return 0.0
-            
+
     @timeout(120)
     def _extract_loudness(self, audio):
         try:
             loudness = es.Loudness()(audio)
             return float(loudness)
         except Exception as e:
-            logger.error(f"Loudness extraction failed: {str(e)}")
-            return 0.0
+            logger.warning(f"Loudness extraction failed: {str(e)}")
+            return -20.0  # Default value for silence
             
     @timeout(120)
     def _extract_dynamics(self, audio):
@@ -191,7 +167,7 @@ class AudioAnalyzer:
             dynamic_complexity, _ = es.DynamicComplexity()(audio)
             return float(dynamic_complexity)
         except Exception as e:
-            logger.error(f"Dynamic complexity extraction failed: {str(e)}")
+            logger.warning(f"Dynamic complexity extraction failed: {str(e)}")
             return 0.0
             
     @timeout(120)
@@ -201,22 +177,20 @@ class AudioAnalyzer:
             key, scale, confidence = key_extractor(audio)
             return key, scale, float(confidence)
         except Exception as e:
-            logger.error(f"Harmonic extraction failed: {str(e)}")
+            logger.warning(f"Harmonic extraction failed: {str(e)}")
             return "unknown", "unknown", 0.0
             
     @timeout(120)
     def _extract_rhythm_complexity(self, audio):
-        """Alternative rhythm feature when onset strength isn't available"""
         try:
-            # Using Danceability as a rhythm complexity measure
             danceability, _ = es.Danceability()(audio)
             return float(danceability)
         except Exception as e:
-            logger.error(f"Rhythm complexity extraction failed: {str(e)}")
+            logger.warning(f"Rhythm complexity extraction failed: {str(e)}")
             return 0.5
 
     def extract_features(self, audio_path):
-        self.set_resource_limits()
+        """Enhanced feature extraction with new audio features"""
         try:
             file_info = self._get_file_info(audio_path)
 
@@ -229,15 +203,14 @@ class AudioAnalyzer:
             WHERE file_hash = ? AND last_modified >= ?
             """, (file_info['file_hash'], file_info['last_modified']))
 
-            row = cursor.fetchone()
-            if row:
-                logger.info(f"Using cached features for {audio_path}")
+            if row := cursor.fetchone():
+                # Check if cache is valid
                 valid_cache = True
-                # FIXED: Proper indentation and logic
                 for i, feat in enumerate(['duration', 'bpm', 'centroid', 'loudness']):
                     if i < len(row) and (row[i] is None or row[i] < 0):
                         valid_cache = False
                         break
+                
                 # Check feature version
                 db_version = row[10] if len(row) > 10 else 1
                 if valid_cache and db_version >= CURRENT_FEATURE_VERSION:
@@ -256,7 +229,8 @@ class AudioAnalyzer:
                         'filename': os.path.basename(audio_path)
                     }, True, file_info['file_hash']
 
-            # If we get here, we need to process the file
+            # Process file if not in cache or cache is outdated
+            logger.info(f"Processing: {os.path.basename(audio_path)}")
             audio = self._safe_audio_load(audio_path)
             if audio is None:
                 return None, False, None
@@ -267,7 +241,7 @@ class AudioAnalyzer:
                 'filename': os.path.basename(audio_path)
             }
 
-            # Extract features with individual error handling
+            # Extract all features with error handling
             try:
                 features['bpm'], features['beat_confidence'] = self._extract_rhythm_features(audio)
             except Exception as e:
@@ -285,7 +259,7 @@ class AudioAnalyzer:
                 features['loudness'] = self._extract_loudness(audio)
             except Exception as e:
                 logger.error(f"Loudness extraction error: {str(e)}")
-                features['loudness'] = 0.0
+                features['loudness'] = -20.0
                 
             try:
                 features['dynamics'] = self._extract_dynamics(audio)
@@ -307,13 +281,12 @@ class AudioAnalyzer:
                 logger.error(f"Rhythm complexity error: {str(e)}")
                 features['rhythm_complexity'] = 0.5
 
+            # Save to database
             with self.conn:
                 self.conn.execute("""
-                INSERT OR REPLACE INTO audio_features (
-                    file_hash, file_path, duration, bpm, beat_confidence, centroid, 
-                    loudness, dynamics, key, scale, key_confidence, rhythm_complexity, 
-                    last_modified, feature_version
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT OR REPLACE INTO audio_features VALUES (
+                    ?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?
+                )
                 """, (
                     file_info['file_hash'],
                     audio_path,
@@ -340,7 +313,7 @@ class AudioAnalyzer:
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
-            SELECT filepath, duration, bpm, beat_confidence, centroid, 
+            SELECT file_path, duration, bpm, beat_confidence, centroid, 
                    loudness, dynamics, key, scale, key_confidence, rhythm_complexity
             FROM audio_features
             WHERE feature_version >= ?
