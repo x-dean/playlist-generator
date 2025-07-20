@@ -9,6 +9,7 @@ import hashlib
 import signal
 from functools import wraps
 import traceback
+import warnings
 
 # Use module-level logger without configuring handlers
 logger = logging.getLogger(__name__)
@@ -35,10 +36,10 @@ def timeout(seconds=120, error_message="Processing timed out"):
 
 class AudioAnalyzer:
     def __init__(self, cache_file=None):
+        self.timeout_seconds = 60
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-        self.timeout_seconds = 30
         self._init_db()
 
     def _init_db(self):
@@ -120,11 +121,42 @@ class AudioAnalyzer:
     @timeout()
     def _safe_audio_load(self, audio_path):
         try:
+            # First try standard loading
             loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
             audio = loader()
-            return audio if audio.size > 0 else None
+            if audio.size > 0:
+                return audio
+            
+            # If empty, try repairing
+            return self._repair_audio(audio_path)
         except Exception as e:
             logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
+            # Try repairing as fallback
+            return self._repair_audio(audio_path)
+
+    def _repair_audio(self, audio_path):
+        """Attempt to repair problematic audio files"""
+        try:
+            # Create a temporary repaired file
+            import tempfile
+            from pydub import AudioSegment
+            
+            tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+            
+            # Read with pydub which is more tolerant of file issues
+            sound = AudioSegment.from_file(audio_path)
+            sound.export(tmp_file, format="wav")
+            
+            # Now try loading the repaired version
+            loader = es.MonoLoader(filename=tmp_file, sampleRate=44100)
+            audio = loader()
+            
+            # Clean up temporary file
+            os.unlink(tmp_file)
+            
+            return audio
+        except Exception as e:
+            logger.warning(f"Could not repair {audio_path}: {str(e)}")
             return None
 
     @timeout()

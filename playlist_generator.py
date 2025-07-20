@@ -56,9 +56,19 @@ def sanitize_filename(name):
 
 def process_file_worker(filepath):
     try:
+        # Skip files that are too small to be valid audio files
+        if os.path.getsize(filepath) < 1024:  # 1KB minimum
+            return None, filepath
+            
         from analyze_music import audio_analyzer
         result = audio_analyzer.extract_features(filepath)
-        if result and result[0] is not None:  # FIX: Added check for None features
+        
+        # If we got a timeout, try again once
+        if result is None:
+            logger.warning(f"Retrying {filepath} after timeout")
+            result = audio_analyzer.extract_features(filepath)
+            
+        if result and result[0] is not None:
             features = result[0]
             # Ensure no None values in critical features
             for key in ['bpm', 'centroid', 'duration']:
@@ -120,29 +130,37 @@ class PlaylistGenerator:
                     logger.error(f"Error processing {filepath}: {str(e)}")
         return results
 
+class PlaylistGenerator:
     def _process_parallel(self, file_list, workers):
         results = []
         try:
             logger.info(f"Starting multiprocessing with {workers} workers")
             ctx = mp.get_context('spawn')
             
-            with ctx.Pool(processes=workers) as pool:
-                chunksize = min(10, len(file_list)//workers + 1)
-                with tqdm(total=len(file_list), desc="Processing files",
-                         bar_format="{l_bar}{bar:40}{r_bar}",
-                         file=sys.stdout) as pbar:
-                    
-                    # Process in chunks for better progress tracking
-                    for i in range(0, len(file_list), chunksize):
-                        chunk = file_list[i:i+chunksize]
-                        for features, filepath in pool.map(process_file_worker, chunk):
+            # Process in smaller batches to avoid hangs
+            batch_size = min(50, len(file_list))  # Process in batches of 50
+            
+            for i in range(0, len(file_list), batch_size):
+                batch = file_list[i:i+batch_size]
+                
+                with ctx.Pool(processes=workers) as pool:
+                    with tqdm(total=len(batch), desc=f"Processing batch {i//batch_size+1}",
+                             bar_format="{l_bar}{bar:40}{r_bar}",
+                             file=sys.stdout) as pbar:
+                        
+                        # Use imap_unordered for better performance
+                        for features, filepath in pool.imap_unordered(process_file_worker, batch):
                             if features:
                                 results.append(features)
                             else:
                                 self.failed_files.append(filepath)
                             pbar.update(1)
                             pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
-                    
+                
+                # Clear pool after each batch to prevent resource buildup
+                pool.close()
+                pool.join()
+            
             logger.info(f"Processing completed - {len(results)} successful, {len(self.failed_files)} failed")
             return results
             
@@ -433,6 +451,9 @@ def main():
     finally:
         elapsed = time.time() - start_time
         logger.info(f"Completed in {elapsed:.2f} seconds")
+    
+    os.environ['ESSENTIA_LOGGING_LEVEL'] = 'ERROR'
+    os.environ['ESSENTIA_LOG_FILE'] = '/dev/null'
 
 if __name__ == "__main__":
     mp.set_start_method('spawn', force=True)
