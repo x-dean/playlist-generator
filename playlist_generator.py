@@ -19,12 +19,20 @@ import re
 import sqlite3
 import colorlog
 import sys
+import multiprocessing as mp
+from multiprocessing import TimeoutError
 
 # === Color logger ===
 def setup_logger(level=logging.INFO):
-    logger = colorlog.getLogger()
-    handler = colorlog.StreamHandler()
-    handler.setFormatter(colorlog.ColoredFormatter(
+    logger = colorlog.getLogger('playlist_generator')
+    logger.propagate = False  # Prevent duplicate logs
+    
+    # Remove existing handlers to avoid duplicates
+    logger.handlers = []
+    
+    # Console handler
+    console_handler = colorlog.StreamHandler()
+    console_handler.setFormatter(colorlog.ColoredFormatter(
         "%(log_color)s[%(levelname)s] %(name)s: %(message)s",
         log_colors={
             'DEBUG': 'cyan',
@@ -34,19 +42,12 @@ def setup_logger(level=logging.INFO):
             'CRITICAL': 'bold_red',
         }
     ))
-    logger.setLevel(level)
-    logger.addHandler(handler)
+    logger.addHandler(console_handler)
     
-    # Add file handler
+    # File handler
     file_handler = logging.FileHandler("playlist_generator.log", mode='w')
     file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
     logger.addHandler(file_handler)
-    
-    # Configure analyze_music logger
-    am_logger = logging.getLogger('analyze_music')
-    am_logger.setLevel(level)
-    am_logger.addHandler(handler)
-    am_logger.addHandler(file_handler)
     
     return logger
 
@@ -57,23 +58,34 @@ def sanitize_filename(name):
     return re.sub(r'_+', '_', name).strip('_')
 
 def safe_analyze(filepath):
-    """Robust analysis with error handling"""
+    """Robust analysis with process-based timeout"""
     try:
         from analyze_music import audio_analyzer
-        result = audio_analyzer.extract_features(filepath)
-        if result and result[0] is not None:
-            features = result[0]
-            # Ensure critical features have values
-            for key in ['bpm', 'centroid', 'duration', 'loudness', 'dynamics']:
-                if features.get(key) is None:
-                    features[key] = 0.0
-            return features
-        return None
+        
+        # Create a single-worker pool just for this task
+        with mp.Pool(processes=1) as pool:
+            # Wrap the extract_features call
+            result = pool.apply_async(audio_analyzer.extract_features, (filepath,))
+            
+            try:
+                # Wait for result with timeout
+                features, from_cache, file_hash = result.get(timeout=180)  # 3 minute timeout
+                
+                if features:
+                    # Ensure critical features have values
+                    for key in ['bpm', 'centroid', 'duration', 'loudness', 'dynamics']:
+                        if features.get(key) is None:
+                            features[key] = 0.0
+                    return features
+                return None
+                
+            except TimeoutError:
+                logger.warning(f"Timeout processing {filepath}")
+                pool.terminate()
+                return None
+                
     except Exception as e:
-        logger.error(f"Critical error processing {filepath}: {str(e)}")
-        return None
-    except:
-        logger.error(f"Unhandled exception in worker for {filepath}")
+        logger.error(f"Error processing {filepath}: {str(e)}")
         return None
 
 def process_file_worker(filepath):
@@ -160,25 +172,24 @@ class PlaylistGenerator:
         return results
 
     def _process_parallel(self, file_list, workers):
-        """Efficient parallel processing with progress tracking"""
+        """Parallel processing with robust timeout handling"""
         results = []
         try:
-            with mp.Pool(processes=workers) as pool:
-                # Create progress bar
+            # Create worker pool with maxtasksperchild to prevent memory leaks
+            with mp.Pool(processes=workers, maxtasksperchild=100) as pool:
+                # Process files with progress tracking
                 with tqdm(total=len(file_list), desc="Processing files") as pbar:
-                    # Process files asynchronously
-                    for i, result in enumerate(pool.imap_unordered(process_file_worker, file_list)):
-                        features, filepath = result
+                    # Use imap_unordered for better performance
+                    for features, filepath in pool.imap_unordered(process_file_worker, file_list):
                         if features:
                             results.append(features)
                         else:
                             self.failed_files.append(filepath)
                         pbar.update()
-                
-            logger.info("Processing completed")
+                        
             return results
         except Exception as e:
-            logger.error(f"Multiprocessing failed: {str(e)}")
+            logger.error(f"Parallel processing failed: {str(e)}")
             return self._process_sequential(file_list)
 
     def get_all_features_from_db(self):

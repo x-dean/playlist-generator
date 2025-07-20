@@ -9,6 +9,7 @@ from functools import wraps
 
 # Shared logger configuration
 logger = logging.getLogger('analyze_music')
+logger.propagate = False
 
 # Current feature version
 CURRENT_FEATURE_VERSION = 3
