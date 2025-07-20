@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Optimized Music Playlist Generator with Enhanced Naming"""
+"""
+Optimized Music Playlist Generator with Enhanced Naming
+"""
 
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
@@ -148,49 +150,6 @@ class PlaylistGenerator:
             logger.error(f"Multiprocessing failed: {str(e)}")
             return self._process_sequential(file_list)
 
-    def _process_sequential(self, file_list):
-        results = []
-        with tqdm(file_list, desc="Analyzing files", 
-                bar_format="{l_bar}{bar:40}{r_bar}", 
-                file=sys.stdout) as pbar:
-            for filepath in pbar:
-                try:
-                    features, _ = process_file_worker(filepath)
-                    if features:
-                        results.append(features)
-                    else:
-                        self.failed_files.append(filepath)
-                    pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
-                except Exception as e:
-                    self.failed_files.append(filepath)
-                    logger.error(f"Error processing {filepath}: {str(e)}")
-        return results
-
-    def _process_parallel(self, file_list, workers):
-        results = []
-        try:
-            logger.info(f"Starting multiprocessing with {workers} workers")
-            ctx = mp.get_context('spawn')
-            
-            with ctx.Pool(processes=workers) as pool:
-                chunksize = min(10, len(file_list)//workers + 1)
-                results = []
-                with tqdm(total=len(file_list), desc="Processing files") as pbar:
-                    for i in range(0, len(file_list), chunksize):
-                        chunk = file_list[i:i+chunksize]
-                        for features, filepath in pool.map(process_file_worker, chunk):
-                            if features:
-                                results.append(features)
-                            else:
-                                self.failed_files.append(filepath)
-                            pbar.update(1)
-                            pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
-            return results
-            
-        except Exception as e:
-            logger.error(f"Multiprocessing failed: {str(e)}")
-            return self._process_sequential(file_list)
-
     def get_all_features_from_db(self):
         try:
             features = get_all_features()
@@ -213,9 +172,7 @@ class PlaylistGenerator:
         return os.path.join(self.host_music_dir, rel_path)
 
     def generate_playlist_name(self, features):
-        """Generate playlist name with robust feature handling"""
-        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-        
+        """Generate radio-friendly playlist names"""
         # Safely extract all features with defaults
         try:
             bpm = float(features.get('bpm', 0))
@@ -254,7 +211,8 @@ class PlaylistGenerator:
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         """Generate playlists with comprehensive error handling for musical keys"""
         playlists = {}
-        key = keys.index(raw_key.strip().upper().replace('B', 'Bb').replace('FL', '#'))
+        # Define keys list at the start of the method
+        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         
         try:
             if not features_list:
@@ -278,7 +236,7 @@ class PlaylistGenerator:
                     
                     if isinstance(raw_key, str):
                         try:
-                            key = keys.index(raw_key.upper().replace('B', 'Bb')) if raw_key else -1
+                            key = keys.index(raw_key.strip().upper().replace('B', 'Bb').replace('FL', '#'))
                         except ValueError:
                             # Handle alternate notations (like 'Db' vs 'C#')
                             if raw_key.upper() == 'DB':
