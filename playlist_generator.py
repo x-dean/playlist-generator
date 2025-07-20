@@ -22,7 +22,6 @@ import sqlite3
 import psutil
 import resource
 import gc
-import magic
 
 # Logging setup
 def setup_colored_logging():
