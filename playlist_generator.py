@@ -46,21 +46,34 @@ def sanitize_filename(name):
     name = re.sub(r'[^\w\-_]', '_', name)
     return re.sub(r'_+', '_', name).strip('_')
 
+
+
 def process_file_worker(filepath):
+    try:
+        features = safe_analyze(filepath)
+        return features, filepath
+    except Exception as e:
+        logger.error(f"Worker crashed for {filepath}: {str(e)}")
+        return None, filepath
+
+def safe_analyze(filepath):
+    """Wrap analysis in a try-except to prevent worker crashes"""
     try:
         from analyze_music import audio_analyzer
         result = audio_analyzer.extract_features(filepath)
         if result and result[0] is not None:
             features = result[0]
-            # Ensure critical features have values
             for key in ['bpm', 'centroid', 'duration']:
                 if features.get(key) is None:
                     features[key] = 0.0
-            return features, filepath
-        return None, filepath
+            return features
+        return None
     except Exception as e:
-        logger.error(f"Error processing {filepath}: {str(e)}")
-        return None, filepath
+        logger.error(f"Critical error processing {filepath}: {str(e)}")
+        return None
+    except:
+        logger.error(f"Unhandled exception in worker for {filepath}")
+        return None
 
 class PlaylistGenerator:
     def __init__(self):
@@ -298,17 +311,15 @@ class PlaylistGenerator:
         return results
 
     def _process_parallel(self, file_list, workers):
-        """Refactored parallel processing with proper progress tracking"""
+        """Improved parallel processing with robust error handling"""
         results = []
         try:
             with ProcessPoolExecutor(max_workers=workers) as executor:
-                # Submit all tasks
                 future_to_file = {
                     executor.submit(process_file_worker, filepath): filepath
                     for filepath in file_list
                 }
                 
-                # Process results as they complete
                 with tqdm(total=len(file_list), desc="Processing files") as pbar:
                     for future in as_completed(future_to_file):
                         filepath = future_to_file[future]
@@ -323,15 +334,14 @@ class PlaylistGenerator:
                             logger.warning(f"Timeout processing {filepath}")
                         except Exception as e:
                             self.failed_files.append(filepath)
-                            logger.error(f"Error processing {filepath}: {str(e)}")
+                            logger.error(f"Error retrieving result for {filepath}: {str(e)}")
                         finally:
                             pbar.update(1)
             return results
         except Exception as e:
             logger.error(f"Parallel processing failed: {str(e)}")
-            # Fallback to sequential processing
             return self._process_sequential(file_list)
-
+        
     def get_all_features_from_db(self):
         try:
             return get_all_features()

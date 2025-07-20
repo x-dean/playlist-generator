@@ -7,6 +7,8 @@ import hashlib
 import signal
 from functools import wraps
 import coloredlogs
+import resource
+
 
 # Colored logging setup
 logger = logging.getLogger(__name__)
@@ -50,6 +52,16 @@ def timeout(seconds=120, error_message="Processing timed out"):
     return decorator
 
 class AudioAnalyzer:
+    def set_resource_limits(self):
+        """Prevent system resource exhaustion"""
+        try:
+            # Set 2GB memory limit
+            resource.setrlimit(resource.RLIMIT_AS, (2 * 1024**3, 2 * 1024**3))
+            # Set 30 second CPU time limit
+            resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
+        except:
+            pass  # Not available on all systems
+
     def __init__(self, cache_file=None):
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
@@ -204,6 +216,7 @@ class AudioAnalyzer:
             return 0.5
 
     def extract_features(self, audio_path):
+        self.set_resource_limits()
         try:
             file_info = self._get_file_info(audio_path)
 
