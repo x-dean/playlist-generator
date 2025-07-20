@@ -66,7 +66,7 @@ def sanitize_filename(name):
     return re.sub(r'_+', '_', name).strip('_')
 
 def process_file_worker(filepath):
-    """Worker function with timeout protection"""
+    """Global worker function with timeout handling"""
     def handler(signum, frame):
         raise TimeoutError(f"Timeout processing {filepath}")
     
@@ -82,7 +82,7 @@ def process_file_worker(filepath):
         if result and result[0] is not None:
             features = result[0]
             defaults = {'bpm': 0.0, 'centroid': 0.0, 'duration': 0.0,
-                      'loudness': -20.0, 'dynamics': 0.0}
+                       'loudness': -20.0, 'dynamics': 0.0}
             features.update({k: features.get(k, v) for k, v in defaults.items()})
             return features, filepath
         return None, filepath
@@ -202,7 +202,7 @@ class PlaylistGenerator:
         pbar = tqdm(file_list, desc="Processing files")
         for filepath in pbar:
             pbar.set_postfix(file=os.path.basename(filepath)[:20])
-            features = safe_analyze(filepath)
+            features, _ = process_file_worker(filepath)  # Use the same worker function
             if features:
                 results.append(features)
             else:
@@ -217,40 +217,36 @@ class PlaylistGenerator:
             return False
 
     def _process_parallel(self, file_list, workers):
-        """Robust parallel processing with watchdog"""
+        """Robust parallel processing with proper error handling"""
         results = []
         self.failed_files = []
         
-        ctx = mp.get_context('spawn')
-        with ctx.Pool(
-            processes=workers,
-            maxtasksperchild=50,
-            initializer=init_worker
-        ) as pool:
-            try:
-                # Process with timeout protection
+        try:
+            ctx = mp.get_context('spawn')
+            with ctx.Pool(
+                processes=workers,
+                maxtasksperchild=50,
+                initializer=init_worker
+            ) as pool:
+                # Process in chunks for better performance
+                chunk_size = min(50, len(file_list)//workers + 1)
+                
                 with tqdm(total=len(file_list), desc="Processing files") as pbar:
-                    for i, (features, filepath) in enumerate(pool.imap_unordered(
-                        process_file_worker,
+                    for features, filepath in pool.imap_unordered(
+                        process_file_worker,  # Use the global worker function
                         file_list,
-                        chunksize=min(50, len(file_list)//workers + 1)
-                    )):
+                        chunksize=chunk_size
+                    ):
                         if features:
                             results.append(features)
                         else:
                             self.failed_files.append(filepath)
                         pbar.update()
                         
-                        # Periodic health check
-                        if i % 100 == 0:
-                            pool._check_available_workers()
-                            
-            except Exception as e:
-                logger.error(f"Parallel processing error: {str(e)}")
-                pool.terminate()
-                return self._process_sequential(file_list)
-                
-        return results
+            return results
+        except Exception as e:
+            logger.error(f"Parallel processing failed: {str(e)}")
+            return self._process_sequential(file_list)
 
     def get_all_features_from_db(self):
         try:
