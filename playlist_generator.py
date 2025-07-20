@@ -22,6 +22,8 @@ import sys
 import multiprocessing as mp
 from multiprocessing import TimeoutError
 import queue
+import signal
+from functools import partial
 
 # === Color logger ===
 def setup_logger(level=logging.INFO):
@@ -54,23 +56,39 @@ def setup_logger(level=logging.INFO):
 
 logger = setup_logger()
 
+# === Worker Initialization ===
+def init_worker():
+    """Initialize worker processes to ignore SIGINT"""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
 def sanitize_filename(name):
     name = re.sub(r'[^\w\-_]', '_', name)
     return re.sub(r'_+', '_', name).strip('_')
 
 def process_file_worker(filepath):
-    """Global worker function that can be pickled"""
+    """Worker function with timeout protection"""
+    def handler(signum, frame):
+        raise TimeoutError(f"Timeout processing {filepath}")
+    
     try:
+        # Set timeout (3 minutes)
+        signal.signal(signal.SIGALRM, handler)
+        signal.alarm(180)
+        
         from analyze_music import audio_analyzer
         result = audio_analyzer.extract_features(filepath)
+        signal.alarm(0)  # Disable the alarm
         
         if result and result[0] is not None:
             features = result[0]
-            # Set defaults for missing features
             defaults = {'bpm': 0.0, 'centroid': 0.0, 'duration': 0.0,
-                       'loudness': -20.0, 'dynamics': 0.0}
+                      'loudness': -20.0, 'dynamics': 0.0}
             features.update({k: features.get(k, v) for k, v in defaults.items()})
             return features, filepath
+        return None, filepath
+        
+    except TimeoutError:
+        logger.warning(f"Timeout processing {filepath}")
         return None, filepath
     except Exception as e:
         logger.error(f"Worker error for {filepath}: {str(e)}")
@@ -199,36 +217,40 @@ class PlaylistGenerator:
             return False
 
     def _process_parallel(self, file_list, workers):
-        """Robust parallel processing using global worker"""
+        """Robust parallel processing with watchdog"""
         results = []
         self.failed_files = []
         
-        try:
-            ctx = mp.get_context('spawn')
-            with ctx.Pool(
-                processes=workers,
-                maxtasksperchild=100,  # Recycle workers periodically
-                initializer=init_worker  # Optional initialization
-            ) as pool:
-                # Process in chunks for better performance
-                chunk_size = min(100, len(file_list)//workers + 1)
-                
+        ctx = mp.get_context('spawn')
+        with ctx.Pool(
+            processes=workers,
+            maxtasksperchild=50,
+            initializer=init_worker
+        ) as pool:
+            try:
+                # Process with timeout protection
                 with tqdm(total=len(file_list), desc="Processing files") as pbar:
-                    for features, filepath in pool.imap_unordered(
+                    for i, (features, filepath) in enumerate(pool.imap_unordered(
                         process_file_worker,
                         file_list,
-                        chunksize=chunk_size
-                    ):
+                        chunksize=min(50, len(file_list)//workers + 1)
+                    )):
                         if features:
                             results.append(features)
                         else:
                             self.failed_files.append(filepath)
                         pbar.update()
                         
-            return results
-        except Exception as e:
-            logger.error(f"Parallel processing failed: {str(e)}")
-            return self._process_sequential(file_list)
+                        # Periodic health check
+                        if i % 100 == 0:
+                            pool._check_available_workers()
+                            
+            except Exception as e:
+                logger.error(f"Parallel processing error: {str(e)}")
+                pool.terminate()
+                return self._process_sequential(file_list)
+                
+        return results
 
     def get_all_features_from_db(self):
         try:
