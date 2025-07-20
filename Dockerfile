@@ -9,7 +9,6 @@ RUN apt-get update && \
     libtag1-dev \
     libyaml-dev \
     sqlite3 \
-    ffmpeg-python \
     libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
