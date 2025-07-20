@@ -17,7 +17,7 @@ CURRENT_FEATURE_VERSION = 3
 class TimeoutException(Exception):
     pass
 
-def timeout(seconds=120, error_message="Processing timed out"):
+def timeout(seconds=300, error_message="Processing timed out"):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):

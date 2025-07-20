@@ -66,14 +66,15 @@ def sanitize_filename(name):
     return re.sub(r'_+', '_', name).strip('_')
 
 def process_file_worker(filepath):
-    """Global worker function with timeout handling"""
-    def handler(signum, frame):
-        raise TimeoutError(f"Timeout processing {filepath}")
-    
+    """Worker function with robust timeout handling"""
     try:
-        # Set timeout (3 minutes)
+        # Set timeout at the system level
+        import signal
+        def handler(signum, frame):
+            raise TimeoutError(f"Timeout processing {filepath}")
+        
         signal.signal(signal.SIGALRM, handler)
-        signal.alarm(180)
+        signal.alarm(180)  # 3 minute timeout
         
         from analyze_music import audio_analyzer
         result = audio_analyzer.extract_features(filepath)
@@ -81,9 +82,10 @@ def process_file_worker(filepath):
         
         if result and result[0] is not None:
             features = result[0]
-            defaults = {'bpm': 0.0, 'centroid': 0.0, 'duration': 0.0,
-                       'loudness': -20.0, 'dynamics': 0.0}
-            features.update({k: features.get(k, v) for k, v in defaults.items()})
+            # Ensure no None values in critical features
+            for key in ['bpm', 'centroid', 'duration']:
+                if features.get(key) is None:
+                    features[key] = 0.0
             return features, filepath
         return None, filepath
         
@@ -91,7 +93,7 @@ def process_file_worker(filepath):
         logger.warning(f"Timeout processing {filepath}")
         return None, filepath
     except Exception as e:
-        logger.error(f"Worker error for {filepath}: {str(e)}")
+        logger.error(f"Error processing {filepath}: {str(e)}")
         return None, filepath
     
 def _analyze_worker(filepath):
@@ -217,7 +219,7 @@ class PlaylistGenerator:
             return False
 
     def _process_parallel(self, file_list, workers):
-        """Robust parallel processing with proper error handling"""
+        """Robust parallel processing with watchdog"""
         results = []
         self.failed_files = []
         
@@ -225,15 +227,15 @@ class PlaylistGenerator:
             ctx = mp.get_context('spawn')
             with ctx.Pool(
                 processes=workers,
-                maxtasksperchild=50,
-                initializer=init_worker
+                maxtasksperchild=50,  # Recycle workers periodically
             ) as pool:
                 # Process in chunks for better performance
-                chunk_size = min(50, len(file_list)//workers + 1)
+                chunk_size = min(100, len(file_list)//workers + 1)
                 
+                # Use imap_unordered for better progress tracking
                 with tqdm(total=len(file_list), desc="Processing files") as pbar:
                     for features, filepath in pool.imap_unordered(
-                        process_file_worker,  # Use the global worker function
+                        process_file_worker,
                         file_list,
                         chunksize=chunk_size
                     ):
