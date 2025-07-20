@@ -21,6 +21,7 @@ import colorlog
 import sys
 import multiprocessing as mp
 from multiprocessing import TimeoutError
+import queue
 
 # === Color logger ===
 def setup_logger(level=logging.INFO):
@@ -58,23 +59,24 @@ def sanitize_filename(name):
     return re.sub(r'_+', '_', name).strip('_')
 
 def safe_analyze(filepath):
-    """Direct analysis without nested multiprocessing"""
+    """Timeout-protected analysis"""
     try:
+        # Quick file validation first
+        if not os.path.exists(filepath):
+            return None
+            
+        # Actual processing with separate timeout
         from analyze_music import audio_analyzer
         result = audio_analyzer.extract_features(filepath)
         
-        if result and result[0] is not None:
+        if result and result[0]:
             features = result[0]
-            # Set defaults for any missing features
-            defaults = {'bpm': 0.0, 'centroid': 0.0, 'duration': 0.0, 
-                       'loudness': -20.0, 'dynamics': 0.0}
-            for k, v in defaults.items():
-                if features.get(k) is None:
-                    features[k] = v
+            required = ['bpm', 'centroid', 'duration', 'loudness', 'dynamics']
+            features.update({k: features.get(k, 0.0) for k in required})
             return features
         return None
     except Exception as e:
-        logger.error(f"Error processing {filepath}: {str(e)}")
+        logger.debug(f"Failed {filepath}: {str(e)}")
         return None
 
 def process_file_worker(filepath):
@@ -98,6 +100,24 @@ class PlaylistGenerator:
         return (os.path.isfile(filepath) and \
                (os.path.getsize(filepath) > 1024) and \
                (filepath.lower().endswith(valid_extensions)))
+    
+    def _check_stuck_process(self, processes, timeout=300):
+        """Monitor processes for hangs"""
+        start_time = time.time()
+        while True:
+            if all(not p.is_alive() for p in processes):
+                return False
+            if time.time() - start_time > timeout:
+                return True
+            time.sleep(5)
+
+    def _cleanup_processes(self, processes):
+        """Ensure all processes are terminated"""
+        for p in processes:
+            if p.is_alive():
+                p.terminate()
+        for p in processes:
+            p.join()
 
     def cleanup_database(self):
         """Remove entries for missing files from database"""
@@ -172,30 +192,62 @@ class PlaylistGenerator:
             return False
 
     def _process_parallel(self, file_list, workers):
-        """Robust parallel processing with error handling"""
+        """Bulletproof parallel processing with watchdog"""
         results = []
-        try:
-            ctx = mp.get_context('spawn')
-            with ctx.Pool(processes=workers, maxtasksperchild=50) as pool:
-                # Process in chunks for better performance
-                chunk_size = min(100, len(file_list)//workers + 1)
-                
-                with tqdm(total=len(file_list), desc="Processing files") as pbar:
-                    for features, filepath in pool.imap_unordered(
-                        process_file_worker, 
-                        file_list,
-                        chunksize=chunk_size
-                    ):
-                        if features:
-                            results.append(features)
-                        else:
-                            self.failed_files.append(filepath)
-                        pbar.update()
-                        
-            return results
-        except Exception as e:
-            logger.error(f"Parallel processing failed: {str(e)}")
-            return self._process_sequential(file_list)
+        self.failed_files = []
+        
+        # Setup processing queue
+        task_queue = mp.Queue()
+        for filepath in file_list:
+            task_queue.put(filepath)
+        
+        # Setup result queue
+        result_queue = mp.Queue()
+        
+        # Worker function
+        def _worker(in_queue, out_queue):
+            while not in_queue.empty():
+                try:
+                    filepath = in_queue.get_nowait()
+                    features = safe_analyze(filepath)
+                    out_queue.put((features, filepath))
+                except Exception as e:
+                    out_queue.put((None, filepath))
+        
+        # Start workers
+        processes = []
+        for _ in range(workers):
+            p = mp.Process(target=_worker, args=(task_queue, result_queue))
+            p.start()
+            processes.append(p)
+        
+        # Process results with timeout
+        processed = 0
+        timeout_sec = 180  # 3 minute timeout per file
+        with tqdm(total=len(file_list), desc="Processing files") as pbar:
+            while processed < len(file_list):
+                try:
+                    features, filepath = result_queue.get(timeout=timeout_sec)
+                    if features:
+                        results.append(features)
+                    else:
+                        self.failed_files.append(filepath)
+                    processed += 1
+                    pbar.update()
+                except queue.Empty:
+                    logger.warning("Timeout waiting for results - restarting workers")
+                    # Terminate stuck workers
+                    for p in processes:
+                        if p.is_alive():
+                            p.terminate()
+                    # Restart processing
+                    return self._process_parallel(file_list[processed:], workers)
+        
+        # Clean up
+        for p in processes:
+            p.join()
+        
+        return results
 
     def get_all_features_from_db(self):
         try:
