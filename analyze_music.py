@@ -3,6 +3,8 @@ import numpy as np
 import essentia.standard as es
 import os
 import logging
+from colorlog import ColoredFormatter
+import sys
 import sqlite3
 import hashlib
 import signal
@@ -10,8 +12,29 @@ from functools import wraps
 import traceback
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+def setup_logging():
+    """Configure colored logging"""
+    formatter = ColoredFormatter(
+        "%(log_color)s%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+        log_colors={
+            'DEBUG': 'cyan',
+            'INFO': 'green',
+            'WARNING': 'yellow',
+            'ERROR': 'red',
+            'CRITICAL': 'red,bg_white',
+        }
+    )
+    
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(formatter)
+    
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    return logger
+
+logger = setup_logging()
 
 class TimeoutException(Exception):
     pass

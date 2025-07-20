@@ -10,7 +10,9 @@ import multiprocessing as mp
 import argparse
 import os
 import logging
+from colorlog import ColoredFormatter
 from tqdm import tqdm
+import sys
 from analyze_music import get_all_features
 import numpy as np
 import time
@@ -19,15 +21,34 @@ import re
 import sqlite3
 
 # Logging setup
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("playlist_generator.log", mode='w')
-    ]
-)
-logger = logging.getLogger(__name__)
+def setup_colored_logging():
+    """Configure colored logging for the application"""
+    formatter = ColoredFormatter(
+        "%(log_color)s%(asctime)s %(levelname)-8s%(reset)s %(message)s",
+        datefmt="%H:%M:%S",
+        reset=True,
+        log_colors={
+            'DEBUG': 'cyan',
+            'INFO': 'green',
+            'WARNING': 'yellow',
+            'ERROR': 'red',
+            'CRITICAL': 'red,bg_white',
+        },
+        secondary_log_colors={},
+        style='%'
+    )
+    
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    
+    return logger
+
+# Initialize colored logging
+logger = setup_colored_logging()
 
 def sanitize_filename(name):
     name = re.sub(r'[^\w\-_]', '_', name)
@@ -83,50 +104,63 @@ class PlaylistGenerator:
 
     def _process_sequential(self, file_list):
         results = []
-        pbar = tqdm(file_list, desc="Processing files")
-        for filepath in pbar:
-            pbar.set_postfix(file=os.path.basename(filepath)[:20])
-            features, _ = process_file_worker(filepath)
-            if features:
-                results.append(features)
-            else:
-                self.failed_files.append(filepath)
+        with tqdm(file_list, desc="Analyzing files", 
+                bar_format="{l_bar}{bar:40}{r_bar}", 
+                file=sys.stdout) as pbar:
+            for filepath in pbar:
+                try:
+                    features, _ = process_file_worker(filepath)
+                    if features:
+                        results.append(features)
+                    else:
+                        self.failed_files.append(filepath)
+                    pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
+                except Exception as e:
+                    self.failed_files.append(filepath)
+                    logger.error(f"Error processing {filepath}: {str(e)}")
         return results
 
     def _process_parallel(self, file_list, workers):
         results = []
         try:
-            logger.info(f"Starting multiprocessing pool with {workers} workers")
+            logger.info(f"Starting multiprocessing with {workers} workers")
             ctx = mp.get_context('spawn')
+            
             with ctx.Pool(processes=workers) as pool:
-                async_results = [
-                    pool.apply_async(process_file_worker, (filepath,))
-                    for filepath in file_list
-                ]
-                
-                pbar = tqdm(total=len(file_list), desc="Processing files")
-                for i, async_result in enumerate(async_results):
-                    try:
-                        features, filepath = async_result.get(timeout=600)
-                        if features:
-                            results.append(features)
-                        else:
-                            self.failed_files.append(filepath)
-                    except mp.TimeoutError:
-                        logger.error(f"Timeout processing {filepath}")
-                        self.failed_files.append(filepath)
-                    except Exception as e:
-                        logger.error(f"Error retrieving result: {str(e)}")
-                        self.failed_files.append(filepath)
+                # Initialize progress bar
+                with tqdm(total=len(file_list), desc="Processing files",
+                        bar_format="{l_bar}{bar:40}{r_bar}",
+                        file=sys.stdout) as pbar:
                     
-                    if i % 10 == 0 or not features:
-                        pbar.update(1)
-                pbar.close()
-            logger.info("Processing completed")
+                    # Process files in chunks
+                    chunksize = min(10, len(file_list)//workers + 1)
+                    futures = []
+                    
+                    for filepath in file_list:
+                        future = pool.apply_async(
+                            process_file_worker, 
+                            (filepath,),
+                            callback=lambda x: (results.append(x[0]) if x[0] else None, 
+                                            pbar.update(1))
+                        )
+                        futures.append(future)
+                    
+                    # Wait for completion and handle results
+                    for future in futures:
+                        try:
+                            features, filepath = future.get(timeout=600)
+                            if not features:
+                                self.failed_files.append(filepath)
+                            pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
+                        except Exception as e:
+                            pbar.update(1)
+                            logger.error(f"Processing error: {str(e)}")
+                    
+            logger.info(f"Processing completed - {len(results)} successful, {len(self.failed_files)} failed")
             return results
+            
         except Exception as e:
             logger.error(f"Multiprocessing failed: {str(e)}")
-            logger.error(traceback.format_exc())
             return self._process_sequential(file_list)
 
     def get_all_features_from_db(self):
