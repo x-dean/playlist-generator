@@ -258,6 +258,7 @@ class PlaylistGenerator:
         cluster_features = ['bpm', 'centroid', 'loudness', 'dynamics']
         features_scaled = StandardScaler().fit_transform(
             df[cluster_features].values.astype(np.float32)
+        )
         
         # Smart cluster sizing
         min_clusters = min(8, len(df))
