@@ -48,50 +48,58 @@ class AudioAnalyzer:
         self._migrate_db()
 
     def _init_db(self):
-        self.conn = sqlite3.connect(self.cache_file, timeout=30)
-        with self.conn:
-            self.conn.execute("PRAGMA journal_mode=WAL")
-            self.conn.execute("PRAGMA busy_timeout=30000")
-            self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS audio_features (
-                file_hash TEXT PRIMARY KEY,
-                file_path TEXT NOT NULL,
-                duration REAL,
-                bpm REAL,
-                beat_confidence REAL,
-                centroid REAL,
-                loudness REAL,
-                dynamics REAL,
-                key TEXT,
-                scale TEXT,
-                key_confidence REAL,
-                rhythm_complexity REAL,
-                last_modified REAL,
-                last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                feature_version INTEGER DEFAULT 1
-            )
-            """)
-            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
+        try:
+            self.conn = sqlite3.connect(self.cache_file, timeout=30)
+            with self.conn:
+                self.conn.execute("PRAGMA journal_mode=WAL")
+                self.conn.execute("PRAGMA busy_timeout=30000")
+                self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS audio_features (
+                    file_hash TEXT PRIMARY KEY,
+                    file_path TEXT NOT NULL,
+                    duration REAL,
+                    bpm REAL,
+                    beat_confidence REAL,
+                    centroid REAL,
+                    loudness REAL,
+                    dynamics REAL,
+                    key TEXT,
+                    scale TEXT,
+                    key_confidence REAL,
+                    rhythm_complexity REAL,
+                    last_modified REAL,
+                    last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    feature_version INTEGER DEFAULT 1
+                )
+                """)
+                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
+        except sqlite3.Error as e:
+            logger.error(f"Database initialization failed: {str(e)}")
+            raise
 
     def _migrate_db(self):
         """Add new columns if they don't exist"""
-        cursor = self.conn.cursor()
-        migrations = [
-            "ALTER TABLE audio_features ADD COLUMN loudness REAL DEFAULT 0",
-            "ALTER TABLE audio_features ADD COLUMN dynamics REAL DEFAULT 0",
-            "ALTER TABLE audio_features ADD COLUMN key TEXT DEFAULT 'unknown'",
-            "ALTER TABLE audio_features ADD COLUMN scale TEXT DEFAULT 'unknown'",
-            "ALTER TABLE audio_features ADD COLUMN key_confidence REAL DEFAULT 0",
-            "ALTER TABLE audio_features ADD COLUMN rhythm_complexity REAL DEFAULT 0.5",
-            "ALTER TABLE audio_features ADD COLUMN feature_version INTEGER DEFAULT 1"
-        ]
-        
-        for migration in migrations:
-            try:
-                cursor.execute(migration)
-                self.conn.commit()
-            except sqlite3.OperationalError:
-                pass  # Column already exists
+        try:
+            cursor = self.conn.cursor()
+            migrations = [
+                "ALTER TABLE audio_features ADD COLUMN loudness REAL DEFAULT 0",
+                "ALTER TABLE audio_features ADD COLUMN dynamics REAL DEFAULT 0",
+                "ALTER TABLE audio_features ADD COLUMN key TEXT DEFAULT 'unknown'",
+                "ALTER TABLE audio_features ADD COLUMN scale TEXT DEFAULT 'unknown'",
+                "ALTER TABLE audio_features ADD COLUMN key_confidence REAL DEFAULT 0",
+                "ALTER TABLE audio_features ADD COLUMN rhythm_complexity REAL DEFAULT 0.5",
+                "ALTER TABLE audio_features ADD COLUMN feature_version INTEGER DEFAULT 1"
+            ]
+            
+            for migration in migrations:
+                try:
+                    cursor.execute(migration)
+                    self.conn.commit()
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
+        except Exception as e:
+            logger.error(f"Database migration failed: {str(e)}")
+            raise
 
     def _get_file_info(self, filepath):
         try:
@@ -189,9 +197,14 @@ class AudioAnalyzer:
             logger.warning(f"Rhythm complexity extraction failed: {str(e)}")
             return 0.5
 
+    @timeout(300)  # Increased timeout for full feature extraction
     def extract_features(self, audio_path):
         """Enhanced feature extraction with new audio features"""
         try:
+            # Set resource limits
+            resource.setrlimit(resource.RLIMIT_AS, (4 * 1024**3, 4 * 1024**3))  # 4GB memory limit
+            resource.setrlimit(resource.RLIMIT_CPU, (120, 120))  # 2 minutes CPU time
+            
             file_info = self._get_file_info(audio_path)
 
             cursor = self.conn.cursor()
@@ -214,20 +227,24 @@ class AudioAnalyzer:
                 # Check feature version
                 db_version = row[10] if len(row) > 10 else 1
                 if valid_cache and db_version >= CURRENT_FEATURE_VERSION:
-                    return {
-                        'duration': row[0],
-                        'bpm': row[1],
-                        'beat_confidence': row[2],
-                        'centroid': row[3],
-                        'loudness': row[4],
-                        'dynamics': row[5],
-                        'key': row[6],
-                        'scale': row[7],
-                        'key_confidence': row[8],
-                        'rhythm_complexity': row[9],
+                    result = {
+                        'duration': float(row[0]),
+                        'bpm': float(row[1]),
+                        'beat_confidence': float(row[2]),
+                        'centroid': float(row[3]),
+                        'loudness': float(row[4]),
+                        'dynamics': float(row[5]),
+                        'key': str(row[6]),
+                        'scale': str(row[7]),
+                        'key_confidence': float(row[8]),
+                        'rhythm_complexity': float(row[9]),
                         'filepath': audio_path,
                         'filename': os.path.basename(audio_path)
-                    }, True, file_info['file_hash']
+                    }
+                    # Validate all required features are present
+                    required_features = ['duration', 'bpm', 'centroid', 'loudness']
+                    if all(feat in result and result[feat] is not None for feat in required_features):
+                        return result, True, file_info['file_hash']
 
             # Process file if not in cache or cache is outdated
             logger.info(f"Processing: {os.path.basename(audio_path)}")
@@ -281,30 +298,43 @@ class AudioAnalyzer:
                 logger.error(f"Rhythm complexity error: {str(e)}")
                 features['rhythm_complexity'] = 0.5
 
+            # Validate all required features before saving
+            required_features = ['duration', 'bpm', 'centroid', 'loudness']
+            if not all(feat in features and features[feat] is not None for feat in required_features):
+                logger.error(f"Missing required features for {audio_path}")
+                return None, False, None
+
             # Save to database
-            with self.conn:
-                self.conn.execute("""
-                INSERT OR REPLACE INTO audio_features VALUES (
-                    ?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?
-                )
-                """, (
-                    file_info['file_hash'],
-                    audio_path,
-                    features['duration'],
-                    features['bpm'],
-                    features['beat_confidence'],
-                    features['centroid'],
-                    features['loudness'],
-                    features['dynamics'],
-                    features['key'],
-                    features['scale'],
-                    features['key_confidence'],
-                    features['rhythm_complexity'],
-                    file_info['last_modified'],
-                    CURRENT_FEATURE_VERSION
-                ))
+            try:
+                with self.conn:
+                    self.conn.execute("""
+                    INSERT OR REPLACE INTO audio_features VALUES (
+                        ?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,?
+                    )
+                    """, (
+                        file_info['file_hash'],
+                        audio_path,
+                        features['duration'],
+                        features['bpm'],
+                        features['beat_confidence'],
+                        features['centroid'],
+                        features['loudness'],
+                        features['dynamics'],
+                        features['key'],
+                        features['scale'],
+                        features['key_confidence'],
+                        features['rhythm_complexity'],
+                        file_info['last_modified'],
+                        CURRENT_FEATURE_VERSION
+                    ))
+            except sqlite3.Error as e:
+                logger.error(f"Database save failed for {audio_path}: {str(e)}")
+                return None, False, None
 
             return features, False, file_info['file_hash']
+        except TimeoutException:
+            logger.warning(f"Timeout processing {audio_path}")
+            return None, False, None
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             return None, False, None
@@ -316,27 +346,45 @@ class AudioAnalyzer:
             SELECT file_path, duration, bpm, beat_confidence, centroid, 
                    loudness, dynamics, key, scale, key_confidence, rhythm_complexity
             FROM audio_features
-            WHERE feature_version >= ?
+            WHERE feature_version >= ? AND duration > 0 AND bpm > 0
             """, (CURRENT_FEATURE_VERSION,))
-            return [
-                {
-                    'filepath': row[0],
-                    'duration': row[1],
-                    'bpm': row[2],
-                    'beat_confidence': row[3],
-                    'centroid': row[4],
-                    'loudness': row[5],
-                    'dynamics': row[6],
-                    'key': row[7],
-                    'scale': row[8],
-                    'key_confidence': row[9],
-                    'rhythm_complexity': row[10],
-                }
-                for row in cursor.fetchall()
-            ]
+            
+            results = []
+            for row in cursor.fetchall():
+                try:
+                    results.append({
+                        'filepath': str(row[0]),
+                        'duration': float(row[1]),
+                        'bpm': float(row[2]),
+                        'beat_confidence': float(row[3]),
+                        'centroid': float(row[4]),
+                        'loudness': float(row[5]),
+                        'dynamics': float(row[6]),
+                        'key': str(row[7]),
+                        'scale': str(row[8]),
+                        'key_confidence': float(row[9]),
+                        'rhythm_complexity': float(row[10]),
+                    })
+                except (IndexError, ValueError, TypeError) as e:
+                    logger.warning(f"Invalid feature data for {row[0]}: {str(e)}")
+                    continue
+            
+            return results
         except Exception as e:
             logger.error(f"Error fetching features: {str(e)}")
             return []
+        finally:
+            try:
+                cursor.close()
+            except:
+                pass
+
+    def __del__(self):
+        try:
+            if hasattr(self, 'conn'):
+                self.conn.close()
+        except:
+            pass
 
 audio_analyzer = AudioAnalyzer()
 

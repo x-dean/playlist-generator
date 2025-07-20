@@ -18,25 +18,31 @@ import traceback
 import re
 import sqlite3
 import resource
-import coloredlogs
+import colorlog
+from scipy.spatial.distance import cdist
 
-# Enhanced logging with colors
-logger = logging.getLogger(__name__)
-coloredlogs.install(
-    level='INFO',
-    logger=logger,
-    fmt='%(asctime)s %(levelname)s %(message)s',
-    field_styles={
-        'levelname': {'color': 'cyan', 'bold': True},
-    },
-    level_styles={
-        'debug': {'color': 'green'},
-        'info': {'color': 39},
-        'warning': {'color': 214},
-        'error': {'color': 'red', 'bold': True},
-        'critical': {'color': 'red', 'bold': True, 'background': 'white'},
-    }
-)
+# === Color logger ===
+def setup_logger(level=logging.INFO):
+    handler = colorlog.StreamHandler()
+    handler.setFormatter(colorlog.ColoredFormatter(
+        "%(log_color)s[%(levelname)s] %(name)s: %(message)s",
+        log_colors={
+            'DEBUG': 'cyan',
+            'INFO': 'green',
+            'WARNING': 'yellow',
+            'ERROR': 'red',
+            'CRITICAL': 'bold_red',
+        }
+    ))
+    logger = colorlog.getLogger()
+    logger.setLevel(level)
+    logger.addHandler(handler)
+    file_handler = logging.FileHandler("playlist_generator.log", mode='w')
+    file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+    logger.addHandler(file_handler)
+    return logger
+
+logger = setup_logger()
 
 def sanitize_filename(name):
     name = re.sub(r'[^\w\-_]', '_', name)
@@ -97,6 +103,34 @@ class PlaylistGenerator:
             except Exception as e:
                 logger.error(f"Error loading blacklist: {str(e)}")
         return set()
+
+    def cleanup_database(self):
+        """Remove entries for missing files from database"""
+        try:
+            conn = sqlite3.connect(self.cache_file)
+            cursor = conn.cursor()
+            cursor.execute("SELECT file_path FROM audio_features")
+            db_files = [row[0] for row in cursor.fetchall()]
+            
+            missing_files = []
+            for file_path in db_files:
+                if not os.path.exists(file_path):
+                    missing_files.append(file_path)
+            
+            if missing_files:
+                logger.info(f"Cleaning up {len(missing_files)} missing files from database")
+                placeholders = ','.join(['?'] * len(missing_files))
+                cursor.execute(
+                    f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
+                    missing_files
+                )
+                conn.commit()
+                
+            conn.close()
+            return missing_files
+        except Exception as e:
+            logger.error(f"Database cleanup failed: {str(e)}")
+            return []
 
     def analyze_directory(self, music_dir, workers=None, force_sequential=False):
         file_list = []
@@ -300,20 +334,16 @@ class PlaylistGenerator:
             logger.warning("No features to cluster")
             return {}
 
+        # Filter and validate features
         valid_features = []
         for feat in features_list:
             if not feat or 'filepath' not in feat:
                 continue
-                
-            if os.path.exists(feat['filepath']):
-                # Handle None values for all features
-                for key in ['bpm', 'centroid', 'duration', 'loudness', 'dynamics']:
-                    if feat.get(key) is None:
-                        feat[key] = 0.0
-                valid_features.append(feat)
-            else:
-                logger.warning(f"File not found: {feat['filepath']}")
-                self.failed_files.append(feat['filepath'])
+            # Handle None values
+            for key in ['bpm', 'centroid', 'duration', 'loudness', 'dynamics']:
+                if feat.get(key) is None:
+                    feat[key] = 0.0
+            valid_features.append(feat)
                 
         if not valid_features:
             logger.warning("No valid features after filtering")
@@ -321,20 +351,19 @@ class PlaylistGenerator:
             
         df = pd.DataFrame(valid_features)
         
-        # Cluster features - using more dimensions for better grouping
+        # Cluster features
         cluster_features = ['bpm', 'centroid', 'loudness', 'dynamics']
-        
-        # Fill missing values
         for feat in cluster_features:
             if feat not in df.columns:
                 df[feat] = 0.0
-                
         df[cluster_features] = df[cluster_features].fillna(0)
         
         # Scale features
-        features_scaled = StandardScaler().fit_transform(df[cluster_features].values.astype(np.float32))
+        features_scaled = StandardScaler().fit_transform(
+            df[cluster_features].values.astype(np.float32)
+        )
         
-        # Dynamic cluster count based on library size
+        # Dynamic cluster count
         n_clusters = min(max(8, num_playlists * 2), max(20, len(df) // 20))
         
         # Cluster with MiniBatchKMeans
@@ -347,15 +376,47 @@ class PlaylistGenerator:
         )
         df['cluster'] = kmeans.fit_predict(features_scaled)
         
+        # Merge small clusters
+        cluster_sizes = df['cluster'].value_counts().to_dict()
+        min_cluster_size = 5
+        small_clusters = [c for c, size in cluster_sizes.items() if size < min_cluster_size]
+        large_clusters = [c for c in cluster_sizes if c not in small_clusters]
+
+        if small_clusters:
+            logger.warning(f"Merging {len(small_clusters)} small clusters")
+            centroids = df.groupby('cluster')[cluster_features].mean()
+            
+            # Handle case when there are no large clusters
+            if not large_clusters:
+                large_clusters = small_clusters
+                small_clusters = []
+            
+            if large_clusters:  # Only proceed if we have large clusters
+                distances = cdist(
+                    centroids.loc[small_clusters],
+                    centroids.loc[large_clusters],
+                    metric='euclidean'
+                )
+                
+                mapping = {}
+                for idx, small_c in enumerate(small_clusters):
+                    nearest_idx = np.argmin(distances[idx])
+                    nearest_large = large_clusters[nearest_idx]
+                    mapping[small_c] = nearest_large
+                    logger.debug(f"Cluster {small_c} → {nearest_large}")
+                
+                # Reassign small cluster samples
+                df['cluster'] = df['cluster'].apply(
+                    lambda c: mapping[c] if c in mapping else c
+                )
+        
+        # Create playlists
         playlists = {}
         for cluster in df['cluster'].unique():
             cluster_songs = df[df['cluster'] == cluster]
-            
-            # Skip very small clusters
             if len(cluster_songs) < 30:
-                continue
+                continue  # Skip small clusters
                 
-            # Calculate cluster centroid for naming
             centroid = cluster_songs[cluster_features].mean().to_dict()
             name = sanitize_filename(self.generate_playlist_name(centroid))
             
@@ -363,8 +424,10 @@ class PlaylistGenerator:
                 playlists[name] = []
             playlists[name].extend(cluster_songs['filepath'].tolist())
         
-        # Handle orphaned tracks (small clusters)
-        orphaned = df[~df['filepath'].isin([song for songs in playlists.values() for song in songs])]
+        # Handle orphaned tracks (from skipped small clusters)
+        orphaned = df[~df['filepath'].isin(
+            [song for songs in playlists.values() for song in songs]
+        )]
         if not orphaned.empty:
             logger.info(f"Assigning {len(orphaned)} orphaned tracks to nearest playlists")
             for _, track in orphaned.iterrows():
@@ -372,8 +435,9 @@ class PlaylistGenerator:
                 best_playlist = None
                 
                 for playlist_name, songs in playlists.items():
-                    # Calculate distance to playlist centroid
                     playlist_tracks = df[df['filepath'].isin(songs)]
+                    if playlist_tracks.empty:
+                        continue
                     centroid = playlist_tracks[cluster_features].mean().to_dict()
                     
                     distance = sum(
@@ -388,33 +452,6 @@ class PlaylistGenerator:
                     playlists[best_playlist].append(track['filepath'])
         
         return playlists
-
-    def cleanup_database(self):
-        try:
-            conn = sqlite3.connect(self.cache_file)
-            cursor = conn.cursor()
-            cursor.execute("SELECT file_path FROM audio_features")
-            db_files = [row[0] for row in cursor.fetchall()]
-            
-            missing_files = []
-            for file_path in db_files:
-                if not os.path.exists(file_path):
-                    missing_files.append(file_path)
-            
-            if missing_files:
-                logger.info(f"Cleaning up {len(missing_files)} missing files from database")
-                placeholders = ','.join(['?'] * len(missing_files))
-                cursor.execute(
-                    f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
-                    missing_files
-                )
-                conn.commit()
-                
-            conn.close()
-            return missing_files
-        except Exception as e:
-            logger.error(f"Database cleanup failed: {str(e)}")
-            return []
 
     def save_playlists(self, playlists, output_dir):
         os.makedirs(output_dir, exist_ok=True)
@@ -450,7 +487,7 @@ class PlaylistGenerator:
                 logger.warning(f"  Missing {missing_count} files in playlist")
 
         logger.info(f"Saved {saved_count} playlists total")
-
+        
         # Save failed files list
         if self.failed_files:
             failed_path = os.path.join(output_dir, "Failed_Files.m3u")
@@ -460,7 +497,8 @@ class PlaylistGenerator:
             logger.info(f"Saved {len(self.failed_files)} failed/missing files")
 
 def main():
-    parser = argparse.ArgumentParser(description='Enhanced Music Playlist Generator')
+    parser = argparse.ArgumentParser(description='Music Playlist Generator')
+    parser.add_argument('--log_level', default='INFO', help='Logging level (DEBUG, INFO, WARNING, ERROR)')
     parser.add_argument('--music_dir', required=True, help='Music directory in container')
     parser.add_argument('--host_music_dir', required=True, help='Host music directory')
     parser.add_argument('--output_dir', default='./playlists', help='Output directory')
@@ -474,6 +512,8 @@ def main():
 
     generator = PlaylistGenerator()
     generator.host_music_dir = args.host_music_dir.rstrip('/')
+    logger.setLevel(getattr(logging, args.log_level.upper(), logging.INFO))
+    logger.info(f"Starting playlist generation with {args.workers} workers")
 
     start_time = time.time()
     try:
@@ -497,6 +537,20 @@ def main():
         if features:
             playlists = generator.generate_playlists(features, args.num_playlists)
             generator.save_playlists(playlists, args.output_dir)
+            
+            # Track unassigned files
+            assigned_files = set()
+            for songs in playlists.values():
+                assigned_files.update(songs)
+            unassigned_files = [f['filepath'] for f in features 
+                              if f['filepath'] not in assigned_files]
+            
+            if unassigned_files:
+                unassigned_path = os.path.join(args.output_dir, "Unassigned_Files.m3u")
+                with open(unassigned_path, 'w') as f:
+                    host_paths = [generator.convert_to_host_path(p) for p in unassigned_files]
+                    f.write("\n".join(host_paths))
+                logger.info(f"Saved unassigned tracks list with {len(unassigned_files)} files")
         else:
             logger.error("No valid audio files available")
     except Exception as e:
