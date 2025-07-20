@@ -6,15 +6,9 @@ import sqlite3
 import hashlib
 import signal
 from functools import wraps
-import resource
 
-# Enhanced logging
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    handlers=[logging.StreamHandler()]
-)
+# Shared logger configuration
+logger = logging.getLogger('analyze_music')
 
 # Current feature version
 CURRENT_FEATURE_VERSION = 3
@@ -201,10 +195,6 @@ class AudioAnalyzer:
     def extract_features(self, audio_path):
         """Enhanced feature extraction with new audio features"""
         try:
-            # Set resource limits
-            resource.setrlimit(resource.RLIMIT_AS, (4 * 1024**3, 4 * 1024**3))  # 4GB memory limit
-            resource.setrlimit(resource.RLIMIT_CPU, (120, 120))  # 2 minutes CPU time
-            
             file_info = self._get_file_info(audio_path)
 
             cursor = self.conn.cursor()
