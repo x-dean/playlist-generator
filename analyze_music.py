@@ -13,7 +13,49 @@ import warnings
 import pydub
 import resource
 import gc
+import resource
+import time
+import threading
 
+class MemoryMonitor(threading.Thread):
+    def __init__(self, limit_gb=4, threshold=0.9):
+        super().__init__()
+        self.limit = limit_gb * (1024**3)
+        self.threshold = threshold
+        self.high_water_mark = 0
+        self.running = True
+        self.daemon = True
+        
+    def run(self):
+        while self.running:
+            try:
+                usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+                self.high_water_mark = max(self.high_water_mark, usage)
+                
+                if usage > self.limit * self.threshold:
+                    logger.warning(f"Memory critical: {usage/(1024**2):.2f}MB > {self.limit*self.threshold/(1024**2):.2f}MB")
+                    # Free memory proactively
+                    gc.collect()
+            except Exception as e:
+                logger.error(f"Memory monitor error: {str(e)}")
+            time.sleep(0.5)
+    
+    def stop(self):
+        self.running = False
+
+# Start memory monitor globally
+mem_monitor = MemoryMonitor(4)
+mem_monitor.start()
+
+# Add at bottom of file
+def memory_guard():
+    """Check if memory usage is critical"""
+    try:
+        current = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+        return current > MEMORY_LIMIT * 0.8
+    except:
+        return False
+    
 # Use module-level logger without configuring handlers
 logger = logging.getLogger(__name__)
 
@@ -131,14 +173,12 @@ class AudioAnalyzer:
                 'file_path': filepath
             }
 
-    @timeout()
     def _safe_audio_load(self, audio_path):
+        if memory_guard():
+            logger.warning(f"Memory critical, skipping {audio_path}")
+            return None
+            
         try:
-            # Check memory before loading
-            if self._memory_usage() > 0.8:  # 80% of 4 GiB
-                logger.warning(f"Skipping {audio_path} due to high memory usage")
-                return None
-                
             loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
             audio = loader()
             return audio if audio.size > 0 else None
@@ -277,6 +317,11 @@ class AudioAnalyzer:
             return 0.0
 
     def extract_features(self, audio_path):
+        if memory_guard():
+            logger.warning("Memory critical, skipping file and collecting garbage")
+            gc.collect()
+            time.sleep(0.5)  # Allow GC to work
+            return None, False, None
         if self._memory_usage() > 0.7:
             gc.collect()
         try:

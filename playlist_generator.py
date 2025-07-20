@@ -22,7 +22,33 @@ import sqlite3
 import psutil
 import resource
 import gc
+import resource
+import time
+import threading
 
+class ProcessMemoryGuard:
+    def __init__(self, limit_gb=4, threshold=0.9):
+        self.limit = limit_gb * (1024**3)
+        self.threshold = threshold
+        self.critical = False
+        self.thread = threading.Thread(target=self._monitor, daemon=True)
+        self.thread.start()
+        
+    def _monitor(self):
+        while True:
+            try:
+                # Get memory usage in bytes
+                usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+                self.critical = usage > self.limit * self.threshold
+                if self.critical:
+                    logger.warning(f"Memory critical: {usage/(1024**2):.2f}MB used")
+            except:
+                pass
+            time.sleep(0.5)
+    
+    def is_critical(self):
+        return self.critical
+    
 # Logging setup
 def setup_colored_logging():
     """Configure colored logging for the application"""
@@ -193,7 +219,7 @@ class PlaylistGenerator:
         results = []
         max_retries = 3
         retries = 0
-        batch_size = min(1, len(file_list))  # Process in batches of 50
+        batch_size = min(50, len(file_list))  # Process in batches of 50
         
         while file_list and retries < max_retries:
             try:
@@ -622,6 +648,7 @@ def main():
     generator.host_music_dir = args.host_music_dir.rstrip('/')
 
     start_time = time.time()
+    mem_guard = ProcessMemoryGuard(4)
     try:
         missing_in_db = generator.cleanup_database()
         if missing_in_db:
