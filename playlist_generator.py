@@ -254,26 +254,21 @@ class PlaylistGenerator:
 
     def convert_to_host_path(self, container_path: str) -> str:
         """Convert container path to host path for playlist files."""
-        if not self.host_music_dir or not self.container_music_dir:
-            return str(container_path)
-            
-        container_norm = str(Path(self.container_music_dir).resolve())
-        host_norm = str(Path(self.host_music_dir).resolve())
-        
-        # Handle case where paths are already the same
-        if container_norm == host_norm:
-            return str(container_path)
-        
-        # Convert path
         try:
-            rel_path = os.path.relpath(
-                str(Path(container_path).resolve()),
-                container_norm
-            )
-            return str(Path(host_norm) / rel_path)
-        except ValueError:
-            # Paths on different drives (Windows) or other error
-            return str(container_path)
+            # Normalize paths
+            container_path = str(Path(container_path))
+            container_music = str(Path(self.container_music_dir))
+            
+            # Handle direct mappings first
+            if container_path.startswith('/music/'):
+                return str(Path(self.host_music_dir) / Path(container_path).relative_to('/music'))
+            
+            if container_path.startswith(container_music):
+                return str(Path(self.host_music_dir) / Path(container_path).relative_to(container_music))
+                
+            return container_path
+        except Exception:
+            return container_path)
 
     def generate_playlist_name(self, features: Dict[str, Any]) -> str:
         """Generate descriptive playlist name from features."""
@@ -414,14 +409,10 @@ def main():
     global logger  # Declare we're using the global logger
     
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
-    parser.add_argument('--log_level', default='INFO', 
-                       help='Logging level (DEBUG, INFO, WARNING, ERROR)')
-    parser.add_argument('--music_dir', required=True, 
-                       help='Music directory in container')
-    parser.add_argument('--host_music_dir', required=True, 
-                       help='Host music directory')
-    parser.add_argument('--output_dir', default='./playlists', 
-                       help='Output directory')
+    parser.add_argument('--music_dir', default='/music', help='Music directory in container')
+    parser.add_argument('--host_music_dir', required=True, help='Host music directory')
+    parser.add_argument('--output_dir', default='/output', help='Output directory in container')
+    parser.add_argument('--cache_dir', default='/cache', help='Cache directory in container')
     parser.add_argument('--num_playlists', type=int, default=8, 
                        help='Number of playlists')
     parser.add_argument('--workers', type=int, default=None, 
@@ -430,23 +421,38 @@ def main():
                        help='Use database only')
     parser.add_argument('--force_sequential', action='store_true', 
                        help='Force sequential processing')
+    parser.add_argument('--log_level', default='INFO', 
+                       help='Logging level (DEBUG, INFO, WARNING, ERROR)')
     args = parser.parse_args()
+
+    # Initialize logger with the requested level
+    logger.setLevel(getattr(logging, args.log_level.upper(), logging.INFO))
 
     # Validate arguments
     if not Path(args.music_dir).exists():
         logger.error(f"Music directory does not exist: {args.music_dir}")
+        logger.info(f"Current working directory: {Path.cwd()}")
         sys.exit(1)
 
     if not Path(args.host_music_dir).exists():
         logger.error(f"Host music directory does not exist: {args.host_music_dir}")
+        logger.info(f"Current working directory: {Path.cwd()}")
         sys.exit(1)
 
-    # Update logger level if needed
-    logger.setLevel(getattr(logging, args.log_level.upper(), logging.INFO))
+    # Create output and cache directories if they don't exist
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    Path(args.cache_dir).mkdir(parents=True, exist_ok=True)
     
     generator = PlaylistGenerator()
+    generator.container_music_dir = str(Path(args.music_dir).resolve())
     generator.host_music_dir = str(Path(args.host_music_dir).resolve())
+    generator.cache_file = str(Path(args.cache_dir) / 'audio_analysis.db')
+    
     logger.info(f"Starting playlist generation with {args.workers} workers")
+    logger.info(f"Container music dir: {generator.container_music_dir}")
+    logger.info(f"Host music dir: {generator.host_music_dir}")
+    logger.info(f"Output dir: {args.output_dir}")
+    logger.info(f"Cache dir: {args.cache_dir}")
 
     start_time = time.time()
     try:
