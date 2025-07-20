@@ -153,68 +153,53 @@ class PlaylistGenerator:
     def generate_playlist_name(self, features):
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         
-        # Safely convert key index to integer
-        try:
-            key_idx = int(features.get('key', -1))
-        except (TypeError, ValueError):
-            key_idx = -1
-        
-        # Ensure scale is integer
-        try:
-            scale = int(features.get('scale', 0))
-        except (TypeError, ValueError):
-            scale = 0
-        
-        # Safely get numerical features with defaults
+        # Safely get all features with proper type conversion
+        key_idx = int(features.get('key', -1))
+        scale = int(features.get('scale', 0))
         bpm = float(features.get('bpm', 0))
         centroid = float(features.get('centroid', 0))
         danceability = float(features.get('danceability', 0))
         duration = float(features.get('duration', 0))
         
         # Key and scale
-        key_str = keys[key_idx] if 0 <= key_idx < len(keys) else 'Unknown'
-        scale_str = "Major" if scale == 1 else "Minor"
+        key_str = keys[key_idx] if 0 <= key_idx < len(keys) else 'Keyless'
+        scale_str = "Maj" if scale == 1 else "Min"
         
-        # BPM categories
+        # BPM categories (more musical terms)
         bpm_desc = (
-            "DeepSleep" if bpm < 40 else
-            "Ambient" if bpm < 60 else
-            "Chill" if bpm < 75 else
-            "Downtempo" if bpm < 90 else
-            "Midtempo" if bpm < 105 else
-            "Upbeat" if bpm < 120 else
-            "Dance" if bpm < 135 else
-            "Energy" if bpm < 150 else
-            "Hardcore"
+            "Largo" if bpm < 50 else
+            "Adagio" if bpm < 70 else
+            "Moderato" if bpm < 90 else
+            "Allegro" if bpm < 120 else
+            "Vivace" if bpm < 150 else
+            "Presto"
         )
         
-        # Timbre descriptions
+        # Timbre descriptions (more accurate)
         timbre_desc = (
-            "SubBass" if centroid < 100 else
-            "Dark" if centroid < 500 else
+            "SubBass" if centroid < 150 else
+            "Dark" if centroid < 300 else
             "Warm" if centroid < 1000 else
-            "Mellow" if centroid < 2000 else
-            "Bright" if centroid < 3000 else
-            "Crisp" if centroid < 4000 else
-            "Sharp" if centroid < 6000 else
-            "Airy"
+            "Neutral" if centroid < 2000 else
+            "Bright" if centroid < 4000 else
+            "Crisp" if centroid < 6000 else
+            "Shrill"
         )
         
-        # Danceability
+        # Danceability (more descriptive)
         dance_desc = (
-            "Static" if danceability < 0.2 else
-            "LowEnergy" if danceability < 0.4 else
-            "Groove" if danceability < 0.6 else
-            "Danceable" if danceability < 0.8 else
-            "HighEnergy"
+            "Static" if danceability < 0.3 else
+            "Pulse" if danceability < 0.5 else
+            "Groove" if danceability < 0.7 else
+            "Dance" if danceability < 0.85 else
+            "Energetic"
         )
         
-        # Duration
+        # Duration categories
         duration_desc = (
-            "Snippet" if duration < 30 else
             "Short" if duration < 120 else
             "Medium" if duration < 240 else
-            "Extended" if duration < 360 else
+            "Long" if duration < 360 else
             "Epic"
         )
         
@@ -222,76 +207,89 @@ class PlaylistGenerator:
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         if not features_list:
-            logger.warning("No features to cluster")
             return {}
 
-        valid_features = []
-        for feat in features_list:
-            # Skip if features are missing
-            if not feat or 'filepath' not in feat:
-                continue
-                
-            if os.path.exists(feat['filepath']):
-                # Handle None values for all features
-                for key in ['bpm', 'centroid', 'duration', 'loudness', 'danceability', 'key', 'scale', 'onset_rate', 'zcr']:
-                    if feat.get(key) is None:
-                        feat[key] = 0.0
-                        logger.warning(f"Found None value for {key} in {feat['filepath']}")
-                valid_features.append(feat)
-            else:
-                logger.warning(f"File not found: {feat['filepath']}")
-                self.failed_files.append(feat['filepath'])
-                
-        if not valid_features:
-            logger.warning("No valid features after filtering")
+        # Convert to DataFrame with proper types
+        df = pd.DataFrame([{
+            'filepath': f['filepath'],
+            'bpm': float(f.get('bpm', 0)),
+            'centroid': float(f.get('centroid', 0)),
+            'danceability': float(f.get('danceability', 0)),
+            'key': int(f.get('key', -1)),
+            'scale': int(f.get('scale', 0)),
+            'duration': float(f.get('duration', 0))
+        } for f in features_list if f and 'filepath' in f])
+
+        if df.empty:
             return {}
-            
-        df = pd.DataFrame(valid_features)
+
+        # Feature weights - adjust these based on importance
+        feature_weights = np.array([1.5, 1.0, 1.2])  # bpm, centroid, danceability
+        cluster_features = ['bpm', 'centroid', 'danceability']
         
-        # Ensure all required features exist in dataframe
-        required_features = ['bpm', 'centroid', 'duration', 'loudness', 'danceability', 'key', 'scale', 'onset_rate']
-        for feat in required_features:
-            if feat not in df.columns:
-                logger.warning(f"Adding missing feature column: {feat}")
-                df[feat] = 0.0
-                
-        df[required_features] = df[required_features].fillna(0)
+        # 1. Standardize features
+        scaler = StandardScaler()
+        features_scaled = scaler.fit_transform(df[cluster_features])
         
-        # Features to use for clustering
-        cluster_features = ['bpm', 'centroid', 'loudness', 'danceability', 'onset_rate']
+        # 2. Apply weights while preserving standardization
+        weighted_features = features_scaled * feature_weights
         
+        # Determine optimal cluster count
+        min_clusters = min(5, len(df))
+        max_clusters = min(50, len(df))
+        optimal_clusters = max(min_clusters, min(max_clusters, len(df)//10))
+
+        # Perform clustering
         kmeans = MiniBatchKMeans(
-            n_clusters=min(num_playlists, len(df)),
+            n_clusters=optimal_clusters,
             random_state=42,
-            batch_size=min(chunk_size, len(df)),
-            n_init=3,
-            max_iter=50
-        )
-        
-        features_array = df[cluster_features].values.astype(np.float32)
-        features_scaled = StandardScaler().fit_transform(features_array)
-        df['cluster'] = kmeans.fit_predict(features_scaled)
-        
+            batch_size=min(500, len(df))
+        df['cluster'] = kmeans.fit_predict(weighted_features)
+
+        from sklearn.metrics import silhouette_score
+        if len(df['cluster'].unique()) > 1:
+            score = silhouette_score(features_scaled, df['cluster'])
+            logger.info(f"Clustering quality (silhouette score): {score:.2f}")
+
+        # Merge small clusters (less than 5% of total files)
+        MIN_CLUSTER_SIZE = max(5, len(df) * 0.05)
+        cluster_counts = df['cluster'].value_counts()
+        small_clusters = cluster_counts[cluster_counts < MIN_CLUSTER_SIZE].index.tolist()
+
+        if small_clusters:
+            # Find nearest large cluster for each small cluster
+            cluster_centers = kmeans.cluster_centers_
+            for small_cluster in small_clusters:
+                # Find nearest large cluster
+                distances = np.linalg.norm(
+                    cluster_centers[small_cluster] - cluster_centers, 
+                    axis=1
+                )
+                # Set distance to self as infinity
+                distances[small_cluster] = np.inf
+                nearest_cluster = np.argmin(distances)
+                # Reassign
+                df.loc[df['cluster'] == small_cluster, 'cluster'] = nearest_cluster
+
+        # Generate playlists
         playlists = {}
         for cluster in df['cluster'].unique():
             cluster_songs = df[df['cluster'] == cluster]
             
-            # Get mode for key and scale (categorical features)
-            key_mode = cluster_songs['key'].mode()
-            scale_mode = cluster_songs['scale'].mode()
-            
-            # Get mean for numerical features
-            centroid = cluster_songs[cluster_features].mean().to_dict()
-            centroid['key'] = key_mode[0] if not key_mode.empty else -1
-            centroid['scale'] = scale_mode[0] if not scale_mode.empty else 0
-            
-            name = sanitize_filename(self.generate_playlist_name(centroid))
-            
-            if name not in playlists:
-                playlists[name] = []
-            playlists[name].extend(cluster_songs['filepath'].tolist())
-        
-        return {k:v for k,v in playlists.items() if len(v) >= 5}
+            # Get centroid features
+            centroid = {
+                'bpm': cluster_songs['bpm'].median(),
+                'centroid': cluster_songs['centroid'].median(),
+                'danceability': cluster_songs['danceability'].median(),
+                'duration': cluster_songs['duration'].median(),
+                'key': cluster_songs['key'].mode()[0] if not cluster_songs['key'].mode().empty else -1,
+                'scale': cluster_songs['scale'].mode()[0] if not cluster_songs['scale'].mode().empty else 0
+            }
+
+            name = self.generate_playlist_name(centroid)
+            playlists[name] = cluster_songs['filepath'].tolist()
+
+        return {k: v for k, v in playlists.items() if len(v) >= MIN_CLUSTER_SIZE}
 
     def cleanup_database(self):
         try:
