@@ -274,9 +274,18 @@ class AudioAnalyzer:
 
     def _extract_all_features(self, audio_path, audio):
         features = {
-            'duration': self._ensure_float(len(audio) / 44100.0),
-            'filepath': audio_path,
-            'filename': os.path.basename(audio_path)
+            'duration': float(len(audio) / 44100.0),
+            'filepath': str(audio_path),
+            'filename': str(os.path.basename(audio_path)),
+            'bpm': float(bpm_result[0]) if 'bpm_result' in locals() else 0.0,
+            'beat_confidence': float(bpm_result[1]) if 'bpm_result' in locals() else 0.0,
+            'centroid': float(centroid_result) if 'centroid_result' in locals() else 0.0,
+            'loudness': float(loudness_result) if 'loudness_result' in locals() else 0.0,
+            'danceability': float(danceability_result) if 'danceability_result' in locals() else 0.0,
+            'key': int(key_result[0]) if 'key_result' in locals() else -1,
+            'scale': int(key_result[1]) if 'key_result' in locals() else 0,
+            'onset_rate': float(onset_rate_result) if 'onset_rate_result' in locals() else 0.0,
+            'zcr': float(zcr_result) if 'zcr_result' in locals() else 0.0
         }
 
         # Initialize all features with default values first
