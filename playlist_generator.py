@@ -193,7 +193,7 @@ class PlaylistGenerator:
         results = []
         max_retries = 3
         retries = 0
-        batch_size = min(100, len(file_list))  # Process in batches of 50
+        batch_size = min(1, len(file_list))  # Process in batches of 50
         
         while file_list and retries < max_retries:
             try:
