@@ -82,10 +82,25 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Portable path resolution (replaces realpath -m)
+resolve_path() {
+    local path="$1"
+    # If path is relative, prepend current directory
+    if [[ "$path" != /* ]]; then
+        path="${PWD%/}/${path}"
+    fi
+    # Normalize path (remove .., ., etc)
+    while [[ "$path" =~ (.*)/[^/]+/\.\.(.*) ]]; do
+        path="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+    done
+    path="${path//\/.\//\/}"
+    echo "${path%/}"
+}
+
 # Resolve all paths to absolute form
-MUSIC_DIR=$(realpath -m "$MUSIC_DIR")
-OUTPUT_DIR=$(realpath -m "$OUTPUT_DIR")
-CACHE_DIR=$(realpath -m "$CACHE_DIR")
+MUSIC_DIR=$(resolve_path "$MUSIC_DIR")
+OUTPUT_DIR=$(resolve_path "$OUTPUT_DIR")
+CACHE_DIR=$(resolve_path "$CACHE_DIR")
 
 # Create directories with proper permissions
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
