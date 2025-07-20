@@ -434,14 +434,7 @@ def main():
     container_output_dir = "/app/playlists"
     container_cache_dir = "/app/cache"
 
-    # Validate host path exists
-    if not Path(args.host_music_dir).exists():
-        logger.error(f"Host music directory does not exist: {args.host_music_dir}")
-        logger.info(f"Expected container path: {container_music_dir}")
-        logger.info("Verify your Docker volume mount: -v [host_path]:/music")
-        sys.exit(1)
-
-    # Validate container path exists (should be mounted from host)
+    # Validate container music directory exists (should be mounted from host)
     if not Path(container_music_dir).exists():
         logger.error(f"Container music directory missing: {container_music_dir}")
         logger.info(f"Mounted from host path: {args.host_music_dir}")
@@ -457,17 +450,9 @@ def main():
     generator.host_music_dir = str(Path(args.host_music_dir).resolve())
     generator.host_output_dir = str(Path(args.host_output_dir).resolve())
     generator.host_cache_dir = str(Path(args.host_cache_dir).resolve()) if args.host_cache_dir else ""
-    
-    # Validate host paths exist
-    required_dirs = {
-        "Music": generator.host_music_dir,
-        "Output": generator.host_output_dir
-    }
-    
-    for name, path in required_dirs.items():
-        if not Path(path).exists():
-            logger.error(f"{name} directory not found: {path}")
-            sys.exit(1)
+
+    # Remove host path validation - container can't access host paths directly
+    # Instead, we rely on Docker volume mounts to provide access to container paths
 
     start_time = time.time()
     try:
