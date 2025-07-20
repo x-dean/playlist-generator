@@ -1,8 +1,8 @@
-# analyze_music.py (fixed logging version)
+# analyze_music.py (optimized version)
 import numpy as np
 import essentia.standard as es
 import os
-import logging  # Keep logging import but don't configure
+import logging
 import sys
 import sqlite3
 import hashlib
@@ -10,54 +10,17 @@ import signal
 from functools import wraps
 import traceback
 import warnings
-import pydub
-import resource
-import gc
-import resource
-import time
-import threading
 
-class MemoryMonitor(threading.Thread):
-    def __init__(self, limit_gb=4, threshold=0.9):
-        super().__init__()
-        self.limit = limit_gb * (1024**3)
-        self.threshold = threshold
-        self.high_water_mark = 0
-        self.running = True
-        self.daemon = True
-        
-    def run(self):
-        while self.running:
-            try:
-                usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
-                self.high_water_mark = max(self.high_water_mark, usage)
-                
-                if usage > self.limit * self.threshold:
-                    logger.warning(f"Memory critical: {usage/(1024**2):.2f}MB > {self.limit*self.threshold/(1024**2):.2f}MB")
-                    # Free memory proactively
-                    gc.collect()
-            except Exception as e:
-                logger.error(f"Memory monitor error: {str(e)}")
-            time.sleep(0.5)
-    
-    def stop(self):
-        self.running = False
-
-# Start memory monitor globally
-mem_monitor = MemoryMonitor(4)
-mem_monitor.start()
-
-# Add at bottom of file
-def memory_guard():
-    """Check if memory usage is critical"""
-    try:
-        current = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
-        return current > MEMORY_LIMIT * 0.8
-    except:
-        return False
-    
-# Use module-level logger without configuring handlers
+# Configure logger
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+# Disable Essentia warnings
+warnings.filterwarnings("ignore", category=UserWarning, module='essentia')
 
 class TimeoutException(Exception):
     pass
@@ -78,16 +41,6 @@ def timeout(seconds=60, error_message="Processing timed out"):
             return result
         return wrapper
     return decorator
-
-# Set memory limit to 4 GiB
-MEMORY_LIMIT = 4 * 1024 * 1024 * 1024  # 4 GiB in bytes
-try:
-    resource.setrlimit(resource.RLIMIT_AS, (MEMORY_LIMIT, MEMORY_LIMIT))
-    logger.info(f"Memory limit set to 4 GiB")
-except (ValueError, resource.error) as e:
-    logger.warning(f"Could not set memory limit: {str(e)}")
-# Disable warnings from Essentia
-warnings.filterwarnings("ignore", category=UserWarning, module='essentia')
 
 class AudioAnalyzer:
     def __init__(self, cache_file=None):
@@ -173,50 +126,27 @@ class AudioAnalyzer:
                 'file_path': filepath
             }
 
+    @timeout()
     def _safe_audio_load(self, audio_path):
-        if memory_guard():
-            logger.warning(f"Memory critical, skipping {audio_path}")
-            return None
-            
         try:
+            logger.info(f"Loading audio: {os.path.basename(audio_path)}")
             loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
             audio = loader()
-            return audio if audio.size > 0 else None
-        except MemoryError:
-            logger.error(f"Memory error loading {audio_path}")
-            gc.collect()
-            return None
-        except Exception as e:
-            logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
-            return None
             
-    def _memory_usage(self):
-        """Get current memory usage as fraction of limit (0-1)"""
-        try:
-            process = psutil.Process(os.getpid())
-            return process.memory_info().rss / MEMORY_LIMIT
-        except:
-            return 0
-
-    def _is_valid_audio(self, filepath):
-        """Check if file is a valid audio file using ffprobe"""
-        try:
-            import subprocess
-            result = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", 
-                "-of", "csv=p=0", filepath],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=10
-            )
-            return "audio" in result.stdout
-        except:
-            return False
+            if audio.size == 0:
+                logger.warning(f"Empty audio file: {os.path.basename(audio_path)}")
+                return None
+                
+            logger.debug(f"Loaded {len(audio)/44100:.2f}s audio from {os.path.basename(audio_path)}")
+            return audio
+        except Exception as e:
+            logger.warning(f"AudioLoader error for {os.path.basename(audio_path)}: {str(e)}")
+            return None
 
     @timeout()
     def _extract_rhythm_features(self, audio):
         try:
+            logger.debug("Extracting rhythm features")
             rhythm_extractor = es.RhythmExtractor()
             bpm, _, confidence, _ = rhythm_extractor(audio)
             beat_conf = float(np.nanmean(confidence)) if isinstance(confidence, (list, np.ndarray)) else float(confidence)
@@ -228,6 +158,7 @@ class AudioAnalyzer:
     @timeout()
     def _extract_spectral_features(self, audio):
         try:
+            logger.debug("Extracting spectral features")
             spectral = es.SpectralCentroidTime(sampleRate=44100)
             centroid_values = spectral(audio)
             return float(np.nanmean(centroid_values)) if isinstance(centroid_values, (list, np.ndarray)) else float(centroid_values)
@@ -238,6 +169,7 @@ class AudioAnalyzer:
     @timeout()
     def _extract_loudness(self, audio):
         try:
+            logger.debug("Extracting loudness")
             return float(es.RMS()(audio))
         except Exception as e:
             logger.warning(f"Loudness extraction failed: {str(e)}")
@@ -246,6 +178,7 @@ class AudioAnalyzer:
     @timeout()
     def _extract_danceability(self, audio):
         try:
+            logger.debug("Extracting danceability")
             danceability, _ = es.Danceability()(audio)
             return float(danceability)
         except Exception as e:
@@ -256,8 +189,10 @@ class AudioAnalyzer:
     def _extract_key(self, audio):
         try:
             if len(audio) < 44100 * 3:  # Need at least 3 seconds
+                logger.debug("Audio too short for key detection")
                 return -1, 0
                 
+            logger.debug("Extracting musical key")
             key, scale, _ = es.KeyExtractor(frameSize=4096, hopSize=2048)(audio)
             
             # Convert key to numerical index
@@ -279,72 +214,65 @@ class AudioAnalyzer:
         try:
             # Skip if audio is too short (less than 1 second)
             if len(audio) < 44100:
+                logger.debug("Audio too short for onset detection")
                 return 0.0
 
-            # Get the raw result from Essentia
+            logger.debug("Extracting onset rate")
             result = es.OnsetRate()(audio)
-
-            # Debug logging to inspect the raw result
-            logger.debug(f"Raw OnsetRate result: {result}, type: {type(result)}")
 
             # Handle all possible return types
             if hasattr(result, '__len__'):
-                # Case: Result is array-like (numpy array, list, tuple)
                 if len(result) > 0:
                     first_element = result[0]
                     if isinstance(first_element, (np.ndarray, list, tuple)):
-                        # Handle nested arrays (unlikely but possible)
                         if len(first_element) > 0:
                             return float(first_element[0])
                         return 0.0
                     return float(first_element)
                 return 0.0
             elif result is not None:
-                # Case: Result is a single value
                 return float(result)
             
             return 0.0
 
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
+            return 0.0
 
     @timeout()
     def _extract_zcr(self, audio):
         try:
+            logger.debug("Extracting zero crossing rate")
             return float(np.mean(es.ZeroCrossingRate()(audio)))
         except Exception as e:
             logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
             return 0.0
 
     def extract_features(self, audio_path):
-        if memory_guard():
-            logger.warning("Memory critical, skipping file and collecting garbage")
-            gc.collect()
-            time.sleep(0.5)  # Allow GC to work
-            return None, False, None
-        if self._memory_usage() > 0.7:
-            gc.collect()
         try:
+            filename = os.path.basename(audio_path)
             file_info = self._get_file_info(audio_path)
             
             # Check cache first
             cached_features = self._get_cached_features(file_info)
             if cached_features:
+                logger.info(f"Using cached features for {filename}")
                 return cached_features
 
             # Process new file
-            logger.debug(f"Using cached features for {file_info['file_path']}")
+            logger.info(f"Processing {filename}")
             audio = self._safe_audio_load(audio_path)
             if audio is None:
+                logger.warning(f"Skipped {filename} (audio load failed)")
                 return None, False, None
 
             features = self._extract_all_features(audio_path, audio)
             self._save_features_to_db(file_info, features)
             
+            logger.info(f"Processed {filename} successfully")
             return features, False, file_info['file_hash']
         except Exception as e:
-            logger.error(f"Error processing {audio_path}: {str(e)}")
-            logger.error(traceback.format_exc())
+            logger.error(f"Error processing {os.path.basename(audio_path)}: {str(e)}")
             return None, False, None
 
     def _get_cached_features(self, file_info):
@@ -357,7 +285,6 @@ class AudioAnalyzer:
         """, (file_info['file_hash'], file_info['last_modified']))
 
         if row := cursor.fetchone():
-            logger.debug(f"Using cached features for {file_info['file_path']}")
             return {
                 'duration': row[0],
                 'bpm': row[1],
@@ -379,18 +306,9 @@ class AudioAnalyzer:
             'duration': float(len(audio) / 44100.0),
             'filepath': str(audio_path),
             'filename': str(os.path.basename(audio_path)),
-            'bpm': float(bpm_result[0]) if 'bpm_result' in locals() else 0.0,
-            'beat_confidence': float(bpm_result[1]) if 'bpm_result' in locals() else 0.0,
-            'centroid': float(centroid_result) if 'centroid_result' in locals() else 0.0,
-            'loudness': float(loudness_result) if 'loudness_result' in locals() else 0.0,
-            'danceability': float(danceability_result) if 'danceability_result' in locals() else 0.0,
-            'key': int(key_result[0]) if 'key_result' in locals() else -1,
-            'scale': int(key_result[1]) if 'key_result' in locals() else 0,
-            'onset_rate': float(onset_rate_result) if 'onset_rate_result' in locals() else 0.0,
-            'zcr': float(zcr_result) if 'zcr_result' in locals() else 0.0
         }
 
-        # Initialize all features with default values first
+        # Initialize all features with default values
         default_features = {
             'bpm': 0.0,
             'beat_confidence': 0.0,
@@ -419,7 +337,7 @@ class AudioAnalyzer:
                     'zcr': self._ensure_float(self._extract_zcr(audio))
                 })
             except Exception as e:
-                logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
+                logger.error(f"Feature extraction error for {os.path.basename(audio_path)}: {str(e)}")
         
         return features
 
@@ -445,6 +363,7 @@ class AudioAnalyzer:
                 self._ensure_float(features['zcr']),
                 self._ensure_float(file_info['last_modified'])
             ))
+        logger.info(f"Saved features to DB for {os.path.basename(file_info['file_path'])}")
 
     def get_all_features(self):
         try:
@@ -454,19 +373,23 @@ class AudioAnalyzer:
                    loudness, danceability, key, scale, onset_rate, zcr
             FROM audio_features
             """)
-            return [{
-                'filepath': row[0],
-                'duration': row[1],
-                'bpm': row[2],
-                'beat_confidence': row[3],
-                'centroid': row[4],
-                'loudness': row[5],
-                'danceability': row[6],
-                'key': row[7],
-                'scale': row[8],
-                'onset_rate': row[9],
-                'zcr': row[10]
-            } for row in cursor.fetchall()]
+            results = []
+            for row in cursor.fetchall():
+                results.append({
+                    'filepath': row[0],
+                    'duration': row[1],
+                    'bpm': row[2],
+                    'beat_confidence': row[3],
+                    'centroid': row[4],
+                    'loudness': row[5],
+                    'danceability': row[6],
+                    'key': row[7],
+                    'scale': row[8],
+                    'onset_rate': row[9],
+                    'zcr': row[10]
+                })
+            logger.info(f"Retrieved {len(results)} features from database")
+            return results
         except Exception as e:
             logger.error(f"Error fetching features: {str(e)}")
             return []
