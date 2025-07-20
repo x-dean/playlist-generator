@@ -255,19 +255,15 @@ class PlaylistGenerator:
     def convert_to_host_path(self, container_path: str) -> str:
         """Convert container path to host path for playlist files."""
         try:
-            # Normalize paths
-            container_path = str(Path(container_path))
-            container_music = str(Path(self.container_music_dir))
-            
-            # Handle direct mappings first
-            if container_path.startswith('/music/'):
-                return str(Path(self.host_music_dir) / Path(container_path).relative_to('/music'))
-            
-            if container_path.startswith(container_music):
-                return str(Path(self.host_music_dir) / Path(container_path).relative_to(container_music))
-                
+            # Get relative path from container music directory
+            rel_path = Path(container_path).relative_to(self.container_music_dir)
+            # Combine with host music directory
+            return str(Path(self.host_music_dir) / rel_path)
+        except ValueError:
+            # Path not relative to container music dir
             return container_path
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Path conversion failed for {container_path}: {str(e)}")
             return container_path
 
     def generate_playlist_name(self, features: Dict[str, Any]) -> str:
@@ -409,10 +405,14 @@ def main():
     global logger  # Declare we're using the global logger
     
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
-    parser.add_argument('--music_dir', default='/music', help='Music directory in container')
-    parser.add_argument('--host_music_dir', required=True, help='Host music directory')
-    parser.add_argument('--output_dir', default='/output', help='Output directory in container')
-    parser.add_argument('--cache_dir', default='/cache', help='Cache directory in container')
+    parser.add_argument('--music_dir', required=True, 
+                       help='Music directory in container (must be mounted)')
+    parser.add_argument('--host_music_dir', required=True,
+                       help='Corresponding host music directory path')
+    parser.add_argument('--output_dir', required=True,
+                       help='Output directory in container (will be created)')
+    parser.add_argument('--cache_dir', default='/cache',
+                       help='Cache directory in container')
     parser.add_argument('--num_playlists', type=int, default=8, 
                        help='Number of playlists')
     parser.add_argument('--workers', type=int, default=None, 
@@ -428,31 +428,38 @@ def main():
     # Initialize logger with the requested level
     logger.setLevel(getattr(logging, args.log_level.upper(), logging.INFO))
 
-    # Validate arguments
-    if not Path(args.music_dir).exists():
-        logger.error(f"Music directory does not exist: {args.music_dir}")
-        logger.info(f"Current working directory: {Path.cwd()}")
-        sys.exit(1)
-
+    # Validate host path exists
     if not Path(args.host_music_dir).exists():
         logger.error(f"Host music directory does not exist: {args.host_music_dir}")
-        logger.info(f"Current working directory: {Path.cwd()}")
+        logger.info(f"Expected container path: {args.music_dir}")
+        logger.info("Verify your Docker volume mount: -v /root/music/library:/music")
+        sys.exit(1)
+
+    # Validate container path exists (should be mounted from host)
+    if not Path(args.music_dir).exists():
+        logger.error(f"Container music directory missing: {args.music_dir}")
+        logger.info(f"Mounted from host path: {args.host_music_dir}")
+        logger.info("Check your Docker volume mounts")
         sys.exit(1)
 
     # Create output and cache directories if they don't exist
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     Path(args.cache_dir).mkdir(parents=True, exist_ok=True)
     
+    # Initialize generator with dynamic paths
     generator = PlaylistGenerator()
     generator.container_music_dir = str(Path(args.music_dir).resolve())
     generator.host_music_dir = str(Path(args.host_music_dir).resolve())
-    generator.cache_file = str(Path(args.cache_dir) / 'audio_analysis.db')
-    
-    logger.info(f"Starting playlist generation with {args.workers} workers")
-    logger.info(f"Container music dir: {generator.container_music_dir}")
-    logger.info(f"Host music dir: {generator.host_music_dir}")
-    logger.info(f"Output dir: {args.output_dir}")
-    logger.info(f"Cache dir: {args.cache_dir}")
+
+    # Verify host path exists
+    if not Path(generator.host_music_dir).exists():
+        logger.error(f"Host music directory not found: {generator.host_music_dir}")
+        logger.info(f"Mounted in container as: {generator.container_music_dir}")
+        sys.exit(1)
+
+    # Create container directories if needed
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    Path(args.cache_dir).mkdir(parents=True, exist_ok=True)
 
     start_time = time.time()
     try:
