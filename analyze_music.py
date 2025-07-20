@@ -56,9 +56,9 @@ class AudioAnalyzer:
         """Prevent system resource exhaustion"""
         try:
             # Set 2GB memory limit
-            resource.setrlimit(resource.RLIMIT_AS, (2 * 1024**3, 2 * 1024**3))
+            resource.setrlimit(resource.RLIMIT_AS, (4 * 1024**3, 4 * 1024**3))
             # Set 30 second CPU time limit
-            resource.setrlimit(resource.RLIMIT_CPU, (30, 30))
+            resource.setrlimit(resource.RLIMIT_CPU, (120, 120))
         except:
             pass  # Not available on all systems
 
