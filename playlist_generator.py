@@ -151,19 +151,26 @@ class PlaylistGenerator:
         return os.path.join(self.host_music_dir, rel_path)
 
     def generate_playlist_name(self, features):
+        """Generate playlist name with robust feature handling"""
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         
-        # Handle key whether it's index or note name
-        key_idx = features.get('key', -1)
-        if isinstance(key_idx, str):
-            key_idx = keys.index(key_idx) if key_idx in keys else -1
-        else:
-            key_idx = int(key_idx) if key_idx is not None else -1
-        
+        # Safely extract all features with defaults
+        try:
+            key_idx = int(features.get('key', -1))
+            scale = int(features.get('scale', 0))
+            bpm = float(features.get('bpm', 0))
+            centroid = float(features.get('centroid', 0))
+            danceability = float(features.get('danceability', 0))
+            duration = float(features.get('duration', 0))
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Feature conversion error: {str(e)}")
+            key_idx, scale, bpm, centroid, danceability, duration = -1, 0, 0, 0, 0, 0
+
+        # Key and scale
         key_str = keys[key_idx] if 0 <= key_idx < len(keys) else 'Unknown'
-        scale_str = "Maj" if int(features.get('scale', 0)) == 1 else "Min"
+        scale_str = "Maj" if scale == 1 else "Min"
         
-        # BPM categories (more musical terms)
+        # BPM categories
         bpm_desc = (
             "Largo" if bpm < 50 else
             "Adagio" if bpm < 70 else
@@ -173,7 +180,7 @@ class PlaylistGenerator:
             "Presto"
         )
         
-        # Timbre descriptions (more accurate)
+        # Timbre descriptions
         timbre_desc = (
             "SubBass" if centroid < 150 else
             "Dark" if centroid < 300 else
@@ -184,7 +191,7 @@ class PlaylistGenerator:
             "Shrill"
         )
         
-        # Danceability (more descriptive)
+        # Danceability
         dance_desc = (
             "Static" if danceability < 0.3 else
             "Pulse" if danceability < 0.5 else
@@ -193,7 +200,7 @@ class PlaylistGenerator:
             "Energetic"
         )
         
-        # Duration categories
+        # Duration
         duration_desc = (
             "Short" if duration < 120 else
             "Medium" if duration < 240 else
@@ -201,15 +208,7 @@ class PlaylistGenerator:
             "Epic"
         )
         
-        bpm = float(features.get('bpm', 0))
-        centroid = float(features.get('centroid', 0))
-        danceability = float(features.get('danceability', 0))
-        
-        bpm_desc = ("Largo" if bpm < 50 else "Adagio" if bpm < 70 else
-                "Moderato" if bpm < 90 else "Allegro" if bpm < 120 else
-                "Vivace" if bpm < 150 else "Presto")
-        
-        return f"{key_str}{scale_str}_{bpm_desc}_{timbre_desc}_{dance_desc}_{duration_desc}".replace(' ', '_').replace('__', '_').strip('_')
+        return f"{key_str}{scale_str}_{bpm_desc}_{timbre_desc}_{dance_desc}_{duration_desc}"
 
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         """Generate playlists with comprehensive error handling for musical keys"""
