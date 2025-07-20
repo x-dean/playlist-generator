@@ -183,11 +183,22 @@ class AudioAnalyzer:
     @timeout()
     def _extract_onset_rate(self, audio):
         try:
-            onset_rate = es.OnsetRate()(audio)
-            # Handle case where OnsetRate returns a tuple (onset_rate, onset_times)
-            if isinstance(onset_rate, tuple):
-                return float(onset_rate[0])  # Take the first element which is the rate
-            return float(onset_rate)
+            if len(audio) < 44100:  # Need at least 1 second of audio
+                return 0.0
+                
+            result = es.OnsetRate()(audio)
+            
+            # Handle all possible return types
+            if isinstance(result, (list, np.ndarray)):
+                if len(result) > 0:
+                    return float(result[0])
+            elif isinstance(result, tuple):
+                if len(result) > 0:
+                    return float(result[0])
+            elif result is not None:
+                return float(result)
+                
+            return 0.0
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
             return 0.0
