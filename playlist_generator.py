@@ -58,19 +58,19 @@ def sanitize_filename(name):
     return re.sub(r'_+', '_', name).strip('_')
 
 def safe_analyze(filepath):
-    """Standalone analysis without nested multiprocessing"""
+    """Direct analysis without nested multiprocessing"""
     try:
         from analyze_music import audio_analyzer
-        
-        # Direct call without creating new pool
         result = audio_analyzer.extract_features(filepath)
         
         if result and result[0] is not None:
             features = result[0]
-            # Ensure critical features have values
-            for key in ['bpm', 'centroid', 'duration', 'loudness', 'dynamics']:
-                if features.get(key) is None:
-                    features[key] = 0.0
+            # Set defaults for any missing features
+            defaults = {'bpm': 0.0, 'centroid': 0.0, 'duration': 0.0, 
+                       'loudness': -20.0, 'dynamics': 0.0}
+            for k, v in defaults.items():
+                if features.get(k) is None:
+                    features[k] = v
             return features
         return None
     except Exception as e:
@@ -91,7 +91,13 @@ class PlaylistGenerator:
         self.container_music_dir = ""
         self.host_music_dir = ""
         self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')
-        self.blacklisted_files = set()
+
+    def _validate_audio_file(self, filepath):
+        """Check if file exists and has valid audio extension"""
+        valid_extensions = ('.mp3', '.wav', '.flac', '.ogg', '.m4a')
+        return (os.path.isfile(filepath) and \
+               (os.path.getsize(filepath) > 1024) and \
+               (filepath.lower().endswith(valid_extensions)))
 
     def cleanup_database(self):
         """Remove entries for missing files from database"""
@@ -122,23 +128,29 @@ class PlaylistGenerator:
             return []
 
     def analyze_directory(self, music_dir, workers=None, force_sequential=False):
-        file_list = [
-            os.path.join(root, f) 
-            for root, _, files in os.walk(music_dir) 
-            for f in files 
-            if f.lower().endswith(('.mp3', '.wav', '.flac', '.ogg'))
-            and validate_audio_file(os.path.join(root, f))
-        ]
+        """Scan directory for valid audio files"""
+        self.container_music_dir = music_dir.rstrip('/')
         
+        # Build file list with validation
+        file_list = []
+        for root, _, files in os.walk(music_dir):
+            for file in files:
+                filepath = os.path.join(root, file)
+                if self._validate_audio_file(filepath):
+                    file_list.append(filepath)
+
+        logger.info(f"Found {len(file_list)} valid audio files")
         if not file_list:
             logger.error("No valid audio files found")
             return []
 
-        if force_sequential or workers == 1:
-            return self._process_sequential(file_list)
-            
-        workers = min(mp.cpu_count(), len(file_list)) if workers is None else workers
-        return self._process_parallel(file_list, workers)
+        # Determine worker count
+        if workers is None:
+            workers = max(1, mp.cpu_count() // 2)
+            logger.info(f"Using {workers} workers")
+
+        return (self._process_sequential(file_list) if force_sequential or workers <= 1
+                else self._process_parallel(file_list, workers))
 
     def _process_sequential(self, file_list):
         results = []
@@ -160,12 +172,12 @@ class PlaylistGenerator:
             return False
 
     def _process_parallel(self, file_list, workers):
-        """Parallel processing with error handling"""
+        """Robust parallel processing with error handling"""
         results = []
         try:
-            ctx = mp.get_context('spawn')  # Use spawn to avoid fork issues
+            ctx = mp.get_context('spawn')
             with ctx.Pool(processes=workers, maxtasksperchild=50) as pool:
-                # Process files in chunks
+                # Process in chunks for better performance
                 chunk_size = min(100, len(file_list)//workers + 1)
                 
                 with tqdm(total=len(file_list), desc="Processing files") as pbar:
