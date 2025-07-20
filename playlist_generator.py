@@ -152,12 +152,24 @@ class PlaylistGenerator:
 
     def generate_playlist_name(self, features):
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-        key_idx = features.get('key', -1)
-        scale = features.get('scale', 0)
-        bpm = features.get('bpm', 0)
-        centroid = features.get('centroid', 0)
-        danceability = features.get('danceability', 0)
-        duration = features.get('duration', 0)
+        
+        # Safely convert key index to integer
+        try:
+            key_idx = int(features.get('key', -1))
+        except (TypeError, ValueError):
+            key_idx = -1
+        
+        # Ensure scale is integer
+        try:
+            scale = int(features.get('scale', 0))
+        except (TypeError, ValueError):
+            scale = 0
+        
+        # Safely get numerical features with defaults
+        bpm = float(features.get('bpm', 0))
+        centroid = float(features.get('centroid', 0))
+        danceability = float(features.get('danceability', 0))
+        duration = float(features.get('duration', 0))
         
         # Key and scale
         key_str = keys[key_idx] if 0 <= key_idx < len(keys) else 'Unknown'
