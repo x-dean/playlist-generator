@@ -106,7 +106,7 @@ class PlaylistGenerator:
         self.host_music_dir = ""   # Will be set from CLI args
         self.host_output_dir = ""  # Will be set from CLI args
         self.host_cache_dir = ""   # Will be set from CLI args
-        self.cache_file = "/cache/audio_analysis.db"  # Fixed container path
+        self.cache_file = "/app/cache/audio_analysis.db"  # Fixed container path
 
     def _validate_audio_file(self, filepath: str) -> bool:
         """Check if file exists and has valid audio extension."""
@@ -411,9 +411,9 @@ def main():
     parser.add_argument('--host_music_dir', required=True,
                       help='Host path corresponding to /music in container')
     parser.add_argument('--host_output_dir', required=True,
-                      help='Host path corresponding to /output in container')
+                      help='Host path corresponding to /app/playlists in container')
     parser.add_argument('--host_cache_dir', required=False,
-                      help='Host path corresponding to /cache in container')
+                      help='Host path corresponding to /app/cache in container')
     parser.add_argument('--num_playlists', type=int, default=8, 
                        help='Number of playlists')
     parser.add_argument('--workers', type=int, default=None, 
@@ -429,23 +429,28 @@ def main():
     # Initialize logger with the requested level
     logger.setLevel(getattr(logging, args.log_level.upper(), logging.INFO))
 
+    # ===== FIXED CONTAINER PATHS =====
+    container_music_dir = "/music"
+    container_output_dir = "/app/playlists"
+    container_cache_dir = "/app/cache"
+
     # Validate host path exists
     if not Path(args.host_music_dir).exists():
         logger.error(f"Host music directory does not exist: {args.host_music_dir}")
-        logger.info(f"Expected container path: {args.music_dir}")
-        logger.info("Verify your Docker volume mount: -v /root/music/library:/music")
+        logger.info(f"Expected container path: {container_music_dir}")
+        logger.info("Verify your Docker volume mount: -v [host_path]:/music")
         sys.exit(1)
 
     # Validate container path exists (should be mounted from host)
-    if not Path(args.music_dir).exists():
-        logger.error(f"Container music directory missing: {args.music_dir}")
+    if not Path(container_music_dir).exists():
+        logger.error(f"Container music directory missing: {container_music_dir}")
         logger.info(f"Mounted from host path: {args.host_music_dir}")
         logger.info("Check your Docker volume mounts")
         sys.exit(1)
 
     # Create output and cache directories if they don't exist
-    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    Path(args.cache_dir).mkdir(parents=True, exist_ok=True)
+    Path(container_output_dir).mkdir(parents=True, exist_ok=True)
+    Path(container_cache_dir).mkdir(parents=True, exist_ok=True)
     
     # Initialize with host paths
     generator = PlaylistGenerator()
@@ -464,10 +469,6 @@ def main():
             logger.error(f"{name} directory not found: {path}")
             sys.exit(1)
 
-    # Create container directories if needed
-    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    Path(args.cache_dir).mkdir(parents=True, exist_ok=True)
-
     start_time = time.time()
     try:
         generator.cleanup_database()
@@ -478,7 +479,7 @@ def main():
         else:
             logger.info("Analyzing directory")
             features = generator.analyze_directory(
-                args.music_dir,
+                container_music_dir,  # Use fixed container path
                 args.workers,
                 args.force_sequential
             )
@@ -487,7 +488,7 @@ def main():
         
         if features:
             playlists = generator.generate_playlists(features, args.num_playlists)
-            generator.save_playlists(playlists, args.output_dir)
+            generator.save_playlists(playlists, container_output_dir)  # Use fixed container path
         else:
             logger.error("No valid audio files available")
     except KeyboardInterrupt:
