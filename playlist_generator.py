@@ -268,7 +268,7 @@ class PlaylistGenerator:
                 
             return container_path
         except Exception:
-            return container_path)
+            return container_path
 
     def generate_playlist_name(self, features: Dict[str, Any]) -> str:
         """Generate descriptive playlist name from features."""
