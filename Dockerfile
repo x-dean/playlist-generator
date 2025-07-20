@@ -21,7 +21,8 @@ RUN pip install --no-cache-dir \
     matplotlib \
     psutil \
     colorlog \
-    scipy
+    scipy \
+    pydub
 
 # Copy application files
 COPY playlist_generator.py /app/
