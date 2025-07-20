@@ -21,6 +21,8 @@ import json
 from datetime import datetime
 import hashlib
 import coloredlogs
+from concurrent.futures import ProcessPoolExecutor, as_completed, TimeoutError
+
 
 # Colored logging setup
 logger = logging.getLogger(__name__)
@@ -296,33 +298,38 @@ class PlaylistGenerator:
         return results
 
     def _process_parallel(self, file_list, workers):
+        """Refactored parallel processing with proper progress tracking"""
         results = []
         try:
-            ctx = mp.get_context('spawn')
-            with ctx.Pool(processes=workers) as pool:
-                async_results = [
-                    pool.apply_async(process_file_worker, (filepath,))
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                # Submit all tasks
+                future_to_file = {
+                    executor.submit(process_file_worker, filepath): filepath
                     for filepath in file_list
-                ]
+                }
                 
-                pbar = tqdm(total=len(file_list), desc="Processing files")
-                for i, async_result in enumerate(async_results):
-                    try:
-                        features, filepath = async_result.get(timeout=600)
-                        if features:
-                            results.append(features)
-                        else:
+                # Process results as they complete
+                with tqdm(total=len(file_list), desc="Processing files") as pbar:
+                    for future in as_completed(future_to_file):
+                        filepath = future_to_file[future]
+                        try:
+                            features, _ = future.result(timeout=600)
+                            if features:
+                                results.append(features)
+                            else:
+                                self.failed_files.append(filepath)
+                        except TimeoutError:
                             self.failed_files.append(filepath)
-                    except mp.TimeoutError:
-                        self.failed_files.append(filepath)
-                    except Exception:
-                        self.failed_files.append(filepath)
-                    
-                    if i % 10 == 0 or not features:
-                        pbar.update(1)
-                pbar.close()
+                            logger.warning(f"Timeout processing {filepath}")
+                        except Exception as e:
+                            self.failed_files.append(filepath)
+                            logger.error(f"Error processing {filepath}: {str(e)}")
+                        finally:
+                            pbar.update(1)
             return results
-        except Exception:
+        except Exception as e:
+            logger.error(f"Parallel processing failed: {str(e)}")
+            # Fallback to sequential processing
             return self._process_sequential(file_list)
 
     def get_all_features_from_db(self):
@@ -425,6 +432,7 @@ class PlaylistGenerator:
         
         return f"{bpm_desc}_{timbre_desc}_{duration_desc}_{mood}"
 
+# Replace the existing generate_playlists method with this improved version
     def generate_playlists(self, features_list, num_playlists=5, chunk_size=1000, output_dir=None):
         if not features_list:
             logger.warning("No features to cluster")
@@ -447,7 +455,13 @@ class PlaylistGenerator:
             logger.warning("No valid features after filtering")
             return {}
             
-        logger.info(f"Clustering {len(valid_features)} tracks")
+        # Optimized clustering parameters
+        n_clusters = min(
+            max(5, num_playlists * 2),  # Ensure minimum clusters
+            max(20, len(valid_features) // 10)  # Scale with library size
+        )
+        
+        logger.info(f"Clustering {len(valid_features)} tracks into {n_clusters} groups")
         
         df = pd.DataFrame(valid_features)
         
@@ -467,19 +481,24 @@ class PlaylistGenerator:
         
         # Cluster using MiniBatchKMeans
         kmeans = MiniBatchKMeans(
-            n_clusters=min(50, len(df)),
+            n_clusters=n_clusters,
             random_state=42,
             batch_size=min(500, len(df)),
-            n_init=3,
-            max_iter=50
+            n_init='auto',
+            max_iter=50,
+            compute_labels=True,
+            tol=0.001
         )
         df['cluster'] = kmeans.fit_predict(features_scaled)
         
         # Group clusters by their characteristics
         playlist_groups = {}
+        # Adjust minimum cluster size based on library size
+        min_cluster_size = max(5, len(df) // 20)  # More flexible threshold
+        
         for cluster in df['cluster'].unique():
             cluster_songs = df[df['cluster'] == cluster]
-            if len(cluster_songs) < 30:  # Skip small clusters
+            if len(cluster_songs) < min_cluster_size:  # Skip small clusters
                 continue
                 
             # Get median duration for accurate naming

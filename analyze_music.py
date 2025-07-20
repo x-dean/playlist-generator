@@ -121,7 +121,7 @@ class AudioAnalyzer:
                 'file_path': filepath
             }
 
-    @timeout()
+    @timeout(120)
     def _safe_audio_load(self, audio_path):
         try:
             loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
@@ -131,7 +131,7 @@ class AudioAnalyzer:
             logger.error(f"AudioLoader error for {audio_path}: {str(e)}")
             return None
 
-    @timeout()
+    @timeout(120)
     def _extract_rhythm_features(self, audio):
         try:
             rhythm_extractor = es.RhythmExtractor()
@@ -148,7 +148,7 @@ class AudioAnalyzer:
             logger.error(f"Rhythm extraction failed: {str(e)}")
             return 0.0, 0.0
 
-    @timeout()
+    @timeout(120)
     def _extract_spectral_features(self, audio):
         try:
             spectral = es.SpectralCentroidTime(sampleRate=44100)
@@ -164,7 +164,7 @@ class AudioAnalyzer:
             logger.error(f"Spectral extraction failed: {str(e)}")
             return 0.0
             
-    @timeout()
+    @timeout(120)
     def _extract_loudness(self, audio):
         try:
             loudness = es.Loudness()(audio)
@@ -173,7 +173,7 @@ class AudioAnalyzer:
             logger.error(f"Loudness extraction failed: {str(e)}")
             return 0.0
             
-    @timeout()
+    @timeout(120)
     def _extract_dynamics(self, audio):
         try:
             dynamic_complexity, _ = es.DynamicComplexity()(audio)
@@ -182,7 +182,7 @@ class AudioAnalyzer:
             logger.error(f"Dynamic complexity extraction failed: {str(e)}")
             return 0.0
             
-    @timeout()
+    @timeout(120)
     def _extract_harmonic_features(self, audio):
         try:
             key_extractor = es.KeyExtractor()
@@ -192,7 +192,7 @@ class AudioAnalyzer:
             logger.error(f"Harmonic extraction failed: {str(e)}")
             return "unknown", "unknown", 0.0
             
-    @timeout()
+    @timeout(120)
     def _extract_rhythm_complexity(self, audio):
         """Alternative rhythm feature when onset strength isn't available"""
         try:
