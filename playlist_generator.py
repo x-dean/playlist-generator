@@ -943,6 +943,10 @@ def main():
                        help='Force sequential processing')
     parser.add_argument('--update', action='store_true',
                        help='Update existing playlists instead of recreating')
+    parser.add_argument('--analyze_only', action='store_true', 
+                   help='Only run audio analysis without generating playlists')
+    parser.add_argument('--generate_only', action='store_true', 
+                   help='Only generate playlists from database without analysis')
     args = parser.parse_args()
 
     generator = PlaylistGenerator()
@@ -960,11 +964,22 @@ def main():
             generator.update_playlists()
             playlists = generator.generate_playlists_from_db()
             generator.save_playlists(playlists, args.output_dir)
-        elif args.use_db:
+        if args.analyze_only:
+            # Only analyze and update database
+            logger.info("Running audio analysis only")
+            features = generator.analyze_directory(
+                args.music_dir,
+                args.workers,
+                args.force_sequential
+            )
+            logger.info(f"Analysis completed. Processed {len(features)} files")
+            
+        elif args.generate_only:
+            # Only generate playlists from database
             logger.info("Generating playlists from database")
-            # Generate both clustered and time-based playlists
+            features_from_db = generator.get_all_features_from_db()
             clustered_playlists = generator.generate_playlists_from_db()
-            time_playlists = generator.generate_time_based_playlists(generator.get_all_features_from_db())
+            time_playlists = generator.generate_time_based_playlists(features_from_db)
             all_playlists = {**clustered_playlists, **time_playlists}
             generator.save_playlists(all_playlists, args.output_dir)
         else:
