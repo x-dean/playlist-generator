@@ -126,21 +126,6 @@ class AudioAnalyzer:
             logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
             return None
 
-    def _is_valid_audio(self, filepath):
-        """Check if file is a valid audio file using ffprobe"""
-        try:
-            import subprocess
-            result = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
-                "-of", "csv=p=0", filepath],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=10
-            )
-            return "audio" in result.stdout
-        except:
-            return False
 
     @timeout()
     def _extract_rhythm_features(self, audio):
