@@ -591,7 +591,6 @@ def main():
     generator.host_music_dir = args.host_music_dir.rstrip('/')
 
     start_time = time.time()
-    mem_guard = ProcessMemoryGuard(4)
     try:
         missing_in_db = generator.cleanup_database()
         if missing_in_db:
