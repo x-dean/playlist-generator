@@ -433,8 +433,92 @@ class PlaylistGenerator:
         return f"{bpm_desc} {dance_desc} {mood_desc}"
 
     def generate_time_based_playlists(self, features_list):
-        """Generate all time-based playlists"""
-        return self.scheduler.generate_time_based_playlists(features_list)
+        """Generate all time-based playlists using feature rules"""
+        playlists = {}
+        for slot_name in self.scheduler.time_slots:
+            # Filter tracks for this time slot
+            filtered_tracks = []
+            for track in features_list:
+                if not track:
+                    continue
+                    
+                valid = True
+                rules = self.scheduler.feature_rules.get(slot_name, {})
+                
+                # 1. BPM validation
+                if 'min_bpm' in rules and track.get('bpm', 0) < rules['min_bpm']:
+                    valid = False
+                if valid and 'max_bpm' in rules and track.get('bpm', 0) > rules['max_bpm']:
+                    valid = False
+                    
+                # 2. Danceability validation
+                if valid and 'min_danceability' in rules and track.get('danceability', 0) < rules['min_danceability']:
+                    valid = False
+                if valid and 'max_danceability' in rules and track.get('danceability', 0) > rules['max_danceability']:
+                    valid = False
+                    
+                # 3. Spectral centroid validation
+                if valid and 'min_centroid' in rules and track.get('centroid', 0) < rules['min_centroid']:
+                    valid = False
+                if valid and 'max_centroid' in rules and track.get('centroid', 0) > rules['max_centroid']:
+                    valid = False
+                    
+                # 4. Loudness validation
+                if valid and 'min_loudness' in rules and track.get('loudness', 0) < rules['min_loudness']:
+                    valid = False
+                if valid and 'max_loudness' in rules and track.get('loudness', 0) > rules['max_loudness']:
+                    valid = False
+                    
+                # 5. Key compatibility validation
+                if valid and 'compatible_keys' in rules:
+                    key = track.get('key', -1)
+                    if key >= 0:  # Only validate if key is detected
+                        if key not in rules['compatible_keys']:
+                            valid = False
+                            
+                # 6. Duration validation
+                if valid and 'min_duration' in rules and track.get('duration', 0) < rules['min_duration']:
+                    valid = False
+                if valid and 'max_duration' in rules and track.get('duration', 0) > rules['max_duration']:
+                    valid = False
+                    
+                # 7. Scale validation (major/minor)
+                if valid and 'required_scale' in rules:
+                    scale = track.get('scale', 0)
+                    # 1 = major, 0 = minor
+                    if rules['required_scale'] == 'major' and scale != 1:
+                        valid = False
+                    elif rules['required_scale'] == 'minor' and scale != 0:
+                        valid = False
+                        
+                # 8. Onset rate validation (rhythm complexity)
+                if valid and 'min_onset_rate' in rules and track.get('onset_rate', 0) < rules['min_onset_rate']:
+                    valid = False
+                if valid and 'max_onset_rate' in rules and track.get('onset_rate', 0) > rules['max_onset_rate']:
+                    valid = False
+                    
+                # 9. Zero crossing rate validation (noise/brightness)
+                if valid and 'min_zcr' in rules and track.get('zcr', 0) < rules['min_zcr']:
+                    valid = False
+                if valid and 'max_zcr' in rules and track.get('zcr', 0) > rules['max_zcr']:
+                    valid = False
+                    
+                if valid:
+                    filtered_tracks.append(track['filepath'])
+                    
+            # Create playlist entry
+            playlists[f"TimeSlot_{slot_name}"] = {
+                'tracks': filtered_tracks,
+                'features': {'type': 'time_based', 'slot': slot_name}
+            }
+            
+            # Track history
+            self.playlist_history[slot_name].append({
+                'timestamp': datetime.datetime.now(),
+                'track_count': len(filtered_tracks)
+            })
+            
+        return playlists
 
     def generate_playlists_from_db(self):
         """Generate balanced playlists using only meaningful feature combinations"""
