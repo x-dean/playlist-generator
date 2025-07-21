@@ -7,6 +7,8 @@ import hashlib
 import signal
 from functools import wraps
 import traceback
+import sys
+
 
 logger = logging.getLogger(__name__)
 
