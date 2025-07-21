@@ -36,12 +36,11 @@ class PlaylistDatabase:
         conn.close()
 
     def update_playlists(self, changed_files=None):
-        """Update playlists based on changed files"""
+        """Update playlists based on changed files. Returns number of changed files."""
         try:
             conn = sqlite3.connect(self.cache_file, timeout=60)
             cursor = conn.cursor()
-
-            # Get changed files if not provided
+            
             if changed_files is None:
                 cursor.execute("""
                 SELECT file_path, file_hash
@@ -54,11 +53,9 @@ class PlaylistDatabase:
 
             if not changed_files:
                 logger.info("No changed files, playlists up-to-date")
-                return
+                return 0
 
             logger.info(f"Updating playlists for {len(changed_files)} changed files")
-
-            # Remove affected tracks from all playlists
             placeholders = ','.join(['?'] * len(changed_files))
             cursor.execute(f"""
             DELETE FROM playlist_tracks
@@ -68,12 +65,13 @@ class PlaylistDatabase:
             )
             """, changed_files)
 
-            # Update playlist timestamp
             cursor.execute("UPDATE playlists SET last_updated = CURRENT_TIMESTAMP")
             conn.commit()
-
+            return len(changed_files)
+            
         except Exception as e:
             logger.error(f"Playlist update failed: {str(e)}")
+            return 0
         finally:
             conn.close()
 
