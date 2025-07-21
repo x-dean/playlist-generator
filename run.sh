@@ -35,6 +35,14 @@ while [[ $# -gt 0 ]]; do
             WORKERS="${1#*=}"
             shift
             ;;
+        --generate_only)
+            GENERATE_ONLY=true
+            shift
+            ;;
+        --analyze_only)
+            ANALYZE_ONLY=true
+            shift
+            ;;
         --num_playlists=*)
             NUM_PLAYLISTS="${1#*=}"
             shift
@@ -63,6 +71,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --chunk_size=<size>      Size of each chunk for processing (default: $CHUNK_SIZE)"
             echo "  --use_db                 Use database for storing features (default: false)"
             echo "  --force_sequential       Force sequential processing (default: false)"
+            echo "  --generate_only          Only generate playlists from database without analysis"
+            echo "  --analyze_only           Only run audio analysis without generating playlists"
             echo "  --help, -h              Show this help message"
             exit 0
             ;;
@@ -86,6 +96,8 @@ export NUM_PLAYLISTS
 export CHUNK_SIZE
 export USE_DB
 export FORCE_SEQUENTIAL
+export GENERATE_ONLY
+export ANALYZE_ONLY
 
 # Print configuration
 echo "=== Playlist Generator Configuration ==="
@@ -117,6 +129,8 @@ docker compose run --rm \
   --workers "$WORKERS" \
   --num_playlists "$NUM_PLAYLISTS" \
   --chunk_size "$CHUNK_SIZE" \
+  --generate_only \
+  --analyze_only \
    $( [ "$USE_DB" = true ] && echo "--use_db" ) \
    $( [ "$FORCE_SEQUENTIAL" = true ] && echo "--force_sequential" )
 
