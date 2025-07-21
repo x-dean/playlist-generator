@@ -120,5 +120,5 @@ docker compose run --rm \
    $( [ "$USE_DB" = true ] && echo "--use_db" ) \
    $( [ "$FORCE_SEQUENTIAL" = true ] && echo "--force_sequential" )
 
-echo "âœ… Playlists generated successfully!"
+echo "Playlists generated successfully!"
 echo "Output available in: $OUTPUT_DIR"
