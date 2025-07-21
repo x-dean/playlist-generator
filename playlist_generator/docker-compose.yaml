@@ -21,7 +21,7 @@ services:
       --output_dir /app/playlists
       --workers ${WORKERS}
       --num_playlists ${NUM_PLAYLISTS}
-      --chunk_size ${CHUNK_SIZE}
       ${ANALYZE_ONLY:+--analyze_only}
       ${GENERATE_ONLY:+--generate_only}
       ${FORCE_SEQUENTIAL:+--force_sequential}
+      ${UPDATE:+--update}

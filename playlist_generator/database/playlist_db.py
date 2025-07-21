@@ -76,3 +76,22 @@ class PlaylistDatabase:
             logger.error(f"Playlist update failed: {str(e)}")
         finally:
             conn.close()
+
+    def get_changed_files(self):
+        """Get files that have changed since last playlist update"""
+        try:
+            conn = sqlite3.connect(self.cache_file, timeout=60)
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT file_path
+            FROM audio_features
+            WHERE last_analyzed > (
+                SELECT MAX(last_updated) FROM playlists
+            )
+            """)
+            return [row[0] for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error getting changed files: {str(e)}")
+            return []
+        finally:
+            conn.close()

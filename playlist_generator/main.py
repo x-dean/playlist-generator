@@ -65,8 +65,8 @@ def main():
     parser.add_argument('--workers', type=int, default=None, help='Number of workers (default: auto)')
     parser.add_argument('--force_sequential', action='store_true', help='Force sequential processing')
     parser.add_argument('--update', action='store_true', help='Update existing playlists')
-    parser.add_argument('--analyze_only', action='store_true', help='Only run audio analysis')
-    parser.add_argument('--generate_only', action='store_true', help='Only generate playlists from database')
+    parser.add_argument('--analyze_only', action='store_true', help='Only run audio analysis without generating playlists')
+    parser.add_argument('--generate_only', action='store_true', help='Only generate playlists from database without analysis')
     args = parser.parse_args()
 
     # Set cache file path
@@ -74,14 +74,6 @@ def main():
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
     
     # Initialize components
-    from music_analyzer.parallel import ParallelProcessor
-    from music_analyzer.sequential import SequentialProcessor
-    from database.audio_db import AudioDatabase
-    from database.playlist_db import PlaylistDatabase
-    from playlist_generator.time_based import TimeBasedScheduler
-    from playlist_generator.kmeans import KMeansPlaylistGenerator
-    from playlist_generator.cache import CacheBasedGenerator
-    
     audio_db = AudioDatabase(cache_file)
     playlist_db = PlaylistDatabase(cache_file)
     time_scheduler = TimeBasedScheduler()
@@ -97,17 +89,17 @@ def main():
         # Clean up database
         missing_in_db = audio_db.cleanup_database()
         if missing_in_db:
-            logger.info(f"Removed {len(missing_in_db)} missing files")
+            logger.info(f"Removed {len(missing_in_db)} missing files from database")
             failed_files.extend(missing_in_db)
 
         if args.update:
-            logger.info("Updating playlists")
+            logger.info("Running in UPDATE mode")
             playlist_db.update_playlists()
             playlists = cache_generator.generate()
             save_playlists(playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
         
         elif args.analyze_only:
-            logger.info("Audio analysis only")
+            logger.info("Running audio analysis only")
             file_list = get_audio_files(args.music_dir)
             
             if args.force_sequential or (args.workers and args.workers <= 1):
@@ -122,20 +114,24 @@ def main():
                 )
                 failed_files.extend(processor.failed_files)
             
-            logger.info(f"Analyzed {len(features)} files, {len(failed_files)} failed")
+            logger.info(f"Analysis completed. Processed {len(features)} files, {len(failed_files)} failed")
         
         elif args.generate_only:
-            logger.info("Generating from database")
+            logger.info("Generating playlists from database")
             features_from_db = audio_db.get_all_features()
+            
+            # Generate both types of playlists
             time_playlists = time_scheduler.generate_time_based_playlists(features_from_db)
             cache_playlists = cache_generator.generate()
             all_playlists = {**time_playlists, **cache_playlists}
+            
             save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
         
         else:
-            logger.info("Full processing")
+            logger.info("Full processing pipeline")
             file_list = get_audio_files(args.music_dir)
             
+            # Analyze files
             if args.force_sequential or (args.workers and args.workers <= 1):
                 processor = SequentialProcessor()
                 features = processor.process(file_list)
@@ -150,9 +146,11 @@ def main():
             
             logger.info(f"Processed {len(features)} files, {len(failed_files)} failed")
             
+            # Generate playlists
             time_playlists = time_scheduler.generate_time_based_playlists(features)
             kmeans_playlists = kmeans_generator.generate(features, args.num_playlists)
             all_playlists = {**time_playlists, **kmeans_playlists}
+            
             save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
     
     except Exception as e:

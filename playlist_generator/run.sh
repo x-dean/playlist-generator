@@ -9,10 +9,10 @@ OUTPUT_DIR="/root/music/library/playlists"
 CACHE_DIR="/root/music/library/playlists/cache"
 WORKERS=$(nproc)
 NUM_PLAYLISTS=10
-CHUNK_SIZE=1000
 FORCE_SEQUENTIAL=false
 GENERATE_ONLY=false
 ANALYZE_ONLY=false
+UPDATE=false
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -50,12 +50,12 @@ while [[ $# -gt 0 ]]; do
             ANALYZE_ONLY=true
             shift
             ;;
-        --num_playlists=*)
-            NUM_PLAYLISTS="${1#*=}"
+        --update)
+            UPDATE=true
             shift
             ;;
-        --chunk_size=*)
-            CHUNK_SIZE="${1#*=}"
+        --num_playlists=*)
+            NUM_PLAYLISTS="${1#*=}"
             shift
             ;;
         --force_sequential)
@@ -72,10 +72,10 @@ while [[ $# -gt 0 ]]; do
             echo "  --cache_dir=<path>       Path to the cache directory (default: $CACHE_DIR)"
             echo "  --workers=<num>          Number of worker threads (default: $(nproc))"
             echo "  --num_playlists=<num>    Number of playlists to generate (default: $NUM_PLAYLISTS)"
-            echo "  --chunk_size=<size>      Size of each chunk for processing (default: $CHUNK_SIZE)"
             echo "  --force_sequential       Force sequential processing (default: false)"
             echo "  --generate_only          Only generate playlists from database without analysis"
             echo "  --analyze_only           Only run audio analysis without generating playlists"
+            echo "  --update                 Update playlists from existing database"
             echo "  --help, -h               Show this help message"
             exit 0
             ;;
@@ -96,10 +96,10 @@ export OUTPUT_DIR
 export CACHE_DIR
 export WORKERS
 export NUM_PLAYLISTS
-export CHUNK_SIZE
 export FORCE_SEQUENTIAL
 export GENERATE_ONLY
 export ANALYZE_ONLY
+export UPDATE
 
 # Print configuration
 echo "=== Playlist Generator Configuration ==="
@@ -109,10 +109,10 @@ echo "Output Directory: $OUTPUT_DIR"
 echo "Cache Directory: $CACHE_DIR"
 echo "Workers: $WORKERS"
 echo "Playlists: $NUM_PLAYLISTS"
-echo "Chunk Size: $CHUNK_SIZE"
 echo "Force Sequential: $FORCE_SEQUENTIAL"
 echo "Generate Only: $GENERATE_ONLY"
 echo "Analyze Only: $ANALYZE_ONLY"
+echo "Update Mode: $UPDATE"
 echo "========================================"
 
 # Build only if requested

@@ -193,9 +193,17 @@ class AudioAnalyzer:
             if len(audio) < 44100:
                 return 0.0
 
-            # Get the onset rate
-            onset_rate, _ = es.OnsetRate()(audio)
-            return float(onset_rate)
+            # Get the onset rate - returns (onset_rate, onset_times)
+            result = es.OnsetRate()(audio)
+            
+            # Extract the onset rate value
+            if isinstance(result, tuple) and len(result) > 0:
+                onset_rate = result[0]
+                # If it's an array, take the mean
+                if isinstance(onset_rate, (list, np.ndarray)):
+                    return float(np.nanmean(onset_rate))
+                return float(onset_rate)
+            return 0.0
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
             return 0.0
