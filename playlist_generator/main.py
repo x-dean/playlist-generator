@@ -5,6 +5,13 @@ import time
 import traceback
 import multiprocessing as mp
 from logging_setup import setup_colored_logging
+from database.audio_db import AudioDatabase
+from database.playlist_db import PlaylistDatabase
+from music_analyzer.parallel import ParallelProcessor
+from music_analyzer.sequential import SequentialProcessor
+from playlist_generator.time_based import TimeBasedScheduler
+from playlist_generator.kmeans import KMeansPlaylistGenerator
+from playlist_generator.cache import CacheBasedGenerator
 
 logger = setup_colored_logging()
 
@@ -46,6 +53,7 @@ def save_playlists(playlists, output_dir, host_music_dir, container_music_dir, f
         saved_count += 1
         logger.info(f"Saved {name} with {len(host_songs)} tracks")
 
+    # Save failed files
     if failed_files:
         failed_path = os.path.join(output_dir, "Failed_Files.m3u")
         with open(failed_path, 'w') as f:
