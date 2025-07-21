@@ -9,7 +9,6 @@ from sklearn.preprocessing import StandardScaler
 import multiprocessing as mp
 import argparse
 import os
-import logging
 from colorlog import ColoredFormatter
 from tqdm import tqdm
 import sys
@@ -22,10 +21,10 @@ import sqlite3
 import gc
 import datetime
 from collections import defaultdict
+import logging
+from colorlog import ColoredFormatter
 
-# Logging setup
 def setup_colored_logging():
-    """Configure colored logging for the application"""
     formatter = ColoredFormatter(
         "%(log_color)s%(asctime)s %(levelname)-8s%(reset)s %(message)s",
         datefmt="%H:%M:%S",
@@ -37,17 +36,13 @@ def setup_colored_logging():
             'ERROR': 'red',
             'CRITICAL': 'red,bg_white',
         },
-        secondary_log_colors={},
         style='%'
     )
-
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
-
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     logger.addHandler(handler)
-
     return logger
 
 # Initialize colored logging
