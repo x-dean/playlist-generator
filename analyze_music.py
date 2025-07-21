@@ -1,26 +1,17 @@
-# analyze_music.py (optimized version)
+# analyze_music.py (fixed logging version)
 import numpy as np
 import essentia.standard as es
 import os
 import logging
-import sys
 import sqlite3
 import hashlib
 import signal
 from functools import wraps
 import traceback
-import warnings
 
-# Configure logger
+
+# Use module-level logger without configuring handlers
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-
-# Disable Essentia warnings
-warnings.filterwarnings("ignore", category=UserWarning, module='essentia')
 
 class TimeoutException(Exception):
     pass
@@ -81,7 +72,7 @@ class AudioAnalyzer:
         cursor = self.conn.cursor()
         cursor.execute("PRAGMA table_info(audio_features)")
         existing_columns = {row[1]: row[2] for row in cursor.fetchall()}
-        
+
         required_columns = {
             'loudness': 'REAL DEFAULT 0',
             'danceability': 'REAL DEFAULT 0',
@@ -90,7 +81,7 @@ class AudioAnalyzer:
             'onset_rate': 'REAL DEFAULT 0',
             'zcr': 'REAL DEFAULT 0'
         }
-        
+
         for col, col_type in required_columns.items():
             if col not in existing_columns:
                 logger.info(f"Adding missing column {col} to database")
@@ -126,27 +117,34 @@ class AudioAnalyzer:
                 'file_path': filepath
             }
 
-    @timeout()
     def _safe_audio_load(self, audio_path):
         try:
-            logger.info(f"Loading audio: {os.path.basename(audio_path)}")
             loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
             audio = loader()
-            
-            if audio.size == 0:
-                logger.warning(f"Empty audio file: {os.path.basename(audio_path)}")
-                return None
-                
-            logger.debug(f"Loaded {len(audio)/44100:.2f}s audio from {os.path.basename(audio_path)}")
-            return audio
+            return audio if audio.size > 0 else None
         except Exception as e:
-            logger.warning(f"AudioLoader error for {os.path.basename(audio_path)}: {str(e)}")
+            logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
             return None
+
+    def _is_valid_audio(self, filepath):
+        """Check if file is a valid audio file using ffprobe"""
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+                "-of", "csv=p=0", filepath],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10
+            )
+            return "audio" in result.stdout
+        except:
+            return False
 
     @timeout()
     def _extract_rhythm_features(self, audio):
         try:
-            logger.debug("Extracting rhythm features")
             rhythm_extractor = es.RhythmExtractor()
             bpm, _, confidence, _ = rhythm_extractor(audio)
             beat_conf = float(np.nanmean(confidence)) if isinstance(confidence, (list, np.ndarray)) else float(confidence)
@@ -158,7 +156,6 @@ class AudioAnalyzer:
     @timeout()
     def _extract_spectral_features(self, audio):
         try:
-            logger.debug("Extracting spectral features")
             spectral = es.SpectralCentroidTime(sampleRate=44100)
             centroid_values = spectral(audio)
             return float(np.nanmean(centroid_values)) if isinstance(centroid_values, (list, np.ndarray)) else float(centroid_values)
@@ -169,7 +166,6 @@ class AudioAnalyzer:
     @timeout()
     def _extract_loudness(self, audio):
         try:
-            logger.debug("Extracting loudness")
             return float(es.RMS()(audio))
         except Exception as e:
             logger.warning(f"Loudness extraction failed: {str(e)}")
@@ -178,7 +174,6 @@ class AudioAnalyzer:
     @timeout()
     def _extract_danceability(self, audio):
         try:
-            logger.debug("Extracting danceability")
             danceability, _ = es.Danceability()(audio)
             return float(danceability)
         except Exception as e:
@@ -189,22 +184,20 @@ class AudioAnalyzer:
     def _extract_key(self, audio):
         try:
             if len(audio) < 44100 * 3:  # Need at least 3 seconds
-                logger.debug("Audio too short for key detection")
                 return -1, 0
-                
-            logger.debug("Extracting musical key")
+
             key, scale, _ = es.KeyExtractor(frameSize=4096, hopSize=2048)(audio)
-            
+
             # Convert key to numerical index
             keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
             try:
                 key_idx = keys.index(key) if key in keys else -1
             except ValueError:
                 key_idx = -1
-                
+
             scale_idx = 1 if scale == 'major' else 0
             return key_idx, scale_idx
-            
+
         except Exception as e:
             logger.warning(f"Key extraction failed: {str(e)}")
             return -1, 0
@@ -214,35 +207,38 @@ class AudioAnalyzer:
         try:
             # Skip if audio is too short (less than 1 second)
             if len(audio) < 44100:
-                logger.debug("Audio too short for onset detection")
                 return 0.0
 
-            logger.debug("Extracting onset rate")
+            # Get the raw result from Essentia
             result = es.OnsetRate()(audio)
+
+            # Debug logging to inspect the raw result
+            logger.debug(f"Raw OnsetRate result: {result}, type: {type(result)}")
 
             # Handle all possible return types
             if hasattr(result, '__len__'):
+                # Case: Result is array-like (numpy array, list, tuple)
                 if len(result) > 0:
                     first_element = result[0]
                     if isinstance(first_element, (np.ndarray, list, tuple)):
+                        # Handle nested arrays (unlikely but possible)
                         if len(first_element) > 0:
                             return float(first_element[0])
                         return 0.0
                     return float(first_element)
                 return 0.0
             elif result is not None:
+                # Case: Result is a single value
                 return float(result)
-            
+
             return 0.0
 
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
-            return 0.0
 
     @timeout()
     def _extract_zcr(self, audio):
         try:
-            logger.debug("Extracting zero crossing rate")
             return float(np.mean(es.ZeroCrossingRate()(audio)))
         except Exception as e:
             logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
@@ -250,41 +246,39 @@ class AudioAnalyzer:
 
     def extract_features(self, audio_path):
         try:
-            filename = os.path.basename(audio_path)
             file_info = self._get_file_info(audio_path)
-            
+
             # Check cache first
             cached_features = self._get_cached_features(file_info)
             if cached_features:
-                logger.info(f"Using cached features for {filename}")
                 return cached_features
 
             # Process new file
-            logger.info(f"Processing {filename}")
+            logger.debug(f"Using cached features for {file_info['file_path']}")
             audio = self._safe_audio_load(audio_path)
             if audio is None:
-                logger.warning(f"Skipped {filename} (audio load failed)")
                 return None, False, None
 
             features = self._extract_all_features(audio_path, audio)
             self._save_features_to_db(file_info, features)
-            
-            logger.info(f"Processed {filename} successfully")
+
             return features, False, file_info['file_hash']
         except Exception as e:
-            logger.error(f"Error processing {os.path.basename(audio_path)}: {str(e)}")
+            logger.error(f"Error processing {audio_path}: {str(e)}")
+            logger.error(traceback.format_exc())
             return None, False, None
 
     def _get_cached_features(self, file_info):
         cursor = self.conn.cursor()
         cursor.execute("""
-        SELECT duration, bpm, beat_confidence, centroid, 
+        SELECT duration, bpm, beat_confidence, centroid,
                loudness, danceability, key, scale, onset_rate, zcr
         FROM audio_features
         WHERE file_hash = ? AND last_modified >= ?
         """, (file_info['file_hash'], file_info['last_modified']))
 
         if row := cursor.fetchone():
+            logger.debug(f"Using cached features for {file_info['file_path']}")
             return {
                 'duration': row[0],
                 'bpm': row[1],
@@ -306,9 +300,18 @@ class AudioAnalyzer:
             'duration': float(len(audio) / 44100.0),
             'filepath': str(audio_path),
             'filename': str(os.path.basename(audio_path)),
+            'bpm': float(bpm_result[0]) if 'bpm_result' in locals() else 0.0,
+            'beat_confidence': float(bpm_result[1]) if 'bpm_result' in locals() else 0.0,
+            'centroid': float(centroid_result) if 'centroid_result' in locals() else 0.0,
+            'loudness': float(loudness_result) if 'loudness_result' in locals() else 0.0,
+            'danceability': float(danceability_result) if 'danceability_result' in locals() else 0.0,
+            'key': int(key_result[0]) if 'key_result' in locals() else -1,
+            'scale': int(key_result[1]) if 'key_result' in locals() else 0,
+            'onset_rate': float(onset_rate_result) if 'onset_rate_result' in locals() else 0.0,
+            'zcr': float(zcr_result) if 'zcr_result' in locals() else 0.0
         }
 
-        # Initialize all features with default values
+        # Initialize all features with default values first
         default_features = {
             'bpm': 0.0,
             'beat_confidence': 0.0,
@@ -337,15 +340,15 @@ class AudioAnalyzer:
                     'zcr': self._ensure_float(self._extract_zcr(audio))
                 })
             except Exception as e:
-                logger.error(f"Feature extraction error for {os.path.basename(audio_path)}: {str(e)}")
-        
+                logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
+
         return features
 
     def _save_features_to_db(self, file_info, features):
         with self.conn:
             self.conn.execute("""
-            INSERT OR REPLACE INTO audio_features 
-            (file_hash, file_path, duration, bpm, beat_confidence, centroid, 
+            INSERT OR REPLACE INTO audio_features
+            (file_hash, file_path, duration, bpm, beat_confidence, centroid,
              loudness, danceability, key, scale, onset_rate, zcr, last_modified)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -363,33 +366,28 @@ class AudioAnalyzer:
                 self._ensure_float(features['zcr']),
                 self._ensure_float(file_info['last_modified'])
             ))
-        logger.info(f"Saved features to DB for {os.path.basename(file_info['file_path'])}")
 
     def get_all_features(self):
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
-            SELECT file_path, duration, bpm, beat_confidence, centroid, 
+            SELECT file_path, duration, bpm, beat_confidence, centroid,
                    loudness, danceability, key, scale, onset_rate, zcr
             FROM audio_features
             """)
-            results = []
-            for row in cursor.fetchall():
-                results.append({
-                    'filepath': row[0],
-                    'duration': row[1],
-                    'bpm': row[2],
-                    'beat_confidence': row[3],
-                    'centroid': row[4],
-                    'loudness': row[5],
-                    'danceability': row[6],
-                    'key': row[7],
-                    'scale': row[8],
-                    'onset_rate': row[9],
-                    'zcr': row[10]
-                })
-            logger.info(f"Retrieved {len(results)} features from database")
-            return results
+            return [{
+                'filepath': row[0],
+                'duration': row[1],
+                'bpm': row[2],
+                'beat_confidence': row[3],
+                'centroid': row[4],
+                'loudness': row[5],
+                'danceability': row[6],
+                'key': row[7],
+                'scale': row[8],
+                'onset_rate': row[9],
+                'zcr': row[10]
+            } for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error fetching features: {str(e)}")
             return []
@@ -400,9 +398,9 @@ class AudioAnalyzer:
             cursor = self.conn.cursor()
             cursor.execute("SELECT file_path FROM audio_features")
             db_files = [row[0] for row in cursor.fetchall()]
-            
+
             missing_files = [f for f in db_files if not os.path.exists(f)]
-            
+
             if missing_files:
                 logger.info(f"Cleaning up {len(missing_files)} missing files from database")
                 placeholders = ','.join(['?'] * len(missing_files))
