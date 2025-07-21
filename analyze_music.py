@@ -194,32 +194,12 @@ class AudioAnalyzer:
             if len(audio) < 44100:
                 return 0.0
 
-            # Get the raw result from Essentia
-            result = es.OnsetRate()(audio)
-
-            # Debug logging to inspect the raw result
-            logger.debug(f"Raw OnsetRate result: {result}, type: {type(result)}")
-
-            # Handle all possible return types
-            if hasattr(result, '__len__'):
-                # Case: Result is array-like (numpy array, list, tuple)
-                if len(result) > 0:
-                    first_element = result[0]
-                    if isinstance(first_element, (np.ndarray, list, tuple)):
-                        # Handle nested arrays (unlikely but possible)
-                        if len(first_element) > 0:
-                            return float(first_element[0])
-                        return 0.0
-                    return float(first_element)
-                return 0.0
-            elif result is not None:
-                # Case: Result is a single value
-                return float(result)
-
-            return 0.0
-
+            # Get the onset rate
+            onset_rate, _ = es.OnsetRate()(audio)
+            return float(onset_rate)
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
+            return 0.0
 
     @timeout()
     def _extract_zcr(self, audio):
@@ -236,10 +216,9 @@ class AudioAnalyzer:
             # Check cache first
             cached_features = self._get_cached_features(file_info)
             if cached_features:
-                return cached_features
+                return cached_features, True, file_info['file_hash']
 
             # Process new file
-            logger.debug(f"Using cached features for {file_info['file_path']}")
             audio = self._safe_audio_load(audio_path)
             if audio is None:
                 return None, False, None
@@ -277,27 +256,15 @@ class AudioAnalyzer:
                 'zcr': row[9],
                 'filepath': file_info['file_path'],
                 'filename': os.path.basename(file_info['file_path'])
-            }, True, file_info['file_hash']
+            }
         return None
 
     def _extract_all_features(self, audio_path, audio):
+        # Initialize with default values
         features = {
             'duration': float(len(audio) / 44100.0),
             'filepath': str(audio_path),
             'filename': str(os.path.basename(audio_path)),
-            'bpm': float(bpm_result[0]) if 'bpm_result' in locals() else 0.0,
-            'beat_confidence': float(bpm_result[1]) if 'bpm_result' in locals() else 0.0,
-            'centroid': float(centroid_result) if 'centroid_result' in locals() else 0.0,
-            'loudness': float(loudness_result) if 'loudness_result' in locals() else 0.0,
-            'danceability': float(danceability_result) if 'danceability_result' in locals() else 0.0,
-            'key': int(key_result[0]) if 'key_result' in locals() else -1,
-            'scale': int(key_result[1]) if 'key_result' in locals() else 0,
-            'onset_rate': float(onset_rate_result) if 'onset_rate_result' in locals() else 0.0,
-            'zcr': float(zcr_result) if 'zcr_result' in locals() else 0.0
-        }
-
-        # Initialize all features with default values first
-        default_features = {
             'bpm': 0.0,
             'beat_confidence': 0.0,
             'centroid': 0.0,
@@ -308,21 +275,29 @@ class AudioAnalyzer:
             'onset_rate': 0.0,
             'zcr': 0.0
         }
-        features.update(default_features)
 
         if len(audio) >= 44100:  # At least 1 second
             try:
+                # Extract features
                 bpm, confidence = self._extract_rhythm_features(audio)
+                centroid = self._extract_spectral_features(audio)
+                loudness = self._extract_loudness(audio)
+                danceability = self._extract_danceability(audio)
+                key, scale = self._extract_key(audio)
+                onset_rate = self._extract_onset_rate(audio)
+                zcr = self._extract_zcr(audio)
+
+                # Update features
                 features.update({
                     'bpm': self._ensure_float(bpm),
                     'beat_confidence': self._ensure_float(confidence),
-                    'centroid': self._ensure_float(self._extract_spectral_features(audio)),
-                    'loudness': self._ensure_float(self._extract_loudness(audio)),
-                    'danceability': self._ensure_float(self._extract_danceability(audio)),
-                    'key': self._ensure_int(self._extract_key(audio)[0]),
-                    'scale': self._ensure_int(self._extract_key(audio)[1]),
-                    'onset_rate': self._ensure_float(self._extract_onset_rate(audio)),
-                    'zcr': self._ensure_float(self._extract_zcr(audio))
+                    'centroid': self._ensure_float(centroid),
+                    'loudness': self._ensure_float(loudness),
+                    'danceability': self._ensure_float(danceability),
+                    'key': self._ensure_int(key),
+                    'scale': self._ensure_int(scale),
+                    'onset_rate': self._ensure_float(onset_rate),
+                    'zcr': self._ensure_float(zcr)
                 })
             except Exception as e:
                 logger.error(f"Feature extraction error for {audio_path}: {str(e)}")

@@ -19,7 +19,6 @@ import time
 import traceback
 import re
 import sqlite3
-import time
 import gc
 
 # Logging setup
@@ -148,6 +147,7 @@ class PlaylistGenerator:
     def _process_sequential(self, file_list):
         results = []
         with tqdm(file_list, desc="Analyzing files") as pbar:
+            for filepath in pbar:
                 try:
                     # Free memory periodically
                     if pbar.n % 10 == 0:
@@ -192,10 +192,6 @@ class PlaylistGenerator:
                                     self.failed_files.append(filepath)
                                 pbar.update(1)
                                 pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
-
-                    # Clear pool after each batch to prevent resource buildup
-                    pool.close()
-                    pool.join()
 
                 # Successfully processed all batches
                 logger.info(f"Processing completed - {len(results)} successful, {len(self.failed_files)} failed")
@@ -363,6 +359,7 @@ class PlaylistGenerator:
                     playlists[playlist_name] = {
                         'tracks': [],
                         'hashes': set(),
+                        'moods': [],
                         'features': {
                             'bpm_group': bpm_group,
                             'energy_group': energy_group,
@@ -374,6 +371,7 @@ class PlaylistGenerator:
                 if file_hash not in playlists[playlist_name]['hashes']:
                     playlists[playlist_name]['hashes'].add(file_hash)
                     playlists[playlist_name]['tracks'].append(file_path)
+                    playlists[playlist_name]['moods'].append(mood_group)
 
             # Merge small playlists (<20 tracks) into similar larger ones
             final_playlists = {}
@@ -400,7 +398,7 @@ class PlaylistGenerator:
                             score += 1.5
                         # Match on mood group
                         if (abs(centroid_mapping[data['features']['mood_group']] -
-                            centroid_mapping[final_data['features']['mood_group']]) <= 1):
+                            centroid_mapping[final_data['features']['mood_group']])) <= 1:
                             score += 1
 
                         if score > best_score:
@@ -411,6 +409,7 @@ class PlaylistGenerator:
                     if best_match and best_score >= 2:
                         final_playlists[best_match]['tracks'].extend(data['tracks'])
                         final_playlists[best_match]['hashes'].update(data['hashes'])
+                        final_playlists[best_match]['moods'].extend(data['moods'])
                     else:
                         various_tracks.extend(data['tracks'])
                         various_hashes.update(data['hashes'])
@@ -420,6 +419,7 @@ class PlaylistGenerator:
                 final_playlists["Various_Tracks"] = {
                     'tracks': various_tracks,
                     'hashes': various_hashes,
+                    'moods': ['Various'] * len(various_tracks),
                     'features': {
                         'bpm_group': 'Various',
                         'energy_group': 'Various',
@@ -433,22 +433,18 @@ class PlaylistGenerator:
                 if len(data['tracks']) > 500:
                     # Split large playlist by mood group
                     mood_groups = {}
-                    for track in data['tracks']:
-                        # Get mood from original features
-                        for orig_name, orig_data in playlists.items():
-                            if track in orig_data['tracks']:
-                                mood = orig_data['features']['mood_group']
-                                break
-
+                    for idx, track in enumerate(data['tracks']):
+                        mood = data['moods'][idx]
                         if mood not in mood_groups:
                             mood_groups[mood] = []
                         mood_groups[mood].append(track)
-
+                    
                     for mood, tracks in mood_groups.items():
                         new_name = f"{name}_{mood}"
                         balanced_playlists[new_name] = {
                             'tracks': tracks,
                             'hashes': set(),  # Can't preserve hashes when splitting
+                            'moods': [mood] * len(tracks),
                             'features': data['features'].copy()
                         }
                         balanced_playlists[new_name]['features']['mood_group'] = mood
@@ -463,52 +459,6 @@ class PlaylistGenerator:
             return {}
         finally:
             conn.close()
-
-    def update_playlists(self, changed_files=None):
-        """Update playlists based on changed files"""
-        try:
-            conn = sqlite3.connect(self.cache_file, timeout=60)
-            cursor = conn.cursor()
-
-            # Get changed files if not provided
-            if changed_files is None:
-                cursor.execute("""
-                SELECT file_path
-                FROM audio_features
-                WHERE last_analyzed > (
-                    SELECT MAX(last_updated) FROM playlists
-                )
-                """)
-                changed_files = [row[0] for row in cursor.fetchall()]
-
-            if not changed_files:
-                logger.info("No changed files, playlists up-to-date")
-                return
-
-            logger.info(f"Updating playlists for {len(changed_files)} changed files")
-
-            # Remove affected tracks from all playlists
-            placeholders = ','.join(['?'] * len(changed_files))
-            cursor.execute(f"""
-            DELETE FROM playlist_tracks
-            WHERE file_hash IN (
-                SELECT file_hash FROM audio_features
-                WHERE file_path IN ({placeholders})
-            )
-            """, changed_files)
-
-            # Regenerate playlists
-            self.generate_playlists_from_db()
-
-            # Update playlist timestamp
-            cursor.execute("UPDATE playlists SET last_updated = CURRENT_TIMESTAMP")
-            conn.commit()
-
-        except Exception as e:
-            logger.error(f"Playlist update failed: {str(e)}")
-        finally:
-            conn.close()
-
 
     def update_playlists(self, changed_files=None):
         """Update playlists based on changed files"""
