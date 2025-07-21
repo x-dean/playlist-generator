@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Optimized Music Playlist Generator with Enhanced Naming
+Optimized Music Playlist Generator with Time-Based Scheduling
 """
 
 import pandas as pd
@@ -114,8 +114,7 @@ def setup_playlist_db(cache_file):
     conn.close()
 
 class TimeBasedScheduler:
-    def __init__(self, generator):
-        self.generator = generator
+    def __init__(self):
         self.time_slots = {
             'Morning': (6, 12),     # 6am-12pm
             'Afternoon': (12, 18),  # 12pm-6pm
@@ -256,8 +255,20 @@ class TimeBasedScheduler:
         return filtered
 
     def generate_time_based_playlist(self, features_list, slot_name=None):
+        """Generate playlist for a specific time slot"""
         slot = slot_name or self.get_current_time_slot()
         return self.filter_tracks_for_slot(features_list, slot)
+
+    def generate_time_based_playlists(self, features_list):
+        """Generate all time-based playlists at once"""
+        playlists = {}
+        for slot_name in self.time_slots:
+            tracks = self.generate_time_based_playlist(features_list, slot_name)
+            playlists[f"TimeSlot_{slot_name}"] = {
+                'tracks': [t['filepath'] for t in tracks],
+                'features': {'type': 'time_based', 'slot': slot_name}
+            }
+        return playlists
 
 class PlaylistGenerator:
     def __init__(self):
@@ -265,9 +276,9 @@ class PlaylistGenerator:
         self.container_music_dir = ""
         self.host_music_dir = ""
         self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')
-        setup_playlist_db(self.cache_file)
-        self.scheduler = TimeBasedScheduler(self)
+        self.scheduler = TimeBasedScheduler()
         self.playlist_history = defaultdict(list)  # Track playlist changes
+        setup_playlist_db(self.cache_file)
 
     def analyze_directory(self, music_dir, workers=None, force_sequential=False):
         file_list = []
@@ -343,6 +354,10 @@ class PlaylistGenerator:
                                 pbar.update(1)
                                 pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
 
+                    # Clear pool after each batch to prevent resource buildup
+                    pool.close()
+                    pool.join()
+
                 # Successfully processed all batches
                 logger.info(f"Processing completed - {len(results)} successful, {len(self.failed_files)} failed")
                 return results
@@ -416,116 +431,10 @@ class PlaylistGenerator:
         )
 
         return f"{bpm_desc} {dance_desc} {mood_desc}"
-    
+
     def generate_time_based_playlists(self, features_list):
-        """Generate all time-based playlists at once"""
-        playlists = {}
-        for slot_name in self.scheduler.time_slots:
-            tracks = self.scheduler.generate_time_based_playlist(features_list, slot_name)
-            playlists[f"TimeSlot_{slot_name}"] = {
-                'tracks': [t['filepath'] for t in tracks],
-                'features': {'type': 'time_based', 'slot': slot_name}
-            }
-            
-            # Track history for updates
-            self.playlist_history[slot_name].append({
-                'timestamp': datetime.datetime.now(),
-                'track_count': len(tracks)
-            })
-            
-        return playlists
-    
-    def update_time_based_playlists(self, changed_files):
-        """Efficiently update only affected playlists"""
-        # Get features for changed files
-        changed_features = []
-        for file_path in changed_files:
-            features, _, _ = audio_analyzer.extract_features(file_path)
-            if features:
-                changed_features.append(features)
-        
-        # Update each playlist
-        updated_playlists = {}
-        for slot_name in self.scheduler.time_slots:
-            rules = self.scheduler.feature_rules[slot_name]
-            playlist_name = f"TimeSlot_{slot_name}"
-            
-            # Get current playlist tracks
-            conn = sqlite3.connect(self.cache_file, timeout=60)
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT file_path FROM playlist_tracks
-                JOIN playlists ON playlist_tracks.playlist_id = playlists.id
-                WHERE playlists.name = ?
-            """, (playlist_name,))
-            current_tracks = [row[0] for row in cursor.fetchall()]
-            
-            # Check each changed file against slot rules
-            updated_tracks = current_tracks.copy()
-            for features in changed_features:
-                file_path = features['filepath']
-                should_include = True
-                
-                # Apply all feature rules checks
-                # 1. BPM checks
-                if 'min_bpm' in rules:
-                    if features.get('bpm', 0) < rules['min_bpm']:
-                        should_include = False
-                if 'max_bpm' in rules:
-                    if features.get('bpm', 0) > rules['max_bpm']:
-                        should_include = False
-                
-                # 2. Danceability checks
-                if 'min_danceability' in rules:
-                    if features.get('danceability', 0) < rules['min_danceability']:
-                        should_include = False
-                if 'max_danceability' in rules:
-                    if features.get('danceability', 0) > rules['max_danceability']:
-                        should_include = False
-                
-                # 3. Spectral centroid checks
-                if 'min_centroid' in rules:
-                    if features.get('centroid', 0) < rules['min_centroid']:
-                        should_include = False
-                if 'max_centroid' in rules:
-                    if features.get('centroid', 0) > rules['max_centroid']:
-                        should_include = False
-                
-                # 4. Loudness checks
-                if 'min_loudness' in rules:
-                    if features.get('loudness', 0) < rules['min_loudness']:
-                        should_include = False
-                if 'max_loudness' in rules:
-                    if features.get('loudness', 0) > rules['max_loudness']:
-                        should_include = False
-                
-                # 5. Key compatibility (if defined)
-                if 'compatible_keys' in rules:
-                    current_key = features.get('key', -1)
-                    if current_key >= 0:  # Only check if key is valid
-                        if current_key not in rules['compatible_keys']:
-                            should_include = False
-                
-                # 6. Duration checks
-                if 'min_duration' in rules:
-                    if features.get('duration', 0) < rules['min_duration']:
-                        should_include = False
-                if 'max_duration' in rules:
-                    if features.get('duration', 0) > rules['max_duration']:
-                        should_include = False
-                
-                # Update track list based on validation
-                if should_include and file_path not in current_tracks:
-                    updated_tracks.append(file_path)
-                elif not should_include and file_path in current_tracks:
-                    updated_tracks.remove(file_path)
-            
-            updated_playlists[playlist_name] = {
-                'tracks': updated_tracks,
-                'features': {'type': 'time_based', 'slot': slot_name}
-            }
-        
-        return updated_playlists
+        """Generate all time-based playlists"""
+        return self.scheduler.generate_time_based_playlists(features_list)
 
     def generate_playlists_from_db(self):
         """Generate balanced playlists using only meaningful feature combinations"""
@@ -969,8 +878,11 @@ def main():
             generator.save_playlists(playlists, args.output_dir)
         elif args.use_db:
             logger.info("Generating playlists from database")
-            playlists = generator.generate_playlists_from_db()
-            generator.save_playlists(playlists, args.output_dir)
+            # Generate both clustered and time-based playlists
+            clustered_playlists = generator.generate_playlists_from_db()
+            time_playlists = generator.generate_time_based_playlists(generator.get_all_features_from_db())
+            all_playlists = {**clustered_playlists, **time_playlists}
+            generator.save_playlists(all_playlists, args.output_dir)
         else:
             logger.info("Analyzing directory")
             features = generator.analyze_directory(
@@ -982,13 +894,16 @@ def main():
             logger.info(f"Processed {len(features)} files, {len(generator.failed_files)} failed")
 
             if features:
-                playlists = generator.generate_playlists(
+                # Generate both clustered and time-based playlists
+                clustered_playlists = generator.generate_playlists(
                     features,
                     args.num_playlists,
                     args.chunk_size,
                     args.output_dir
                 )
-                generator.save_playlists(playlists, args.output_dir)
+                time_playlists = generator.generate_time_based_playlists(features)
+                all_playlists = {**clustered_playlists, **time_playlists}
+                generator.save_playlists(all_playlists, args.output_dir)
             else:
                 logger.error("No valid audio files available")
     except Exception as e:
