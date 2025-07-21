@@ -102,14 +102,25 @@ def main():
 
         if args.update:
             logger.info("Running in UPDATE mode")
-            num_changed = playlist_db.update_playlists()
-            if num_changed > 0:
-                logger.info(f"Found {num_changed} changed files, regenerating playlists")
-                playlists = cache_generator.generate()
-                save_playlists(playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
-                logger.info(f"Regenerated {len(playlists)} playlists")
+            
+            # Check if playlists exist in the database
+            if not playlist_db.playlists_exist():
+                logger.info("No playlists found, generating initial playlists")
+                features_from_db = audio_db.get_all_features()
+                time_playlists = time_scheduler.generate_time_based_playlists(features_from_db)
+                cache_playlists = cache_generator.generate()
+                all_playlists = {**time_playlists, **cache_playlists}
+                playlist_db.save_playlists(all_playlists)
+                save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
             else:
-                logger.info("No changes detected, playlists remain up-to-date")
+                changed_files = playlist_db.get_changed_files()
+                if changed_files:
+                    logger.info(f"Found {len(changed_files)} changed files, updating playlists")
+                    playlist_db.update_playlists(changed_files)
+                    playlists = cache_generator.generate()
+                    save_playlists(playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
+                else:
+                    logger.info("No changed files, playlists remain up-to-date")
         
         elif args.analyze_only:
             logger.info("Running audio analysis only")
