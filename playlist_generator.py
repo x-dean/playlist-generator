@@ -949,11 +949,17 @@ def main():
                    help='Only generate playlists from database without analysis')
     args = parser.parse_args()
 
+    # Set cache file path
+    cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+    cache_file = os.path.join(cache_dir, 'audio_analysis.db')
+    
     generator = PlaylistGenerator()
+    generator.cache_file = cache_file
     generator.host_music_dir = args.host_music_dir.rstrip('/')
 
     start_time = time.time()
     try:
+        # Clean up database first
         missing_in_db = generator.cleanup_database()
         if missing_in_db:
             logger.info(f"Removed {len(missing_in_db)} missing files from database")
@@ -964,16 +970,15 @@ def main():
             generator.update_playlists()
             playlists = generator.generate_playlists_from_db()
             generator.save_playlists(playlists, args.output_dir)
-        if args.analyze_only:
+        elif args.analyze_only:
             # Only analyze and update database
             logger.info("Running audio analysis only")
             features = generator.analyze_directory(
                 args.music_dir,
-                args.workers,
-                args.force_sequential
+                workers=args.workers,
+                force_sequential=args.force_sequential
             )
             logger.info(f"Analysis completed. Processed {len(features)} files")
-            
         elif args.generate_only:
             # Only generate playlists from database
             logger.info("Generating playlists from database")
@@ -983,11 +988,12 @@ def main():
             all_playlists = {**clustered_playlists, **time_playlists}
             generator.save_playlists(all_playlists, args.output_dir)
         else:
+            # Full processing pipeline
             logger.info("Analyzing directory")
             features = generator.analyze_directory(
                 args.music_dir,
-                args.workers,
-                args.force_sequential
+                workers=args.workers,
+                force_sequential=args.force_sequential
             )
 
             logger.info(f"Processed {len(features)} files, {len(generator.failed_files)} failed")
@@ -996,9 +1002,9 @@ def main():
                 # Generate both clustered and time-based playlists
                 clustered_playlists = generator.generate_playlists(
                     features,
-                    args.num_playlists,
-                    args.chunk_size,
-                    args.output_dir
+                    num_playlists=args.num_playlists,
+                    chunk_size=args.chunk_size,
+                    output_dir=args.output_dir
                 )
                 time_playlists = generator.generate_time_based_playlists(features)
                 all_playlists = {**clustered_playlists, **time_playlists}
@@ -1008,14 +1014,10 @@ def main():
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
         logger.error(traceback.format_exc())
-        raise
+        sys.exit(1)
     finally:
         elapsed = time.time() - start_time
         logger.info(f"Completed in {elapsed:.2f} seconds")
-
-    # Clean up Essentia resources
-    os.environ['ESSENTIA_LOGGING_LEVEL'] = 'ERROR'
-    os.environ['ESSENTIA_LOG_FILE'] = '/dev/null'
 
 if __name__ == "__main__":
     mp.set_start_method('spawn', force=True)
