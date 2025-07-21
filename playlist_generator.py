@@ -20,6 +20,8 @@ import traceback
 import re
 import sqlite3
 import gc
+import datetime
+from collections import defaultdict
 
 # Logging setup
 def setup_colored_logging():
@@ -111,6 +113,152 @@ def setup_playlist_db(cache_file):
     conn.commit()
     conn.close()
 
+class TimeBasedScheduler:
+    def __init__(self, generator):
+        self.generator = generator
+        self.time_slots = {
+            'Morning': (6, 12),     # 6am-12pm
+            'Afternoon': (12, 18),  # 12pm-6pm
+            'Evening': (18, 22),    # 6pm-10pm
+            'Late_Night': (22, 6)   # 10pm-6am
+        }
+        self.feature_rules = {
+            'Morning': {
+                'min_bpm': 90,
+                'max_bpm': 120,
+                'min_danceability': 0.4,
+                'max_danceability': 0.8,
+                'min_centroid': 800,
+                'max_centroid': 3500,
+                'min_loudness': -18,
+                'compatible_keys': [0, 2, 4, 7, 9],  # C, D, E, G, A
+                'min_duration': 120,  # 2 minutes
+                'max_duration': 300,  # 5 minutes
+                'required_scale': 'major',
+                'min_onset_rate': 0.5,
+                'min_zcr': 0.05
+            },
+            'Afternoon': {
+                'min_bpm': 100,
+                'max_bpm': 130,
+                'min_danceability': 0.6,
+                'max_danceability': 0.9,
+                'min_centroid': 1500,
+                'compatible_keys': [2, 5, 7, 10],  # D, F, G, A#
+                'min_duration': 90,
+                'max_onset_rate': 2.0
+            },
+            'Evening': {
+                'min_bpm': 80,
+                'max_bpm': 110,
+                'max_danceability': 0.7,
+                'min_centroid': 1000,
+                'max_centroid': 5000,
+                'min_loudness': -15,
+                'required_scale': 'minor',
+                'max_zcr': 0.2
+            },
+            'Late_Night': {
+                'max_bpm': 90,
+                'max_danceability': 0.4,
+                'max_centroid': 2000,
+                'min_loudness': -25,
+                'compatible_keys': [0, 3, 5, 8],  # C, D#, F, G#
+                'min_duration': 180,
+                'max_duration': 600,
+                'max_onset_rate': 0.8
+            }
+        }
+
+    def get_current_time_slot(self):
+        now = datetime.datetime.now().time()
+        for slot, (start, end) in self.time_slots.items():
+            if start < end:
+                if start <= now.hour < end:
+                    return slot
+            else:  # Overnight slot
+                if now.hour >= start or now.hour < end:
+                    return slot
+        return 'Afternoon'  # Default
+
+    def filter_tracks_for_slot(self, features_list, slot_name):
+        """Filter tracks based on time slot feature rules"""
+        rules = self.feature_rules.get(slot_name, {})
+        filtered = []
+        
+        for track in features_list:
+            if not track:
+                continue
+            
+            valid = True
+            
+            # 1. BPM validation
+            if 'min_bpm' in rules and track.get('bpm', 0) < rules['min_bpm']:
+                valid = False
+            if valid and 'max_bpm' in rules and track.get('bpm', 0) > rules['max_bpm']:
+                valid = False
+                
+            # 2. Danceability validation
+            if valid and 'min_danceability' in rules and track.get('danceability', 0) < rules['min_danceability']:
+                valid = False
+            if valid and 'max_danceability' in rules and track.get('danceability', 0) > rules['max_danceability']:
+                valid = False
+                
+            # 3. Spectral centroid validation
+            if valid and 'min_centroid' in rules and track.get('centroid', 0) < rules['min_centroid']:
+                valid = False
+            if valid and 'max_centroid' in rules and track.get('centroid', 0) > rules['max_centroid']:
+                valid = False
+                
+            # 4. Loudness validation
+            if valid and 'min_loudness' in rules and track.get('loudness', 0) < rules['min_loudness']:
+                valid = False
+            if valid and 'max_loudness' in rules and track.get('loudness', 0) > rules['max_loudness']:
+                valid = False
+                
+            # 5. Key compatibility validation
+            if valid and 'compatible_keys' in rules:
+                key = track.get('key', -1)
+                if key >= 0:  # Only validate if key is detected
+                    if key not in rules['compatible_keys']:
+                        valid = False
+                        
+            # 6. Duration validation
+            if valid and 'min_duration' in rules and track.get('duration', 0) < rules['min_duration']:
+                valid = False
+            if valid and 'max_duration' in rules and track.get('duration', 0) > rules['max_duration']:
+                valid = False
+                
+            # 7. Scale validation (major/minor)
+            if valid and 'required_scale' in rules:
+                scale = track.get('scale', 0)
+                # 1 = major, 0 = minor
+                if rules['required_scale'] == 'major' and scale != 1:
+                    valid = False
+                elif rules['required_scale'] == 'minor' and scale != 0:
+                    valid = False
+                    
+            # 8. Onset rate validation (rhythm complexity)
+            if valid and 'min_onset_rate' in rules and track.get('onset_rate', 0) < rules['min_onset_rate']:
+                valid = False
+            if valid and 'max_onset_rate' in rules and track.get('onset_rate', 0) > rules['max_onset_rate']:
+                valid = False
+                
+            # 9. Zero crossing rate validation (noise/brightness)
+            if valid and 'min_zcr' in rules and track.get('zcr', 0) < rules['min_zcr']:
+                valid = False
+            if valid and 'max_zcr' in rules and track.get('zcr', 0) > rules['max_zcr']:
+                valid = False
+                
+            if valid:
+                filtered.append(track)
+                
+        return filtered
+
+    def generate_time_based_playlist(self, features_list, slot_name=None):
+        slot = slot_name or self.get_current_time_slot()
+        return self.filter_tracks_for_slot(features_list, slot)
+
 class PlaylistGenerator:
     def __init__(self):
         self.failed_files = []
@@ -118,6 +266,8 @@ class PlaylistGenerator:
         self.host_music_dir = ""
         self.cache_file = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'audio_analysis.db')
         setup_playlist_db(self.cache_file)
+        self.scheduler = TimeBasedScheduler(self)
+        self.playlist_history = defaultdict(list)  # Track playlist changes
 
     def analyze_directory(self, music_dir, workers=None, force_sequential=False):
         file_list = []
@@ -266,6 +416,116 @@ class PlaylistGenerator:
         )
 
         return f"{bpm_desc} {dance_desc} {mood_desc}"
+    
+    def generate_time_based_playlists(self, features_list):
+        """Generate all time-based playlists at once"""
+        playlists = {}
+        for slot_name in self.scheduler.time_slots:
+            tracks = self.scheduler.generate_time_based_playlist(features_list, slot_name)
+            playlists[f"TimeSlot_{slot_name}"] = {
+                'tracks': [t['filepath'] for t in tracks],
+                'features': {'type': 'time_based', 'slot': slot_name}
+            }
+            
+            # Track history for updates
+            self.playlist_history[slot_name].append({
+                'timestamp': datetime.datetime.now(),
+                'track_count': len(tracks)
+            })
+            
+        return playlists
+    
+    def update_time_based_playlists(self, changed_files):
+        """Efficiently update only affected playlists"""
+        # Get features for changed files
+        changed_features = []
+        for file_path in changed_files:
+            features, _, _ = audio_analyzer.extract_features(file_path)
+            if features:
+                changed_features.append(features)
+        
+        # Update each playlist
+        updated_playlists = {}
+        for slot_name in self.scheduler.time_slots:
+            rules = self.scheduler.feature_rules[slot_name]
+            playlist_name = f"TimeSlot_{slot_name}"
+            
+            # Get current playlist tracks
+            conn = sqlite3.connect(self.cache_file, timeout=60)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT file_path FROM playlist_tracks
+                JOIN playlists ON playlist_tracks.playlist_id = playlists.id
+                WHERE playlists.name = ?
+            """, (playlist_name,))
+            current_tracks = [row[0] for row in cursor.fetchall()]
+            
+            # Check each changed file against slot rules
+            updated_tracks = current_tracks.copy()
+            for features in changed_features:
+                file_path = features['filepath']
+                should_include = True
+                
+                # Apply all feature rules checks
+                # 1. BPM checks
+                if 'min_bpm' in rules:
+                    if features.get('bpm', 0) < rules['min_bpm']:
+                        should_include = False
+                if 'max_bpm' in rules:
+                    if features.get('bpm', 0) > rules['max_bpm']:
+                        should_include = False
+                
+                # 2. Danceability checks
+                if 'min_danceability' in rules:
+                    if features.get('danceability', 0) < rules['min_danceability']:
+                        should_include = False
+                if 'max_danceability' in rules:
+                    if features.get('danceability', 0) > rules['max_danceability']:
+                        should_include = False
+                
+                # 3. Spectral centroid checks
+                if 'min_centroid' in rules:
+                    if features.get('centroid', 0) < rules['min_centroid']:
+                        should_include = False
+                if 'max_centroid' in rules:
+                    if features.get('centroid', 0) > rules['max_centroid']:
+                        should_include = False
+                
+                # 4. Loudness checks
+                if 'min_loudness' in rules:
+                    if features.get('loudness', 0) < rules['min_loudness']:
+                        should_include = False
+                if 'max_loudness' in rules:
+                    if features.get('loudness', 0) > rules['max_loudness']:
+                        should_include = False
+                
+                # 5. Key compatibility (if defined)
+                if 'compatible_keys' in rules:
+                    current_key = features.get('key', -1)
+                    if current_key >= 0:  # Only check if key is valid
+                        if current_key not in rules['compatible_keys']:
+                            should_include = False
+                
+                # 6. Duration checks
+                if 'min_duration' in rules:
+                    if features.get('duration', 0) < rules['min_duration']:
+                        should_include = False
+                if 'max_duration' in rules:
+                    if features.get('duration', 0) > rules['max_duration']:
+                        should_include = False
+                
+                # Update track list based on validation
+                if should_include and file_path not in current_tracks:
+                    updated_tracks.append(file_path)
+                elif not should_include and file_path in current_tracks:
+                    updated_tracks.remove(file_path)
+            
+            updated_playlists[playlist_name] = {
+                'tracks': updated_tracks,
+                'features': {'type': 'time_based', 'slot': slot_name}
+            }
+        
+        return updated_playlists
 
     def generate_playlists_from_db(self):
         """Generate balanced playlists using only meaningful feature combinations"""
