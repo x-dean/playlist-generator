@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Optimized Music Playlist Generator with Enhanced Playlists
+Optimized Music Playlist Generator with Enhanced Playlists
 """
 
 import pandas as pd
@@ -55,17 +56,26 @@ def process_file_worker(filepath):
         # Skip files that are too small
         if os.path.getsize(filepath) < 1024:
             logger.warning(f"Skipping small file: {os.path.basename(filepath)}")
+        # Skip files that are too small
+        if os.path.getsize(filepath) < 1024:
+            logger.warning(f"Skipping small file: {os.path.basename(filepath)}")
             return None, filepath
             
         from analyze_music import audio_analyzer
+        result = audio_analyzer.extract_features(filepath)
+        
         result = audio_analyzer.extract_features(filepath)
         
         if result and result[0] is not None:
             return result[0], filepath
             
         logger.warning(f"Failed to process: {os.path.basename(filepath)}")
+            return result[0], filepath
+            
+        logger.warning(f"Failed to process: {os.path.basename(filepath)}")
         return None, filepath
     except Exception as e:
+        logger.error(f"Error processing {os.path.basename(filepath)}: {str(e)}")
         logger.error(f"Error processing {os.path.basename(filepath)}: {str(e)}")
         return None, filepath
 
@@ -83,7 +93,7 @@ class PlaylistGenerator:
 
         for root, _, files in os.walk(music_dir):
             for file in files:
-                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
+                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg')):
                     file_list.append(os.path.join(root, file))
 
         logger.info(f"Found {len(file_list)} audio files")
@@ -93,6 +103,7 @@ class PlaylistGenerator:
 
         if workers is None:
             workers = max(1, mp.cpu_count() // 2)
+            logger.info(f"Using {workers} workers (half of {mp.cpu_count()} cores)")
             logger.info(f"Using {workers} workers (half of {mp.cpu_count()} cores)")
 
         if force_sequential or workers <= 1:
@@ -106,19 +117,51 @@ class PlaylistGenerator:
         with tqdm(file_list, desc="Analyzing files") as pbar:
             for filepath in pbar:
                 try:
+                try:
                     features, _ = process_file_worker(filepath)
                     if features:
                         results.append(features)
                     else:
                         self.failed_files.append(filepath)
                     pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
+                    pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
                 except Exception as e:
                     self.failed_files.append(filepath)
+                    logger.error(f"Error processing {os.path.basename(filepath)}: {str(e)}")
                     logger.error(f"Error processing {os.path.basename(filepath)}: {str(e)}")
         return results
 
     def _process_parallel(self, file_list, workers):
         results = []
+        try:
+            logger.info(f"Starting multiprocessing with {workers} workers")
+            ctx = mp.get_context('spawn')
+            
+            # Process in batches
+            batch_size = min(50, len(file_list))
+            
+            for i in range(0, len(file_list), batch_size):
+                batch = file_list[i:i+batch_size]
+                
+                with ctx.Pool(processes=workers) as pool:
+                    with tqdm(total=len(batch), desc=f"Processing batch {i//batch_size+1}",
+                             bar_format="{l_bar}{bar:40}{r_bar}",
+                             file=sys.stdout) as pbar:
+                        
+                        for features, filepath in pool.imap_unordered(process_file_worker, batch):
+                            if features:
+                                results.append(features)
+                            else:
+                                self.failed_files.append(filepath)
+                            pbar.update(1)
+                            pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
+            
+            logger.info(f"Processing completed - {len(results)} successful, {len(self.failed_files)} failed")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Multiprocessing failed: {str(e)}")
+            return self._process_sequential(file_list)
         try:
             logger.info(f"Starting multiprocessing with {workers} workers")
             ctx = mp.get_context('spawn')
@@ -363,6 +406,7 @@ class PlaylistGenerator:
         """Clean up database entries for missing files"""
         try:
             conn = sqlite3.connect(self.cache_file)
+            conn = sqlite3.connect(self.cache_file)
             cursor = conn.cursor()
             cursor.execute("SELECT file_path FROM audio_features")
             db_files = [row[0] for row in cursor.fetchall()]
@@ -454,6 +498,9 @@ def main():
             logger.info(f"Removed {len(missing_in_db)} missing files from database")
             generator.failed_files.extend(missing_in_db)
 
+        if args.use_db:
+            logger.info("Using database features")
+            features = generator.get_all_features_from_db()
         if args.use_db:
             logger.info("Using database features")
             features = generator.get_all_features_from_db()
