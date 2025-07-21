@@ -7,7 +7,6 @@ RUN apt-get update && \
     libavcodec-extra \
     libfftw3-dev \
     libtag1-dev \
-    libyaml-dev \
     sqlite3 \
     libmagic1 \
     && rm -rf /var/lib/apt/lists/*
@@ -26,12 +25,10 @@ RUN pip install --no-cache-dir \
     pydub
 
 # Copy application files
-COPY playlist_generation.py /app/
-COPY audio_analysis.py /app/
-COPY main.py /app/
+COPY *.py /app/
 
 # Set working directory
 WORKDIR /app
 
 # Set entrypoint
-ENTRYPOINT ["python", "main.py"]
+ENTRYPOINT ["python", "playlist_generator.py"]
