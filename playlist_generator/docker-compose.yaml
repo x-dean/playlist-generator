@@ -1,8 +1,6 @@
 services:
   playlist-generator:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     volumes:
       - type: bind
         source: ${MUSIC_DIR}
@@ -21,9 +19,9 @@ services:
       --music_dir /music
       --host_music_dir ${HOST_MUSIC_DIR}
       --output_dir /app/playlists
-      --workers ${WORKERS:-}
-      --num_playlists ${NUM_PLAYLISTS:-}
-      --chunk_size ${CHUNK_SIZE:-}
+      --workers ${WORKERS}
+      --num_playlists ${NUM_PLAYLISTS}
+      --chunk_size ${CHUNK_SIZE}
       ${ANALYZE_ONLY:+--analyze_only}
       ${GENERATE_ONLY:+--generate_only}
       ${FORCE_SEQUENTIAL:+--force_sequential}
