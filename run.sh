@@ -6,133 +6,52 @@ REBUILD=false
 MUSIC_DIR="/root/music/library"
 OUTPUT_DIR="/root/music/library/playlists/by_bpm"
 CACHE_DIR="/root/music/library/playlists/by_bpm/cache"
-WORKERS=$(nproc)
-NUM_PLAYLISTS=10
-CHUNK_SIZE=1000
-USE_DB=false
-FORCE_SEQUENTIAL=false
+WORKERS=$(( $(command -v nproc >/dev/null 2>&1 && nproc || echo 2) / 2 ))
+ANALYZE_ONLY=false
+GENERATE_ONLY=false
 
-# Parse command-line arguments
+# Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --rebuild)
-            REBUILD=true
-            shift
-            ;;
-        --music_dir=*)
-            MUSIC_DIR="${1#*=}"
-            shift
-            ;;
-        --output_dir=*)
-            OUTPUT_DIR="${1#*=}"
-            shift
-            ;;
-        --cache_dir=*)
-            CACHE_DIR="${1#*=}"
-            shift
-            ;;
-        --workers=*)
-            WORKERS="${1#*=}"
-            shift
-            ;;
-        --generate_only)
-            GENERATE_ONLY=true
-            shift
-            ;;
-        --analyze_only)
-            ANALYZE_ONLY=true
-            shift
-            ;;
-        --num_playlists=*)
-            NUM_PLAYLISTS="${1#*=}"
-            shift
-            ;;
-        --chunk_size=*)
-            CHUNK_SIZE="${1#*=}"
-            shift
-            ;;
-        --use_db)
-            USE_DB=true
-            shift
-            ;;
-        --force_sequential)
-            FORCE_SEQUENTIAL=true
-            shift
-            ;;
-        --help|-h)
-            echo "Usage: $0 [options]"
-            echo "Options:"
-            echo "  --rebuild                Rebuild the Docker image"
-            echo "  --music_dir=<path>       Path to the music directory (default: $MUSIC_DIR)"
-            echo "  --output_dir=<path>      Path to the output directory (default: $OUTPUT_DIR)"
-            echo "  --cache_dir=<path>       Path to the cache directory (default: $CACHE_DIR)"
-            echo "  --workers=<num>          Number of worker threads (default: $(nproc))"
-            echo "  --num_playlists=<num>     Number of playlists to generate (default: $NUM_PLAYLISTS)"
-            echo "  --chunk_size=<size>      Size of each chunk for processing (default: $CHUNK_SIZE)"
-            echo "  --use_db                 Use database for storing features (default: false)"
-            echo "  --force_sequential       Force sequential processing (default: false)"
-            echo "  --generate_only          Only generate playlists from database without analysis"
-            echo "  --analyze_only           Only run audio analysis without generating playlists"
-            echo "  --help, -h              Show this help message"
-            exit 0
-            ;;
-        *)
-            echo "Unknown option: $1"
-            exit 1
-            ;;
+        --rebuild) REBUILD=true; shift ;;
+        --music_dir=*) MUSIC_DIR="${1#*=}"; shift ;;
+        --output_dir=*) OUTPUT_DIR="${1#*=}"; shift ;;
+        --cache_dir=*) CACHE_DIR="${1#*=}"; shift ;;
+        --workers=*) WORKERS="${1#*=}"; shift ;;
+        --analyze_only) ANALYZE_ONLY=true; shift ;;
+        --generate_only) GENERATE_ONLY=true; shift ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
 
 # Create directories
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
 
-# Export environment variables for compose
-export MUSIC_DIR
-export OUTPUT_DIR
-export CACHE_DIR
-export CONFIG_DIR
-export WORKERS
-export NUM_PLAYLISTS
-export CHUNK_SIZE
-export USE_DB
-export FORCE_SEQUENTIAL
-export GENERATE_ONLY
-export ANALYZE_ONLY
-
-# Print configuration
-echo "=== Playlist Generator Configuration ==="
-echo "Music Directory: $MUSIC_DIR"
-echo "Output Directory: $OUTPUT_DIR"
-echo "Cache Directory: $CACHE_DIR"
-echo "Workers: $WORKERS"
-echo "Playlists: $NUM_PLAYLISTS"
-echo "Chunk Size: $CHUNK_SIZE"
-echo "Use DB: $USE_DB"
-echo "Force Sequential: $FORCE_SEQUENTIAL"
-echo "========================================"
-
-# Build only if requested
+# Build Docker image if requested
 if [ "$REBUILD" = true ]; then
-    echo "=== Rebuilding Docker image ==="
     docker compose build --no-cache
 fi
 
-# Run the generator with all parameters
-docker compose run --rm \
-  -v "$MUSIC_DIR:/music:ro" \
-  -v "$OUTPUT_DIR:/app/playlists" \
-  -v "$CACHE_DIR:/app/cache" \
-  playlist-generator \
-  --music_dir /music \
-  --host_music_dir "$MUSIC_DIR" \
-  --output_dir /app/playlists \
-  --workers "$WORKERS" \
-  --num_playlists "$NUM_PLAYLISTS" \
-  --chunk_size "$CHUNK_SIZE" \
-  --generate_only \
-  --analyze_only \
-   $( [ "$USE_DB" = true ] && echo "--use_db" ) \
-   $( [ "$FORCE_SEQUENTIAL" = true ] && echo "--force_sequential" )
+# Prepare command arguments
+CMD_ARGS=(
+    "--music_dir" "/music"
+    "--host_music_dir" "$MUSIC_DIR"
+    "--output_dir" "/app/playlists"
+    "--workers" "$WORKERS"
+)
 
-echo "Playlists generated successfully!"
-echo "Output available in: $OUTPUT_DIR"
+if [ "$ANALYZE_ONLY" = true ]; then
+    CMD_ARGS+=("--analyze_only")
+elif [ "$GENERATE_ONLY" = true ]; then
+    CMD_ARGS+=("--generate_only")
+fi
+
+# Run Docker container
+docker compose run --rm \
+  -v "${MUSIC_DIR}:/music:ro" \
+  -v "${OUTPUT_DIR}:/app/playlists" \
+  -v "${CACHE_DIR}:/app/cache" \
+  playlist-generator \
+  "${CMD_ARGS[@]}"
+
+echo "Operation completed successfully!"

@@ -26,11 +26,12 @@ RUN pip install --no-cache-dir \
     pydub
 
 # Copy application files
-COPY playlist_generator.py /app/
-COPY analyze_music.py /app/
+COPY playlist_generation.py /app/
+COPY audio_analysis.py /app/
+COPY main.py /app/
 
 # Set working directory
 WORKDIR /app
 
 # Set entrypoint
-ENTRYPOINT ["python", "playlist_generator.py"]
+ENTRYPOINT ["python", "main.py"]
