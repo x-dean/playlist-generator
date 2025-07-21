@@ -19,35 +19,8 @@ import time
 import traceback
 import re
 import sqlite3
-import psutil
-import resource
-import gc
-import resource
 import time
-import threading
-
-class ProcessMemoryGuard:
-    def __init__(self, limit_gb=4, threshold=0.9):
-        self.limit = limit_gb * (1024**3)
-        self.threshold = threshold
-        self.critical = False
-        self.thread = threading.Thread(target=self._monitor, daemon=True)
-        self.thread.start()
-        
-    def _monitor(self):
-        while True:
-            try:
-                # Get memory usage in bytes
-                usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
-                self.critical = usage > self.limit * self.threshold
-                if self.critical:
-                    logger.warning(f"Memory critical: {usage/(1024**2):.2f}MB used")
-            except:
-                pass
-            time.sleep(0.5)
-    
-    def is_critical(self):
-        return self.critical
+import gc
     
 # Logging setup
 def setup_colored_logging():
@@ -114,22 +87,6 @@ def process_file_worker(filepath):
         logger.error(f"Error processing {filepath}: {str(e)}")
         return None, filepath
 
-# Set memory limit
-MEMORY_LIMIT = 4 * 1024 * 1024 * 1024  # 4 GiB in bytes
-try:
-    resource.setrlimit(resource.RLIMIT_AS, (MEMORY_LIMIT, MEMORY_LIMIT))
-    logger.info(f"Memory limit set to 4 GiB")
-except (ValueError, resource.error) as e:
-    logger.warning(f"Could not set memory limit: {str(e)}")
-
-def memory_usage():
-    """Get current memory usage as fraction of limit (0-1)"""
-    try:
-        process = psutil.Process(os.getpid())
-        return process.memory_info().rss / MEMORY_LIMIT
-    except:
-        return 0
-
 def setup_playlist_db(cache_file):
     conn = sqlite3.connect(cache_file, timeout=60)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -191,13 +148,6 @@ class PlaylistGenerator:
     def _process_sequential(self, file_list):
         results = []
         with tqdm(file_list, desc="Analyzing files") as pbar:
-            for filepath in pbar:
-                # Check memory before each file
-                if memory_usage() > 0.8:
-                    logger.warning("High memory usage, skipping remaining files")
-                    self.failed_files.extend(file_list[pbar.n:])
-                    break
-                    
                 try:
                     # Free memory periodically
                     if pbar.n % 10 == 0:
@@ -229,13 +179,6 @@ class PlaylistGenerator:
                 # Process in smaller batches to avoid hangs
                 for i in range(0, len(file_list), batch_size):
                     batch = file_list[i:i+batch_size]
-                    
-                    # Check memory before processing batch
-                    if memory_usage() > 0.8:
-                        logger.warning("High memory usage, skipping batch")
-                        self.failed_files.extend(batch)
-                        continue
-                        
                     with ctx.Pool(processes=workers) as pool:
                         with tqdm(total=len(batch), desc=f"Processing batch {i//batch_size+1}",
                                  bar_format="{l_bar}{bar:40}{r_bar}",
