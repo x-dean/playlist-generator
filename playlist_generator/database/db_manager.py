@@ -52,7 +52,7 @@ class DatabaseManager:
             )
             """)
             
-            # Playlists table with description
+            # Playlists table with description and features
             conn.execute("""
             CREATE TABLE IF NOT EXISTS playlists (
                 id INTEGER PRIMARY KEY,
@@ -65,12 +65,17 @@ class DatabaseManager:
             )
             """)
             
-            # Add description column if it doesn't exist
+            # Add missing columns if they don't exist
             cursor = conn.cursor()
             cursor.execute("PRAGMA table_info(playlists)")
             columns = {row[1] for row in cursor.fetchall()}
+            
             if 'description' not in columns:
                 conn.execute("ALTER TABLE playlists ADD COLUMN description TEXT")
+            if 'features' not in columns:
+                conn.execute("ALTER TABLE playlists ADD COLUMN features TEXT")
+            if 'stats' not in columns:
+                conn.execute("ALTER TABLE playlists ADD COLUMN stats TEXT")
             
             # Playlist tracks table with ordering
             conn.execute("""
