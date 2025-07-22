@@ -28,59 +28,70 @@ class PlaylistManager:
             final_playlists = {}
             used_tracks = set()
 
-            # Generate playlists based on selected method
-            if self.playlist_method in ['all', 'time']:
+            if self.playlist_method == 'time':
+                # Only time-based playlists
+                time_playlists = self.time_scheduler.generate_time_based_playlists(features)
+                for name, data in time_playlists.items():
+                    if len(data['tracks']) >= 10:
+                        final_playlists[name] = data
+                self._calculate_playlist_stats(final_playlists, features)
+                return final_playlists
+
+            if self.playlist_method == 'kmeans':
+                # Only kmeans playlists
+                kmeans_playlists = self.kmeans_generator.generate(features, num_playlists)
+                for name, data in kmeans_playlists.items():
+                    if len(data['tracks']) >= 10:
+                        final_playlists[name] = data
+                self._calculate_playlist_stats(final_playlists, features)
+                return final_playlists
+
+            if self.playlist_method == 'cache':
+                # Only cache-based playlists
+                cache_playlists = self.cache_generator.generate(features)
+                for name, data in cache_playlists.items():
+                    if len(data['tracks']) >= 10:
+                        final_playlists[name] = data
+                self._calculate_playlist_stats(final_playlists, features)
+                return final_playlists
+
+            # 'all' mode: combine all types
+            if self.playlist_method == 'all':
                 # Time-based playlists
                 time_playlists = self.time_scheduler.generate_time_based_playlists(features)
                 for name, data in time_playlists.items():
-                    if len(data['tracks']) >= 10:  # Only keep playlists with enough tracks
+                    if len(data['tracks']) >= 10:
                         final_playlists[name] = data
-                        if self.playlist_method == 'all':
-                            used_tracks.update(data['tracks'])
+                        used_tracks.update(data['tracks'])
 
-            if self.playlist_method in ['all', 'kmeans']:
-                # Calculate remaining tracks for 'all' method
-                remaining_features = features
-                if self.playlist_method == 'all':
-                    remaining_features = [
-                        f for f in features
-                        if f['filepath'] not in used_tracks
-                    ]
-
-                # Generate K-means playlists
+                # K-means playlists from remaining tracks
+                remaining_features = [
+                    f for f in features
+                    if f['filepath'] not in used_tracks
+                ]
                 target_kmeans = max(2, num_playlists - len(final_playlists))
                 kmeans_playlists = self.kmeans_generator.generate(remaining_features, target_kmeans)
-                
                 for name, data in kmeans_playlists.items():
-                    if len(data['tracks']) >= 10:  # Only keep playlists with enough tracks
+                    if len(data['tracks']) >= 10:
                         final_playlists[name] = data
-                        if self.playlist_method == 'all':
-                            used_tracks.update(data['tracks'])
+                        used_tracks.update(data['tracks'])
 
-            if self.playlist_method in ['all', 'cache']:
-                # Calculate remaining tracks for 'all' method
-                remaining_features = features
-                if self.playlist_method == 'all':
-                    remaining_features = [
-                        f for f in features
-                        if f['filepath'] not in used_tracks
-                    ]
-
-                # Generate cache-based playlists
+                # Cache-based playlists from remaining tracks
+                remaining_features = [
+                    f for f in features
+                    if f['filepath'] not in used_tracks
+                ]
                 cache_playlists = self.cache_generator.generate(remaining_features)
                 for name, data in cache_playlists.items():
-                    if len(data['tracks']) >= 10:  # Only keep playlists with enough tracks
+                    if len(data['tracks']) >= 10:
                         final_playlists[name] = data
-                        if self.playlist_method == 'all':
-                            used_tracks.update(data['tracks'])
+                        used_tracks.update(data['tracks'])
 
-            # Create a mixed playlist for any remaining tracks in 'all' mode
-            if self.playlist_method == 'all':
+                # Mixed collection for any leftovers
                 remaining_tracks = [
                     f['filepath'] for f in features
                     if f['filepath'] not in used_tracks
                 ]
-                
                 if remaining_tracks:
                     mixed_name = "Mixed_Collection"
                     final_playlists[mixed_name] = {
@@ -88,17 +99,8 @@ class PlaylistManager:
                         'features': {'type': 'mixed'},
                         'description': "A diverse collection of tracks that didn't fit other categories"
                     }
-
-            # Calculate playlist statistics
-            self._calculate_playlist_stats(final_playlists, features)
-
-            # Log summary
-            total_tracks = sum(len(p['tracks']) for p in final_playlists.values())
-            logger.info(f"Generated {len(final_playlists)} playlists with {total_tracks} total tracks using {self.playlist_method} method")
-            for name, data in final_playlists.items():
-                logger.info(f"Playlist {name}: {len(data['tracks'])} tracks")
-
-            return final_playlists
+                self._calculate_playlist_stats(final_playlists, features)
+                return final_playlists
 
         except Exception as e:
             logger.error(f"Error generating playlists: {str(e)}")

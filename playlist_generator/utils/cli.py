@@ -89,7 +89,7 @@ class PlaylistGeneratorCLI:
 
         # Stats table
         table = Table(show_header=True, header_style="bold magenta")
-        table.add_column("Playlist", style="cyan")
+        table.add_column("Playlist", style="cyan", max_width=28, overflow="fold")
         table.add_column("Tracks", justify="right", style="green")
         table.add_column("Duration", justify="right", style="green")
         table.add_column("Avg BPM", justify="right", style="yellow")
@@ -97,8 +97,9 @@ class PlaylistGeneratorCLI:
 
         for name, playlist_stats in stats.items():
             try:
+                display_name = name if len(name) <= 28 else name[:25] + "..."
                 table.add_row(
-                    name,
+                    display_name,
                     str(playlist_stats.get('track_count', 0)),
                     f"{playlist_stats.get('total_duration', 0)/60:.1f}m",
                     f"{playlist_stats.get('avg_bpm', 0):.0f}",
@@ -122,7 +123,7 @@ class PlaylistGeneratorCLI:
 
             try:
                 key_table = Table(
-                    title=f"Key Distribution - {name}",
+                    title=f"Key Distribution - {name[:25] + '...' if len(name) > 28 else name}",
                     show_header=True,
                     title_style="bold magenta"
                 )
@@ -142,10 +143,15 @@ class PlaylistGeneratorCLI:
                 logger.warning(f"Error creating key distribution table for {name}: {str(e)}")
 
         if key_tables:
-            # Create a layout for key tables with proper spacing
+            # Only show up to 3 key tables at once for readability
             keys_layout = Layout()
-            keys_layout.split_column(*[Layout(table) for table in key_tables])
+            keys_layout.split_column(*[Layout(table) for table in key_tables[:3]])
             layout["keys"].update(keys_layout)
+            if len(key_tables) > 3:
+                self.console.print(Panel(
+                    f"[yellow]Only showing top 3 key distributions out of {len(key_tables)} playlists.[/yellow]",
+                    border_style="yellow"
+                ))
         else:
             layout["keys"].update(Panel(
                 "[yellow]No key distribution data available[/yellow]",
