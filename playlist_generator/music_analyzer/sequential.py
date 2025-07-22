@@ -11,18 +11,16 @@ class SequentialProcessor:
         self.failed_files = []
     
     def process(self, file_list, workers=None):
-        return self._process_sequential(file_list)
+        yield from self._process_sequential(file_list)
 
     def _process_sequential(self, file_list):
-        results = []
         for filepath in file_list:
             try:
                 features, _ = process_file_worker(filepath)
                 if features:
-                    results.append(features)
+                    yield features
                 else:
                     self.failed_files.append(filepath)
             except Exception as e:
                 self.failed_files.append(filepath)
                 logger.error(f"Error processing {filepath}: {str(e)}")
-        return results
