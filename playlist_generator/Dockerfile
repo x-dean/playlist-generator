@@ -59,5 +59,5 @@ ENV PYTHONUNBUFFERED=1 \
     ESSENTIA_STREAM_LOGGING=none
 
 # Use shell form for entrypoint to allow variable expansion
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["python", "main.py" | grep -v 'AudioLoader:' | grep -v 'MusicExtractorSVM:' | grep -v 'invalid frame']
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh" | grep -v 'AudioLoader:' | grep -v 'MusicExtractorSVM:' | grep -v 'invalid frame']
+CMD ["python", "main.py"]
