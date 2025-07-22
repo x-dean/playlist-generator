@@ -18,6 +18,7 @@ services:
       - UID=${CURRENT_UID:-1000}
       - GID=${CURRENT_GID:-1000}
       - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
+      - MIN_TRACKS_PER_GENRE=${MIN_TRACKS_PER_GENRE:-10}
     working_dir: /app
     command: >
       python main.py
