@@ -215,9 +215,9 @@ def main():
                 filepath = row[0]
                 try:
                     meta = json.loads(row[1]) if row[1] else {}
-                    track = {'filepath': filepath, 'metadata': meta}
+                    track_data = {'filepath': filepath, 'metadata': meta}
                     before = dict(meta)
-                    result = tagger.enrich_track_metadata(track, force_enrich_tags=args.force)
+                    result = tagger.enrich_track_metadata(track_data, force_enrich_tags=args.force)
                     after = result.get('metadata', {})
                     # If force or if genre/year was missing and now present, count as enriched
                     if args.force or (not before.get('genre') and after.get('genre')) or (not before.get('year') and after.get('year')):
