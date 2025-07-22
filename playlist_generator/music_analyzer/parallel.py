@@ -91,17 +91,11 @@ class ParallelProcessor:
                     failed_in_batch = []
 
                     with ctx.Pool(processes=self.workers) as pool:
-                        with tqdm(total=len(batch), desc=f"Processing batch {i//self.batch_size+1}",
-                                bar_format="{l_bar}{bar:40}{r_bar}", file=sys.stdout) as pbar:
-                            
-                            for features, filepath in pool.imap_unordered(process_file_worker, batch):
-                                if features:
-                                    results.append(features)
-                                else:
-                                    failed_in_batch.append(filepath)
-                                pbar.update(1)
-                                pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
-                    
+                        for features, filepath in pool.imap_unordered(process_file_worker, batch):
+                            if features:
+                                results.append(features)
+                            else:
+                                failed_in_batch.append(filepath)
                     # Update remaining files for next iteration
                     remaining_files = remaining_files[i+self.batch_size:]
                     if failed_in_batch:

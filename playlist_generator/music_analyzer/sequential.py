@@ -15,20 +15,14 @@ class SequentialProcessor:
 
     def _process_sequential(self, file_list):
         results = []
-        with tqdm(file_list, desc="Analyzing files") as pbar:
-            for filepath in pbar:
-                try:
-                    if pbar.n % 10 == 0:
-                        gc.collect()
-
-                    features, _ = process_file_worker(filepath)
-                    if features:
-                        results.append(features)
-                    else:
-                        self.failed_files.append(filepath)
-                except Exception as e:
+        for filepath in file_list:
+            try:
+                features, _ = process_file_worker(filepath)
+                if features:
+                    results.append(features)
+                else:
                     self.failed_files.append(filepath)
-                    logger.error(f"Error processing {filepath}: {str(e)}")
-
-                pbar.set_postfix_str(f"OK: {len(results)}, Failed: {len(self.failed_files)}")
+            except Exception as e:
+                self.failed_files.append(filepath)
+                logger.error(f"Error processing {filepath}: {str(e)}")
         return results
