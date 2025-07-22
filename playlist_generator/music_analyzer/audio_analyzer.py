@@ -287,7 +287,7 @@ class AudioAnalyzer:
                 'scale': row[7],
                 'onset_rate': row[8],
                 'zcr': row[9],
-                'metadata': json.loads(row[10]),
+                'metadata': json.loads(row[10]) if row[10] else {},
                 'filepath': file_info['file_path'],
                 'filename': os.path.basename(file_info['file_path'])
             }
@@ -398,7 +398,7 @@ class AudioAnalyzer:
                 'scale': row[8],
                 'onset_rate': row[9],
                 'zcr': row[10],
-                'metadata': json.loads(row[11])
+                'metadata': json.loads(row[11]) if row[11] else {}
             } for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error fetching features: {str(e)}")
