@@ -8,6 +8,59 @@ class PlaylistDatabase:
     def __init__(self, cache_file):
         self.cache_file = cache_file
         self._init_db()
+
+    def playlists_exist(self):
+        """Check if any playlists exist in the database"""
+        try:
+            conn = sqlite3.connect(self.cache_file, timeout=60)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM playlists")
+            count = cursor.fetchone()[0]
+            return count > 0
+        except Exception as e:
+            logger.error(f"Error checking playlists: {str(e)}")
+            return False
+        finally:
+            conn.close()
+
+    def save_playlists(self, playlists):
+        """Save playlists to the database"""
+        try:
+            conn = sqlite3.connect(self.cache_file, timeout=60)
+            cursor = conn.cursor()
+            
+            # Clear existing playlists
+            cursor.execute("DELETE FROM playlist_tracks")
+            cursor.execute("DELETE FROM playlists")
+            
+            # Insert new playlists
+            for name, data in playlists.items():
+                cursor.execute(
+                    "INSERT INTO playlists (name) VALUES (?)",
+                    (name,)
+                )
+                playlist_id = cursor.lastrowid
+                
+                for track in data.get('tracks', []):
+                    # Get file hash for the track
+                    cursor.execute(
+                        "SELECT file_hash FROM audio_features WHERE file_path = ?",
+                        (track,)
+                    )
+                    result = cursor.fetchone()
+                    if result:
+                        file_hash = result[0]
+                        cursor.execute(
+                            "INSERT INTO playlist_tracks (playlist_id, file_hash) VALUES (?, ?)",
+                            (playlist_id, file_hash)
+                        )
+            
+            conn.commit()
+            logger.info(f"Saved {len(playlists)} playlists to database")
+        except Exception as e:
+            logger.error(f"Error saving playlists: {str(e)}")
+        finally:
+            conn.close()
     
     def _init_db(self):
         # Move this method outside of update_playlists

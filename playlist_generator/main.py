@@ -5,8 +5,8 @@ import time
 import traceback
 import multiprocessing as mp
 from logging_setup import setup_colored_logging
-from database.audio_db import AudioDatabase
-from database.audio_db import PlaylistDatabase as AudioDatabase
+from music_analyzer.audio_analyzer import AudioAnalyzer
+from database.playlist_db import PlaylistDatabase
 from music_analyzer.parallel import ParallelProcessor
 from music_analyzer.sequential import SequentialProcessor
 from playlist_generator.time_based import TimeBasedScheduler
@@ -79,10 +79,11 @@ def main():
 
     # Set cache file path
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+    os.environ['CACHE_DIR'] = cache_dir
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
     
     # Initialize components
-    audio_db = AudioDatabase(cache_file)
+    audio_db = AudioAnalyzer(cache_file)
     playlist_db = PlaylistDatabase(cache_file)
     time_scheduler = TimeBasedScheduler()
     kmeans_generator = KMeansPlaylistGenerator()
