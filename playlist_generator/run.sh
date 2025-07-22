@@ -23,6 +23,8 @@ UPDATE=false
 PLAYLIST_METHOD="all"  # Default to all methods
 ENRICH_TAGS=false
 FORCE_ENRICH_TAGS=false
+ENRICH_ONLY=false
+FORCE=false
 
 # Get current user's UID and GID
 CURRENT_UID=$(id -u)
@@ -94,6 +96,14 @@ while [[ $# -gt 0 ]]; do
             FORCE_ENRICH_TAGS=true
             shift
             ;;
+        --enrich_only)
+            ENRICH_ONLY=true
+            shift
+            ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [options]"
             echo "Options:"
@@ -112,6 +122,8 @@ while [[ $# -gt 0 ]]; do
             echo "                           Options: all, time, kmeans, cache, tags"
             echo "  --enrich_tags            Enrich tags using MusicBrainz/Last.fm APIs (default: false)"
             echo "  --force_enrich_tags      Force re-enrichment of tags and overwrite metadata in the database (default: false)"
+            echo "  --enrich_only           Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)"
+            echo "  --force                 Force re-enrichment for all tracks in the database (use with --enrich_only)"
             echo "  --help, -h               Show this help message"
             exit 0
             ;;
@@ -186,6 +198,8 @@ echo "Update Mode: ${UPDATE}"
 echo "Playlist Method: ${PLAYLIST_METHOD}"
 echo "Enrich Tags: ${ENRICH_TAGS}"
 echo "Force Enrich Tags: ${FORCE_ENRICH_TAGS}"
+echo "Enrich Only: ${ENRICH_ONLY}"
+echo "Force Enrich Only: ${FORCE}"
 echo "Running as UID:GID = $CURRENT_UID:$CURRENT_GID"
 echo "========================================"
 
@@ -222,6 +236,16 @@ if [ "$FORCE_ENRICH_TAGS" = true ]; then
     FORCE_ENRICH_TAGS_FLAG="--force_enrich_tags"
 fi
 
+# Add enrich only flags if enabled
+ENRICH_ONLY_FLAG=""
+if [ "$ENRICH_ONLY" = true ]; then
+    ENRICH_ONLY_FLAG="--enrich_only"
+fi
+FORCE_FLAG=""
+if [ "$FORCE" = true ]; then
+    FORCE_FLAG="--force"
+fi
+
 # Run the generator
 echo "=== Starting Playlist Generation ==="
 docker compose up --force-recreate --remove-orphans --build --detach
@@ -236,4 +260,6 @@ docker compose exec playlist-generator python main.py \
   $PLAYLIST_METHOD_FLAG \
   $FORCE_SEQUENTIAL_FLAG \
   $ENRICH_TAGS_FLAG \
-  $FORCE_ENRICH_TAGS_FLAG
+  $FORCE_ENRICH_TAGS_FLAG \
+  $ENRICH_ONLY_FLAG \
+  $FORCE_FLAG

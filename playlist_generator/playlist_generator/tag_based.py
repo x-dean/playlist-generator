@@ -208,7 +208,8 @@ class TagBasedPlaylistGenerator:
             return f"{genre_disp} ({decade_disp})"
 
     def _format_file_name(self, genre, decade, mood=None, part=None):
-        genre_file = self._normalize_genre(genre).replace(' ', '_')
+        import re
+        genre_file = self._normalize_genre(genre).replace(' ', '_') if genre else ''
         if not decade or decade in ("UnknownDecade", "0000s", "All Eras"):
             decade_file = "All_Eras"
         else:
@@ -218,6 +219,12 @@ class TagBasedPlaylistGenerator:
             name += f"_{mood}"
         if part:
             name += f"_Part{part}"
+        # Replace any non-alphanumeric character with underscore
+        name = re.sub(r'[^A-Za-z0-9_-]+', '_', name)
+        # Collapse multiple underscores
+        name = re.sub(r'_+', '_', name)
+        # Remove leading/trailing underscores
+        name = name.strip('_')
         return name
 
     def generate(self, features_list, enrich_tags=None, force_enrich_tags=None):

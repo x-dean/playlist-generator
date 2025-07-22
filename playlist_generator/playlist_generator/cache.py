@@ -7,6 +7,7 @@ from sklearn.preprocessing import StandardScaler
 import os
 import numpy as np
 from typing import Dict, List, Any, Optional
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,11 @@ class CacheBasedGenerator:
             min(1.0, onset_rate / 4) * 0.3  # Normalize onset rate
         )
 
+    def _sanitize_file_name(self, name: str) -> str:
+        name = re.sub(r'[^A-Za-z0-9_-]+', '_', name)
+        name = re.sub(r'_+', '_', name)
+        return name.strip('_')
+
     def _generate_playlist_name(self, features: Dict[str, Any]) -> str:
         """Generate descriptive playlist name based on musical features"""
         bpm = float(features.get('bpm', 0))
@@ -77,7 +83,8 @@ class CacheBasedGenerator:
         energy_category, _ = self._get_category(energy, self.energy_levels)
         mood_category, _ = self._get_category(centroid, self.mood_ranges)
         
-        return f"{bpm_category}_{energy_category}_{mood_category}"
+        name = f"{bpm_category}_{energy_category}_{mood_category}"
+        return self._sanitize_file_name(name)
 
     def _generate_description(self, features: Dict[str, Any]) -> str:
         """Generate human-readable description based on musical features"""

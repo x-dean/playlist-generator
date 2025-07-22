@@ -14,6 +14,12 @@ class FeatureGroupPlaylistGenerator:
         name = re.sub(r'[^\w\-_]', '_', name)
         return re.sub(r'_+', '_', name).strip('_')
 
+    def _sanitize_file_name(self, name: str) -> str:
+        import re
+        name = re.sub(r'[^A-Za-z0-9_-]+', '_', name)
+        name = re.sub(r'_+', '_', name)
+        return name.strip('_')
+
     def generate(self, features_list: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         # Helper mapping for mood similarity
         centroid_mapping = {
@@ -77,6 +83,7 @@ class FeatureGroupPlaylistGenerator:
                 elif mood_group in ('Warm', 'Mellow'):
                     playlist_name = f"{playlist_name}_Warm"
                 playlist_name = self.sanitize_filename(playlist_name)
+                file_name = self._sanitize_file_name(playlist_name)
                 if playlist_name not in playlists:
                     playlists[playlist_name] = {
                         'tracks': [],
@@ -86,7 +93,8 @@ class FeatureGroupPlaylistGenerator:
                             'energy_group': energy_group,
                             'mood_group': mood_group,
                             'key_group': key_group
-                        }
+                        },
+                        'file_name': file_name
                     }
                 file_hash = f.get('file_hash', file_path)  # fallback to path if no hash
                 if file_hash not in playlists[playlist_name]['hashes']:

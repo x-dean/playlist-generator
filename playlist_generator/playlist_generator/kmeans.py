@@ -5,6 +5,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import logging
 import traceback
 import sqlite3
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,11 @@ class KMeansPlaylistGenerator:
         finally:
             if conn:
                 conn.close()
+
+    def _sanitize_file_name(self, name: str) -> str:
+        name = re.sub(r'[^A-Za-z0-9_-]+', '_', name)
+        name = re.sub(r'_+', '_', name)
+        return name.strip('_')
 
     def _normalize_features(self, features):
         """Normalize feature values to appropriate ranges"""
@@ -139,16 +145,19 @@ class KMeansPlaylistGenerator:
                     'zcr': group['zcr'].median()
                 }
                 name = self._generate_descriptive_name(centroid)
+                file_name = self._sanitize_file_name(name)
                 if name in temp_playlists:
                     base_name = name
                     counter = 1
                     while name in temp_playlists:
                         name = f"{base_name}_Variation{counter}"
                         counter += 1
+                    file_name = self._sanitize_file_name(name)
                 temp_playlists[name] = {
                     'tracks': group['filepath'].tolist(),
                     'features': centroid,
                     'description': self._generate_description(centroid)
+                    , 'file_name': file_name
                 }
             # Fallback: merge all small/leftover tracks into Mixed_Collection
             assigned = set()

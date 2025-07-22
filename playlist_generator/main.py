@@ -131,6 +131,8 @@ def main():
     parser.add_argument('--min_tracks_per_genre', type=int, default=10, help='Minimum number of tracks required for a genre to create a playlist (tags method only)')
     parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs (default: False)')
     parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
+    parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
+    parser.add_argument('--force', action='store_true', help='Force re-enrichment for all tracks in the database (use with --enrich_only)')
     args = parser.parse_args()
 
     # If no mutually exclusive mode is set, default to analyze_only
@@ -190,6 +192,43 @@ def main():
         if missing_in_db:
             cli.show_warning(f"Removed {len(missing_in_db)} missing files from database")
             failed_files.extend(missing_in_db)
+
+        # Dedicated enrichment mode
+        if args.enrich_only:
+            from playlist_generator.tag_based import TagBasedPlaylistGenerator
+            from database.db_manager import DatabaseManager
+            import json
+            db_file = cache_file
+            dbm = DatabaseManager(db_file)
+            # Load all tracks from DB
+            conn = dbm._get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT file_path, metadata FROM audio_features")
+            rows = cursor.fetchall()
+            total = len(rows)
+            enriched = 0
+            skipped = 0
+            failed = 0
+            tagger = TagBasedPlaylistGenerator(db_file=db_file, enrich_tags=True, force_enrich_tags=args.force)
+            print(f"Starting enrichment for {total} tracks (force: {args.force})...")
+            for row in rows:
+                filepath = row[0]
+                try:
+                    meta = json.loads(row[1]) if row[1] else {}
+                    track = {'filepath': filepath, 'metadata': meta}
+                    before = dict(meta)
+                    result = tagger.enrich_track_metadata(track, force_enrich_tags=args.force)
+                    after = result.get('metadata', {})
+                    # If force or if genre/year was missing and now present, count as enriched
+                    if args.force or (not before.get('genre') and after.get('genre')) or (not before.get('year') and after.get('year')):
+                        enriched += 1
+                    else:
+                        skipped += 1
+                except Exception as e:
+                    failed += 1
+                    print(f"Failed to enrich {filepath}: {e}")
+            print(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}")
+            exit(0)
 
         if args.update:
             cli.update_status("Running in UPDATE mode")
