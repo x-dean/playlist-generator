@@ -98,10 +98,10 @@ export WORKERS
 export NUM_PLAYLISTS
 
 # Only export boolean flags if true
-[ "$FORCE_SEQUENTIAL" = true ] && export FORCE_SEQUENTIAL || unset FORCE_SEQUENTIAL
-[ "$GENERATE_ONLY" = true ] && export GENERATE_ONLY || unset GENERATE_ONLY
-[ "$ANALYZE_ONLY" = true ] && export ANALYZE_ONLY || unset ANALYZE_ONLY
-[ "$UPDATE" = true ] && export UPDATE || unset UPDATE
+[ "${FORCE_SEQUENTIAL:-}" = true ] && export FORCE_SEQUENTIAL || unset FORCE_SEQUENTIAL
+[ "${GENERATE_ONLY:-}" = true ] && export GENERATE_ONLY || unset GENERATE_ONLY
+[ "${ANALYZE_ONLY:-}" = true ] && export ANALYZE_ONLY || unset ANALYZE_ONLY
+[ "${UPDATE:-}" = true ] && export UPDATE || unset UPDATE
 
 # Print configuration
 echo "=== Playlist Generator Configuration ==="
