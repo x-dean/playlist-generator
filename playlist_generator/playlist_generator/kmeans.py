@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import logging
 import traceback
 import sqlite3
@@ -46,7 +46,28 @@ class KMeansPlaylistGenerator:
             if conn:
                 conn.close()
 
-    
+    def _normalize_features(self, features):
+        """Normalize feature values to appropriate ranges"""
+        if not features:
+            return features
+
+        # Ensure danceability is between 0 and 1
+        features['danceability'] = np.clip(features['danceability'], 0, 1)
+
+        # Normalize BPM to a reasonable range (20-200)
+        features['bpm'] = np.clip(features['bpm'], 20, 200)
+
+        # Normalize centroid (typical range 0-10000)
+        features['centroid'] = np.clip(features['centroid'], 0, 10000)
+
+        # Add normalized loudness (typical range -60 to 0 dB)
+        if 'loudness' in features:
+            features['loudness'] = np.clip(features['loudness'], -60, 0)
+            # Convert to 0-1 range
+            features['loudness'] = (features['loudness'] + 60) / 60
+
+        return features
+
     def generate(self, features_list, num_playlists=5, chunk_size=1000):
         playlists = {}
         try:
@@ -55,12 +76,20 @@ class KMeansPlaylistGenerator:
                 if not f or 'filepath' not in f:
                     continue
                 try:
-                    data.append({
+                    track_data = {
                         'filepath': str(f['filepath']),
-                        'bpm': max(0, float(f.get('bpm', 0))),
-                        'centroid': max(0, float(f.get('centroid', 0))),
-                        'danceability': min(1.0, max(0, float(f.get('danceability', 0))))
-                    })
+                        'bpm': float(f.get('bpm', 0)),
+                        'centroid': float(f.get('centroid', 0)),
+                        'danceability': float(f.get('danceability', 0)),
+                        'loudness': float(f.get('loudness', -30)),
+                        'onset_rate': float(f.get('onset_rate', 0)),
+                        'zcr': float(f.get('zcr', 0)),
+                        'key': int(f.get('key', -1)),
+                        'scale': int(f.get('scale', 0))
+                    }
+                    # Normalize features
+                    track_data = self._normalize_features(track_data)
+                    data.append(track_data)
                 except Exception as e:
                     logger.debug(f"Skipping track: {str(e)}")
                     continue
@@ -69,51 +98,159 @@ class KMeansPlaylistGenerator:
                 return playlists
 
             df = pd.DataFrame(data)
-            cluster_features = ['bpm', 'centroid', 'danceability']
-            weights = np.array([1.5, 1.0, 1.2])
+            
+            # Features for clustering
+            cluster_features = [
+                'bpm', 'centroid', 'danceability', 
+                'loudness', 'onset_rate', 'zcr'
+            ]
 
-            scaler = StandardScaler()
+            # Feature weights (sum should be 1.0)
+            weights = {
+                'bpm': 0.25,        # Strong influence on playlist feel
+                'danceability': 0.2, # Important for mood
+                'centroid': 0.15,    # Affects brightness/mood
+                'loudness': 0.15,    # Important for consistency
+                'onset_rate': 0.15,  # Rhythm complexity
+                'zcr': 0.1          # Texture/timbre
+            }
+
+            # Scale features to 0-1 range
+            scaler = MinMaxScaler()
             scaled_features = scaler.fit_transform(df[cluster_features])
-            weighted_features = scaled_features * weights
+            
+            # Apply weights
+            weighted_features = scaled_features * np.array([weights[f] for f in cluster_features])
 
+            # Determine optimal number of clusters
+            max_clusters = min(num_playlists * 2, len(df))
             kmeans = MiniBatchKMeans(
-                n_clusters=min(num_playlists, len(df)),
+                n_clusters=max_clusters,
                 random_state=42,
-                batch_size=min(500, len(df))
+                batch_size=min(1000, len(df))
             )
             df['cluster'] = kmeans.fit_predict(weighted_features)
 
+            # Generate playlists
             temp_playlists = {}
             for cluster, group in df.groupby('cluster'):
+                # Calculate cluster characteristics
                 centroid = {
                     'bpm': group['bpm'].median(),
                     'centroid': group['centroid'].median(),
                     'danceability': group['danceability'].median(),
+                    'loudness': group['loudness'].median(),
+                    'onset_rate': group['onset_rate'].median(),
+                    'zcr': group['zcr'].median()
                 }
-                name = self.generate_playlist_name(centroid).replace(" ", "_")
+
+                # Generate descriptive name
+                name = self._generate_descriptive_name(centroid)
                 
-                if name not in temp_playlists:
+                # Merge similar clusters
+                if name in temp_playlists:
+                    temp_playlists[name]['tracks'].extend(group['filepath'].tolist())
+                else:
                     temp_playlists[name] = {
                         'tracks': group['filepath'].tolist(),
-                        'features': centroid
+                        'features': centroid,
+                        'description': self._generate_description(centroid)
                     }
-                else:
-                    temp_playlists[name]['tracks'].extend(group['filepath'].tolist())
-            
-            playlists = temp_playlists
+
+            # Filter and sort playlists
+            playlists = self._filter_and_sort_playlists(temp_playlists, num_playlists)
             logger.info(f"Generated {len(playlists)} playlists from {len(df)} tracks")
 
         except Exception as e:
             logger.error(f"Clustering failed: {str(e)}")
         return playlists
 
-    def generate_playlist_name(self, features):
-        bpm = features['bpm']
-        centroid = features['centroid']
-        danceability = features['danceability']
+    def _generate_descriptive_name(self, features):
+        """Generate a descriptive name based on musical features"""
+        # BPM categories
+        if features['bpm'] < 70:
+            tempo = "Slow"
+        elif features['bpm'] < 100:
+            tempo = "Medium"
+        elif features['bpm'] < 130:
+            tempo = "Upbeat"
+        else:
+            tempo = "Fast"
+
+        # Energy/Intensity based on multiple features
+        energy_score = (
+            features['danceability'] * 0.4 +
+            features['loudness'] * 0.3 +
+            features['onset_rate'] * 0.3
+        )
         
-        bpm_desc = "Slow" if bpm < 70 else "Medium" if bpm < 100 else "Upbeat" if bpm < 130 else "Fast"
-        dance_desc = "Chill" if danceability < 0.3 else "Easy" if danceability < 0.5 else "Groovy" if danceability < 0.7 else "Dance"
-        mood_desc = "Relaxing" if centroid < 300 else "Mellow" if centroid < 1000 else "Balanced" if centroid < 2000 else "Bright"
+        if energy_score < 0.3:
+            energy = "Ambient"
+        elif energy_score < 0.5:
+            energy = "Chill"
+        elif energy_score < 0.7:
+            energy = "Groovy"
+        else:
+            energy = "Energetic"
+
+        # Mood based on spectral features
+        mood_score = (
+            features['centroid'] * 0.6 +
+            features['zcr'] * 0.4
+        )
         
-        return f"{bpm_desc}_{dance_desc}_{mood_desc}"
+        if mood_score < 0.3:
+            mood = "Dark"
+        elif mood_score < 0.5:
+            mood = "Warm"
+        elif mood_score < 0.7:
+            mood = "Bright"
+        else:
+            mood = "Crisp"
+
+        return f"{tempo}_{energy}_{mood}"
+
+    def _generate_description(self, features):
+        """Generate a human-readable description of the playlist"""
+        desc_parts = []
+        
+        # Tempo description
+        if features['bpm'] < 70:
+            desc_parts.append("Relaxing, slow-paced tracks")
+        elif features['bpm'] < 100:
+            desc_parts.append("Moderate tempo songs")
+        elif features['bpm'] < 130:
+            desc_parts.append("Upbeat, energetic music")
+        else:
+            desc_parts.append("High-energy, fast-paced tracks")
+
+        # Energy/Mood description
+        energy_level = features['danceability'] * 0.5 + features['loudness'] * 0.5
+        if energy_level < 0.3:
+            desc_parts.append("perfect for relaxation and meditation")
+        elif energy_level < 0.5:
+            desc_parts.append("great for focused work or unwinding")
+        elif energy_level < 0.7:
+            desc_parts.append("ideal for casual listening or light activity")
+        else:
+            desc_parts.append("perfect for workouts or parties")
+
+        return " ".join(desc_parts)
+
+    def _filter_and_sort_playlists(self, playlists, target_count):
+        """Filter and sort playlists to get the most diverse selection"""
+        if not playlists:
+            return {}
+
+        # Sort playlists by size
+        sorted_playlists = sorted(
+            playlists.items(),
+            key=lambda x: len(x[1]['tracks']),
+            reverse=True
+        )
+
+        # Take the top N playlists
+        return {
+            name: data
+            for name, data in sorted_playlists[:target_count]
+        }
