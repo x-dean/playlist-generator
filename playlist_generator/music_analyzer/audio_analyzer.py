@@ -222,6 +222,8 @@ class AudioAnalyzer:
             return 0.0
 
     def _musicbrainz_lookup(self, artist, title):
+        logger = logging.getLogger(__name__)
+        logger.info(f"MusicBrainz lookup: artist='{artist}', title='{title}'")
         try:
             result = musicbrainzngs.search_recordings(artist=artist, recording=title, limit=1)
             if result['recording-list']:
@@ -234,6 +236,7 @@ class AudioAnalyzer:
                     'genre': [tag['name'] for tag in rec['tag-list']] if 'tag-list' in rec and rec['tag-list'] else [],
                     'musicbrainz_id': rec['id']
                 }
+                logger.info(f"MusicBrainz result: {tags}")
                 return tags
         except Exception as e:
             logger.warning(f"MusicBrainz lookup failed: {e}")
