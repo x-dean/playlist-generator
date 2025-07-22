@@ -105,6 +105,10 @@ def main():
                       help='Playlist generation method: all (default), time, kmeans, or cache')
     args = parser.parse_args()
 
+    # If no mutually exclusive mode is set, default to analyze_only
+    if not (args.analyze_only or args.generate_only or args.update):
+        args.analyze_only = True
+
     # Show configuration
     cli.show_config({
         'Music Directory': args.music_dir,
