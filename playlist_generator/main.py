@@ -18,6 +18,8 @@ from utils.checkpoint import CheckpointManager
 import logging
 from utils.cli import PlaylistGeneratorCLI, CLIContextManager
 from rich.progress import track
+from rich.panel import Panel
+from rich.console import Console
 
 logger = setup_colored_logging()
 
@@ -213,19 +215,38 @@ def main():
                 processor = ParallelProcessor()
 
             failed_files = []
+            processed_this_run = []
+            mb_this_run = 0
+            no_mb_this_run = 0
             for features in track(
                 processor.process(file_list, workers=args.workers or mp.cpu_count()),
-                total=len(file_list),
-                description="Analyzing audio files..."
+                total=len(file_list)
+                # No description argument, so no leading text
             ):
-                # Remove per-file info logs, keep only debug for features
                 logger.debug(f"Features: {features}")
                 if features and 'metadata' in features:
+                    processed_this_run.append(features)
                     meta = features['metadata']
-                    # (No info log for analyzed track)
+                    if meta.get('musicbrainz_id'):
+                        mb_this_run += 1
+                    else:
+                        no_mb_this_run += 1
             failed_files.extend(processor.failed_files)
 
-            cli.show_success(f"Analysis completed. Processed {len(file_list)} files, {len(failed_files)} failed")
+            cli.show_success(f"Analysis completed. Processed {len(processed_this_run)} files, {len(failed_files)} failed")
+            # Print summary for this run only in a rich Panel
+            runtime = time.time() - start_time
+            console = Console()
+            summary_text = f"""
+[bold green]Analysis Summary (this run)[/bold green]
+
+Processed Files: [cyan]{len(processed_this_run)}[/cyan]
+Failed Files: [red]{len(failed_files)}[/red]
+With MusicBrainz Info: [green]{mb_this_run}[/green]
+Without MusicBrainz Info: [yellow]{no_mb_this_run}[/yellow]
+Runtime: [magenta]{runtime:.1f} seconds[/magenta]
+"""
+            console.print(Panel(summary_text, title="📊 Analysis Summary", border_style="blue"))
             return  # Exit here to skip playlist generation
 
         elif args.generate_only:
@@ -295,28 +316,29 @@ def main():
         sys.exit(1)
         
     finally:
-        # Custom summary: processed, failed, with/without MusicBrainz, and runtime
-        try:
-            features_from_db = audio_db.get_all_features()
-            total_files = len(features_from_db)
-            failed_count = len(failed_files)
-            mb_count = 0
-            no_mb_count = 0
-            for f in features_from_db:
-                meta = f.get('metadata', {})
-                if meta.get('musicbrainz_id'):
-                    mb_count += 1
-                else:
-                    no_mb_count += 1
-            runtime = time.time() - start_time
-            print("\n=== Analysis Summary ===")
-            print(f"Processed Files: {total_files}")
-            print(f"Failed Files: {failed_count}")
-            print(f"With MusicBrainz Info: {mb_count}")
-            print(f"Without MusicBrainz Info: {no_mb_count}")
-            print(f"Runtime: {runtime:.1f} seconds")
-        except Exception as e:
-            print(f"Error generating summary: {e}")
+        # Only print summary for generate/update modes (not analyze_only)
+        if not args.analyze_only:
+            try:
+                features_from_db = audio_db.get_all_features()
+                total_files = len(features_from_db)
+                failed_count = len(failed_files)
+                mb_count = 0
+                no_mb_count = 0
+                for f in features_from_db:
+                    meta = f.get('metadata', {})
+                    if meta.get('musicbrainz_id'):
+                        mb_count += 1
+                    else:
+                        no_mb_count += 1
+                runtime = time.time() - start_time
+                print("\n=== Analysis Summary ===")
+                print(f"Processed Files: {total_files}")
+                print(f"Failed Files: {failed_count}")
+                print(f"With MusicBrainz Info: {mb_count}")
+                print(f"Without MusicBrainz Info: {no_mb_count}")
+                print(f"Runtime: {runtime:.1f} seconds")
+            except Exception as e:
+                print(f"Error generating summary: {e}")
 
 if __name__ == "__main__":
     setup_colored_logging()
