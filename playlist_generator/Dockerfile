@@ -60,4 +60,4 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Use shell form for entrypoint to allow variable expansion
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["python", "main.py"]
+CMD ["python", "main.py" | grep -v 'AudioLoader:' | grep -v 'MusicExtractorSVM:' | grep -v 'invalid frame']
