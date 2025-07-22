@@ -14,6 +14,10 @@ GENERATE_ONLY=false
 ANALYZE_ONLY=false
 UPDATE=false
 
+# Get current user's UID and GID
+export UID=$(id -u)
+export GID=$(id -g)
+
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -86,8 +90,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Create directories
+# Create directories with proper permissions
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
+chmod 755 "$OUTPUT_DIR" "$CACHE_DIR"
 
 # Export environment variables for compose
 export MUSIC_DIR
@@ -117,6 +122,7 @@ echo "Force Sequential: ${FORCE_SEQUENTIAL:-false}"
 echo "Generate Only: ${GENERATE_ONLY:-false}"
 echo "Analyze Only: ${ANALYZE_ONLY:-false}"
 echo "Update Mode: ${UPDATE:-false}"
+echo "Running as UID:GID = $UID:$GID"
 echo "========================================"
 
 # Build only if requested

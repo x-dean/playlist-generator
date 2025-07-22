@@ -25,33 +25,36 @@ RUN apt-get update && \
     libtag1v5 \
     sqlite3 \
     libmagic1 \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user
-RUN useradd -m -s /bin/bash appuser
 
 # Copy Python packages from builder
 COPY --from=builder /usr/local/lib/python3.9/site-packages /usr/local/lib/python3.9/site-packages
 
-# Set working directory and permissions
+# Set working directory
 WORKDIR /app
-RUN chown appuser:appuser /app
 
 # Copy application files
-COPY --chown=appuser:appuser . /app
+COPY . /app
 
 # Create __init__.py files to make directories importable
 RUN touch /app/database/__init__.py && \
     touch /app/music_analyzer/__init__.py && \
     touch /app/playlist_generator/__init__.py
 
-# Switch to non-root user
-USER appuser
+# Create directories with proper permissions
+RUN mkdir -p /app/playlists /app/cache && \
+    chmod 777 /app/playlists /app/cache
+
+# Add entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
-# Set entrypoint
-ENTRYPOINT ["python", "main.py"]
+# Use entrypoint script
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["python", "main.py"]

@@ -1,6 +1,7 @@
 services:
   playlist-generator:
     build: .
+    user: "${UID:-1000}:${GID:-1000}"  # Use host user's UID/GID
     volumes:
       - type: bind
         source: ${MUSIC_DIR}
@@ -14,6 +15,8 @@ services:
         target: /app/cache
     environment:
       - CACHE_DIR=/app/cache
+      - UID=${UID:-1000}
+      - GID=${GID:-1000}
     working_dir: /app
     command: >
       --music_dir /music
