@@ -65,6 +65,14 @@ class PlaylistGeneratorCLI:
 
     def show_playlist_stats(self, stats: Dict[str, Dict[str, Any]]):
         """Display playlist statistics in a rich table"""
+        if not stats:
+            self.console.print(Panel(
+                "[yellow]No playlist statistics available[/yellow]",
+                title="Playlist Statistics",
+                border_style="yellow"
+            ))
+            return
+
         layout = Layout()
         layout.split_column(
             Layout(name="header"),
@@ -88,41 +96,61 @@ class PlaylistGeneratorCLI:
         table.add_column("Danceability", justify="right", style="yellow")
 
         for name, playlist_stats in stats.items():
-            table.add_row(
-                name,
-                str(playlist_stats['track_count']),
-                f"{playlist_stats['total_duration']/60:.1f}m",
-                f"{playlist_stats['avg_bpm']:.0f}",
-                f"{playlist_stats['avg_danceability']:.2f}"
-            )
+            try:
+                table.add_row(
+                    name,
+                    str(playlist_stats.get('track_count', 0)),
+                    f"{playlist_stats.get('total_duration', 0)/60:.1f}m",
+                    f"{playlist_stats.get('avg_bpm', 0):.0f}",
+                    f"{playlist_stats.get('avg_danceability', 0):.2f}"
+                )
+            except (TypeError, KeyError, AttributeError) as e:
+                logger.warning(f"Error adding stats for playlist {name}: {str(e)}")
+                table.add_row(name, "Error", "Error", "Error", "Error")
 
         layout["stats"].update(table)
 
         # Key distribution
-        if key_tables := [
-            Table(
-                title=f"Key Distribution - {name}",
-                show_header=True,
-                title_style="bold magenta"
-            ).add_column("Key", style="cyan"
-            ).add_column("Count", justify="right", style="green")
-            for name in stats.keys()
-        ]:
-            # Add data to tables
-            for table, (name, playlist_stats) in zip(key_tables, stats.items()):
-                if 'key_distribution' in playlist_stats:
-                    # Show top 5 keys
-                    for key, count in sorted(
-                        playlist_stats['key_distribution'].items(),
-                        key=lambda x: x[1],
-                        reverse=True
-                    )[:5]:
-                        table.add_row(key, str(count))
+        key_tables = []
+        for name, playlist_stats in stats.items():
+            if not isinstance(playlist_stats, dict):
+                continue
 
+            key_distribution = playlist_stats.get('key_distribution', {})
+            if not key_distribution:
+                continue
+
+            try:
+                key_table = Table(
+                    title=f"Key Distribution - {name}",
+                    show_header=True,
+                    title_style="bold magenta"
+                )
+                key_table.add_column("Key", style="cyan")
+                key_table.add_column("Count", justify="right", style="green")
+
+                # Show top 5 keys
+                for key, count in sorted(
+                    key_distribution.items(),
+                    key=lambda x: x[1],
+                    reverse=True
+                )[:5]:
+                    key_table.add_row(str(key), str(count))
+
+                key_tables.append(key_table)
+            except Exception as e:
+                logger.warning(f"Error creating key distribution table for {name}: {str(e)}")
+
+        if key_tables:
             # Create a layout for key tables with proper spacing
             keys_layout = Layout()
             keys_layout.split_column(*[Layout(table) for table in key_tables])
             layout["keys"].update(keys_layout)
+        else:
+            layout["keys"].update(Panel(
+                "[yellow]No key distribution data available[/yellow]",
+                border_style="yellow"
+            ))
 
         self.console.print(layout)
 
