@@ -20,6 +20,9 @@ from utils.cli import PlaylistGeneratorCLI, CLIContextManager
 
 logger = setup_colored_logging()
 
+import logging as pylogging
+pylogging.getLogger("musicbrainzngs").setLevel(pylogging.WARNING)
+
 # Initialize system monitoring
 system_monitor = SystemMonitor()
 checkpoint_manager = CheckpointManager()
