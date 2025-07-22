@@ -1,0 +1,317 @@
+import sqlite3
+import logging
+import os
+from typing import Dict, List, Any, Optional
+from datetime import datetime
+import json
+
+logger = logging.getLogger(__name__)
+
+class DatabaseManager:
+    def __init__(self, db_file: str):
+        self.db_file = db_file
+        self.connection_pool = {}
+        self._init_db()
+
+    def _get_connection(self):
+        """Get a connection from the pool or create a new one"""
+        pid = os.getpid()
+        if pid not in self.connection_pool:
+            conn = sqlite3.connect(self.db_file, timeout=60)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=60000")
+            conn.row_factory = sqlite3.Row  # Enable dictionary access
+            self.connection_pool[pid] = conn
+        return self.connection_pool[pid]
+
+    def _init_db(self):
+        """Initialize database schema"""
+        conn = sqlite3.connect(self.db_file, timeout=60)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=60000")
+            
+            # Audio features table
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS audio_features (
+                file_hash TEXT PRIMARY KEY,
+                file_path TEXT NOT NULL,
+                duration REAL,
+                bpm REAL,
+                beat_confidence REAL,
+                centroid REAL,
+                loudness REAL,
+                danceability REAL,
+                key INTEGER,
+                scale INTEGER,
+                onset_rate REAL,
+                zcr REAL,
+                last_modified REAL,
+                last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT
+            )
+            """)
+            
+            # Playlists table
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS playlists (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                features TEXT,
+                created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                stats TEXT
+            )
+            """)
+            
+            # Playlist tracks table with ordering
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS playlist_tracks (
+                playlist_id INTEGER,
+                file_hash TEXT,
+                position INTEGER,
+                added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(playlist_id) REFERENCES playlists(id),
+                FOREIGN KEY(file_hash) REFERENCES audio_features(file_hash),
+                PRIMARY KEY (playlist_id, file_hash)
+            )
+            """)
+            
+            # Track tags table for additional metadata
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS track_tags (
+                file_hash TEXT,
+                tag TEXT,
+                value TEXT,
+                FOREIGN KEY(file_hash) REFERENCES audio_features(file_hash),
+                PRIMARY KEY (file_hash, tag)
+            )
+            """)
+            
+            # Cache table for expensive computations
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS computation_cache (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires TIMESTAMP,
+                metadata TEXT
+            )
+            """)
+            
+            # Create indices
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_name ON playlists(name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_track_tags ON track_tags(tag)")
+            
+            conn.commit()
+        finally:
+            conn.close()
+
+    def save_playlist(self, name: str, tracks: List[str], features: Dict[str, Any] = None,
+                     description: str = None) -> bool:
+        """Save or update a playlist"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Insert or update playlist
+            cursor.execute("""
+            INSERT INTO playlists (name, description, features, last_updated)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(name) DO UPDATE SET
+                description = excluded.description,
+                features = excluded.features,
+                last_updated = CURRENT_TIMESTAMP
+            """, (name, description, json.dumps(features) if features else None))
+            
+            playlist_id = cursor.lastrowid or cursor.execute(
+                "SELECT id FROM playlists WHERE name = ?", (name,)
+            ).fetchone()[0]
+            
+            # Clear existing tracks
+            cursor.execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", (playlist_id,))
+            
+            # Insert new tracks with positions
+            for position, track_path in enumerate(tracks):
+                file_hash = self._get_file_hash(cursor, track_path)
+                if file_hash:
+                    cursor.execute("""
+                    INSERT INTO playlist_tracks (playlist_id, file_hash, position)
+                    VALUES (?, ?, ?)
+                    """, (playlist_id, file_hash, position))
+            
+            conn.commit()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving playlist {name}: {str(e)}")
+            conn.rollback()
+            return False
+
+    def get_playlist(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get playlist by name with all related data"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            
+            # Get playlist info
+            cursor.execute("""
+            SELECT id, name, description, features, created, last_updated, stats
+            FROM playlists WHERE name = ?
+            """, (name,))
+            
+            if playlist := cursor.fetchone():
+                result = dict(playlist)
+                
+                # Get tracks with features
+                cursor.execute("""
+                SELECT af.*, pt.position
+                FROM playlist_tracks pt
+                JOIN audio_features af ON pt.file_hash = af.file_hash
+                WHERE pt.playlist_id = ?
+                ORDER BY pt.position
+                """, (playlist['id'],))
+                
+                tracks = []
+                for track in cursor.fetchall():
+                    track_dict = dict(track)
+                    
+                    # Get track tags
+                    cursor.execute("""
+                    SELECT tag, value FROM track_tags
+                    WHERE file_hash = ?
+                    """, (track['file_hash'],))
+                    
+                    track_dict['tags'] = {
+                        row['tag']: row['value']
+                        for row in cursor.fetchall()
+                    }
+                    
+                    tracks.append(track_dict)
+                
+                result['tracks'] = tracks
+                return result
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting playlist {name}: {str(e)}")
+            return None
+
+    def _get_file_hash(self, cursor: sqlite3.Cursor, file_path: str) -> Optional[str]:
+        """Get file hash from file path"""
+        cursor.execute(
+            "SELECT file_hash FROM audio_features WHERE file_path = ?",
+            (file_path,)
+        )
+        if result := cursor.fetchone():
+            return result[0]
+        return None
+
+    def cache_computation(self, key: str, value: Any, expires_in: int = 86400,
+                         metadata: Dict[str, Any] = None) -> bool:
+        """Cache computation result"""
+        conn = self._get_connection()
+        try:
+            expires = datetime.now().timestamp() + expires_in
+            conn.execute("""
+            INSERT OR REPLACE INTO computation_cache
+            (key, value, expires, metadata)
+            VALUES (?, ?, datetime(?), ?)
+            """, (
+                key,
+                json.dumps(value),
+                expires,
+                json.dumps(metadata) if metadata else None
+            ))
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error caching computation {key}: {str(e)}")
+            conn.rollback()
+            return False
+
+    def get_cached_computation(self, key: str) -> Optional[Any]:
+        """Get cached computation result if not expired"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT value, metadata FROM computation_cache
+            WHERE key = ? AND (expires IS NULL OR expires > datetime(?))
+            """, (key, datetime.now().timestamp()))
+            
+            if result := cursor.fetchone():
+                value = json.loads(result['value'])
+                metadata = json.loads(result['metadata']) if result['metadata'] else None
+                return {'value': value, 'metadata': metadata}
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting cached computation {key}: {str(e)}")
+            return None
+
+    def cleanup_cache(self, max_age: int = 86400) -> int:
+        """Clean up expired cache entries"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+            DELETE FROM computation_cache
+            WHERE expires < datetime(?)
+            """, (datetime.now().timestamp() - max_age,))
+            
+            deleted = cursor.rowcount
+            conn.commit()
+            return deleted
+            
+        except Exception as e:
+            logger.error(f"Error cleaning up cache: {str(e)}")
+            conn.rollback()
+            return 0
+
+    def add_track_tags(self, file_path: str, tags: Dict[str, str]) -> bool:
+        """Add or update tags for a track"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            file_hash = self._get_file_hash(cursor, file_path)
+            if not file_hash:
+                return False
+            
+            for tag, value in tags.items():
+                cursor.execute("""
+                INSERT OR REPLACE INTO track_tags (file_hash, tag, value)
+                VALUES (?, ?, ?)
+                """, (file_hash, tag, value))
+            
+            conn.commit()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error adding tags for {file_path}: {str(e)}")
+            conn.rollback()
+            return False
+
+    def get_track_tags(self, file_path: str) -> Dict[str, str]:
+        """Get all tags for a track"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            file_hash = self._get_file_hash(cursor, file_path)
+            if not file_hash:
+                return {}
+            
+            cursor.execute("""
+            SELECT tag, value FROM track_tags
+            WHERE file_hash = ?
+            """, (file_hash,))
+            
+            return {row['tag']: row['value'] for row in cursor.fetchall()}
+            
+        except Exception as e:
+            logger.error(f"Error getting tags for {file_path}: {str(e)}")
+            return {} 
