@@ -159,13 +159,38 @@ class TimeBasedScheduler:
         return self.filter_tracks_for_slot(features_list, slot)
 
     def generate_time_based_playlists(self, features_list: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """Generate playlists for all time slots"""
+        """Generate playlists for all time slots, splitting if total duration exceeds slot length"""
         playlists = {}
         for slot_name in self.time_slots:
             tracks = self.generate_time_based_playlist(features_list, slot_name)
-            if tracks:  # Only create playlist if there are matching tracks
-                playlists[f"TimeSlot_{slot_name}"] = {
-                    'tracks': [t['filepath'] for t in tracks],
+            if not tracks:
+                continue
+            # Calculate slot duration in seconds
+            start, end = self.time_slots[slot_name]
+            if start < end:
+                slot_hours = end - start
+            else:
+                slot_hours = (24 - start) + end
+            slot_duration_sec = slot_hours * 3600
+            # Split tracks into sub-playlists if needed
+            sub_playlists = []
+            current = []
+            current_duration = 0
+            for track in tracks:
+                track_duration = float(track.get('duration', 0))
+                if current_duration + track_duration > slot_duration_sec and current:
+                    sub_playlists.append(current)
+                    current = []
+                    current_duration = 0
+                current.append(track)
+                current_duration += track_duration
+            if current:
+                sub_playlists.append(current)
+            # Add sub-playlists to output
+            for i, sub in enumerate(sub_playlists, 1):
+                name = f"TimeSlot_{slot_name}" if len(sub_playlists) == 1 else f"TimeSlot_{slot_name}_Part{i}"
+                playlists[name] = {
+                    'tracks': [t['filepath'] for t in sub],
                     'features': {
                         'type': 'time_based',
                         'slot': slot_name,
