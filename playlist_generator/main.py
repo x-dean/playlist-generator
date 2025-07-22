@@ -6,7 +6,7 @@ import traceback
 import multiprocessing as mp
 from logging_setup import setup_colored_logging
 from database.audio_db import AudioDatabase
-from database.playlist_db import PlaylistDatabase
+from database.audio_db import PlaylistDatabase as AudioDatabase
 from music_analyzer.parallel import ParallelProcessor
 from music_analyzer.sequential import SequentialProcessor
 from playlist_generator.time_based import TimeBasedScheduler
