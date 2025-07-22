@@ -40,7 +40,8 @@ def process_file_worker(filepath):
         logger.info(f"Finished analysis for {filepath}")
         return None, filepath
     except Exception as e:
-        logger.error(f"Error processing {filepath}: {str(e)}")
+        import traceback
+        logger.error(f"Error processing {filepath}: {str(e)}", exc_info=True)
         return None, filepath
 
 class ParallelProcessor:
@@ -52,9 +53,11 @@ class ParallelProcessor:
 
     def _process_parallel(self, file_list, workers):
         results = []
+        import os
         max_retries = 3
         retries = 0
-        batch_size = min(50, len(file_list))
+        batch_size = int(os.getenv('BATCH_SIZE', min(50, len(file_list))))
+        workers = int(os.getenv('WORKERS', workers))
 
         while file_list and retries < max_retries:
             try:

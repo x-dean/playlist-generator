@@ -4,6 +4,7 @@ import logging
 import traceback
 from collections import defaultdict
 from sklearn.preprocessing import StandardScaler
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -145,11 +146,23 @@ class CacheBasedGenerator:
 
     def _merge_playlists(self, playlists, centroid_mapping=None):
         final_playlists = {}
+        min_size = int(os.getenv('MIN_PLAYLIST_SIZE', 20))
+        max_size = int(os.getenv('MAX_PLAYLIST_SIZE', 100))
         for name, data in sorted(playlists.items(), key=lambda x: -len(x[1]['tracks'])):
-            if len(data['tracks']) >= 20:
+            # SPLIT large playlists
+            tracks = data['tracks']
+            if len(tracks) > max_size:
+                for i in range(0, len(tracks), max_size):
+                    split_name = f"{name}_Part{i//max_size+1}"
+                    final_playlists[split_name] = {
+                        'tracks': tracks[i:i+max_size],
+                        'features': data['features']
+                    }
+                continue
+            # MERGE small playlists
+            if len(tracks) >= min_size:
                 final_playlists[name] = data
                 continue
-
             best_match = None
             best_score = 0
             for final_name, final_data in final_playlists.items():
@@ -167,13 +180,11 @@ class CacheBasedGenerator:
                         score += 1
                 elif data['features']['mood_group'] == final_data['features']['mood_group']:
                     score += 1
-
                 if score > best_score:
                     best_score = score
                     best_match = final_name
-
             if best_match and best_score >= 2:
-                for track in data['tracks']:
+                for track in tracks:
                     if track not in final_playlists[best_match]['tracks']:
                         final_playlists[best_match]['tracks'].append(track)
             else:
@@ -187,8 +198,7 @@ class CacheBasedGenerator:
                             'key_group': 'Various'
                         }
                     }
-                final_playlists["Various_Tracks"]['tracks'].extend(data['tracks'])
-
+                final_playlists["Various_Tracks"]['tracks'].extend(tracks)
         return final_playlists
 
     def _get_energy_group(self, danceability):

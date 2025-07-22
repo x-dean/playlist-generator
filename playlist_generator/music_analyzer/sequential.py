@@ -18,10 +18,12 @@ class SequentialProcessor:
         with tqdm(file_list, desc="Analyzing files") as pbar:
             for filepath in pbar:
                 try:
+                    logger.info(f"Starting analysis for {filepath}")
                     if pbar.n % 10 == 0:
                         gc.collect()
 
                     features, _ = process_file_worker(filepath)
+                    logger.info(f"Finished analysis for {filepath}")
                     if features:
                         results.append(features)
                     else:
