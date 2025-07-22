@@ -50,10 +50,6 @@ RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Copy run.sh to /usr/local/bin
-COPY run.sh /usr/local/bin/run.sh
-RUN chmod +x /usr/local/bin/run.sh
-
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -62,5 +58,6 @@ ENV PYTHONUNBUFFERED=1 \
     ESSENTIA_LOGGING_LEVEL=warning \
     ESSENTIA_STREAM_LOGGING=none
 
-# Set run.sh as the entrypoint
-ENTRYPOINT ["/usr/local/bin/run.sh"]
+# Use shell form for entrypoint to allow variable expansion
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["python", "main.py"]
