@@ -90,18 +90,19 @@ def main():
 
     # Parse arguments
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
+    group = parser.add_mutually_exclusive_group(required=False)
     parser.add_argument('--music_dir', required=True, help='Music directory in container')
     parser.add_argument('--host_music_dir', required=True, help='Host music directory')
     parser.add_argument('--output_dir', default='./playlists', help='Output directory')
     parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists')
     parser.add_argument('--workers', type=int, default=None, help='Number of workers (default: auto)')
     parser.add_argument('--force_sequential', action='store_true', help='Force sequential processing')
-    parser.add_argument('--update', action='store_true', help='Update existing playlists')
-    parser.add_argument('--analyze_only', action='store_true', help='Only run audio analysis without generating playlists')
-    parser.add_argument('--generate_only', action='store_true', help='Only generate playlists from database without analysis')
+    group.add_argument('--update', action='store_true', help='Update existing playlists (no analysis or generation)')
+    group.add_argument('--analyze_only', action='store_true', help='Only run audio analysis (no playlist generation)')
+    group.add_argument('--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
     parser.add_argument('--playlist_method', choices=['all', 'time', 'kmeans', 'cache'], default='all',
-                      help='Playlist generation method (default: all)')
+                      help='Playlist generation method: all (default), time, kmeans, or cache')
     args = parser.parse_args()
 
     # Show configuration
