@@ -204,31 +204,7 @@ def main():
         logger.info(f"Completed in {elapsed:.2f} seconds")
 
 if __name__ == "__main__":
-    import logging
-    from colorlog import ColoredFormatter
-
-    formatter = ColoredFormatter(
-        "%(log_color)s%(asctime)s %(levelname)-8s%(reset)s %(message)s",
-        datefmt="%H:%M:%S",
-        reset=True,
-        log_colors={
-            'DEBUG': 'cyan',
-            'INFO': 'green',
-            'WARNING': 'yellow',
-            'ERROR': 'red',
-            'CRITICAL': 'red,bg_white',
-        },
-        secondary_log_colors={},
-        style='%'
-    )
-
-    handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
-
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    if not logger.hasHandlers():
-        logger.addHandler(handler)
-
+    from logging_setup import setup_colored_logging
+    setup_colored_logging()
     mp.set_start_method('spawn', force=True)
     main()
