@@ -192,7 +192,10 @@ def main():
             cli.show_playlist_stats(playlist_manager.get_playlist_stats())
             # Save playlists to DB and to disk
             playlist_db.save_playlists(all_playlists)
-            method_dir = os.path.join(args.output_dir, args.playlist_method)
+            if args.playlist_method == 'tags':
+                method_dir = os.path.join(args.output_dir, 'tags')
+            else:
+                method_dir = os.path.join(args.output_dir, args.playlist_method)
             save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
         elif args.analyze_only:
@@ -225,7 +228,10 @@ def main():
             cli.show_playlist_stats(playlist_manager.get_playlist_stats())
             
             # Save playlists
-            method_dir = os.path.join(args.output_dir, args.playlist_method)
+            if args.playlist_method == 'tags':
+                method_dir = os.path.join(args.output_dir, 'tags')
+            else:
+                method_dir = os.path.join(args.output_dir, args.playlist_method)
             save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
         else:
@@ -253,7 +259,10 @@ def main():
             cli.show_playlist_stats(playlist_manager.get_playlist_stats())
             
             # Save playlists
-            method_dir = os.path.join(args.output_dir, args.playlist_method)
+            if args.playlist_method == 'tags':
+                method_dir = os.path.join(args.output_dir, 'tags')
+            else:
+                method_dir = os.path.join(args.output_dir, args.playlist_method)
             save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
         # Show failed files if any
