@@ -10,7 +10,7 @@ class SequentialProcessor:
     def __init__(self):
         self.failed_files = []
     
-    def process(self, file_list):
+    def process(self, file_list, workers=None):
         return self._process_sequential(file_list)
 
     def _process_sequential(self, file_list):
