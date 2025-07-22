@@ -115,7 +115,7 @@ def main():
         'Output Directory': args.output_dir,
         'Number of Playlists': args.num_playlists,
         'Workers': args.workers or 'Auto',
-        'Mode': 'Sequential' if args.force_sequential else 'Parallel',
+        'Mode': 'Sequential' if args.force_sequential or (args.workers is not None and int(args.workers) <= 1) else 'Parallel',
         'Update Mode': args.update,
         'Analysis Only': args.analyze_only,
         'Generate Only': args.generate_only,
