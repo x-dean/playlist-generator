@@ -210,6 +210,3 @@ docker compose exec playlist-generator python main.py \
   $MUTEX_FLAG \
   $PLAYLIST_METHOD_FLAG \
   $FORCE_SEQUENTIAL_FLAG
-
-echo "Playlists generated successfully!"
-echo "Output available in: $OUTPUT_DIR"
