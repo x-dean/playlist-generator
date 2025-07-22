@@ -95,13 +95,6 @@ def main():
     if not os.path.exists(args.music_dir):
         logger.error(f"Music directory not found: {args.music_dir}")
         sys.exit(1)
-    
-    # In save_playlists()
-    host_songs = []
-    for song in playlist_data['tracks']:
-        host_path = convert_to_host_path(...)
-        if os.path.exists(host_path):  # Verify path exists
-            host_songs.append(host_path)
 
     start_time = time.time()
     try:
@@ -113,29 +106,28 @@ def main():
 
         if args.update:
             logger.info("Running in UPDATE mode")
-            
-            # Check if playlists exist in the database
             if not playlist_db.playlists_exist():
                 logger.info("No playlists found, generating initial playlists")
                 features_from_db = audio_db.get_all_features()
                 time_playlists = time_scheduler.generate_time_based_playlists(features_from_db)
-                cache_playlists = cache_generator.generate()
-                all_playlists = {**time_playlists, **cache_playlists}
+                cache_playlists = cache_generator.generate(features_from_db)  # Pass features
+                kmeans_playlists = kmeans_generator.generate(features_from_db, args.num_playlists)
+                all_playlists = {**time_playlists, **cache_playlists, **kmeans_playlists}
                 playlist_db.save_playlists(all_playlists)
                 save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
             else:
                 changed_files = playlist_db.get_changed_files()
                 if changed_files:
                     logger.info(f"Updating all playlists for {len(changed_files)} changed files")
-					# Regenerate ALL playlist types
                     features_from_db = audio_db.get_all_features()
                     time_playlists = time_scheduler.generate_time_based_playlists(features_from_db)
-                    cache_playlists = cache_generator.generate()
-                    kmeans_playlists = kmeans_generator.generate(features_from_db, args.num_playlists)  # Add this
-                    all_playlists = {**time_playlists, **cache_playlists, **kmeans_playlists}  # Include all
+                    cache_playlists = cache_generator.generate(features_from_db)  # Pass features
+                    kmeans_playlists = kmeans_generator.generate(features_from_db, args.num_playlists)
+                    all_playlists = {**time_playlists, **cache_playlists, **kmeans_playlists}
                     playlist_db.save_playlists(all_playlists)
-                save_playlists(playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
-            logger.info("No changed files, playlists remain up-to-date")
+                    save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
+                else:
+                    logger.info("No changed files, playlists remain up-to-date")
         
         elif args.analyze_only:
             logger.info("Running audio analysis only")
@@ -159,10 +151,10 @@ def main():
             logger.info("Generating playlists from database")
             features_from_db = audio_db.get_all_features()
             
-            # Generate both types of playlists
             time_playlists = time_scheduler.generate_time_based_playlists(features_from_db)
             cache_playlists = cache_generator.generate()
-            all_playlists = {**time_playlists, **cache_playlists}
+            kmeans_playlists = kmeans_generator.generate(features_from_db, args.num_playlists)  # ADD KMEANS
+            all_playlists = {**time_playlists, **cache_playlists, **kmeans_playlists}  # COMBINE ALL
             
             save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
         
@@ -173,22 +165,23 @@ def main():
             # Analyze files
             if args.force_sequential or (args.workers and args.workers <= 1):
                 processor = SequentialProcessor()
-                features = processor.process(file_list)
+                analysis_results = processor.process(file_list)  # RENAME TO analysis_results
                 failed_files.extend(processor.failed_files)
             else:
                 processor = ParallelProcessor()
-                features = processor.process(
+                analysis_results = processor.process(  # RENAME TO analysis_results
                     file_list, 
                     workers=args.workers or max(1, mp.cpu_count() // 2)
                 )
                 failed_files.extend(processor.failed_files)
             
-            logger.info(f"Processed {len(features)} files, {len(failed_files)} failed")
+            logger.info(f"Processed {len(analysis_results)} files, {len(failed_files)} failed")
             
-            # Generate playlists
-            time_playlists = time_scheduler.generate_time_based_playlists(features)
-            kmeans_playlists = kmeans_generator.generate(features, args.num_playlists)
-            all_playlists = {**time_playlists, **kmeans_playlists}
+            # Generate playlists - USE analysis_results VARIABLE
+            time_playlists = time_scheduler.generate_time_based_playlists(analysis_results)
+            cache_playlists = cache_generator.generate()
+            kmeans_playlists = kmeans_generator.generate(analysis_results, args.num_playlists)
+            all_playlists = {**time_playlists, **cache_playlists, **kmeans_playlists}
             
             save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
     

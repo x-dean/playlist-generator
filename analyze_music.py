@@ -8,6 +8,7 @@ import hashlib
 import signal
 from functools import wraps
 import traceback
+import gc
 
 
 # Use module-level logger without configuring handlers
@@ -119,12 +120,23 @@ class AudioAnalyzer:
 
     def _safe_audio_load(self, audio_path):
         try:
-            loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
+            loader = es.MonoLoader(
+                filename=audio_path,
+                sampleRate=44100,
+                resampleQuality=4,
+                downmix='mix',
+                frameSize=4096,
+                hopSize=2048
+            )
             audio = loader()
-            return audio if audio.size > 0 else None
+            return audio
         except Exception as e:
-            logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
+            logger.error(f"Audio loading failed for {audio_path}: {str(e)}")
             return None
+        finally:
+            if 'loader' in locals():
+                del loader
+            gc.collect()
 
 
     @timeout()

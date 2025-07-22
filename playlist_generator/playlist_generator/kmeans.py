@@ -7,14 +7,21 @@ import traceback
 
 logger = logging.getLogger(__name__)
 
+# In kmeans.py:
+
 class KMeansPlaylistGenerator:
-    def __init__(self):
+    def __init__(self, cache_file=None):
+        self.cache_file = cache_file
         self.playlist_history = {}
-        self._verify_db_schema()
+        if cache_file:
+            self._verify_db_schema()
 
     def _verify_db_schema(self):
-            """Ensure all required columns exist with correct types"""
-            cursor = self.conn.cursor()
+        """Ensure all required columns exist with correct types"""
+        conn = None
+        try:
+            conn = sqlite3.connect(self.cache_file)
+            cursor = conn.cursor()
             cursor.execute("PRAGMA table_info(audio_features)")
             existing_columns = {row[1]: row[2] for row in cursor.fetchall()}
 
@@ -30,7 +37,13 @@ class KMeansPlaylistGenerator:
             for col, col_type in required_columns.items():
                 if col not in existing_columns:
                     logger.info(f"Adding missing column {col} to database")
-                    self.conn.execute(f"ALTER TABLE audio_features ADD COLUMN {col} {col_type}")
+                    conn.execute(f"ALTER TABLE audio_features ADD COLUMN {col} {col_type}")
+            conn.commit()
+        except Exception as e:
+            logger.error(f"Schema verification failed: {str(e)}")
+        finally:
+            if conn:
+                conn.close()
 
     
     def generate(self, features_list, num_playlists=5, chunk_size=1000):
