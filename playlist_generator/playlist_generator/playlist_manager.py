@@ -29,14 +29,64 @@ class PlaylistManager:
         try:
             final_playlists = {}
             used_tracks = set()
+            min_size = 10
+            max_size = 500
+
+            def _finalize_playlists(playlists: Dict[str, Any], features: List[Dict[str, Any]]) -> Dict[str, Any]:
+                # Merge small playlists, split large ones, assign leftovers
+                all_tracks = set(f['filepath'] for f in features)
+                assigned_tracks = set()
+                for data in playlists.values():
+                    assigned_tracks.update(data['tracks'])
+                unassigned_tracks = list(all_tracks - assigned_tracks)
+                # Merge small playlists
+                merged = {}
+                small = []
+                for name, data in playlists.items():
+                    if len(data['tracks']) < min_size:
+                        small.extend(data['tracks'])
+                    else:
+                        merged[name] = data
+                # Add small tracks to mixed
+                if small:
+                    if 'Mixed_Collection' not in merged:
+                        merged['Mixed_Collection'] = {
+                            'tracks': [],
+                            'features': {'type': 'mixed'}
+                        }
+                    merged['Mixed_Collection']['tracks'].extend(small)
+                # Add unassigned tracks to mixed
+                if unassigned_tracks:
+                    if 'Mixed_Collection' not in merged:
+                        merged['Mixed_Collection'] = {
+                            'tracks': [],
+                            'features': {'type': 'mixed'}
+                        }
+                    merged['Mixed_Collection']['tracks'].extend(unassigned_tracks)
+                # Split large playlists
+                balanced = {}
+                for name, data in merged.items():
+                    tracks = data['tracks']
+                    if len(tracks) > max_size:
+                        chunks = [tracks[i:i + max_size] for i in range(0, len(tracks), max_size)]
+                        for i, chunk in enumerate(chunks, 1):
+                            new_name = f"{name}_Part{i}" if len(chunks) > 1 else name
+                            balanced[new_name] = {
+                                'tracks': chunk,
+                                'features': data.get('features', {})
+                            }
+                    else:
+                        balanced[name] = data
+                return balanced
 
             # Default: Feature-group-based generation
             if self.playlist_method == 'all' or not self.playlist_method:
                 fg_playlists = self.feature_group_generator.generate(features)
                 for name, data in fg_playlists.items():
-                    if len(data['tracks']) >= 3:  # Lower threshold for more/smaller playlists
+                    if len(data['tracks']) >= 3:
                         final_playlists[name] = data
                         used_tracks.update(data['tracks'])
+                final_playlists = _finalize_playlists(final_playlists, features)
                 self._calculate_playlist_stats(final_playlists, features)
                 return final_playlists
 
@@ -44,8 +94,9 @@ class PlaylistManager:
                 # Only time-based playlists
                 time_playlists = self.time_scheduler.generate_time_based_playlists(features)
                 for name, data in time_playlists.items():
-                    if len(data['tracks']) >= 10:
+                    if len(data['tracks']) >= 3:
                         final_playlists[name] = data
+                final_playlists = _finalize_playlists(final_playlists, features)
                 self._calculate_playlist_stats(final_playlists, features)
                 return final_playlists
 
@@ -53,8 +104,9 @@ class PlaylistManager:
                 # Only kmeans playlists
                 kmeans_playlists = self.kmeans_generator.generate(features, num_playlists)
                 for name, data in kmeans_playlists.items():
-                    if len(data['tracks']) >= 10:
+                    if len(data['tracks']) >= 3:
                         final_playlists[name] = data
+                final_playlists = _finalize_playlists(final_playlists, features)
                 self._calculate_playlist_stats(final_playlists, features)
                 return final_playlists
 
@@ -62,8 +114,9 @@ class PlaylistManager:
                 # Only cache-based playlists
                 cache_playlists = self.cache_generator.generate(features)
                 for name, data in cache_playlists.items():
-                    if len(data['tracks']) >= 10:
+                    if len(data['tracks']) >= 3:
                         final_playlists[name] = data
+                final_playlists = _finalize_playlists(final_playlists, features)
                 self._calculate_playlist_stats(final_playlists, features)
                 return final_playlists
 
@@ -73,6 +126,7 @@ class PlaylistManager:
                 if len(data['tracks']) >= 3:
                     final_playlists[name] = data
                     used_tracks.update(data['tracks'])
+            final_playlists = _finalize_playlists(final_playlists, features)
             self._calculate_playlist_stats(final_playlists, features)
             return final_playlists
 
