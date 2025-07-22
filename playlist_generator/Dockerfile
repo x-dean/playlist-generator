@@ -62,6 +62,5 @@ ENV PYTHONUNBUFFERED=1 \
     ESSENTIA_LOGGING_LEVEL=warning \
     ESSENTIA_STREAM_LOGGING=none
 
-# Use shell form for entrypoint to allow variable expansion
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["python", "main.py"]
+# Set run.sh as the entrypoint
+ENTRYPOINT ["/usr/local/bin/run.sh"]
