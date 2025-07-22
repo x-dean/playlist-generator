@@ -218,14 +218,11 @@ def main():
                 total=len(file_list),
                 description="Analyzing audio files..."
             ):
-                # Log the track being processed (filename only)
-                if features and 'filepath' in features:
-                    logger.info(f"Processing: {os.path.basename(features['filepath'])}")
+                # Remove per-file info logs, keep only debug for features
                 logger.debug(f"Features: {features}")
                 if features and 'metadata' in features:
                     meta = features['metadata']
-                    logger.info(f"Analyzed: {meta.get('artist', 'Unknown Artist')} - {meta.get('title', 'Unknown Title')}, "
-                                f"Genre: {meta.get('genre', 'Unknown')}, Year: {meta.get('date', meta.get('year', 'Unknown'))}")
+                    # (No info log for analyzed track)
             failed_files.extend(processor.failed_files)
 
             cli.show_success(f"Analysis completed. Processed {len(file_list)} files, {len(failed_files)} failed")
@@ -298,20 +295,28 @@ def main():
         sys.exit(1)
         
     finally:
-        # Show session summary
-        metrics = system_monitor.get_metrics()
-        cli.show_session_summary({
-            'duration': time.time() - start_time,
-            'processed_files': len(get_audio_files(args.music_dir)),
-            'total_playlists': len(playlist_manager.get_playlist_stats()),
-            'failed_files': len(failed_files),
-            'peak_memory_mb': metrics['peak_memory'] / (1024 * 1024),
-            'peak_cpu': metrics['peak_cpu']
-        })
-        
-        # Save metrics and cleanup
-        system_monitor.save_metrics('final_metrics.json')
-        checkpoint_manager.cleanup_old_checkpoints()
+        # Custom summary: processed, failed, with/without MusicBrainz, and runtime
+        try:
+            features_from_db = audio_db.get_all_features()
+            total_files = len(features_from_db)
+            failed_count = len(failed_files)
+            mb_count = 0
+            no_mb_count = 0
+            for f in features_from_db:
+                meta = f.get('metadata', {})
+                if meta.get('musicbrainz_id'):
+                    mb_count += 1
+                else:
+                    no_mb_count += 1
+            runtime = time.time() - start_time
+            print("\n=== Analysis Summary ===")
+            print(f"Processed Files: {total_files}")
+            print(f"Failed Files: {failed_count}")
+            print(f"With MusicBrainz Info: {mb_count}")
+            print(f"Without MusicBrainz Info: {no_mb_count}")
+            print(f"Runtime: {runtime:.1f} seconds")
+        except Exception as e:
+            print(f"Error generating summary: {e}")
 
 if __name__ == "__main__":
     setup_colored_logging()

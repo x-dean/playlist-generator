@@ -92,7 +92,7 @@ class SystemMonitor:
             filepath = os.path.join(self.metrics_dir, filename)
             with open(filepath, 'w') as f:
                 json.dump(metrics, f, indent=2)
-            logger.info(f"Saved system metrics to {filepath}")
+            # logger.info(f"Saved system metrics to {filepath}")  # Removed per user request
         except Exception as e:
             logger.error(f"Error saving metrics: {str(e)}")
 
@@ -109,13 +109,13 @@ def monitor_performance(func):
         finally:
             elapsed = time() - start_time
             metrics = monitor.get_metrics()
-            logger.info(
-                f"Performance metrics for {func.__name__}:\n"
-                f"  Runtime: {elapsed:.2f}s\n"
-                f"  Peak Memory: {metrics['peak_memory']/1024/1024:.2f}MB\n"
-                f"  Peak CPU: {metrics['peak_cpu']:.1f}%\n"
-                f"  GC Collections: {metrics['gc_collections']}"
-            )
+            # logger.info(
+            #     f"Performance metrics for {func.__name__}:\n"
+            #     f"  Runtime: {elapsed:.2f}s\n"
+            #     f"  Peak Memory: {metrics['peak_memory']/1024/1024:.2f}MB\n"
+            #     f"  Peak CPU: {metrics['peak_cpu']:.1f}%\n"
+            #     f"  GC Collections: {metrics['gc_collections']}"
+            # )  # Removed per user request
             monitor.save_metrics(f"{func.__name__}_metrics.json")
     
     return wrapper 

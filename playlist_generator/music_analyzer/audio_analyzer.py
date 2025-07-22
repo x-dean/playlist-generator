@@ -328,8 +328,9 @@ class AudioAnalyzer:
         features['metadata'] = meta
 
         # Print/log MusicBrainz info if present
-        if mb_tags:
-            logger.info(f"MusicBrainz info for '{artist} - {title}': {mb_tags}")
+        # (Removed per user request)
+        # if mb_tags:
+        #     logger.info(f"MusicBrainz info for '{artist} - {title}': {mb_tags}")
 
         if len(audio) >= 44100:  # At least 1 second
             try:
