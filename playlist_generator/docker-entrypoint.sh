@@ -25,4 +25,4 @@ export ESSENTIA_LOGGING_LEVEL=warning
 export ESSENTIA_STREAM_LOGGING=none
 
 # Run command as appuser
-exec gosu $USER_ID:$GROUP_ID "$@" 
+exec gosu $USER_ID:$GROUP_ID "$@" 2>&1 | grep -v 'AudioLoader:' | grep -v 'MusicExtractorSVM:' | grep -v 'invalid frame' 
