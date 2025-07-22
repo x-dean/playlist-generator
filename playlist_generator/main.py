@@ -193,6 +193,7 @@ def main():
                 failed_files.extend(processor.failed_files)
             
             cli.show_success(f"Analysis completed. Processed {len(file_list)} files, {len(failed_files)} failed")
+            return  # Exit here to skip playlist generation
 
         elif args.generate_only:
             cli.update_status("Generating playlists from database")
