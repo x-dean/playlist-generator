@@ -4,6 +4,7 @@ from sklearn.cluster import MiniBatchKMeans
 from sklearn.preprocessing import StandardScaler
 import logging
 import traceback
+import sqlite3
 
 logger = logging.getLogger(__name__)
 

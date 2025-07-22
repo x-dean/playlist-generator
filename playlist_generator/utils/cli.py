@@ -8,7 +8,7 @@ from rich.layout import Layout
 from rich.text import Text
 from datetime import datetime
 import time
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -41,9 +41,9 @@ class PlaylistGeneratorCLI:
 
         self.console.print(table)
 
-    def create_progress(self) -> Progress:
+    def create_progress(self, description: str, total: int) -> Tuple[Progress, int]:
         """Create a new progress bar"""
-        return Progress(
+        progress = Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
@@ -51,26 +51,17 @@ class PlaylistGeneratorCLI:
             TimeElapsedColumn(),
             console=self.console
         )
+        progress.start()
+        task_id = progress.add_task(description, total=total)
+        return progress, task_id
 
-    def show_analysis_progress(self, total_files: int) -> Progress:
+    def show_analysis_progress(self, total_files: int) -> Tuple[Progress, int]:
         """Show progress for audio analysis"""
-        progress = self.create_progress()
-        progress.start()
-        task_id = progress.add_task(
-            "[cyan]Analyzing audio files...",
-            total=total_files
-        )
-        return progress, task_id
+        return self.create_progress("[cyan]Analyzing audio files...", total_files)
 
-    def show_playlist_generation_progress(self, total_steps: int) -> Progress:
+    def show_playlist_generation_progress(self, total_steps: int) -> Tuple[Progress, int]:
         """Show progress for playlist generation"""
-        progress = self.create_progress()
-        progress.start()
-        task_id = progress.add_task(
-            "[green]Generating playlists...",
-            total=total_steps
-        )
-        return progress, task_id
+        return self.create_progress("[green]Generating playlists...", total_steps)
 
     def show_playlist_stats(self, stats: Dict[str, Dict[str, Any]]):
         """Display playlist statistics in a rich table"""
@@ -199,10 +190,8 @@ class CLIContextManager:
         self.progress = None
         self.task_id = None
 
-    def __enter__(self):
-        self.progress, self.task_id = self.cli.create_progress()
-        self.progress.start()
-        self.task_id = self.progress.add_task(self.description, total=self.total)
+    def __enter__(self) -> Tuple[Progress, int]:
+        self.progress, self.task_id = self.cli.create_progress(self.description, self.total)
         return self.progress, self.task_id
 
     def __exit__(self, exc_type, exc_val, exc_tb):
