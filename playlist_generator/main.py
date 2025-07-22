@@ -100,11 +100,11 @@ def main():
     parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists')
     parser.add_argument('--workers', type=int, default=None, help='Number of workers (default: auto)')
     parser.add_argument('--force_sequential', action='store_true', help='Force sequential processing')
-    group.add_argument('--update', action='store_true', help='Update existing playlists (no analysis or generation)')
-    group.add_argument('--analyze_only', action='store_true', help='Only run audio analysis (no playlist generation)')
-    group.add_argument('--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
+    group.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
+    group.add_argument('-a', '--analyze_only', action='store_true', help='Only run audio analysis (no playlist generation)')
+    group.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
-    parser.add_argument('--playlist_method', choices=['all', 'time', 'kmeans', 'cache'], default='all',
+    parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache'], default='all',
                       help='Playlist generation method: all (feature-group, default), time, kmeans, or cache')
     args = parser.parse_args()
 
@@ -163,25 +163,13 @@ def main():
 
         if args.update:
             cli.update_status("Running in UPDATE mode")
-            if not playlist_db.playlists_exist():
-                cli.update_status("No playlists found, running full analysis")
-                file_list = get_audio_files(args.music_dir)
-                
-                with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
-                    processor = ParallelProcessor()
-                    for i, _ in enumerate(processor.process(file_list, workers=args.workers or mp.cpu_count())):
-                        progress.update(task_id, advance=1)
-                        
             features_from_db = audio_db.get_all_features()
-            
             with CLIContextManager(cli, 3, "[green]Generating playlists...") as (progress, task_id):
                 all_playlists = playlist_manager.generate_playlists(features_from_db, args.num_playlists)
                 progress.update(task_id, advance=3)
-            
             # Show playlist statistics
             cli.show_playlist_stats(playlist_manager.get_playlist_stats())
-            
-            # Save playlists
+            # Save playlists to DB and to disk
             playlist_db.save_playlists(all_playlists)
             save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
 

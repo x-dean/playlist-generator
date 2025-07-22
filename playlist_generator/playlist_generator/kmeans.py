@@ -95,49 +95,41 @@ class KMeansPlaylistGenerator:
                     continue
 
             if not data:
+                logger.warning("No valid tracks after filtering")
                 return playlists
 
             df = pd.DataFrame(data)
-            
-            # Features for clustering
             cluster_features = [
                 'bpm', 'centroid', 'danceability', 
                 'loudness', 'onset_rate', 'zcr'
             ]
-
-            # Feature weights (sum should be 1.0)
             weights = {
-                'bpm': 0.3,         # Increased weight for tempo diversity
-                'danceability': 0.2, # Important for mood
-                'centroid': 0.2,    # Increased for timbral diversity
-                'loudness': 0.1,    # Reduced to allow more dynamic range
-                'onset_rate': 0.1,  # Rhythm complexity
-                'zcr': 0.1          # Texture/timbre
+                'bpm': 0.3,
+                'danceability': 0.2,
+                'centroid': 0.2,
+                'loudness': 0.1,
+                'onset_rate': 0.1,
+                'zcr': 0.1
             }
-
-            # Scale features to 0-1 range
             scaler = MinMaxScaler()
             scaled_features = scaler.fit_transform(df[cluster_features])
-            
-            # Apply weights
             weighted_features = scaled_features * np.array([weights[f] for f in cluster_features])
-
-            # Determine optimal number of clusters
-            max_clusters = min(num_playlists * 3, len(df))  # Increased for more initial diversity
+            max_clusters = min(num_playlists * 3, len(df))
             kmeans = MiniBatchKMeans(
                 n_clusters=max_clusters,
                 random_state=42,
                 batch_size=min(1000, len(df)),
-                init='k-means++',  # Better initialization
-                max_iter=300,      # More iterations for better convergence
-                n_init=10          # More initializations to find better clusters
+                init='k-means++',
+                max_iter=300,
+                n_init=10
             )
             df['cluster'] = kmeans.fit_predict(weighted_features)
-
-            # Generate playlists
             temp_playlists = {}
             for cluster, group in df.groupby('cluster'):
-                # Calculate cluster characteristics
+                logger.debug(f"Cluster {cluster} size: {len(group)}")
+                if len(group) < 3:
+                    logger.debug(f"Cluster {cluster} too small, will be merged into fallback.")
+                    continue
                 centroid = {
                     'bpm': group['bpm'].median(),
                     'centroid': group['centroid'].median(),
@@ -146,28 +138,39 @@ class KMeansPlaylistGenerator:
                     'onset_rate': group['onset_rate'].median(),
                     'zcr': group['zcr'].median()
                 }
-
-                # Generate descriptive name
                 name = self._generate_descriptive_name(centroid)
-                
-                # Ensure diverse naming by adding cluster index for similar characteristics
                 if name in temp_playlists:
                     base_name = name
                     counter = 1
                     while name in temp_playlists:
                         name = f"{base_name}_Variation{counter}"
                         counter += 1
-
                 temp_playlists[name] = {
                     'tracks': group['filepath'].tolist(),
                     'features': centroid,
                     'description': self._generate_description(centroid)
                 }
-
-            # Filter and sort playlists
-            playlists = self._filter_and_sort_playlists(temp_playlists, num_playlists)
-            logger.info(f"Generated {len(playlists)} playlists from {len(df)} tracks")
-
+            # Fallback: merge all small/leftover tracks into Mixed_Collection
+            assigned = set()
+            for p in temp_playlists.values():
+                assigned.update(p['tracks'])
+            leftovers = [f['filepath'] for f in data if f['filepath'] not in assigned]
+            if leftovers:
+                logger.info(f"Merging {len(leftovers)} leftover/small-cluster tracks into Mixed_Collection.")
+                temp_playlists['Mixed_Collection'] = {
+                    'tracks': leftovers,
+                    'features': {'type': 'mixed'},
+                    'description': 'Tracks from small or leftover clusters.'
+                }
+            if not temp_playlists:
+                logger.warning("No clusters large enough, all tracks go to Mixed_Collection.")
+                temp_playlists['Mixed_Collection'] = {
+                    'tracks': [f['filepath'] for f in data],
+                    'features': {'type': 'mixed'},
+                    'description': 'All tracks (no valid clusters)'
+                }
+            logger.info(f"Generated {len(temp_playlists)} playlists from {len(df)} tracks (kmeans)")
+            return temp_playlists
         except Exception as e:
             logger.error(f"Clustering failed: {str(e)}")
             logger.error(traceback.format_exc())

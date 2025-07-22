@@ -98,12 +98,10 @@ class CacheBasedGenerator:
         return self._generate_from_db()
 
     def _generate_from_features(self, features_list: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """Generate playlists from provided feature list"""
         playlists = {}
         for feature in features_list:
             if not feature or 'filepath' not in feature:
                 continue
-
             try:
                 # Calculate normalized features
                 track_features = {
@@ -116,25 +114,49 @@ class CacheBasedGenerator:
                     'key': int(feature.get('key', -1)),
                     'scale': int(feature.get('scale', 0))
                 }
-
                 # Generate playlist name and get category descriptions
                 name = self._generate_playlist_name(track_features)
                 description = self._generate_description(track_features)
-
                 if name not in playlists:
                     playlists[name] = {
                         'tracks': [],
                         'features': track_features,
                         'description': description
                     }
-
                 playlists[name]['tracks'].append(track_features['filepath'])
-
             except (ValueError, TypeError) as e:
                 logger.debug(f"Skipping track due to invalid features: {str(e)}")
                 continue
-
-        return self._merge_playlists(playlists)
+        # Fallback: merge all small/leftover playlists into Mixed_Collection
+        min_size = int(os.getenv('MIN_PLAYLIST_SIZE', 20))
+        assigned = set()
+        for p in playlists.values():
+            assigned.update(p['tracks'])
+        leftovers = [f['filepath'] for f in features_list if f['filepath'] not in assigned]
+        # Merge small playlists
+        small = [name for name, data in playlists.items() if len(data['tracks']) < min_size]
+        if small or leftovers:
+            logger.info(f"Merging {sum(len(playlists[n]['tracks']) for n in small) + len(leftovers)} tracks into Mixed_Collection.")
+            mixed_tracks = []
+            for n in small:
+                mixed_tracks.extend(playlists[n]['tracks'])
+                del playlists[n]
+            mixed_tracks.extend(leftovers)
+            if mixed_tracks:
+                playlists['Mixed_Collection'] = {
+                    'tracks': mixed_tracks,
+                    'features': {'type': 'mixed'},
+                    'description': 'Tracks from small or leftover groups.'
+                }
+        if not playlists:
+            logger.warning("No valid groups, all tracks go to Mixed_Collection.")
+            playlists['Mixed_Collection'] = {
+                'tracks': [f['filepath'] for f in features_list],
+                'features': {'type': 'mixed'},
+                'description': 'All tracks (no valid groups)'
+            }
+        logger.info(f"Generated {len(playlists)} playlists from {len(features_list)} tracks (cache)")
+        return playlists
 
     def _generate_from_db(self) -> Dict[str, Dict[str, Any]]:
         """Generate playlists from database"""
