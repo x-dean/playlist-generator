@@ -183,3 +183,40 @@ You can adjust the threshold as needed. Genres with fewer tracks will be ignored
 ---
 
 If you need more customization, want to automate the workflow, or have questions about integration with your radio stack, just ask! 
+
+## Tag Enrichment (MusicBrainz & Last.fm)
+
+The playlist generator can enrich your music metadata using the MusicBrainz and Last.fm APIs. This helps fill in missing or improve existing genre, year, album, and other tags for your tracks.
+
+### Enrichment Options
+
+- `--enrich_tags` (CLI or run.sh):
+  - Enriches tags for tracks that are missing genre or year.
+  - Uses MusicBrainz first, then Last.fm as a fallback.
+  - Updates the database with new metadata if found.
+- `--force_enrich_tags` (CLI or run.sh):
+  - Forces re-enrichment for all tracks, even if metadata already exists.
+  - Overwrites the metadata in the database for every track.
+
+### Environment Variables
+
+- `LASTFM_API_KEY`: Required for Last.fm enrichment. Set this in your environment or in `run.sh`:
+  ```sh
+  export LASTFM_API_KEY="your_real_lastfm_api_key"
+  ```
+
+### Dependencies
+
+- The `requests` library is required for Last.fm API calls. It is now included in `requirements.txt`.
+
+### Usage Example
+
+```sh
+# Enrich only missing tags (recommended for most users)
+./run.sh --enrich_tags
+
+# Force re-enrichment and overwrite all tags in the database
+./run.sh --enrich_tags --force_enrich_tags
+```
+
+You can use these flags with any playlist method (e.g., `--playlist_method tags`). 
