@@ -5,11 +5,13 @@ import sys
 from tqdm import tqdm
 import logging
 from .audio_analyzer import AudioAnalyzer
-audio_analyzer = AudioAnalyzer()
 
 logger = logging.getLogger(__name__)
 
 def process_file_worker(filepath):
+    from .audio_analyzer import AudioAnalyzer
+    audio_analyzer = AudioAnalyzer()
+    logger.info(f"Starting analysis for {filepath}")
     try:
         if not os.path.exists(filepath):
             logger.warning(f"File not found: {filepath}")
@@ -33,7 +35,9 @@ def process_file_worker(filepath):
             for key in ['bpm', 'centroid', 'duration']:
                 if features.get(key) is None:
                     features[key] = 0.0
+            logger.info(f"Finished analysis for {filepath}")
             return features, filepath
+        logger.info(f"Finished analysis for {filepath}")
         return None, filepath
     except Exception as e:
         logger.error(f"Error processing {filepath}: {str(e)}")

@@ -131,7 +131,6 @@ class AudioAnalyzer:
             gc.collect()
 
 
-    @timeout()
     def _extract_rhythm_features(self, audio):
         try:
             rhythm_extractor = es.RhythmExtractor()
@@ -142,7 +141,6 @@ class AudioAnalyzer:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
             return 0.0, 0.0
 
-    @timeout()
     def _extract_spectral_features(self, audio):
         try:
             spectral = es.SpectralCentroidTime(sampleRate=44100)
@@ -152,7 +150,6 @@ class AudioAnalyzer:
             logger.warning(f"Spectral extraction failed: {str(e)}")
             return 0.0
 
-    @timeout()
     def _extract_loudness(self, audio):
         try:
             return float(es.RMS()(audio))
@@ -160,7 +157,6 @@ class AudioAnalyzer:
             logger.warning(f"Loudness extraction failed: {str(e)}")
             return 0.0
 
-    @timeout()
     def _extract_danceability(self, audio):
         try:
             danceability, _ = es.Danceability()(audio)
@@ -169,7 +165,6 @@ class AudioAnalyzer:
             logger.warning(f"Danceability extraction failed: {str(e)}")
             return 0.0
 
-    @timeout()
     def _extract_key(self, audio):
         try:
             if len(audio) < 44100 * 3:  # Need at least 3 seconds
@@ -191,7 +186,6 @@ class AudioAnalyzer:
             logger.warning(f"Key extraction failed: {str(e)}")
             return -1, 0
 
-    @timeout()
     def _extract_onset_rate(self, audio):
         try:
             # Skip if audio is too short (less than 1 second)
@@ -213,7 +207,6 @@ class AudioAnalyzer:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
             return 0.0
 
-    @timeout()
     def _extract_zcr(self, audio):
         try:
             return float(np.mean(es.ZeroCrossingRate()(audio)))
