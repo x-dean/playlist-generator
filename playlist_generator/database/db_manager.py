@@ -90,6 +90,12 @@ class DatabaseManager:
             )
             """)
             
+            # Add position column if it doesn't exist
+            cursor.execute("PRAGMA table_info(playlist_tracks)")
+            playlist_track_columns = {row[1] for row in cursor.fetchall()}
+            if 'position' not in playlist_track_columns:
+                conn.execute("ALTER TABLE playlist_tracks ADD COLUMN position INTEGER")
+            
             # Track tags table for additional metadata
             conn.execute("""
             CREATE TABLE IF NOT EXISTS track_tags (

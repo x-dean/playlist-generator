@@ -206,41 +206,75 @@ class CacheBasedGenerator:
             reverse=True
         )
 
+        # First pass: keep substantial playlists and split if needed
         for name, data in sorted_playlists:
             tracks = data['tracks']
             
-            # Split large playlists
+            # Skip empty playlists
+            if not tracks:
+                continue
+
+            # Split large playlists by mood
             if len(tracks) > max_size:
-                for i in range(0, len(tracks), max_size):
-                    chunk = tracks[i:i + max_size]
-                    split_name = f"{name}_Part{i//max_size + 1}"
-                    final_playlists[split_name] = {
-                        'tracks': chunk,
-                        'features': data['features'],
-                        'description': data['description']
-                    }
-                continue
+                # Get mood from original features
+                mood_groups = {}
+                for track in tracks:
+                    # Get mood from track features
+                    track_features = data['features']
+                    centroid = float(track_features.get('centroid', 0))
+                    mood = self._get_mood_category(centroid)
+                    
+                    if mood not in mood_groups:
+                        mood_groups[mood] = []
+                    mood_groups[mood].append(track)
 
+                # Create playlists for each mood group
+                for mood, mood_tracks in mood_groups.items():
+                    if len(mood_tracks) >= min_size:
+                        mood_name = f"{name}_{mood}"
+                        final_playlists[mood_name] = {
+                            'tracks': mood_tracks,
+                            'features': data['features'].copy(),
+                            'description': f"{data['description']} ({mood} mood)"
+                        }
+            
             # Keep medium-sized playlists as is
-            if len(tracks) >= min_size:
+            elif len(tracks) >= min_size:
                 final_playlists[name] = data
+
+        # Second pass: try to merge small playlists
+        remaining_playlists = {
+            name: data for name, data in sorted_playlists
+            if len(data['tracks']) < min_size
+        }
+
+        for name, data in remaining_playlists.items():
+            tracks = data['tracks']
+            if not tracks:
                 continue
 
-            # Try to merge small playlists with similar ones
-            merged = False
-            for final_name, final_data in final_playlists.items():
-                if len(final_data['tracks']) + len(tracks) <= max_size:
-                    # Check if playlists are compatible
-                    if self._are_playlists_compatible(data, final_data):
-                        final_data['tracks'].extend(tracks)
-                        merged = True
-                        break
+            # Find best matching large playlist
+            best_match = None
+            best_score = 0
 
-            # If couldn't merge, create new playlist or add to mixed collection
-            if not merged:
+            for final_name, final_data in final_playlists.items():
+                if len(final_data['tracks']) + len(tracks) > max_size:
+                    continue
+
+                score = self._calculate_merge_score(data, final_data)
+                if score > best_score:
+                    best_score = score
+                    best_match = final_name
+
+            # Merge if good match found
+            if best_match and best_score >= 0.5:
+                final_playlists[best_match]['tracks'].extend(tracks)
+            else:
+                # Create new playlist if enough tracks
                 if len(tracks) >= min_size // 2:
                     final_playlists[name] = data
                 else:
+                    # Add to mixed collection
                     mixed_name = "Mixed_Collection"
                     if mixed_name not in final_playlists:
                         final_playlists[mixed_name] = {
@@ -252,27 +286,37 @@ class CacheBasedGenerator:
 
         return final_playlists
 
-    def _are_playlists_compatible(self, playlist1: Dict[str, Any], playlist2: Dict[str, Any]) -> bool:
-        """Check if two playlists are musically compatible for merging"""
+    def _get_mood_category(self, centroid: float) -> str:
+        """Get mood category based on spectral centroid"""
+        if centroid < 500:
+            return "Dark"
+        elif centroid < 1500:
+            return "Warm"
+        elif centroid < 3000:
+            return "Balanced"
+        elif centroid < 6000:
+            return "Bright"
+        return "Crisp"
+
+    def _calculate_merge_score(self, playlist1: Dict[str, Any], playlist2: Dict[str, Any]) -> float:
+        """Calculate merge compatibility score between two playlists"""
         features1 = playlist1['features']
         features2 = playlist2['features']
 
-        # Compare BPM (within 20% range)
+        # Compare BPM (30% weight)
         bpm1 = float(features1.get('bpm', 0))
         bpm2 = float(features2.get('bpm', 0))
-        if abs(bpm1 - bpm2) / max(bpm1, bpm2) > 0.2:
-            return False
-
-        # Compare energy levels (within 30% range)
+        bpm_diff = 1.0 - (abs(bpm1 - bpm2) / max(bpm1, bpm2))
+        
+        # Compare energy (30% weight)
         energy1 = self._get_combined_energy(features1)
         energy2 = self._get_combined_energy(features2)
-        if abs(energy1 - energy2) > 0.3:
-            return False
-
-        # Compare spectral characteristics (within 40% range)
+        energy_diff = 1.0 - abs(energy1 - energy2)
+        
+        # Compare spectral characteristics (40% weight)
         centroid1 = float(features1.get('centroid', 0))
         centroid2 = float(features2.get('centroid', 0))
-        if abs(centroid1 - centroid2) / max(centroid1, centroid2) > 0.4:
-            return False
+        centroid_diff = 1.0 - (abs(centroid1 - centroid2) / max(centroid1, centroid2))
 
-        return True
+        # Calculate weighted score
+        return (bpm_diff * 0.3 + energy_diff * 0.3 + centroid_diff * 0.4)
