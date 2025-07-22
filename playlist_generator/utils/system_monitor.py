@@ -25,6 +25,9 @@ class SystemMonitor:
             'gc_collections': 0,
             'memory_warnings': 0
         }
+        # Use cache directory for metrics
+        self.metrics_dir = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'metrics')
+        os.makedirs(self.metrics_dir, exist_ok=True)
 
     def check_memory(self):
         """Check memory usage and trigger GC if needed"""
@@ -82,10 +85,11 @@ class SystemMonitor:
             logger.error(f"Error getting metrics: {str(e)}")
             return {}
 
-    def save_metrics(self, filepath='system_metrics.json'):
-        """Save metrics to file"""
+    def save_metrics(self, filename='system_metrics.json'):
+        """Save metrics to file in cache directory"""
         try:
             metrics = self.get_metrics()
+            filepath = os.path.join(self.metrics_dir, filename)
             with open(filepath, 'w') as f:
                 json.dump(metrics, f, indent=2)
             logger.info(f"Saved system metrics to {filepath}")

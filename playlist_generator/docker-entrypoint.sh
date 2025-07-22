@@ -16,7 +16,7 @@ if ! getent passwd $USER_ID > /dev/null; then
 fi
 
 # Ensure directory permissions
-mkdir -p /app/cache/checkpoints /app/playlists
+mkdir -p /app/cache/checkpoints /app/cache/metrics /app/playlists
 chown -R $USER_ID:$GROUP_ID /app/cache /app/playlists
 chmod -R 755 /app/cache /app/playlists
 

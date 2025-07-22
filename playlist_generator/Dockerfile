@@ -43,7 +43,7 @@ RUN touch /app/database/__init__.py && \
     touch /app/playlist_generator/__init__.py
 
 # Create directories with proper permissions
-RUN mkdir -p /app/playlists /app/cache/checkpoints && \
+RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \
     chmod -R 777 /app/playlists /app/cache
 
 # Add entrypoint script
