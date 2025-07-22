@@ -9,9 +9,10 @@ from .audio_analyzer import AudioAnalyzer
 logger = logging.getLogger(__name__)
 
 def process_file_worker(filepath):
+    import os
     from .audio_analyzer import AudioAnalyzer
     audio_analyzer = AudioAnalyzer()
-    logger.info(f"Starting analysis for {filepath}")
+    logger.info(f"Worker PID: {os.getpid()} processing {filepath}")
     try:
         if not os.path.exists(filepath):
             logger.warning(f"File not found: {filepath}")
