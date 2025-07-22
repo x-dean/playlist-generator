@@ -6,6 +6,7 @@ from .cache import CacheBasedGenerator
 from collections import defaultdict
 import numpy as np
 from sklearn.preprocessing import StandardScaler
+from .feature_group import FeatureGroupPlaylistGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,7 @@ class PlaylistManager:
     def __init__(self, cache_file: str = None, playlist_method: str = 'all'):
         self.cache_file = cache_file
         self.playlist_method = playlist_method
+        self.feature_group_generator = FeatureGroupPlaylistGenerator(cache_file)
         self.time_scheduler = TimeBasedScheduler()
         self.kmeans_generator = KMeansPlaylistGenerator(cache_file)
         self.cache_generator = CacheBasedGenerator(cache_file)
@@ -27,6 +29,16 @@ class PlaylistManager:
         try:
             final_playlists = {}
             used_tracks = set()
+
+            # Default: Feature-group-based generation
+            if self.playlist_method == 'all' or not self.playlist_method:
+                fg_playlists = self.feature_group_generator.generate(features)
+                for name, data in fg_playlists.items():
+                    if len(data['tracks']) >= 3:  # Lower threshold for more/smaller playlists
+                        final_playlists[name] = data
+                        used_tracks.update(data['tracks'])
+                self._calculate_playlist_stats(final_playlists, features)
+                return final_playlists
 
             if self.playlist_method == 'time':
                 # Only time-based playlists
@@ -55,52 +67,14 @@ class PlaylistManager:
                 self._calculate_playlist_stats(final_playlists, features)
                 return final_playlists
 
-            # 'all' mode: combine all types
-            if self.playlist_method == 'all':
-                # Time-based playlists
-                time_playlists = self.time_scheduler.generate_time_based_playlists(features)
-                for name, data in time_playlists.items():
-                    if len(data['tracks']) >= 10:
-                        final_playlists[name] = data
-                        used_tracks.update(data['tracks'])
-
-                # K-means playlists from remaining tracks
-                remaining_features = [
-                    f for f in features
-                    if f['filepath'] not in used_tracks
-                ]
-                target_kmeans = max(2, num_playlists - len(final_playlists))
-                kmeans_playlists = self.kmeans_generator.generate(remaining_features, target_kmeans)
-                for name, data in kmeans_playlists.items():
-                    if len(data['tracks']) >= 10:
-                        final_playlists[name] = data
-                        used_tracks.update(data['tracks'])
-
-                # Cache-based playlists from remaining tracks
-                remaining_features = [
-                    f for f in features
-                    if f['filepath'] not in used_tracks
-                ]
-                cache_playlists = self.cache_generator.generate(remaining_features)
-                for name, data in cache_playlists.items():
-                    if len(data['tracks']) >= 10:
-                        final_playlists[name] = data
-                        used_tracks.update(data['tracks'])
-
-                # Mixed collection for any leftovers
-                remaining_tracks = [
-                    f['filepath'] for f in features
-                    if f['filepath'] not in used_tracks
-                ]
-                if remaining_tracks:
-                    mixed_name = "Mixed_Collection"
-                    final_playlists[mixed_name] = {
-                        'tracks': remaining_tracks,
-                        'features': {'type': 'mixed'},
-                        'description': "A diverse collection of tracks that didn't fit other categories"
-                    }
-                self._calculate_playlist_stats(final_playlists, features)
-                return final_playlists
+            # Fallback: use feature group generator
+            fg_playlists = self.feature_group_generator.generate(features)
+            for name, data in fg_playlists.items():
+                if len(data['tracks']) >= 3:
+                    final_playlists[name] = data
+                    used_tracks.update(data['tracks'])
+            self._calculate_playlist_stats(final_playlists, features)
+            return final_playlists
 
         except Exception as e:
             logger.error(f"Error generating playlists: {str(e)}")

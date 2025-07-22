@@ -105,7 +105,7 @@ def main():
     group.add_argument('--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
     parser.add_argument('--playlist_method', choices=['all', 'time', 'kmeans', 'cache'], default='all',
-                      help='Playlist generation method: all (default), time, kmeans, or cache')
+                      help='Playlist generation method: all (feature-group, default), time, kmeans, or cache')
     args = parser.parse_args()
 
     # If no mutually exclusive mode is set, default to analyze_only
