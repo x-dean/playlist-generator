@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+# Suppress Essentia logs globally
+export ESSENTIA_LOGGING_LEVEL=error
+export ESSENTIA_STREAM_LOGGING=none
+
 # Default parameters
 REBUILD=false
 MUSIC_DIR="/root/music/library"

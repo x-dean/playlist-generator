@@ -30,7 +30,7 @@ checkpoint_manager = CheckpointManager()
 # Initialize CLI
 cli = PlaylistGeneratorCLI()
 
-os.environ["ESSENTIA_LOGGING_LEVEL"] = "warning"
+os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
 os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
 @monitor_performance
@@ -213,6 +213,7 @@ def main():
                 
                 for i, features in enumerate(processor.process(file_list, workers=args.workers or mp.cpu_count())):
                     progress.update(task_id, advance=1)
+                    logger.debug(f"Features: {features}")
                     if features and 'metadata' in features:
                         meta = features['metadata']
                         logger.info(f"Analyzed: {meta.get('artist', 'Unknown Artist')} - {meta.get('title', 'Unknown Title')}, "
