@@ -22,74 +22,57 @@ class TimeBasedScheduler:
         # Define feature rules for each time slot
         self.feature_rules = {
             'Early_Morning': {
-                'min_bpm': 60, 'max_bpm': 90,
-                'min_danceability': 0.2, 'max_danceability': 0.5,
-                'min_centroid': 500, 'max_centroid': 2000,
-                'min_loudness': -25, 'max_loudness': -12,
-                'compatible_keys': [0, 4, 7],  # C, E, G (major keys)
-                'min_duration': 120, 'max_duration': 300,
-                'required_scale': 'major',
-                'max_onset_rate': 0.8,
-                'max_zcr': 0.15,
+                'min_bpm': 50, 'max_bpm': 100,  # Wider BPM range
+                'max_danceability': 0.6,         # Only limit max danceability
+                'max_centroid': 3000,            # Only limit max brightness
+                'max_loudness': -10,             # Only limit max loudness
+                'min_duration': 60,              # Shorter minimum duration
+                'max_onset_rate': 1.0,           # More permissive onset rate
                 'description': "Gentle, calming tracks for a peaceful start to your day"
             },
             'Morning': {
-                'min_bpm': 90, 'max_bpm': 120,
-                'min_danceability': 0.4, 'max_danceability': 0.7,
-                'min_centroid': 1000, 'max_centroid': 4000,
-                'min_loudness': -18, 'max_loudness': -8,
-                'compatible_keys': [0, 2, 4, 7, 9],  # C, D, E, G, A
-                'min_duration': 120, 'max_duration': 300,
-                'required_scale': 'major',
-                'min_onset_rate': 0.5,
+                'min_bpm': 80, 'max_bpm': 130,   # Wider BPM range
+                'min_danceability': 0.3,          # Lower minimum danceability
+                'min_centroid': 800,              # Lower minimum brightness
+                'min_loudness': -25,              # More permissive loudness
+                'min_duration': 60,               # Shorter minimum duration
                 'description': "Upbeat and energizing music to boost morning productivity"
             },
             'Midday': {
-                'min_bpm': 100, 'max_bpm': 130,
-                'min_danceability': 0.5, 'max_danceability': 0.8,
-                'min_centroid': 2000, 'max_centroid': 6000,
-                'min_loudness': -15, 'max_loudness': -5,
-                'compatible_keys': [2, 5, 7, 9],  # D, F, G, A
-                'min_onset_rate': 0.6,
+                'min_bpm': 90, 'max_bpm': 140,    # Wider BPM range
+                'min_danceability': 0.4,           # Lower minimum danceability
+                'min_centroid': 1000,              # Lower minimum brightness
+                'min_loudness': -20,               # More permissive loudness
                 'description': "Energetic tracks to keep you going through lunch and early afternoon"
             },
             'Afternoon': {
-                'min_bpm': 85, 'max_bpm': 125,
-                'min_danceability': 0.4, 'max_danceability': 0.7,
-                'min_centroid': 1500, 'max_centroid': 5000,
-                'min_loudness': -20, 'max_loudness': -8,
-                'compatible_keys': [0, 4, 7, 11],  # C, E, G, B
-                'max_onset_rate': 1.5,
+                'min_bpm': 75, 'max_bpm': 135,    # Wider BPM range
+                'min_danceability': 0.3,           # Lower minimum danceability
+                'min_centroid': 1000,              # Lower minimum brightness
+                'min_loudness': -25,               # More permissive loudness
                 'description': "Balanced music to maintain focus and energy in the afternoon"
             },
             'Evening': {
-                'min_bpm': 70, 'max_bpm': 110,
-                'max_danceability': 0.6,
-                'min_centroid': 800, 'max_centroid': 3000,
-                'min_loudness': -22, 'max_loudness': -10,
-                'required_scale': 'minor',
-                'max_zcr': 0.2,
+                'min_bpm': 60, 'max_bpm': 120,    # Wider BPM range
+                'max_danceability': 0.7,           # Higher max danceability
+                'max_centroid': 4000,              # Higher max brightness
+                'min_loudness': -30,               # More permissive loudness
                 'description': "Relaxing music to help you unwind after work"
             },
             'Night': {
-                'min_bpm': 65, 'max_bpm': 100,
-                'max_danceability': 0.5,
-                'min_centroid': 500, 'max_centroid': 2500,
-                'min_loudness': -25, 'max_loudness': -12,
-                'compatible_keys': [0, 3, 5, 8],  # C, D#, F, G#
-                'min_duration': 180,
-                'max_onset_rate': 0.7,
+                'min_bpm': 55, 'max_bpm': 110,    # Wider BPM range
+                'max_danceability': 0.6,           # Higher max danceability
+                'max_centroid': 3500,              # Higher max brightness
+                'min_loudness': -30,               # More permissive loudness
+                'min_duration': 120,               # Reasonable minimum duration
                 'description': "Calming evening music for relaxation and quiet activities"
             },
             'Late_Night': {
-                'max_bpm': 85,
-                'max_danceability': 0.4,
-                'max_centroid': 2000,
-                'min_loudness': -30, 'max_loudness': -15,
-                'compatible_keys': [0, 3, 5, 8],  # C, D#, F, G#
-                'min_duration': 180, 'max_duration': 600,
-                'max_onset_rate': 0.5,
-                'max_zcr': 0.1,
+                'max_bpm': 95,                     # Higher max BPM
+                'max_danceability': 0.5,           # Higher max danceability
+                'max_centroid': 3000,              # Higher max brightness
+                'min_loudness': -35,               # More permissive loudness
+                'min_duration': 120,               # Reasonable minimum duration
                 'description': "Ambient and peaceful music for late night listening"
             }
         }
