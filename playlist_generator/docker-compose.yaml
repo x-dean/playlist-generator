@@ -19,6 +19,7 @@ services:
       - GID=${CURRENT_GID:-1000}
     working_dir: /app
     command: >
+      python main.py
       --music_dir /music
       --host_music_dir ${HOST_MUSIC_DIR}
       --output_dir /app/playlists

@@ -104,13 +104,27 @@ export NUM_PLAYLISTS
 export CURRENT_UID
 export CURRENT_GID
 
-# Only export boolean flags if true
-set +u
-[ "${FORCE_SEQUENTIAL:-}" = true ] && export FORCE_SEQUENTIAL || unset FORCE_SEQUENTIAL
-[ "${GENERATE_ONLY:-}" = true ] && export GENERATE_ONLY || unset GENERATE_ONLY
-[ "${ANALYZE_ONLY:-}" = true ] && export ANALYZE_ONLY || unset ANALYZE_ONLY
-[ "${UPDATE:-}" = true ] && export UPDATE || unset UPDATE
-set -u
+# Export boolean flags
+export FORCE_SEQUENTIAL=${FORCE_SEQUENTIAL}
+export GENERATE_ONLY=${GENERATE_ONLY}
+export ANALYZE_ONLY=${ANALYZE_ONLY}
+export UPDATE=${UPDATE}
+
+# Create .env file for docker-compose
+cat > .env << EOF
+MUSIC_DIR=${MUSIC_DIR}
+HOST_MUSIC_DIR=${HOST_MUSIC_DIR}
+OUTPUT_DIR=${OUTPUT_DIR}
+CACHE_DIR=${CACHE_DIR}
+WORKERS=${WORKERS}
+NUM_PLAYLISTS=${NUM_PLAYLISTS}
+CURRENT_UID=${CURRENT_UID}
+CURRENT_GID=${CURRENT_GID}
+FORCE_SEQUENTIAL=${FORCE_SEQUENTIAL}
+GENERATE_ONLY=${GENERATE_ONLY}
+ANALYZE_ONLY=${ANALYZE_ONLY}
+UPDATE=${UPDATE}
+EOF
 
 # Print configuration
 echo "=== Playlist Generator Configuration ==="
@@ -120,10 +134,10 @@ echo "Output Directory: $OUTPUT_DIR"
 echo "Cache Directory: $CACHE_DIR"
 echo "Workers: $WORKERS"
 echo "Playlists: $NUM_PLAYLISTS"
-echo "Force Sequential: ${FORCE_SEQUENTIAL:-false}"
-echo "Generate Only: ${GENERATE_ONLY:-false}"
-echo "Analyze Only: ${ANALYZE_ONLY:-false}"
-echo "Update Mode: ${UPDATE:-false}"
+echo "Force Sequential: ${FORCE_SEQUENTIAL}"
+echo "Generate Only: ${GENERATE_ONLY}"
+echo "Analyze Only: ${ANALYZE_ONLY}"
+echo "Update Mode: ${UPDATE}"
 echo "Running as UID:GID = $CURRENT_UID:$CURRENT_GID"
 echo "========================================"
 
