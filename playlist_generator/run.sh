@@ -126,11 +126,11 @@ export CURRENT_UID
 export CURRENT_GID
 export PLAYLIST_METHOD
 
-# Export boolean flags
-export FORCE_SEQUENTIAL=${FORCE_SEQUENTIAL}
-export GENERATE_ONLY=${GENERATE_ONLY}
-export ANALYZE_ONLY=${ANALYZE_ONLY}
-export UPDATE=${UPDATE}
+# Set FORCE_SEQUENTIAL_FLAG only if true
+FORCE_SEQUENTIAL_FLAG=""
+if [ "$FORCE_SEQUENTIAL" = true ]; then
+    FORCE_SEQUENTIAL_FLAG="--force_sequential"
+fi
 
 # Create .env file for docker-compose
 cat > .env << EOF
@@ -193,7 +193,7 @@ docker compose exec playlist-generator python main.py \
   --num_playlists ${NUM_PLAYLISTS} \
   --playlist_method ${PLAYLIST_METHOD} \
   $MUTEX_FLAG \
-  ${FORCE_SEQUENTIAL:+--force_sequential}
+  $FORCE_SEQUENTIAL_FLAG
 
 echo "Playlists generated successfully!"
 echo "Output available in: $OUTPUT_DIR"
