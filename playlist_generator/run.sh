@@ -15,8 +15,8 @@ ANALYZE_ONLY=false
 UPDATE=false
 
 # Get current user's UID and GID
-export UID=$(id -u)
-export GID=$(id -g)
+CURRENT_UID=$(id -u)
+CURRENT_GID=$(id -g)
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -101,6 +101,8 @@ export OUTPUT_DIR
 export CACHE_DIR
 export WORKERS
 export NUM_PLAYLISTS
+export CURRENT_UID
+export CURRENT_GID
 
 # Only export boolean flags if true
 set +u
@@ -122,7 +124,7 @@ echo "Force Sequential: ${FORCE_SEQUENTIAL:-false}"
 echo "Generate Only: ${GENERATE_ONLY:-false}"
 echo "Analyze Only: ${ANALYZE_ONLY:-false}"
 echo "Update Mode: ${UPDATE:-false}"
-echo "Running as UID:GID = $UID:$GID"
+echo "Running as UID:GID = $CURRENT_UID:$CURRENT_GID"
 echo "========================================"
 
 # Build only if requested
