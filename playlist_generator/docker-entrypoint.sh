@@ -15,8 +15,8 @@ if ! getent passwd $USER_ID > /dev/null; then
     useradd -u $USER_ID -g $GROUP_ID -d /app -s /bin/bash appuser
 fi
 
-# Ensure cache directory permissions
-mkdir -p /app/cache /app/playlists
+# Ensure directory permissions
+mkdir -p /app/cache/checkpoints /app/playlists
 chown -R $USER_ID:$GROUP_ID /app/cache /app/playlists
 chmod -R 755 /app/cache /app/playlists
 

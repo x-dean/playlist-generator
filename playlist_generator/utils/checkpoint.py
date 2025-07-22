@@ -8,11 +8,14 @@ from typing import Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 class CheckpointManager:
-    def __init__(self, checkpoint_dir: str = 'checkpoints'):
-        self.checkpoint_dir = checkpoint_dir
-        os.makedirs(checkpoint_dir, exist_ok=True)
+    def __init__(self, checkpoint_dir: str = None):
+        # Use cache directory from environment or default to 'checkpoints' in cache dir
+        cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+        self.checkpoint_dir = checkpoint_dir or os.path.join(cache_dir, 'checkpoints')
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
         self.current_checkpoint = None
         self.checkpoint_file = None
+        logger.info(f"Using checkpoint directory: {self.checkpoint_dir}")
 
     def save_checkpoint(self, state: Dict[str, Any], name: str = None) -> str:
         """Save processing state for recovery"""

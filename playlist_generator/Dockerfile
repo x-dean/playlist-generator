@@ -43,8 +43,8 @@ RUN touch /app/database/__init__.py && \
     touch /app/playlist_generator/__init__.py
 
 # Create directories with proper permissions
-RUN mkdir -p /app/playlists /app/cache && \
-    chmod 777 /app/playlists /app/cache
+RUN mkdir -p /app/playlists /app/cache/checkpoints && \
+    chmod -R 777 /app/playlists /app/cache
 
 # Add entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/
@@ -53,7 +53,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    CACHE_DIR=/app/cache
 
 # Use shell form for entrypoint to allow variable expansion
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
