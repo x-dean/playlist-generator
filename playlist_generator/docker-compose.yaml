@@ -27,7 +27,4 @@ services:
       --workers ${WORKERS}
       --num_playlists ${NUM_PLAYLISTS}
       --playlist_method ${PLAYLIST_METHOD}
-      ${ANALYZE_ONLY:+--analyze_only}
-      ${GENERATE_ONLY:+--generate_only}
       ${FORCE_SEQUENTIAL:+--force_sequential}
-      ${UPDATE:+--update}

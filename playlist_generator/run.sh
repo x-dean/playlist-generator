@@ -168,9 +168,29 @@ if [ "$REBUILD" = true ]; then
     docker compose build --no-cache
 fi
 
+# Determine which mutually exclusive flag to pass
+MUTEX_FLAG=""
+if [ "$ANALYZE_ONLY" = true ]; then
+    MUTEX_FLAG="--analyze_only"
+elif [ "$GENERATE_ONLY" = true ]; then
+    MUTEX_FLAG="--generate_only"
+elif [ "$UPDATE" = true ]; then
+    MUTEX_FLAG="--update"
+fi
+
 # Run the generator
 echo "=== Starting Playlist Generation ==="
-docker compose up --force-recreate --remove-orphans
+docker compose up --force-recreate --remove-orphans --build --detach
+
+docker compose exec playlist-generator python main.py \
+  --music_dir /music \
+  --host_music_dir ${HOST_MUSIC_DIR} \
+  --output_dir /app/playlists \
+  --workers ${WORKERS} \
+  --num_playlists ${NUM_PLAYLISTS} \
+  --playlist_method ${PLAYLIST_METHOD} \
+  $MUTEX_FLAG \
+  ${FORCE_SEQUENTIAL:+--force_sequential}
 
 echo "Playlists generated successfully!"
 echo "Output available in: $OUTPUT_DIR"
