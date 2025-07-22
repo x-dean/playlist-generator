@@ -99,24 +99,31 @@ class PlaylistGeneratorCLI:
         layout["stats"].update(table)
 
         # Key distribution
-        key_tables = []
-        for name, playlist_stats in stats.items():
-            if 'key_distribution' in playlist_stats:
-                key_table = Table(title=f"Key Distribution - {name}", show_header=True)
-                key_table.add_column("Key", style="cyan")
-                key_table.add_column("Count", justify="right", style="green")
-                
-                # Show top 5 keys
-                for key, count in sorted(
-                    playlist_stats['key_distribution'].items(),
-                    key=lambda x: x[1],
-                    reverse=True
-                )[:5]:
-                    key_table.add_row(key, str(count))
-                
-                key_tables.append(key_table)
+        if key_tables := [
+            Table(
+                title=f"Key Distribution - {name}",
+                show_header=True,
+                title_style="bold magenta"
+            ).add_column("Key", style="cyan"
+            ).add_column("Count", justify="right", style="green")
+            for name in stats.keys()
+        ]:
+            # Add data to tables
+            for table, (name, playlist_stats) in zip(key_tables, stats.items()):
+                if 'key_distribution' in playlist_stats:
+                    # Show top 5 keys
+                    for key, count in sorted(
+                        playlist_stats['key_distribution'].items(),
+                        key=lambda x: x[1],
+                        reverse=True
+                    )[:5]:
+                        table.add_row(key, str(count))
 
-        layout["keys"].update(Layout(*key_tables))
+            # Create a layout for key tables with proper spacing
+            keys_layout = Layout()
+            keys_layout.split_column(*[Layout(table) for table in key_tables])
+            layout["keys"].update(keys_layout)
+
         self.console.print(layout)
 
     def show_error(self, error: str, details: Optional[str] = None):
