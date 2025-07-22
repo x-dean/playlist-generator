@@ -86,7 +86,8 @@ class AudioAnalyzer:
             'key': 'INTEGER DEFAULT -1',
             'scale': 'INTEGER DEFAULT 0',
             'onset_rate': 'REAL DEFAULT 0',
-            'zcr': 'REAL DEFAULT 0'
+            'zcr': 'REAL DEFAULT 0',
+            'metadata': 'JSON'
         }
 
         for col, col_type in required_columns.items():
