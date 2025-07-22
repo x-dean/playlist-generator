@@ -27,6 +27,8 @@ checkpoint_manager = CheckpointManager()
 # Initialize CLI
 cli = PlaylistGeneratorCLI()
 
+os.environ["ESSENTIA_LOGGING_LEVEL"] = "warning"
+
 @monitor_performance
 def get_audio_files(music_dir):
     file_list = []
