@@ -67,31 +67,32 @@ class PlaylistDatabase:
             conn.close()
     
     def save_playlists(self, playlists):
-        """Save playlists to the database"""
         try:
             conn = sqlite3.connect(self.cache_file, timeout=60)
             cursor = conn.cursor()
             
-            # Clear existing playlists
+            # Only clear playlist data, not the entire DB
             cursor.execute("DELETE FROM playlist_tracks")
             cursor.execute("DELETE FROM playlists")
             
             # Insert new playlists
             for name, data in playlists.items():
+                # Skip empty playlists
+                if not data.get('tracks'):
+                    continue
+                    
                 cursor.execute(
                     "INSERT INTO playlists (name) VALUES (?)",
                     (name,)
                 )
                 playlist_id = cursor.lastrowid
                 
-                for track in data.get('tracks', []):
-                    # Get file hash for the track
+                for track in data['tracks']:
                     cursor.execute(
                         "SELECT file_hash FROM audio_features WHERE file_path = ?",
                         (track,)
                     )
-                    result = cursor.fetchone()
-                    if result:
+                    if result := cursor.fetchone():
                         file_hash = result[0]
                         cursor.execute(
                             "INSERT INTO playlist_tracks (playlist_id, file_hash) VALUES (?, ?)",

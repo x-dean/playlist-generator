@@ -40,6 +40,7 @@ class AudioAnalyzer:
         self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
         self._init_db()
+        self.cleanup_database()  # Clean up immediately on init
 
     def _init_db(self):
         self.conn = sqlite3.connect(self.cache_file, timeout=600)

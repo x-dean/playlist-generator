@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 
 def process_file_worker(filepath):
     try:
+        if not os.path.exists(filepath):
+            logger.warning(f"File not found: {filepath}")
+            return None, filepath
+        
         if os.path.getsize(filepath) < 1024:
             logger.warning(f"Skipping small file: {filepath}")
             return None, filepath
