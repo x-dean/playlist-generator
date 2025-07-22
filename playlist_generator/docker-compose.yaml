@@ -17,6 +17,7 @@ services:
       - CACHE_DIR=/app/cache
       - UID=${CURRENT_UID:-1000}
       - GID=${CURRENT_GID:-1000}
+      - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
     working_dir: /app
     command: >
       python main.py
@@ -25,6 +26,7 @@ services:
       --output_dir /app/playlists
       --workers ${WORKERS}
       --num_playlists ${NUM_PLAYLISTS}
+      --playlist_method ${PLAYLIST_METHOD}
       ${ANALYZE_ONLY:+--analyze_only}
       ${GENERATE_ONLY:+--generate_only}
       ${FORCE_SEQUENTIAL:+--force_sequential}

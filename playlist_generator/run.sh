@@ -13,6 +13,7 @@ FORCE_SEQUENTIAL=false
 GENERATE_ONLY=false
 ANALYZE_ONLY=false
 UPDATE=false
+PLAYLIST_METHOD="all"  # Default to all methods
 
 # Get current user's UID and GID
 CURRENT_UID=$(id -u)
@@ -66,6 +67,10 @@ while [[ $# -gt 0 ]]; do
             FORCE_SEQUENTIAL=true
             shift
             ;;
+        --playlist_method=*)
+            PLAYLIST_METHOD="${1#*=}"
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [options]"
             echo "Options:"
@@ -80,6 +85,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --generate_only          Only generate playlists from database without analysis"
             echo "  --analyze_only           Only run audio analysis without generating playlists"
             echo "  --update                 Update playlists from existing database"
+            echo "  --playlist_method=<method> Playlist generation method (default: all)"
+            echo "                           Options: all, time, kmeans, cache"
             echo "  --help, -h               Show this help message"
             exit 0
             ;;
@@ -89,6 +96,17 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Validate playlist method
+case "$PLAYLIST_METHOD" in
+    all|time|kmeans|cache)
+        ;;
+    *)
+        echo "Invalid playlist method: $PLAYLIST_METHOD"
+        echo "Valid options are: all, time, kmeans, cache"
+        exit 1
+        ;;
+esac
 
 # Create directories with proper permissions
 mkdir -p "$OUTPUT_DIR" "$CACHE_DIR"
@@ -103,6 +121,7 @@ export WORKERS
 export NUM_PLAYLISTS
 export CURRENT_UID
 export CURRENT_GID
+export PLAYLIST_METHOD
 
 # Export boolean flags
 export FORCE_SEQUENTIAL=${FORCE_SEQUENTIAL}
@@ -124,6 +143,7 @@ FORCE_SEQUENTIAL=${FORCE_SEQUENTIAL}
 GENERATE_ONLY=${GENERATE_ONLY}
 ANALYZE_ONLY=${ANALYZE_ONLY}
 UPDATE=${UPDATE}
+PLAYLIST_METHOD=${PLAYLIST_METHOD}
 EOF
 
 # Print configuration
@@ -138,6 +158,7 @@ echo "Force Sequential: ${FORCE_SEQUENTIAL}"
 echo "Generate Only: ${GENERATE_ONLY}"
 echo "Analyze Only: ${ANALYZE_ONLY}"
 echo "Update Mode: ${UPDATE}"
+echo "Playlist Method: ${PLAYLIST_METHOD}"
 echo "Running as UID:GID = $CURRENT_UID:$CURRENT_GID"
 echo "========================================"
 

@@ -100,6 +100,8 @@ def main():
     parser.add_argument('--analyze_only', action='store_true', help='Only run audio analysis without generating playlists')
     parser.add_argument('--generate_only', action='store_true', help='Only generate playlists from database without analysis')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
+    parser.add_argument('--playlist_method', choices=['all', 'time', 'kmeans', 'cache'], default='all',
+                      help='Playlist generation method (default: all)')
     args = parser.parse_args()
 
     # Show configuration
@@ -112,7 +114,8 @@ def main():
         'Update Mode': args.update,
         'Analysis Only': args.analyze_only,
         'Generate Only': args.generate_only,
-        'Resume': args.resume
+        'Resume': args.resume,
+        'Playlist Method': args.playlist_method
     })
 
     # Set cache file path
@@ -123,7 +126,7 @@ def main():
     # Initialize components
     audio_db = AudioAnalyzer(cache_file)
     playlist_db = PlaylistDatabase(cache_file)
-    playlist_manager = PlaylistManager(cache_file)
+    playlist_manager = PlaylistManager(cache_file, args.playlist_method)  # Pass playlist method
     
     container_music_dir = args.music_dir.rstrip('/')
     host_music_dir = args.host_music_dir.rstrip('/')

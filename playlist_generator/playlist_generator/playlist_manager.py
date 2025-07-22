@@ -10,80 +10,91 @@ from sklearn.preprocessing import StandardScaler
 logger = logging.getLogger(__name__)
 
 class PlaylistManager:
-    def __init__(self, cache_file: str = None):
+    def __init__(self, cache_file: str = None, playlist_method: str = 'all'):
         self.cache_file = cache_file
+        self.playlist_method = playlist_method
         self.time_scheduler = TimeBasedScheduler()
         self.kmeans_generator = KMeansPlaylistGenerator(cache_file)
         self.cache_generator = CacheBasedGenerator(cache_file)
         self.playlist_stats = defaultdict(dict)
 
     def generate_playlists(self, features: List[Dict[str, Any]], num_playlists: int = 8) -> Dict[str, Any]:
-        """Generate playlists using multiple strategies and combine results intelligently"""
+        """Generate playlists using specified method"""
         if not features:
             logger.warning("No features provided for playlist generation")
             return {}
 
         try:
-            # Track which songs have been used
-            used_tracks = set()
             final_playlists = {}
+            used_tracks = set()
 
-            # First, generate time-based playlists (they have priority)
-            time_playlists = self.time_scheduler.generate_time_based_playlists(features)
-            for name, data in time_playlists.items():
-                if len(data['tracks']) >= 10:  # Only keep playlists with enough tracks
-                    final_playlists[name] = data
-                    used_tracks.update(data['tracks'])
+            # Generate playlists based on selected method
+            if self.playlist_method in ['all', 'time']:
+                # Time-based playlists
+                time_playlists = self.time_scheduler.generate_time_based_playlists(features)
+                for name, data in time_playlists.items():
+                    if len(data['tracks']) >= 10:  # Only keep playlists with enough tracks
+                        final_playlists[name] = data
+                        if self.playlist_method == 'all':
+                            used_tracks.update(data['tracks'])
 
-            # Calculate remaining tracks
-            remaining_features = [
-                f for f in features
-                if f['filepath'] not in used_tracks
-            ]
+            if self.playlist_method in ['all', 'kmeans']:
+                # Calculate remaining tracks for 'all' method
+                remaining_features = features
+                if self.playlist_method == 'all':
+                    remaining_features = [
+                        f for f in features
+                        if f['filepath'] not in used_tracks
+                    ]
 
-            # Generate K-means playlists from remaining tracks
-            target_kmeans = max(2, num_playlists - len(final_playlists))
-            kmeans_playlists = self.kmeans_generator.generate(remaining_features, target_kmeans)
-            
-            # Update used tracks and add to final playlists
-            for name, data in kmeans_playlists.items():
-                if len(data['tracks']) >= 10:  # Only keep playlists with enough tracks
-                    final_playlists[name] = data
-                    used_tracks.update(data['tracks'])
+                # Generate K-means playlists
+                target_kmeans = max(2, num_playlists - len(final_playlists))
+                kmeans_playlists = self.kmeans_generator.generate(remaining_features, target_kmeans)
+                
+                for name, data in kmeans_playlists.items():
+                    if len(data['tracks']) >= 10:  # Only keep playlists with enough tracks
+                        final_playlists[name] = data
+                        if self.playlist_method == 'all':
+                            used_tracks.update(data['tracks'])
 
-            # Use cache-based generation for any remaining tracks
-            remaining_features = [
-                f for f in features
-                if f['filepath'] not in used_tracks
-            ]
-            
-            if remaining_features:
+            if self.playlist_method in ['all', 'cache']:
+                # Calculate remaining tracks for 'all' method
+                remaining_features = features
+                if self.playlist_method == 'all':
+                    remaining_features = [
+                        f for f in features
+                        if f['filepath'] not in used_tracks
+                    ]
+
+                # Generate cache-based playlists
                 cache_playlists = self.cache_generator.generate(remaining_features)
                 for name, data in cache_playlists.items():
                     if len(data['tracks']) >= 10:  # Only keep playlists with enough tracks
                         final_playlists[name] = data
-                        used_tracks.update(data['tracks'])
+                        if self.playlist_method == 'all':
+                            used_tracks.update(data['tracks'])
 
-            # Create a mixed playlist for any remaining tracks
-            remaining_tracks = [
-                f['filepath'] for f in features
-                if f['filepath'] not in used_tracks
-            ]
-            
-            if remaining_tracks:
-                mixed_name = "Mixed_Collection"
-                final_playlists[mixed_name] = {
-                    'tracks': remaining_tracks,
-                    'features': {'type': 'mixed'},
-                    'description': "A diverse collection of tracks that didn't fit other categories"
-                }
+            # Create a mixed playlist for any remaining tracks in 'all' mode
+            if self.playlist_method == 'all':
+                remaining_tracks = [
+                    f['filepath'] for f in features
+                    if f['filepath'] not in used_tracks
+                ]
+                
+                if remaining_tracks:
+                    mixed_name = "Mixed_Collection"
+                    final_playlists[mixed_name] = {
+                        'tracks': remaining_tracks,
+                        'features': {'type': 'mixed'},
+                        'description': "A diverse collection of tracks that didn't fit other categories"
+                    }
 
             # Calculate playlist statistics
             self._calculate_playlist_stats(final_playlists, features)
 
             # Log summary
             total_tracks = sum(len(p['tracks']) for p in final_playlists.values())
-            logger.info(f"Generated {len(final_playlists)} playlists with {total_tracks} total tracks")
+            logger.info(f"Generated {len(final_playlists)} playlists with {total_tracks} total tracks using {self.playlist_method} method")
             for name, data in final_playlists.items():
                 logger.info(f"Playlist {name}: {len(data['tracks'])} tracks")
 
