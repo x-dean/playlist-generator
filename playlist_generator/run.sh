@@ -7,7 +7,10 @@ MUSIC_DIR="/root/music/library"
 HOST_MUSIC_DIR="$MUSIC_DIR"
 OUTPUT_DIR="/root/music/library/playlists"
 CACHE_DIR="/root/music/library/playlists/cache"
-WORKERS=""
+WORKERS=$(($(nproc) / 2))
+if [ "$WORKERS" -lt 1 ]; then
+    WORKERS=1
+fi
 NUM_PLAYLISTS=10
 FORCE_SEQUENTIAL=false
 GENERATE_ONLY=false
