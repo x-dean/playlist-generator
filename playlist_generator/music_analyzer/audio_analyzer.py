@@ -326,6 +326,7 @@ class AudioAnalyzer:
         # Merge tags
         meta.update({k: v for k, v in mb_tags.items() if v})
         features['metadata'] = meta
+        print("Extracted metadata:", features.get('metadata'))
 
         if len(audio) >= 44100:  # At least 1 second
             try:

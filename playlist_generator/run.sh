@@ -197,19 +197,8 @@ if [ "$PLAYLIST_METHOD" != "all" ]; then
     PLAYLIST_METHOD_FLAG="-m $PLAYLIST_METHOD"
 fi
 
-# Run the generator
-echo "=== Starting Playlist Generation ==="
-docker compose up --force-recreate --remove-orphans --build --detach
-
-docker compose exec playlist-generator python main.py \
-  --music_dir /music \
-  --host_music_dir ${HOST_MUSIC_DIR} \
-  --output_dir /app/playlists \
-  --workers ${WORKERS} \
-  --num_playlists ${NUM_PLAYLISTS} \
-  $MUTEX_FLAG \
-  $PLAYLIST_METHOD_FLAG \
-  $FORCE_SEQUENTIAL_FLAG
+# Run the generator and filter out Essentia logs
+python main.py "$@" 2>&1 | grep -v 'AudioLoader:' | grep -v 'MusicExtractorSVM:' | grep -v 'invalid frame'
 
 echo "Playlists generated successfully!"
 echo "Output available in: $OUTPUT_DIR"
