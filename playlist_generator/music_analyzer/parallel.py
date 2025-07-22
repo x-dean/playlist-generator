@@ -4,7 +4,8 @@ import os
 import sys
 from tqdm import tqdm
 import logging
-from .audio_analyzer import audio_analyzer  # Fix import
+from .audio_analyzer import AudioAnalyzer
+audio_analyzer = AudioAnalyzer()
 
 logger = logging.getLogger(__name__)
 

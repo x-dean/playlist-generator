@@ -120,10 +120,13 @@ class AudioAnalyzer:
 
     def _safe_audio_load(self, audio_path):
         try:
-            loader = es.MonoLoader(...)
+            loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
             audio = loader()
             del loader  # Explicit cleanup
             return audio
+        except Exception as e:
+            logger.error(f"AudioLoader error for {audio_path}: {str(e)}")
+            return None
         finally:
             gc.collect()
 
@@ -241,8 +244,8 @@ class AudioAnalyzer:
             logger.error(traceback.format_exc())
             return None, False, None
         except TimeoutException:
-            logger.warning(f"Timeout on {audio_path}, retrying with fallback")
-            return self._fallback_feature_extraction(audio_path)
+            logger.warning(f"Timeout on {audio_path}")
+            return None, False, None
 
     def _get_cached_features(self, file_info):
         cursor = self.conn.cursor()
