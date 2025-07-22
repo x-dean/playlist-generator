@@ -5,7 +5,7 @@ set -euo pipefail
 REBUILD=false
 MUSIC_DIR="/root/music/library"
 HOST_MUSIC_DIR="$MUSIC_DIR"
-OUTPUT_DIR="/root/music/library/playlists"
+OUTPUT_DIR="/root/music/library/playlists/by_bpm"
 CACHE_DIR="/root/music/library/playlists/cache"
 WORKERS=$(($(nproc) / 2))
 if [ "$WORKERS" -lt 1 ]; then
