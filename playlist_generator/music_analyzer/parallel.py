@@ -12,7 +12,8 @@ def process_file_worker(filepath):
     import os
     from .audio_analyzer import AudioAnalyzer
     audio_analyzer = AudioAnalyzer()
-    logger.info(f"Worker PID: {os.getpid()} processing {filepath}")
+    # Remove routine info logs to avoid duplicate and noisy output
+    # logger.info(f"Worker PID: {os.getpid()} processing {filepath}")
     try:
         if not os.path.exists(filepath):
             logger.warning(f"File not found: {filepath}")
@@ -36,9 +37,9 @@ def process_file_worker(filepath):
             for key in ['bpm', 'centroid', 'duration']:
                 if features.get(key) is None:
                     features[key] = 0.0
-            logger.info(f"Finished analysis for {filepath}")
+            # logger.info(f"Finished analysis for {filepath}")
             return features, filepath
-        logger.info(f"Finished analysis for {filepath}")
+        # logger.info(f"Finished analysis for {filepath}")
         return None, filepath
     except Exception as e:
         import traceback
