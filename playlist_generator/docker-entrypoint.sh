@@ -20,5 +20,9 @@ mkdir -p /app/cache/checkpoints /app/cache/metrics /app/playlists
 chown -R $USER_ID:$GROUP_ID /app/cache /app/playlists
 chmod -R 755 /app/cache /app/playlists
 
+# Silence Essentia info logs
+export ESSENTIA_LOGGING_LEVEL=warning
+export ESSENTIA_STREAM_LOGGING=none
+
 # Run command as appuser
 exec gosu $USER_ID:$GROUP_ID "$@" 

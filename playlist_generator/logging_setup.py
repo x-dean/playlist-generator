@@ -1,4 +1,5 @@
 import logging
+import sys
 from colorlog import ColoredFormatter
 
 def setup_colored_logging():
@@ -17,7 +18,7 @@ def setup_colored_logging():
             },
             style='%'
         )
-        handler = logging.StreamHandler()
+        handler = logging.StreamHandler(sys.stderr)  # Use stderr
         handler.setFormatter(formatter)
         logger.setLevel(logging.INFO)
         logger.addHandler(handler)

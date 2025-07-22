@@ -54,7 +54,9 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
-    CACHE_DIR=/app/cache
+    CACHE_DIR=/app/cache \
+    ESSENTIA_LOGGING_LEVEL=warning \
+    ESSENTIA_STREAM_LOGGING=none
 
 # Use shell form for entrypoint to allow variable expansion
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
