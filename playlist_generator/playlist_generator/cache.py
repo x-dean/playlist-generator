@@ -5,75 +5,144 @@ import traceback
 from collections import defaultdict
 from sklearn.preprocessing import StandardScaler
 import os
+import numpy as np
+from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-
 class CacheBasedGenerator:
-    def __init__(self, cache_file):
+    def __init__(self, cache_file: str):
         self.cache_file = cache_file
         self.playlist_history = defaultdict(list)
 
-    def generate(self, features_list=None):
+        # BPM ranges with descriptions
+        self.bpm_ranges = {
+            'Very_Slow': (0, 60, "Ambient and atmospheric tracks"),
+            'Slow': (60, 90, "Relaxing and calming music"),
+            'Medium': (90, 120, "Moderate tempo for casual listening"),
+            'Upbeat': (120, 150, "Energetic and lively tracks"),
+            'Fast': (150, 180, "High-energy dance music"),
+            'Very_Fast': (180, float('inf'), "Intense and dynamic tracks")
+        }
+
+        # Energy levels with descriptions
+        self.energy_levels = {
+            'Ambient': (0, 0.3, "Perfect for meditation and deep focus"),
+            'Chill': (0.3, 0.45, "Relaxed and laid-back vibes"),
+            'Balanced': (0.45, 0.6, "Moderate energy for everyday listening"),
+            'Groovy': (0.6, 0.75, "Rhythmic and engaging beats"),
+            'Energetic': (0.75, 0.85, "High energy for workouts"),
+            'Intense': (0.85, 1.0, "Maximum energy for peak moments")
+        }
+
+        # Mood categories based on spectral features
+        self.mood_ranges = {
+            'Dark': (0, 1000, "Deep and atmospheric"),
+            'Warm': (1000, 2000, "Rich and full-bodied sound"),
+            'Balanced': (2000, 4000, "Clear and well-defined"),
+            'Bright': (4000, 6000, "Crisp and detailed"),
+            'Brilliant': (6000, float('inf'), "Sparkling and airy")
+        }
+
+    def _get_category(self, value: float, ranges: Dict[str, tuple]) -> tuple:
+        """Get category and description for a value from defined ranges"""
+        for name, (min_val, max_val, desc) in ranges.items():
+            if min_val <= value < max_val:
+                return name, desc
+        return list(ranges.keys())[-1], ranges[list(ranges.keys())[-1]][2]
+
+    def _get_combined_energy(self, track: Dict[str, Any]) -> float:
+        """Calculate combined energy score from multiple features"""
+        danceability = float(track.get('danceability', 0))
+        loudness = float(track.get('loudness', -60))
+        onset_rate = float(track.get('onset_rate', 0))
+        
+        # Normalize loudness from dB to 0-1 range
+        loudness_norm = (loudness + 60) / 60  # -60dB -> 0, 0dB -> 1
+        
+        # Combine features with weights
+        return (
+            danceability * 0.4 +
+            loudness_norm * 0.3 +
+            min(1.0, onset_rate / 4) * 0.3  # Normalize onset rate
+        )
+
+    def _generate_playlist_name(self, features: Dict[str, Any]) -> str:
+        """Generate descriptive playlist name based on musical features"""
+        bpm = float(features.get('bpm', 0))
+        energy = self._get_combined_energy(features)
+        centroid = float(features.get('centroid', 0))
+        
+        bpm_category, _ = self._get_category(bpm, self.bpm_ranges)
+        energy_category, _ = self._get_category(energy, self.energy_levels)
+        mood_category, _ = self._get_category(centroid, self.mood_ranges)
+        
+        return f"{bpm_category}_{energy_category}_{mood_category}"
+
+    def _generate_description(self, features: Dict[str, Any]) -> str:
+        """Generate human-readable description based on musical features"""
+        bpm = float(features.get('bpm', 0))
+        energy = self._get_combined_energy(features)
+        centroid = float(features.get('centroid', 0))
+        
+        _, bpm_desc = self._get_category(bpm, self.bpm_ranges)
+        _, energy_desc = self._get_category(energy, self.energy_levels)
+        _, mood_desc = self._get_category(centroid, self.mood_ranges)
+        
+        return f"{bpm_desc} with {energy_desc}. {mood_desc} characteristics."
+
+    def generate(self, features_list: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Dict[str, Any]]:
         """Generate playlists from either provided features or database"""
         if features_list:
             return self._generate_from_features(features_list)
         return self._generate_from_db()
 
-    def _generate_from_features(self, features_list):
+    def _generate_from_features(self, features_list: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Generate playlists from provided feature list"""
         playlists = {}
         for feature in features_list:
             if not feature or 'filepath' not in feature:
                 continue
 
-            file_path = feature['filepath']
-            bpm = feature.get('bpm', 0)
-            centroid = feature.get('centroid', 0)
-            danceability = feature.get('danceability', 0)
-            key = feature.get('key', -1)
-            scale = feature.get('scale', 0)
-
-            bpm_group = self._get_bpm_group(bpm)
-            energy_group = self._get_energy_group(danceability)
-            mood_group = self._get_mood_group(centroid)
-
-            key_str = ""
-            if key is not None and 0 <= int(key) <= 11:
-                keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-                key_str = f"{keys[int(key)]}_{'Major' if scale == 1 else 'Minor'}"
-
-            playlist_name = f"{bpm_group}_{energy_group}"
-            if key_str:
-                playlist_name += f"_{key_str}"
-            if mood_group in ('Bright', 'Crisp'):
-                playlist_name += "_Bright"
-            elif mood_group in ('Warm', 'Mellow'):
-                playlist_name += "_Warm"
-
-            if playlist_name not in playlists:
-                playlists[playlist_name] = {
-                    'tracks': [],
-                    'features': {
-                        'bpm_group': bpm_group,
-                        'energy_group': energy_group,
-                        'mood_group': mood_group,
-                        'key_group': key_str
-                    }
+            try:
+                # Calculate normalized features
+                track_features = {
+                    'filepath': feature['filepath'],
+                    'bpm': float(feature.get('bpm', 0)),
+                    'centroid': float(feature.get('centroid', 0)),
+                    'danceability': min(1.0, max(0.0, float(feature.get('danceability', 0)))),
+                    'loudness': float(feature.get('loudness', -30)),
+                    'onset_rate': float(feature.get('onset_rate', 0)),
+                    'key': int(feature.get('key', -1)),
+                    'scale': int(feature.get('scale', 0))
                 }
 
-            playlists[playlist_name]['tracks'].append(file_path)
+                # Generate playlist name and get category descriptions
+                name = self._generate_playlist_name(track_features)
+                description = self._generate_description(track_features)
+
+                if name not in playlists:
+                    playlists[name] = {
+                        'tracks': [],
+                        'features': track_features,
+                        'description': description
+                    }
+
+                playlists[name]['tracks'].append(track_features['filepath'])
+
+            except (ValueError, TypeError) as e:
+                logger.debug(f"Skipping track due to invalid features: {str(e)}")
+                continue
 
         return self._merge_playlists(playlists)
 
-    def _generate_from_db(self):
-        centroid_mapping = {
-            'Warm': 0, 'Mellow': 1, 'Balanced': 2, 'Bright': 3, 'Crisp': 4
-        }
-
+    def _generate_from_db(self) -> Dict[str, Dict[str, Any]]:
+        """Generate playlists from database"""
         try:
             conn = sqlite3.connect(self.cache_file, timeout=60)
             cursor = conn.cursor()
 
+            # Verify and update schema if needed
             cursor.execute("PRAGMA table_info(audio_features)")
             existing_columns = {row[1]: row[2] for row in cursor.fetchall()}
             required_columns = {
@@ -84,58 +153,38 @@ class CacheBasedGenerator:
                 'onset_rate': 'REAL DEFAULT 0',
                 'zcr': 'REAL DEFAULT 0'
             }
+            
             for col, col_type in required_columns.items():
                 if col not in existing_columns:
                     logger.info(f"Adding missing column {col} to database")
                     conn.execute(f"ALTER TABLE audio_features ADD COLUMN {col} {col_type}")
 
+            # Get all tracks with features
             cursor.execute("""
-                SELECT file_path, file_hash, bpm, centroid, danceability, key, scale
+                SELECT file_path, bpm, centroid, danceability, loudness, 
+                       onset_rate, key, scale
                 FROM audio_features
                 WHERE bpm IS NOT NULL 
                 AND centroid IS NOT NULL 
                 AND danceability IS NOT NULL
             """)
-            rows = cursor.fetchall()
+            
+            # Convert to list of dictionaries
+            features_list = [
+                {
+                    'filepath': row[0],
+                    'bpm': row[1],
+                    'centroid': row[2],
+                    'danceability': row[3],
+                    'loudness': row[4],
+                    'onset_rate': row[5],
+                    'key': row[6],
+                    'scale': row[7]
+                }
+                for row in cursor.fetchall()
+            ]
 
-            playlists = {}
-            for row in rows:
-                file_path, file_hash, bpm, centroid, danceability, key, scale = row
-
-                bpm_group = self._get_bpm_group(bpm)
-                energy_group = self._get_energy_group(danceability)
-                mood_group = self._get_mood_group(centroid)
-
-                key_str = ""
-                if key is not None and 0 <= int(key) <= 11:
-                    keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-                    key_str = f"{keys[int(key)]}_{'Major' if scale == 1 else 'Minor'}"
-
-                playlist_name = f"{bpm_group}_{energy_group}"
-                if key_str:
-                    playlist_name += f"_{key_str}"
-                if mood_group in ('Bright', 'Crisp'):
-                    playlist_name += "_Bright"
-                elif mood_group in ('Warm', 'Mellow'):
-                    playlist_name += "_Warm"
-
-                if playlist_name not in playlists:
-                    playlists[playlist_name] = {
-                        'tracks': [],
-                        'hashes': set(),
-                        'features': {
-                            'bpm_group': bpm_group,
-                            'energy_group': energy_group,
-                            'mood_group': mood_group,
-                            'key_group': key_str
-                        }
-                    }
-
-                if file_hash not in playlists[playlist_name]['hashes']:
-                    playlists[playlist_name]['hashes'].add(file_hash)
-                    playlists[playlist_name]['tracks'].append(file_path)
-
-            return self._merge_playlists(playlists, centroid_mapping)
+            return self._generate_from_features(features_list)
 
         except Exception as e:
             logger.error(f"Database playlist generation failed: {str(e)}")
@@ -144,80 +193,86 @@ class CacheBasedGenerator:
         finally:
             conn.close()
 
-    def _merge_playlists(self, playlists, centroid_mapping=None):
-        final_playlists = {}
+    def _merge_playlists(self, playlists: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """Merge and balance playlists"""
         min_size = int(os.getenv('MIN_PLAYLIST_SIZE', 20))
         max_size = int(os.getenv('MAX_PLAYLIST_SIZE', 100))
-        for name, data in sorted(playlists.items(), key=lambda x: -len(x[1]['tracks'])):
-            # SPLIT large playlists
+        final_playlists = {}
+
+        # Sort playlists by size (largest first)
+        sorted_playlists = sorted(
+            playlists.items(),
+            key=lambda x: len(x[1]['tracks']),
+            reverse=True
+        )
+
+        for name, data in sorted_playlists:
             tracks = data['tracks']
+            
+            # Split large playlists
             if len(tracks) > max_size:
                 for i in range(0, len(tracks), max_size):
-                    split_name = f"{name}_Part{i//max_size+1}"
+                    chunk = tracks[i:i + max_size]
+                    split_name = f"{name}_Part{i//max_size + 1}"
                     final_playlists[split_name] = {
-                        'tracks': tracks[i:i+max_size],
-                        'features': data['features']
+                        'tracks': chunk,
+                        'features': data['features'],
+                        'description': data['description']
                     }
                 continue
-            # MERGE small playlists
+
+            # Keep medium-sized playlists as is
             if len(tracks) >= min_size:
                 final_playlists[name] = data
                 continue
-            best_match = None
-            best_score = 0
+
+            # Try to merge small playlists with similar ones
+            merged = False
             for final_name, final_data in final_playlists.items():
-                score = 0
-                if data['features']['bpm_group'] == final_data['features']['bpm_group']:
-                    score += 2
-                if data['features']['energy_group'] == final_data['features']['energy_group']:
-                    score += 1.5
-                if centroid_mapping:
-                    diff = abs(
-                        centroid_mapping.get(data['features']['mood_group'], 0) -
-                        centroid_mapping.get(final_data['features']['mood_group'], 0)
-                    )
-                    if diff <= 1:
-                        score += 1
-                elif data['features']['mood_group'] == final_data['features']['mood_group']:
-                    score += 1
-                if score > best_score:
-                    best_score = score
-                    best_match = final_name
-            if best_match and best_score >= 2:
-                for track in tracks:
-                    if track not in final_playlists[best_match]['tracks']:
-                        final_playlists[best_match]['tracks'].append(track)
-            else:
-                if "Various_Tracks" not in final_playlists:
-                    final_playlists["Various_Tracks"] = {
-                        'tracks': [],
-                        'features': {
-                            'bpm_group': 'Various',
-                            'energy_group': 'Various',
-                            'mood_group': 'Various',
-                            'key_group': 'Various'
+                if len(final_data['tracks']) + len(tracks) <= max_size:
+                    # Check if playlists are compatible
+                    if self._are_playlists_compatible(data, final_data):
+                        final_data['tracks'].extend(tracks)
+                        merged = True
+                        break
+
+            # If couldn't merge, create new playlist or add to mixed collection
+            if not merged:
+                if len(tracks) >= min_size // 2:
+                    final_playlists[name] = data
+                else:
+                    mixed_name = "Mixed_Collection"
+                    if mixed_name not in final_playlists:
+                        final_playlists[mixed_name] = {
+                            'tracks': [],
+                            'features': {'type': 'mixed'},
+                            'description': "A diverse collection of tracks that don't fit other categories"
                         }
-                    }
-                final_playlists["Various_Tracks"]['tracks'].extend(tracks)
+                    final_playlists[mixed_name]['tracks'].extend(tracks)
+
         return final_playlists
 
-    def _get_energy_group(self, danceability):
-        if danceability < 0.3: return 'Chill'
-        if danceability < 0.5: return 'Mellow'
-        if danceability < 0.7: return 'Groovy'
-        if danceability < 0.85: return 'Energetic'
-        return 'Intense'
+    def _are_playlists_compatible(self, playlist1: Dict[str, Any], playlist2: Dict[str, Any]) -> bool:
+        """Check if two playlists are musically compatible for merging"""
+        features1 = playlist1['features']
+        features2 = playlist2['features']
 
-    def _get_bpm_group(self, bpm):
-        if bpm < 70: return 'Slow'
-        if bpm < 100: return 'Medium'
-        if bpm < 130: return 'Upbeat'
-        if bpm < 160: return 'Fast'
-        return 'VeryFast'
+        # Compare BPM (within 20% range)
+        bpm1 = float(features1.get('bpm', 0))
+        bpm2 = float(features2.get('bpm', 0))
+        if abs(bpm1 - bpm2) / max(bpm1, bpm2) > 0.2:
+            return False
 
-    def _get_mood_group(self, centroid):
-        if centroid < 500: return 'Warm'
-        if centroid < 1500: return 'Mellow'
-        if centroid < 3000: return 'Balanced'
-        if centroid < 6000: return 'Bright'
-        return 'Crisp'
+        # Compare energy levels (within 30% range)
+        energy1 = self._get_combined_energy(features1)
+        energy2 = self._get_combined_energy(features2)
+        if abs(energy1 - energy2) > 0.3:
+            return False
+
+        # Compare spectral characteristics (within 40% range)
+        centroid1 = float(features1.get('centroid', 0))
+        centroid2 = float(features2.get('centroid', 0))
+        if abs(centroid1 - centroid2) / max(centroid1, centroid2) > 0.4:
+            return False
+
+        return True
