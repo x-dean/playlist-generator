@@ -3,6 +3,8 @@ import datetime
 import logging
 import numpy as np
 from typing import Dict, List, Any
+import random
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +160,30 @@ class TimeBasedScheduler:
         slot = slot_name or self.get_current_time_slot()
         return self.filter_tracks_for_slot(features_list, slot)
 
+    def _interleave_by_artist(self, tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Interleave tracks by artist to maximize variety. Fallback to shuffle if artist missing."""
+        # Check if artist metadata is present for most tracks
+        has_artist = any('artist' in t and t['artist'] for t in tracks)
+        if not has_artist:
+            random.shuffle(tracks)
+            return tracks
+        # Group tracks by artist
+        groups = defaultdict(list)
+        for t in tracks:
+            artist = t.get('artist', 'Unknown')
+            groups[artist].append(t)
+        # Shuffle within each artist group
+        for group in groups.values():
+            random.shuffle(group)
+        # Interleave tracks
+        interleaved = []
+        group_lists = list(groups.values())
+        while any(group_lists):
+            for group in group_lists:
+                if group:
+                    interleaved.append(group.pop(0))
+        return interleaved
+
     def generate_time_based_playlists(self, features_list: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         """Generate playlists for all time slots, splitting if total duration exceeds slot length"""
         playlists = {}
@@ -165,6 +191,8 @@ class TimeBasedScheduler:
             tracks = self.generate_time_based_playlist(features_list, slot_name)
             if not tracks:
                 continue
+            # ADVANCED SHUFFLE: interleave by artist if possible, else random
+            tracks = self._interleave_by_artist(tracks)
             # Calculate slot duration in seconds
             start, end = self.time_slots[slot_name]
             if start < end:
