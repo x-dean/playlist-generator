@@ -17,6 +17,7 @@ from utils.system_monitor import SystemMonitor, monitor_performance
 from utils.checkpoint import CheckpointManager
 import logging
 from utils.cli import PlaylistGeneratorCLI, CLIContextManager
+from rich.progress import track
 
 logger = setup_colored_logging()
 
@@ -204,22 +205,29 @@ def main():
         elif args.analyze_only:
             cli.update_status("Running audio analysis only")
             file_list = get_audio_files(args.music_dir)
-            
-            with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
-                if args.force_sequential or (args.workers and args.workers <= 1):
-                    processor = SequentialProcessor()
-                else:
-                    processor = ParallelProcessor()
-                
-                for i, features in enumerate(processor.process(file_list, workers=args.workers or mp.cpu_count())):
-                    progress.update(task_id, advance=1)
-                    logger.debug(f"Features: {features}")
-                    if features and 'metadata' in features:
-                        meta = features['metadata']
-                        logger.info(f"Analyzed: {meta.get('artist', 'Unknown Artist')} - {meta.get('title', 'Unknown Title')}, "
-                                    f"Genre: {meta.get('genre', 'Unknown')}, Year: {meta.get('date', meta.get('year', 'Unknown'))}")
-                failed_files.extend(processor.failed_files)
-            
+
+            # Use rich.progress.track for real-time progress bar
+            if args.force_sequential or (args.workers and args.workers <= 1):
+                processor = SequentialProcessor()
+            else:
+                processor = ParallelProcessor()
+
+            failed_files = []
+            for features in track(
+                processor.process(file_list, workers=args.workers or mp.cpu_count()),
+                total=len(file_list),
+                description="Analyzing audio files..."
+            ):
+                # Log the track being processed (filename only)
+                if features and 'filepath' in features:
+                    logger.info(f"Processing: {os.path.basename(features['filepath'])}")
+                logger.debug(f"Features: {features}")
+                if features and 'metadata' in features:
+                    meta = features['metadata']
+                    logger.info(f"Analyzed: {meta.get('artist', 'Unknown Artist')} - {meta.get('title', 'Unknown Title')}, "
+                                f"Genre: {meta.get('genre', 'Unknown')}, Year: {meta.get('date', meta.get('year', 'Unknown'))}")
+            failed_files.extend(processor.failed_files)
+
             cli.show_success(f"Analysis completed. Processed {len(file_list)} files, {len(failed_files)} failed")
             return  # Exit here to skip playlist generation
 
