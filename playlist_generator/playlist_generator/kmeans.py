@@ -10,6 +10,28 @@ logger = logging.getLogger(__name__)
 class KMeansPlaylistGenerator:
     def __init__(self):
         self.playlist_history = {}
+        self._verify_db_schema()
+
+    def _verify_db_schema(self):
+            """Ensure all required columns exist with correct types"""
+            cursor = self.conn.cursor()
+            cursor.execute("PRAGMA table_info(audio_features)")
+            existing_columns = {row[1]: row[2] for row in cursor.fetchall()}
+
+            required_columns = {
+                'loudness': 'REAL DEFAULT 0',
+                'danceability': 'REAL DEFAULT 0',
+                'key': 'INTEGER DEFAULT -1',
+                'scale': 'INTEGER DEFAULT 0',
+                'onset_rate': 'REAL DEFAULT 0',
+                'zcr': 'REAL DEFAULT 0'
+            }
+
+            for col, col_type in required_columns.items():
+                if col not in existing_columns:
+                    logger.info(f"Adding missing column {col} to database")
+                    self.conn.execute(f"ALTER TABLE audio_features ADD COLUMN {col} {col_type}")
+
     
     def generate(self, features_list, num_playlists=5, chunk_size=1000):
         playlists = {}

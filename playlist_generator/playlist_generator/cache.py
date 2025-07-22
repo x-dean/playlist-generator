@@ -3,6 +3,7 @@ import sqlite3
 import logging
 from collections import defaultdict
 import traceback
+from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
 
@@ -10,6 +11,27 @@ class CacheBasedGenerator:
     def __init__(self, cache_file):
         self.cache_file = cache_file
         self.playlist_history = defaultdict(list)
+        self._verify_db_schema()
+
+    def _verify_db_schema(self):
+            """Ensure all required columns exist with correct types"""
+            cursor = self.conn.cursor()
+            cursor.execute("PRAGMA table_info(audio_features)")
+            existing_columns = {row[1]: row[2] for row in cursor.fetchall()}
+
+            required_columns = {
+                'loudness': 'REAL DEFAULT 0',
+                'danceability': 'REAL DEFAULT 0',
+                'key': 'INTEGER DEFAULT -1',
+                'scale': 'INTEGER DEFAULT 0',
+                'onset_rate': 'REAL DEFAULT 0',
+                'zcr': 'REAL DEFAULT 0'
+            }
+
+            for col, col_type in required_columns.items():
+                if col not in existing_columns:
+                    logger.info(f"Adding missing column {col} to database")
+                    self.conn.execute(f"ALTER TABLE audio_features ADD COLUMN {col} {col_type}")
 
     def generate(self):
         """Generate balanced playlists using only meaningful feature combinations"""
@@ -27,6 +49,10 @@ class CacheBasedGenerator:
             AND centroid IS NOT NULL 
             AND danceability IS NOT NULL
             """)
+            scaler = StandardScaler()
+            features = scaler.fit_transform(
+                [[bpm, centroid, danceability] for _,_,bpm,centroid,danceability,_,_ in rows]
+        )
             
             # Helper functions
             def get_energy_group(danceability):
@@ -60,7 +86,7 @@ class CacheBasedGenerator:
 
                 # Create playlist name
                 key_str = ""
-                if key is not None and 0 <= key <= 11:
+                if key is not None and 0 <= int(key) <= 11:  # Add validation
                     keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
                     key_str = keys[int(key)]
                     scale_str = 'Major' if scale == 1 else 'Minor'

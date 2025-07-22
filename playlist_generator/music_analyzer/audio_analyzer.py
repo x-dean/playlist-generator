@@ -9,6 +9,7 @@ import sqlite3
 import time
 from functools import wraps
 import traceback
+import gc
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ def timeout(seconds=60, error_message="Processing timed out"):
 
 class AudioAnalyzer:
     def __init__(self, cache_file=None):
-        self.timeout_seconds = 60
+        self.timeout_seconds = 120
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
@@ -118,12 +119,12 @@ class AudioAnalyzer:
 
     def _safe_audio_load(self, audio_path):
         try:
-            loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
+            loader = es.MonoLoader(...)
             audio = loader()
-            return audio if audio.size > 0 else None
-        except Exception as e:
-            logger.warning(f"AudioLoader error for {audio_path}: {str(e)}")
-            return None
+            del loader  # Explicit cleanup
+            return audio
+        finally:
+            gc.collect()
 
 
     @timeout()
@@ -238,6 +239,9 @@ class AudioAnalyzer:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             logger.error(traceback.format_exc())
             return None, False, None
+        except TimeoutException:
+            logger.warning(f"Timeout on {audio_path}, retrying with fallback")
+            return self._fallback_feature_extraction(audio_path)
 
     def _get_cached_features(self, file_info):
         cursor = self.conn.cursor()

@@ -92,6 +92,17 @@ def main():
     host_music_dir = args.host_music_dir.rstrip('/')
     failed_files = []
 
+    if not os.path.exists(args.music_dir):
+        logger.error(f"Music directory not found: {args.music_dir}")
+        sys.exit(1)
+    
+    # In save_playlists()
+    host_songs = []
+    for song in playlist_data['tracks']:
+        host_path = convert_to_host_path(...)
+        if os.path.exists(host_path):  # Verify path exists
+            host_songs.append(host_path)
+
     start_time = time.time()
     try:
         # Clean up database
@@ -115,12 +126,16 @@ def main():
             else:
                 changed_files = playlist_db.get_changed_files()
                 if changed_files:
-                    logger.info(f"Found {len(changed_files)} changed files, updating playlists")
-                    playlist_db.update_playlists(changed_files)
-                    playlists = cache_generator.generate()
-                    save_playlists(playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
-                else:
-                    logger.info("No changed files, playlists remain up-to-date")
+                    logger.info(f"Updating all playlists for {len(changed_files)} changed files")
+					# Regenerate ALL playlist types
+                    features_from_db = audio_db.get_all_features()
+                    time_playlists = time_scheduler.generate_time_based_playlists(features_from_db)
+                    cache_playlists = cache_generator.generate()
+                    kmeans_playlists = kmeans_generator.generate(features_from_db, args.num_playlists)  # Add this
+                    all_playlists = {**time_playlists, **cache_playlists, **kmeans_playlists}  # Include all
+                    playlist_db.save_playlists(all_playlists)
+                save_playlists(playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
+            logger.info("No changed files, playlists remain up-to-date")
         
         elif args.analyze_only:
             logger.info("Running audio analysis only")
