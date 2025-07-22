@@ -1,6 +1,6 @@
 import logging
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.panel import Panel
 from rich.table import Table
 from rich.live import Live
@@ -46,9 +46,10 @@ class PlaylistGeneratorCLI:
         progress = Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
+            BarColumn(bar_width=40),  # Fixed width
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeElapsedColumn(),
+            TimeRemainingColumn(),    # Estimated time remaining
             console=self.console
         )
         progress.start()
