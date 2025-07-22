@@ -303,7 +303,7 @@ class PlaylistManager:
                     'track_count': len(track_features),
                     'total_duration': sum(f.get('duration', 0) for f in track_features),
                     'avg_bpm': np.mean([f.get('bpm', 0) for f in track_features]),
-                    'avg_danceability': np.mean([f.get('danceability', 0) for f in track_features]),
+                    'avg_danceability': np.mean([min(1.0, max(0.0, f.get('danceability', 0))) for f in track_features]),
                     'key_distribution': self._get_key_distribution(track_features)
                 }
 
