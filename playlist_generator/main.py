@@ -129,6 +129,8 @@ def main():
     parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags'], default='all',
                       help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
     parser.add_argument('--min_tracks_per_genre', type=int, default=10, help='Minimum number of tracks required for a genre to create a playlist (tags method only)')
+    parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs (default: False)')
+    parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
     args = parser.parse_args()
 
     # If no mutually exclusive mode is set, default to analyze_only
@@ -157,9 +159,10 @@ def main():
     # Initialize components
     audio_db = AudioAnalyzer(cache_file)
     playlist_db = PlaylistDatabase(cache_file)
-    # Pass min_tracks_per_genre to PlaylistManager if using tags method
+    # Pass min_tracks_per_genre and enrich_tags to PlaylistManager if using tags method
     if args.playlist_method == 'tags':
-        playlist_manager = PlaylistManager(cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre)
+        playlist_manager = PlaylistManager(
+            cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre, enrich_tags=args.enrich_tags, force_enrich_tags=args.force_enrich_tags)
     else:
         playlist_manager = PlaylistManager(cache_file, args.playlist_method)
     

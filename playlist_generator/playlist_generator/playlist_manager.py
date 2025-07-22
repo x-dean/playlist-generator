@@ -12,15 +12,17 @@ from .tag_based import TagBasedPlaylistGenerator
 logger = logging.getLogger(__name__)
 
 class PlaylistManager:
-    def __init__(self, cache_file: str = None, playlist_method: str = 'all', min_tracks_per_genre: int = 10):
+    def __init__(self, cache_file: str = None, playlist_method: str = 'all', min_tracks_per_genre: int = 10, enrich_tags: bool = False, force_enrich_tags: bool = False):
         self.cache_file = cache_file
         self.playlist_method = playlist_method
         self.feature_group_generator = FeatureGroupPlaylistGenerator(cache_file)
         self.time_scheduler = TimeBasedScheduler()
         self.kmeans_generator = KMeansPlaylistGenerator(cache_file)
         self.cache_generator = CacheBasedGenerator(cache_file)
-        self.tag_generator = TagBasedPlaylistGenerator(min_tracks_per_genre=min_tracks_per_genre)
+        self.tag_generator = TagBasedPlaylistGenerator(min_tracks_per_genre=min_tracks_per_genre, enrich_tags=enrich_tags, force_enrich_tags=force_enrich_tags, db_file=cache_file)
         self.playlist_stats = defaultdict(dict)
+        self.enrich_tags = enrich_tags
+        self.force_enrich_tags = force_enrich_tags
 
     def generate_playlists(self, features: List[Dict[str, Any]], num_playlists: int = 8) -> Dict[str, Any]:
         """Generate playlists using specified method"""
@@ -83,7 +85,7 @@ class PlaylistManager:
 
             # Tag-based playlists (genre + decade)
             if self.playlist_method == 'tags':
-                tag_playlists = self.tag_generator.generate(features)
+                tag_playlists = self.tag_generator.generate(features, enrich_tags=self.enrich_tags, force_enrich_tags=self.force_enrich_tags)
                 for name, data in tag_playlists.items():
                     if len(data['tracks']) >= 3:
                         final_playlists[name] = data
