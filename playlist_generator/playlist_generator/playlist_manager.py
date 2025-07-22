@@ -10,14 +10,53 @@ from .feature_group import FeatureGroupPlaylistGenerator
 
 logger = logging.getLogger(__name__)
 
+class TagBasedPlaylistGenerator:
+    def __init__(self, min_tracks_per_genre=10):
+        self.min_tracks_per_genre = min_tracks_per_genre
+
+    def _get_decade(self, year):
+        if not year or not str(year).isdigit():
+            return "UnknownDecade"
+        return f"{str(year)[:3]}0s"
+
+    def generate(self, features_list):
+        from collections import defaultdict, Counter
+        # First, count all genre occurrences
+        genre_counter = Counter()
+        track_genres = []
+        for track in features_list:
+            meta = track.get('metadata', {})
+            genres = meta.get('genre', 'UnknownGenre')
+            if isinstance(genres, str):
+                genres = [genres]
+            track_genres.append((track, genres))
+            genre_counter.update(genres)
+        # Only keep genres with enough tracks
+        valid_genres = {g for g, count in genre_counter.items() if count >= self.min_tracks_per_genre}
+        playlists = defaultdict(list)
+        for track, genres in track_genres:
+            meta = track.get('metadata', {})
+            year = meta.get('date') or meta.get('year')
+            decade = self._get_decade(year)
+            for genre in genres:
+                if genre in valid_genres:
+                    key = f"{genre}_{decade}"
+                    playlists[key].append(track['filepath'])
+        # Convert to expected playlist dict format
+        return {
+            name: {'tracks': tracks, 'features': {'genre_decade': name}}
+            for name, tracks in playlists.items() if tracks
+        }
+
 class PlaylistManager:
-    def __init__(self, cache_file: str = None, playlist_method: str = 'all'):
+    def __init__(self, cache_file: str = None, playlist_method: str = 'all', min_tracks_per_genre: int = 10):
         self.cache_file = cache_file
         self.playlist_method = playlist_method
         self.feature_group_generator = FeatureGroupPlaylistGenerator(cache_file)
         self.time_scheduler = TimeBasedScheduler()
         self.kmeans_generator = KMeansPlaylistGenerator(cache_file)
         self.cache_generator = CacheBasedGenerator(cache_file)
+        self.tag_generator = TagBasedPlaylistGenerator(min_tracks_per_genre=min_tracks_per_genre)
         self.playlist_stats = defaultdict(dict)
 
     def generate_playlists(self, features: List[Dict[str, Any]], num_playlists: int = 8) -> Dict[str, Any]:
@@ -78,6 +117,17 @@ class PlaylistManager:
                     else:
                         balanced[name] = data
                 return balanced
+
+            # Tag-based playlists (genre + decade)
+            if self.playlist_method == 'tags':
+                tag_playlists = self.tag_generator.generate(features)
+                for name, data in tag_playlists.items():
+                    if len(data['tracks']) >= 3:
+                        final_playlists[name] = data
+                        used_tracks.update(data['tracks'])
+                final_playlists = _finalize_playlists(final_playlists, features)
+                self._calculate_playlist_stats(final_playlists, features)
+                return final_playlists
 
             # Default: Feature-group-based generation
             if self.playlist_method == 'all' or not self.playlist_method:

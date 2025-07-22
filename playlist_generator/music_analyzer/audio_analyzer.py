@@ -10,6 +10,9 @@ import time
 from functools import wraps
 import traceback
 import gc
+import musicbrainzngs
+from mutagen import File as MutagenFile
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,8 @@ class AudioAnalyzer:
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
         self._init_db()
         self.cleanup_database()  # Clean up immediately on init
+        # Set MusicBrainz user agent
+        musicbrainzngs.set_useragent("PlaylistGenerator", "1.0", "noreply@example.com")
 
     def _init_db(self):
         self.conn = sqlite3.connect(self.cache_file, timeout=600)
@@ -62,7 +67,8 @@ class AudioAnalyzer:
                 onset_rate REAL,
                 zcr REAL,
                 last_modified REAL,
-                last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                metadata JSON
             )
             """)
             self._verify_db_schema()
@@ -214,6 +220,24 @@ class AudioAnalyzer:
             logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
             return 0.0
 
+    def _musicbrainz_lookup(self, artist, title):
+        try:
+            result = musicbrainzngs.search_recordings(artist=artist, recording=title, limit=1)
+            if result['recording-list']:
+                rec = result['recording-list'][0]
+                tags = {
+                    'artist': rec['artist-credit'][0]['artist']['name'] if 'artist-credit' in rec and rec['artist-credit'] else None,
+                    'title': rec['title'],
+                    'album': rec['release-list'][0]['title'] if 'release-list' in rec and rec['release-list'] else None,
+                    'date': rec.get('first-release-date'),
+                    'genre': [tag['name'] for tag in rec['tag-list']] if 'tag-list' in rec and rec['tag-list'] else [],
+                    'musicbrainz_id': rec['id']
+                }
+                return tags
+        except Exception as e:
+            logger.warning(f"MusicBrainz lookup failed: {e}")
+        return {}
+
     def extract_features(self, audio_path):
         try:
             file_info = self._get_file_info(audio_path)
@@ -244,7 +268,7 @@ class AudioAnalyzer:
         cursor = self.conn.cursor()
         cursor.execute("""
         SELECT duration, bpm, beat_confidence, centroid,
-               loudness, danceability, key, scale, onset_rate, zcr
+               loudness, danceability, key, scale, onset_rate, zcr, metadata
         FROM audio_features
         WHERE file_hash = ? AND last_modified >= ?
         """, (file_info['file_hash'], file_info['last_modified']))
@@ -262,6 +286,7 @@ class AudioAnalyzer:
                 'scale': row[7],
                 'onset_rate': row[8],
                 'zcr': row[9],
+                'metadata': json.loads(row[10]),
                 'filepath': file_info['file_path'],
                 'filename': os.path.basename(file_info['file_path'])
             }
@@ -283,6 +308,23 @@ class AudioAnalyzer:
             'onset_rate': 0.0,
             'zcr': 0.0
         }
+        # --- Metadata extraction ---
+        meta = {}
+        try:
+            audiofile = MutagenFile(audio_path, easy=True)
+            if audiofile:
+                meta = {k: (v[0] if isinstance(v, list) and v else v) for k, v in audiofile.items()}
+        except Exception as e:
+            logger.warning(f"Mutagen tag extraction failed: {e}")
+        # If artist/title found, try MusicBrainz
+        artist = meta.get('artist')
+        title = meta.get('title')
+        mb_tags = {}
+        if artist and title:
+            mb_tags = self._musicbrainz_lookup(artist, title)
+        # Merge tags
+        meta.update({k: v for k, v in mb_tags.items() if v})
+        features['metadata'] = meta
 
         if len(audio) >= 44100:  # At least 1 second
             try:
@@ -309,7 +351,6 @@ class AudioAnalyzer:
                 })
             except Exception as e:
                 logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
-
         return features
 
     def _save_features_to_db(self, file_info, features):
@@ -317,8 +358,8 @@ class AudioAnalyzer:
             self.conn.execute("""
             INSERT OR REPLACE INTO audio_features
             (file_hash, file_path, duration, bpm, beat_confidence, centroid,
-             loudness, danceability, key, scale, onset_rate, zcr, last_modified)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             loudness, danceability, key, scale, onset_rate, zcr, last_modified, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 str(file_info['file_hash']),
                 str(file_info['file_path']),
@@ -332,7 +373,8 @@ class AudioAnalyzer:
                 self._ensure_int(features['scale']),
                 self._ensure_float(features['onset_rate']),
                 self._ensure_float(features['zcr']),
-                self._ensure_float(file_info['last_modified'])
+                self._ensure_float(file_info['last_modified']),
+                json.dumps(features.get('metadata', {}))
             ))
 
     def get_all_features(self):
@@ -340,7 +382,7 @@ class AudioAnalyzer:
             cursor = self.conn.cursor()
             cursor.execute("""
             SELECT file_path, duration, bpm, beat_confidence, centroid,
-                   loudness, danceability, key, scale, onset_rate, zcr
+                   loudness, danceability, key, scale, onset_rate, zcr, metadata
             FROM audio_features
             """)
             return [{
@@ -354,7 +396,8 @@ class AudioAnalyzer:
                 'key': row[7],
                 'scale': row[8],
                 'onset_rate': row[9],
-                'zcr': row[10]
+                'zcr': row[10],
+                'metadata': json.loads(row[11])
             } for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error fetching features: {str(e)}")

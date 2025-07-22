@@ -55,36 +55,52 @@ def convert_to_host_path(container_path, host_music_dir, container_music_dir):
     return os.path.join(host_music_dir, rel_path)
 
 @monitor_performance
-def save_playlists(playlists, output_dir, host_music_dir, container_music_dir, failed_files):
-    os.makedirs(output_dir, exist_ok=True)
-    saved_count = 0
+def save_playlists(playlists, output_dir, host_music_dir, container_music_dir, failed_files, playlist_method=None):
+    # For time-based, create subfolders per slot
+    def get_time_slot_from_name(name):
+        if name.startswith("TimeSlot_"):
+            slot_part = name[len("TimeSlot_"):]
+            if "_Part" in slot_part:
+                slot = slot_part.split("_Part")[0]
+            else:
+                slot = slot_part
+            return slot
+        return None
 
+    saved_count = 0
     for name, playlist_data in playlists.items():
         if 'tracks' not in playlist_data or not playlist_data['tracks']:
             continue
-            
+
+        # Determine output path
+        playlist_out_dir = output_dir
+        if playlist_method == 'time':
+            slot = get_time_slot_from_name(name)
+            if slot:
+                playlist_out_dir = os.path.join(output_dir, slot)
+        os.makedirs(playlist_out_dir, exist_ok=True)
+
         host_songs = [
-            convert_to_host_path(song, host_music_dir, container_music_dir) 
+            convert_to_host_path(song, host_music_dir, container_music_dir)
             for song in playlist_data['tracks']
         ]
-        
-        playlist_path = os.path.join(output_dir, f"{name}.m3u")
+        playlist_path = os.path.join(playlist_out_dir, f"{name}.m3u")
         with open(playlist_path, 'w') as f:
             f.write("\n".join(host_songs))
-        
         saved_count += 1
-        logger.info(f"Saved {name} with {len(host_songs)} tracks")
+        logger.info(f"Saved {name} with {len(host_songs)} tracks to {playlist_path}")
 
-    # Save failed files
+    # Save failed files (keep at root of method dir)
+    os.makedirs(output_dir, exist_ok=True)
     if failed_files:
         failed_path = os.path.join(output_dir, "Failed_Files.m3u")
         with open(failed_path, 'w') as f:
             host_failed = [
-                convert_to_host_path(p, host_music_dir, container_music_dir) 
+                convert_to_host_path(p, host_music_dir, container_music_dir)
                 for p in failed_files
             ]
             f.write("\n".join(host_failed))
-        logger.info(f"Saved {len(failed_files)} failed files")
+        logger.info(f"Saved {len(failed_files)} failed files to {failed_path}")
 
 @monitor_performance
 def main():
@@ -104,8 +120,9 @@ def main():
     group.add_argument('-a', '--analyze_only', action='store_true', help='Only run audio analysis (no playlist generation)')
     group.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
-    parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache'], default='all',
-                      help='Playlist generation method: all (feature-group, default), time, kmeans, or cache')
+    parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags'], default='all',
+                      help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
+    parser.add_argument('--min_tracks_per_genre', type=int, default=10, help='Minimum number of tracks required for a genre to create a playlist (tags method only)')
     args = parser.parse_args()
 
     # If no mutually exclusive mode is set, default to analyze_only
@@ -134,7 +151,11 @@ def main():
     # Initialize components
     audio_db = AudioAnalyzer(cache_file)
     playlist_db = PlaylistDatabase(cache_file)
-    playlist_manager = PlaylistManager(cache_file, args.playlist_method)  # Pass playlist method
+    # Pass min_tracks_per_genre to PlaylistManager if using tags method
+    if args.playlist_method == 'tags':
+        playlist_manager = PlaylistManager(cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre)
+    else:
+        playlist_manager = PlaylistManager(cache_file, args.playlist_method)
     
     container_music_dir = args.music_dir.rstrip('/')
     host_music_dir = args.host_music_dir.rstrip('/')
@@ -171,7 +192,8 @@ def main():
             cli.show_playlist_stats(playlist_manager.get_playlist_stats())
             # Save playlists to DB and to disk
             playlist_db.save_playlists(all_playlists)
-            save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
+            method_dir = os.path.join(args.output_dir, args.playlist_method)
+            save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
         elif args.analyze_only:
             cli.update_status("Running audio analysis only")
@@ -203,7 +225,8 @@ def main():
             cli.show_playlist_stats(playlist_manager.get_playlist_stats())
             
             # Save playlists
-            save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
+            method_dir = os.path.join(args.output_dir, args.playlist_method)
+            save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
         else:
             cli.update_status("Running full processing pipeline")
@@ -230,7 +253,8 @@ def main():
             cli.show_playlist_stats(playlist_manager.get_playlist_stats())
             
             # Save playlists
-            save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
+            method_dir = os.path.join(args.output_dir, args.playlist_method)
+            save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
         # Show failed files if any
         if failed_files:
