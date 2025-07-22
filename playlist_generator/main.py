@@ -88,7 +88,7 @@ def save_playlists(playlists, output_dir, host_music_dir, container_music_dir, f
         with open(playlist_path, 'w') as f:
             f.write("\n".join(host_songs))
         saved_count += 1
-        logger.info(f"Saved {name} with {len(host_songs)} tracks to {playlist_path}")
+        logger.debug(f"Saved {name} with {len(host_songs)} tracks to {playlist_path}")
 
     # Save failed files (keep at root of method dir)
     os.makedirs(output_dir, exist_ok=True)
@@ -208,9 +208,12 @@ def main():
                 else:
                     processor = ParallelProcessor()
                 
-                for i, _ in enumerate(processor.process(file_list, workers=args.workers or mp.cpu_count())):
+                for i, features in enumerate(processor.process(file_list, workers=args.workers or mp.cpu_count())):
                     progress.update(task_id, advance=1)
-                    
+                    if features and 'metadata' in features:
+                        meta = features['metadata']
+                        logger.info(f"Analyzed: {meta.get('artist', 'Unknown Artist')} - {meta.get('title', 'Unknown Title')}, "
+                                    f"Genre: {meta.get('genre', 'Unknown')}, Year: {meta.get('date', meta.get('year', 'Unknown'))}")
                 failed_files.extend(processor.failed_files)
             
             cli.show_success(f"Analysis completed. Processed {len(file_list)} files, {len(failed_files)} failed")
