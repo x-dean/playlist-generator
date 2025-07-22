@@ -13,8 +13,6 @@ from playlist_generator.time_based import TimeBasedScheduler
 from playlist_generator.kmeans import KMeansPlaylistGenerator
 from playlist_generator.cache import CacheBasedGenerator
 
-logger = setup_colored_logging()
-
 def get_audio_files(music_dir):
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
@@ -204,7 +202,6 @@ def main():
         logger.info(f"Completed in {elapsed:.2f} seconds")
 
 if __name__ == "__main__":
-    from logging_setup import setup_colored_logging
     setup_colored_logging()
     mp.set_start_method('spawn', force=True)
     main()
