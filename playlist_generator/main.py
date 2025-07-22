@@ -12,7 +12,22 @@ from music_analyzer.sequential import SequentialProcessor
 from playlist_generator.time_based import TimeBasedScheduler
 from playlist_generator.kmeans import KMeansPlaylistGenerator
 from playlist_generator.cache import CacheBasedGenerator
+from playlist_generator.playlist_manager import PlaylistManager
+from utils.system_monitor import SystemMonitor, monitor_performance
+from utils.checkpoint import CheckpointManager
+import logging
+from utils.cli import PlaylistGeneratorCLI, CLIContextManager
 
+logger = setup_colored_logging()
+
+# Initialize system monitoring
+system_monitor = SystemMonitor()
+checkpoint_manager = CheckpointManager()
+
+# Initialize CLI
+cli = PlaylistGeneratorCLI()
+
+@monitor_performance
 def get_audio_files(music_dir):
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
@@ -36,6 +51,7 @@ def convert_to_host_path(container_path, host_music_dir, container_music_dir):
     rel_path = os.path.relpath(container_path, container_music_dir)
     return os.path.join(host_music_dir, rel_path)
 
+@monitor_performance
 def save_playlists(playlists, output_dir, host_music_dir, container_music_dir, failed_files):
     os.makedirs(output_dir, exist_ok=True)
     saved_count = 0
@@ -67,7 +83,12 @@ def save_playlists(playlists, output_dir, host_music_dir, container_music_dir, f
             f.write("\n".join(host_failed))
         logger.info(f"Saved {len(failed_files)} failed files")
 
+@monitor_performance
 def main():
+    # Start CLI session
+    cli.start_session()
+
+    # Parse arguments
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
     parser.add_argument('--music_dir', required=True, help='Music directory in container')
     parser.add_argument('--host_music_dir', required=True, help='Host music directory')
@@ -78,7 +99,21 @@ def main():
     parser.add_argument('--update', action='store_true', help='Update existing playlists')
     parser.add_argument('--analyze_only', action='store_true', help='Only run audio analysis without generating playlists')
     parser.add_argument('--generate_only', action='store_true', help='Only generate playlists from database without analysis')
+    parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
     args = parser.parse_args()
+
+    # Show configuration
+    cli.show_config({
+        'Music Directory': args.music_dir,
+        'Output Directory': args.output_dir,
+        'Number of Playlists': args.num_playlists,
+        'Workers': args.workers or 'Auto',
+        'Mode': 'Sequential' if args.force_sequential else 'Parallel',
+        'Update Mode': args.update,
+        'Analysis Only': args.analyze_only,
+        'Generate Only': args.generate_only,
+        'Resume': args.resume
+    })
 
     # Set cache file path
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
@@ -88,118 +123,147 @@ def main():
     # Initialize components
     audio_db = AudioAnalyzer(cache_file)
     playlist_db = PlaylistDatabase(cache_file)
-    time_scheduler = TimeBasedScheduler()
-    kmeans_generator = KMeansPlaylistGenerator()
-    cache_generator = CacheBasedGenerator(cache_file)
+    playlist_manager = PlaylistManager(cache_file)
     
     container_music_dir = args.music_dir.rstrip('/')
     host_music_dir = args.host_music_dir.rstrip('/')
     failed_files = []
 
     if not os.path.exists(args.music_dir):
-        logger.error(f"Music directory not found: {args.music_dir}")
+        cli.show_error(f"Music directory not found: {args.music_dir}")
         sys.exit(1)
 
     start_time = time.time()
     try:
+        # Try to resume from checkpoint
+        if args.resume:
+            state = checkpoint_manager.get_recovery_state()
+            if state:
+                cli.update_status("Resuming from checkpoint")
+                failed_files = state.get('failed_files', [])
+                if 'progress' in state:
+                    cli.update_status(f"Resuming from {state['progress']} stage")
+
         # Clean up database
         missing_in_db = audio_db.cleanup_database()
         if missing_in_db:
-            logger.info(f"Removed {len(missing_in_db)} missing files from database")
+            cli.show_warning(f"Removed {len(missing_in_db)} missing files from database")
             failed_files.extend(missing_in_db)
 
-            if args.update:
-                logger.info("Running in UPDATE mode")
-                if not playlist_db.playlists_exist():
-                    logger.info("No playlists found, running full analysis")
-                    # Force full analysis and generation
-                    file_list = get_audio_files(args.music_dir)
+        if args.update:
+            cli.update_status("Running in UPDATE mode")
+            if not playlist_db.playlists_exist():
+                cli.update_status("No playlists found, running full analysis")
+                file_list = get_audio_files(args.music_dir)
+                
+                with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
                     processor = ParallelProcessor()
-                    processor.process(file_list, workers=args.workers or mp.cpu_count())
-                
-                # Always get ALL features
-                features_from_db = audio_db.get_all_features()
-                
-                # Regenerate ALL playlists
-                time_playlists = time_scheduler.generate_time_based_playlists(features_from_db)
-                cache_playlists = cache_generator.generate(features_from_db)
-                kmeans_playlists = kmeans_generator.generate(features_from_db, args.num_playlists)
-                all_playlists = {**time_playlists, **cache_playlists, **kmeans_playlists}
-                
-                # Save to DB and files
-                playlist_db.save_playlists(all_playlists)
-                save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
-            else:
-                changed_files = playlist_db.get_changed_files()
-                if changed_files:
-                    logger.info(f"Updating all playlists for {len(changed_files)} changed files")
-                    features_from_db = audio_db.get_all_features()
-                    time_playlists = time_scheduler.generate_time_based_playlists(features_from_db)
-                    cache_playlists = cache_generator.generate(features_from_db)  # Pass features
-                    kmeans_playlists = kmeans_generator.generate(features_from_db, args.num_playlists)
-                    all_playlists = {**time_playlists, **cache_playlists, **kmeans_playlists}
-                    playlist_db.save_playlists(all_playlists)
-                    save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
-                else:
-                    logger.info("No changed files, playlists remain up-to-date")
-        
-        elif args.analyze_only:
-            logger.info("Running audio analysis only")
-            file_list = get_audio_files(args.music_dir)
-            
-            if args.force_sequential or (args.workers and args.workers <= 1):
-                processor = SequentialProcessor()
-                features = processor.process(file_list)
-                failed_files.extend(processor.failed_files)
-            else:
-                processor = ParallelProcessor()
-                features = processor.process(
-                    file_list, 
-                    workers=args.workers or max(1, mp.cpu_count() // 2)
-                )
-                failed_files.extend(processor.failed_files)
-            
-            logger.info(f"Analysis completed. Processed {len(features)} files, {len(failed_files)} failed")
-        
-        elif args.generate_only:
-            logger.info("Generating playlists from database")
+                    for i, _ in enumerate(processor.process(file_list, workers=args.workers or mp.cpu_count())):
+                        progress.update(task_id, advance=1)
+                        
             features_from_db = audio_db.get_all_features()
             
-            time_playlists = time_scheduler.generate_time_based_playlists(features_from_db)
-            cache_playlists = cache_generator.generate()
-            kmeans_playlists = kmeans_generator.generate(features_from_db, args.num_playlists)  # ADD KMEANS
-            all_playlists = {**time_playlists, **cache_playlists, **kmeans_playlists}  # COMBINE ALL
+            with CLIContextManager(cli, 3, "[green]Generating playlists...") as (progress, task_id):
+                all_playlists = playlist_manager.generate_playlists(features_from_db, args.num_playlists)
+                progress.update(task_id, advance=3)
             
+            # Show playlist statistics
+            cli.show_playlist_stats(playlist_manager.get_playlist_stats())
+            
+            # Save playlists
+            playlist_db.save_playlists(all_playlists)
             save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
-        
-        else:
-            logger.info("Full processing pipeline")
+
+        elif args.analyze_only:
+            cli.update_status("Running audio analysis only")
             file_list = get_audio_files(args.music_dir)
             
-            # Analyze files
-            processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
-            workers = args.workers or max(1, mp.cpu_count())
-            analysis_results = processor.process(file_list, workers)
-            failed_files.extend(processor.failed_files)
+            with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
+                if args.force_sequential or (args.workers and args.workers <= 1):
+                    processor = SequentialProcessor()
+                else:
+                    processor = ParallelProcessor()
+                
+                for i, _ in enumerate(processor.process(file_list, workers=args.workers or mp.cpu_count())):
+                    progress.update(task_id, advance=1)
+                    
+                failed_files.extend(processor.failed_files)
             
-            # Get ALL features from DB (not just current run)
-            all_features = audio_db.get_all_features()
+            cli.show_success(f"Analysis completed. Processed {len(file_list)} files, {len(failed_files)} failed")
+
+        elif args.generate_only:
+            cli.update_status("Generating playlists from database")
+            features_from_db = audio_db.get_all_features()
             
-            # Generate playlists using ALL features
-            time_playlists = time_scheduler.generate_time_based_playlists(all_features)
-            cache_playlists = cache_generator.generate(all_features)  # Pass features explicitly
-            kmeans_playlists = kmeans_generator.generate(all_features, args.num_playlists)
+            with CLIContextManager(cli, 3, "[green]Generating playlists...") as (progress, task_id):
+                all_playlists = playlist_manager.generate_playlists(features_from_db, args.num_playlists)
+                progress.update(task_id, advance=3)
             
-            all_playlists = {**time_playlists, **cache_playlists, **kmeans_playlists}
+            # Show playlist statistics
+            cli.show_playlist_stats(playlist_manager.get_playlist_stats())
+            
+            # Save playlists
             save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
-    
+
+        else:
+            cli.update_status("Running full processing pipeline")
+            file_list = get_audio_files(args.music_dir)
+            
+            # Analysis phase
+            with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
+                processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
+                workers = args.workers or max(1, mp.cpu_count())
+                
+                for i, _ in enumerate(processor.process(file_list, workers)):
+                    progress.update(task_id, advance=1)
+                
+                failed_files.extend(processor.failed_files)
+            
+            # Generation phase
+            features_from_db = audio_db.get_all_features()
+            
+            with CLIContextManager(cli, 3, "[green]Generating playlists...") as (progress, task_id):
+                all_playlists = playlist_manager.generate_playlists(features_from_db, args.num_playlists)
+                progress.update(task_id, advance=3)
+            
+            # Show playlist statistics
+            cli.show_playlist_stats(playlist_manager.get_playlist_stats())
+            
+            # Save playlists
+            save_playlists(all_playlists, args.output_dir, host_music_dir, container_music_dir, failed_files)
+
+        # Show failed files if any
+        if failed_files:
+            cli.show_file_errors(failed_files)
+
     except Exception as e:
-        logger.error(f"Fatal error: {str(e)}")
-        logger.error(traceback.format_exc())
+        cli.show_error(str(e), details=traceback.format_exc())
+        
+        # Save error state
+        checkpoint_manager.save_checkpoint({
+            'stage': 'error',
+            'error': str(e),
+            'traceback': traceback.format_exc(),
+            'failed_files': failed_files
+        }, name='error_state')
+        
         sys.exit(1)
+        
     finally:
-        elapsed = time.time() - start_time
-        logger.info(f"Completed in {elapsed:.2f} seconds")
+        # Show session summary
+        metrics = system_monitor.get_metrics()
+        cli.show_session_summary({
+            'duration': time.time() - start_time,
+            'processed_files': len(get_audio_files(args.music_dir)),
+            'total_playlists': len(playlist_manager.get_playlist_stats()),
+            'failed_files': len(failed_files),
+            'peak_memory_mb': metrics['peak_memory'] / (1024 * 1024),
+            'peak_cpu': metrics['peak_cpu']
+        })
+        
+        # Save metrics and cleanup
+        system_monitor.save_metrics('final_metrics.json')
+        checkpoint_manager.cleanup_old_checkpoints()
 
 if __name__ == "__main__":
     setup_colored_logging()

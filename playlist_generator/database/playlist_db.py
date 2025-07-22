@@ -1,6 +1,7 @@
 # database/playlist_db.py
 import sqlite3
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -8,11 +9,35 @@ class PlaylistDatabase:
     def __init__(self, cache_file):
         self.cache_file = cache_file
         self._init_db()
+        self.connection_pool = {}
+
+    def _get_connection(self):
+        """Get a connection from the pool or create a new one"""
+        pid = os.getpid()
+        if pid not in self.connection_pool:
+            conn = sqlite3.connect(self.cache_file, timeout=60)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=60000")
+            self.connection_pool[pid] = conn
+        return self.connection_pool[pid]
+
+    def _close_all_connections(self):
+        """Close all connections in the pool"""
+        for conn in self.connection_pool.values():
+            try:
+                conn.close()
+            except Exception:
+                pass
+        self.connection_pool.clear()
+
+    def __del__(self):
+        """Cleanup connections on object destruction"""
+        self._close_all_connections()
 
     def playlists_exist(self):
         """Check if any playlists exist in the database"""
+        conn = self._get_connection()
         try:
-            conn = sqlite3.connect(self.cache_file, timeout=60)
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM playlists")
             count = cursor.fetchone()[0]
@@ -20,13 +45,11 @@ class PlaylistDatabase:
         except Exception as e:
             logger.error(f"Error checking playlists: {str(e)}")
             return False
-        finally:
-            conn.close()
 
     def save_playlists(self, playlists):
         """Save playlists to the database"""
+        conn = self._get_connection()
         try:
-            conn = sqlite3.connect(self.cache_file, timeout=60)
             cursor = conn.cursor()
             
             # Clear existing playlists
@@ -59,39 +82,42 @@ class PlaylistDatabase:
             logger.info(f"Saved {len(playlists)} playlists to database")
         except Exception as e:
             logger.error(f"Error saving playlists: {str(e)}")
-        finally:
-            conn.close()
+            conn.rollback()
     
     def _init_db(self):
-        # Move this method outside of update_playlists
         conn = sqlite3.connect(self.cache_file, timeout=60)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=60000")
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS playlists (
-            id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
-            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """)
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS playlist_tracks (
-            playlist_id INTEGER,
-            file_hash TEXT,
-            added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(playlist_id) REFERENCES playlists(id),
-            FOREIGN KEY(file_hash) REFERENCES audio_features(file_hash),
-            PRIMARY KEY (playlist_id, file_hash)
-        )
-        """)
-        conn.commit()
-        conn.close()
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=60000")
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS playlists (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS playlist_tracks (
+                playlist_id INTEGER,
+                file_hash TEXT,
+                added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(playlist_id) REFERENCES playlists(id),
+                FOREIGN KEY(file_hash) REFERENCES audio_features(file_hash),
+                PRIMARY KEY (playlist_id, file_hash)
+            )
+            """)
+            conn.commit()
+        except Exception as e:
+            logger.error(f"Error initializing database: {str(e)}")
+            raise
+        finally:
+            conn.close()
 
     def update_playlists(self, changed_files=None):
         """Update playlists based on changed files. Returns number of changed files."""
+        conn = self._get_connection()
         try:
-            conn = sqlite3.connect(self.cache_file, timeout=60)
             cursor = conn.cursor()
             
             if changed_files is None:
@@ -124,14 +150,13 @@ class PlaylistDatabase:
             
         except Exception as e:
             logger.error(f"Playlist update failed: {str(e)}")
+            conn.rollback()
             return 0
-        finally:
-            conn.close()
 
     def get_changed_files(self):
         """Get files that have changed since last playlist update"""
+        conn = self._get_connection()
         try:
-            conn = sqlite3.connect(self.cache_file, timeout=60)
             cursor = conn.cursor()
             cursor.execute("""
             SELECT file_path
@@ -144,5 +169,3 @@ class PlaylistDatabase:
         except Exception as e:
             logger.error(f"Error getting changed files: {str(e)}")
             return []
-        finally:
-            conn.close()
