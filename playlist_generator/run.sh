@@ -29,40 +29,40 @@ while [[ $# -gt 0 ]]; do
             REBUILD=true
             shift
             ;;
-        --music_dir=*)
+        --music_dir=*|-music_dir=*)
             MUSIC_DIR="${1#*=}"
             HOST_MUSIC_DIR="$MUSIC_DIR"
             shift
             ;;
-        --host_music_dir=*)
+        --host_music_dir=*|-host_music_dir=*)
             HOST_MUSIC_DIR="${1#*=}"
             shift
             ;;
-        --output_dir=*)
+        --output_dir=*|-output_dir=*)
             OUTPUT_DIR="${1#*=}"
             shift
             ;;
-        --cache_dir=*)
+        --cache_dir=*|-cache_dir=*)
             CACHE_DIR="${1#*=}"
             shift
             ;;
-        --workers=*)
+        --workers=*|-workers=*)
             WORKERS="${1#*=}"
             shift
             ;;
-        --generate_only)
+        --generate_only|-g)
             GENERATE_ONLY=true
             shift
             ;;
-        --analyze_only)
+        --analyze_only|-a)
             ANALYZE_ONLY=true
             shift
             ;;
-        --update)
+        --update|-u)
             UPDATE=true
             shift
             ;;
-        --num_playlists=*)
+        --num_playlists=*|-num_playlists=*)
             NUM_PLAYLISTS="${1#*=}"
             shift
             ;;
@@ -70,25 +70,31 @@ while [[ $# -gt 0 ]]; do
             FORCE_SEQUENTIAL=true
             shift
             ;;
-        --playlist_method=*)
-            PLAYLIST_METHOD="${1#*=}"
-            shift
+        --playlist_method=*|-m)
+            if [[ "$1" == --playlist_method=* ]]; then
+                PLAYLIST_METHOD="${1#*=}"
+                shift
+            else
+                shift
+                PLAYLIST_METHOD="$1"
+                shift
+            fi
             ;;
         --help|-h)
             echo "Usage: $0 [options]"
             echo "Options:"
             echo "  --rebuild                Rebuild the Docker image"
-            echo "  --music_dir=<path>       Path to the music directory (default: $MUSIC_DIR)"
-            echo "  --host_music_dir=<path>  Host path to music directory (default: $HOST_MUSIC_DIR)"
-            echo "  --output_dir=<path>      Path to the output directory (default: $OUTPUT_DIR)"
-            echo "  --cache_dir=<path>       Path to the cache directory (default: $CACHE_DIR)"
-            echo "  --workers=<num>          Number of worker threads (default: $(nproc))"
-            echo "  --num_playlists=<num>    Number of playlists to generate (default: $NUM_PLAYLISTS)"
+            echo "  --music_dir, -music_dir <path>       Path to the music directory (default: $MUSIC_DIR)"
+            echo "  --host_music_dir, -host_music_dir <path>  Host path to music directory (default: $HOST_MUSIC_DIR)"
+            echo "  --output_dir, -output_dir <path>      Path to the output directory (default: $OUTPUT_DIR)"
+            echo "  --cache_dir, -cache_dir <path>        Path to the cache directory (default: $CACHE_DIR)"
+            echo "  --workers, -workers <num>             Number of worker threads (default: $(nproc))"
+            echo "  --num_playlists, -num_playlists <num> Number of playlists to generate (default: $NUM_PLAYLISTS)"
             echo "  --force_sequential       Force sequential processing (default: false)"
-            echo "  --generate_only          Only generate playlists from database without analysis"
-            echo "  --analyze_only           Only run audio analysis without generating playlists"
-            echo "  --update                 Update playlists from existing database"
-            echo "  --playlist_method=<method> Playlist generation method (default: all)"
+            echo "  --generate_only, -g      Only generate playlists from database without analysis"
+            echo "  --analyze_only, -a       Only run audio analysis without generating playlists"
+            echo "  --update, -u             Update playlists from existing database"
+            echo "  --playlist_method, -m <method> Playlist generation method (default: all)"
             echo "                           Options: all, time, kmeans, cache"
             echo "  --help, -h               Show this help message"
             exit 0
@@ -174,11 +180,17 @@ fi
 # Determine which mutually exclusive flag to pass
 MUTEX_FLAG=""
 if [ "$ANALYZE_ONLY" = true ]; then
-    MUTEX_FLAG="--analyze_only"
+    MUTEX_FLAG="-a"
 elif [ "$GENERATE_ONLY" = true ]; then
-    MUTEX_FLAG="--generate_only"
+    MUTEX_FLAG="-g"
 elif [ "$UPDATE" = true ]; then
-    MUTEX_FLAG="--update"
+    MUTEX_FLAG="-u"
+fi
+
+# Add playlist method flag if not default
+PLAYLIST_METHOD_FLAG=""
+if [ "$PLAYLIST_METHOD" != "all" ]; then
+    PLAYLIST_METHOD_FLAG="-m $PLAYLIST_METHOD"
 fi
 
 # Run the generator
@@ -191,8 +203,8 @@ docker compose exec playlist-generator python main.py \
   --output_dir /app/playlists \
   --workers ${WORKERS} \
   --num_playlists ${NUM_PLAYLISTS} \
-  --playlist_method ${PLAYLIST_METHOD} \
   $MUTEX_FLAG \
+  $PLAYLIST_METHOD_FLAG \
   $FORCE_SEQUENTIAL_FLAG
 
 echo "Playlists generated successfully!"
