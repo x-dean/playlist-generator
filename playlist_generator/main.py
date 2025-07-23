@@ -48,7 +48,9 @@ os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
 cache_dir = os.getenv('CACHE_DIR', '/app/cache')
 logfile_path = os.path.join(cache_dir, 'essentia_stderr.log')
-sys.stderr = open(logfile_path, 'w')
+logfile = open(logfile_path, 'w')
+os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
+sys.stderr = logfile  # Also update Python's sys.stderr
 
 def get_audio_files(music_dir: str) -> list[str]:
     """Recursively find all audio files in the given directory.
