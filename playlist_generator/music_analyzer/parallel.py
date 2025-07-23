@@ -130,7 +130,12 @@ class AdaptiveMemoryPool:
     def estimate_memory_for_file(self, file_path):
         try:
             size_mb = os.path.getsize(file_path) / (1024 * 1024)
-            return max(512, size_mb * 2)  # 2x file size, min 512MB
+            ext = os.path.splitext(file_path)[1].lower()
+            # Use a higher multiplier for compressed formats
+            if ext in ('.mp3', '.m4a', '.aac', '.ogg', '.opus'):
+                return max(2048, size_mb * 10)  # 10x file size, min 2GB
+            else:  # wav, flac, etc.
+                return max(1024, size_mb * 2)   # 2x file size, min 1GB
         except Exception:
             return self.worker_max_mem_mb
 
