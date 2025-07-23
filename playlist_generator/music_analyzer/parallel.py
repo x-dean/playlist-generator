@@ -7,39 +7,48 @@ import logging
 import time
 from .audio_analyzer import AudioAnalyzer
 import psutil
+import resource
 
 logger = logging.getLogger(__name__)
 
 def process_file_worker(filepath):
     import os
+    import resource
     from .audio_analyzer import AudioAnalyzer
     audio_analyzer = AudioAnalyzer()
     max_retries = 2
     retry_count = 0
     backoff_time = 1  # Initial backoff time in seconds
 
+    # Set per-worker memory limit (Linux only)
+    def set_memory_limit_mb(mb):
+        soft = hard = mb * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
+    try:
+        set_memory_limit_mb(int(os.getenv('WORKER_MAX_MEM_MB', '2048')))
+    except Exception as e:
+        # If resource is not available (e.g., on Windows), just continue
+        pass
+
     # Memory limit check (per worker)
     max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
     process = psutil.Process(os.getpid())
     if process.memory_info().rss > max_mem_mb * 1024 * 1024:
         logger.warning(f"Worker memory exceeded {max_mem_mb}MB, skipping {filepath}")
-        logger.info(f"SKIP: {filepath} (memory exceeded)")
         return None, filepath, False
 
     while retry_count <= max_retries:
         try:
             if not os.path.exists(filepath):
                 logger.warning(f"File not found: {filepath}")
-                logger.info(f"SKIP: {filepath} (not found)")
                 return None, filepath, False
             
             if os.path.getsize(filepath) < 1024:
                 logger.warning(f"Skipping small file: {filepath}")
-                logger.info(f"SKIP: {filepath} (too small)")
                 return None, filepath, False
 
             if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
-                logger.info(f"SKIP: {filepath} (unsupported extension)")
+                logger.warning(f"Unsupported extension, skipping: {filepath}")
                 return None, filepath, False
 
             result = audio_analyzer.extract_features(filepath)
@@ -57,10 +66,10 @@ def process_file_worker(filepath):
                 retry_count += 1
                 time.sleep(backoff_time)
                 backoff_time *= 2  # Exponential backoff
-                logger.warning(f"Retrying {filepath} (attempt {retry_count}/{max_retries})")
+                logger.debug(f"Retrying {filepath} (attempt {retry_count}/{max_retries})")
                 continue
             
-            logger.info(f"FAIL: {filepath} (feature extraction failed)")
+            logger.warning(f"Feature extraction failed for {filepath}")
             return None, filepath, False
 
         except Exception as e:
@@ -68,11 +77,11 @@ def process_file_worker(filepath):
                 retry_count += 1
                 time.sleep(backoff_time)
                 backoff_time *= 2
-                logger.warning(f"Error processing {filepath}, retrying (attempt {retry_count}/{max_retries}): {str(e)}")
+                logger.debug(f"Error processing {filepath}, retrying (attempt {retry_count}/{max_retries}): {str(e)}")
                 continue
             
-            logger.error(f"Error processing {filepath} after {max_retries} retries: {str(e)}", exc_info=True)
-            logger.info(f"FAIL: {filepath} (exception: {str(e)})")
+            logger.error(f"Error processing {filepath} after {max_retries} retries: {str(e)}")
+            logger.warning(f"FAIL: {filepath} (exception: {str(e)})")
             return None, filepath, False
 
 class ParallelProcessor:
