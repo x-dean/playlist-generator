@@ -327,12 +327,19 @@ def main() -> None:
         elif args.analyze_only:
             cli.update_status("Running audio analysis only")
             file_list = get_audio_files(args.music_dir)
+            # Get all files already in the database
+            db_files = set(f['filepath'] for f in audio_db.get_all_features())
+            # Filter out files that are already in the database
+            files_to_analyze = [f for f in file_list if f not in db_files]
+            if not files_to_analyze:
+                cli.show_success("All files are already analyzed. Nothing to do!")
+                return
             if args.force_sequential or (args.workers and args.workers <= 1):
                 processor = SequentialProcessor()
-                process_iter = processor.process(file_list, workers=args.workers or 1)
+                process_iter = processor.process(files_to_analyze, workers=args.workers or 1)
             else:
                 processor = ParallelProcessor()
-                process_iter = processor.process(file_list, workers=args.workers or multiprocessing.cpu_count())
+                process_iter = processor.process(files_to_analyze, workers=args.workers or multiprocessing.cpu_count())
             failed_files = []
             processed_count = 0
             progress = Progress(
@@ -345,10 +352,10 @@ def main() -> None:
                 console=Console()
             )
             with progress:
-                task_id = progress.add_task(f"Processed 0/{len(file_list)} files", total=len(file_list))
+                task_id = progress.add_task(f"Processed 0/{len(files_to_analyze)} files", total=len(files_to_analyze))
                 for features in process_iter:
                     processed_count += 1
-                    progress.update(task_id, advance=1, description=f"Processed {processed_count}/{len(file_list)} files")
+                    progress.update(task_id, advance=1, description=f"Processed {processed_count}/{len(files_to_analyze)} files")
                     logger.debug(f"Features: {features}")
                     if features and 'metadata' in features:
                         meta = features['metadata']
@@ -357,13 +364,13 @@ def main() -> None:
                         else:
                             pass
             failed_files.extend(processor.failed_files)
-            cli.show_success(f"Analysis completed. Processed {len(file_list)} files, {len(failed_files)} failed")
+            cli.show_success(f"Analysis completed. Processed {len(files_to_analyze)} files, {len(failed_files)} failed")
             runtime = time.time() - start_time
             console = Console()
             summary_text = f"""
 [bold green]Analysis Summary (this run)[/bold green]
 
-Processed Files: [cyan]{len(file_list)}[/cyan]
+Processed Files: [cyan]{len(files_to_analyze)}[/cyan]
 Failed Files: [red]{len(failed_files)}[/red]
 With MusicBrainz Info: [green]{0}[/green]
 Without MusicBrainz Info: [yellow]{0}[/yellow]
