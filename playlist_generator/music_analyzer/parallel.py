@@ -20,70 +20,10 @@ def worker_wrapper(worker_func, file_path, conn, mem_limit_mb):
     conn.close()
 
 def process_file_worker(filepath, dynamic_mem_limit_mb=None):
-    import os
-    from .audio_analyzer import AudioAnalyzer
-    print(f"[DEBUG] Worker started for {filepath}")
-    audio_analyzer = AudioAnalyzer()
-    max_retries = 2
-    retry_count = 0
-    backoff_time = 1  # Initial backoff time in seconds
-
-    # Memory limit check (per worker)
-    max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
-    process = psutil.Process(os.getpid())
-    if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-        logger.warning(f"Worker memory exceeded {max_mem_mb}MB, skipping {filepath}")
-        logger.info(f"SKIP: {filepath} (memory exceeded)")
-        return None, filepath, False
-
-    while retry_count <= max_retries:
-        try:
-            if not os.path.exists(filepath):
-                logger.warning(f"File not found: {filepath}")
-                logger.info(f"SKIP: {filepath} (not found)")
-                return None, filepath, False
-            
-            if os.path.getsize(filepath) < 1024:
-                logger.warning(f"Skipping small file: {filepath}")
-                logger.info(f"SKIP: {filepath} (too small)")
-                return None, filepath, False
-
-            if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
-                logger.info(f"SKIP: {filepath} (unsupported extension)")
-                return None, filepath, False
-
-                result = audio_analyzer.extract_features(filepath)
-
-            if result and result[0] is not None:
-                features, db_write_success, _ = result
-                for key in ['bpm', 'centroid', 'duration']:
-                    if features.get(key) is None:
-                        features[key] = 0.0
-                logger.info(f"PROCESSED: {filepath}")
-                return features, filepath, db_write_success
-            
-            # If we get here, result was None or features were None
-            if retry_count < max_retries:
-                retry_count += 1
-                time.sleep(backoff_time)
-                backoff_time *= 2  # Exponential backoff
-                logger.warning(f"Retrying {filepath} (attempt {retry_count}/{max_retries})")
-                continue
-            
-            logger.info(f"FAIL: {filepath} (feature extraction failed)")
-            return None, filepath, False
-
-        except Exception as e:
-            if retry_count < max_retries:
-                retry_count += 1
-                time.sleep(backoff_time)
-                backoff_time *= 2
-                logger.warning(f"Error processing {filepath}, retrying (attempt {retry_count}/{max_retries}): {str(e)}")
-                continue
-            
-            logger.error(f"Error processing {filepath} after {max_retries} retries: {str(e)}", exc_info=True)
-            logger.info(f"FAIL: {filepath} (exception: {str(e)})")
-            return None, filepath, False
+    import time
+    print(f"[DEBUG] Minimal worker for {filepath}")
+    time.sleep(2)
+    return {"status": "ok", "file": filepath}, filepath, True
 
 def run_parallel_processing(file_list, worker_func, max_memory_mb, worker_max_mem_mb, timeout=120):
     """
@@ -189,7 +129,7 @@ class ParallelProcessor:
         self.failed_files = []
         self.batch_size = int(os.getenv('BATCH_SIZE', '50'))
         self.max_retries = int(os.getenv('MAX_RETRIES', '3'))
-        self.min_workers = 2
+        self.min_workers = 2  # Ensure at least 2 workers
         self.max_workers = int(os.getenv('MAX_WORKERS', str(mp.cpu_count())))
 
     def process(self, file_list, workers=None):
