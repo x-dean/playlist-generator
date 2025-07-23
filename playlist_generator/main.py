@@ -344,7 +344,11 @@ def main() -> None:
             print("Sample from db_files:", list(db_files)[:3])
             # DEBUG: Show intersection and files to analyze
             print("Intersection (should be re-analyzed):", list(set(file_list) & failed_files_db))
-            if args.failed:
+            # Determine which files to analyze based on flags
+            if args.force:
+                # Force: re-analyze all files
+                files_to_analyze = file_list
+            elif args.failed:
                 # Analyze files not in DB or previously failed
                 files_to_analyze = [f for f in file_list if f not in db_files or f in failed_files_db]
             else:
