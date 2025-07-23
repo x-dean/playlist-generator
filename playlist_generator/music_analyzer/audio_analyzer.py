@@ -245,16 +245,7 @@ class AudioAnalyzer:
             file_info = self._get_file_info(audio_path)
             # Set timeout to 180 seconds
             self.timeout_seconds = 180
-            # Memory limit (MB)
-            max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
-            process = psutil.Process(os.getpid())
-
-            # Check memory before starting
-            if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                gc.collect()
-                if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                    logger.warning(f"Memory exceeded {max_mem_mb}MB before processing {audio_path}, skipping file.")
-                    return None, False, None
+            # Removed memory limit logic
 
             # Check cache first
             cached_features = self._get_cached_features(file_info)
@@ -268,21 +259,7 @@ class AudioAnalyzer:
                 logger.warning(f"Audio loading failed for {audio_path}")
                 return None, False, None
 
-            # Memory check after loading audio
-            if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                gc.collect()
-                if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                    logger.warning(f"Memory exceeded {max_mem_mb}MB after loading audio for {audio_path}, skipping file.")
-                    return None, False, None
-
             features = self._extract_all_features(audio_path, audio)
-
-            # Memory check after feature extraction
-            if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                gc.collect()
-                if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                    logger.warning(f"Memory exceeded {max_mem_mb}MB after feature extraction for {audio_path}, skipping file.")
-                    return None, False, None
 
             db_write_success = self._save_features_to_db(file_info, features)
 

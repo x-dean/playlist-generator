@@ -27,9 +27,6 @@ ENRICH_ONLY=false
 FORCE=false
 STATUS=false
 
-# Add at the top with other flags
-WORKER_MAX_MEM_MB=2048
-
 # Get current user's UID and GID
 CURRENT_UID=$(id -u)
 CURRENT_GID=$(id -g)
@@ -60,10 +57,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --workers=*|-workers=*)
             WORKERS="${1#*=}"
-            shift
-            ;;
-        --worker_max_mem_mb=*)
-            WORKER_MAX_MEM_MB="${1#*=}"
             shift
             ;;
         --generate_only|-g)
@@ -125,7 +118,6 @@ while [[ $# -gt 0 ]]; do
             echo "  --output_dir, -output_dir <path>      Path to the output directory (default: $OUTPUT_DIR)"
             echo "  --cache_dir, -cache_dir <path>        Path to the cache directory (default: $CACHE_DIR)"
             echo "  --workers, -workers <num>             Number of worker threads (default: $(nproc))"
-            echo "  --worker_max_mem_mb=<MB>   Max memory (MB) per worker process (default: 2048)"
             echo "  --num_playlists, -num_playlists <num> Number of playlists to generate (default: $NUM_PLAYLISTS)"
             echo "  --force_sequential       Force sequential processing (default: false)"
             echo "  --generate_only, -g      Only generate playlists from database without analysis"
@@ -173,7 +165,6 @@ export NUM_PLAYLISTS
 export CURRENT_UID
 export CURRENT_GID
 export PLAYLIST_METHOD
-export WORKER_MAX_MEM_MB
 
 # Set FORCE_SEQUENTIAL_FLAG only if true
 FORCE_SEQUENTIAL_FLAG=""
@@ -217,7 +208,6 @@ echo "Enrich Only: ${ENRICH_ONLY}"
 echo "Force Enrich Only: ${FORCE}"
 echo "Status Mode: ${STATUS}"
 echo "Running as UID:GID = $CURRENT_UID:$CURRENT_GID"
-echo "Worker Max Mem (MB): ${WORKER_MAX_MEM_MB}"
 echo "========================================"
 
 # Build only if requested

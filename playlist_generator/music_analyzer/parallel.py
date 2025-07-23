@@ -20,22 +20,7 @@ def process_file_worker(filepath):
     retry_count = 0
     backoff_time = 1  # Initial backoff time in seconds
 
-    # Set per-worker memory limit (Linux only)
-    def set_memory_limit_mb(mb):
-        soft = hard = mb * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
-    try:
-        set_memory_limit_mb(int(os.getenv('WORKER_MAX_MEM_MB', '2048')))
-    except Exception as e:
-        # If resource is not available (e.g., on Windows), just continue
-        pass
-
-    # Memory limit check (per worker)
-    max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
-    process = psutil.Process(os.getpid())
-    if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-        logger.warning(f"Worker memory exceeded {max_mem_mb}MB, skipping {filepath}")
-        return None, filepath, False
+    # Removed memory limit logic
 
     while retry_count <= max_retries:
         try:

@@ -28,8 +28,6 @@ def build_args(options):
         args += ['--output_dir', options['output_dir']]
     if options.get('workers'):
         args += ['--workers', str(options['workers'])]
-    if options.get('worker_max_mem_mb'):
-        args += [f'--worker_max_mem_mb={options["worker_max_mem_mb"]}']
     if options.get('num_playlists'):
         args += ['--num_playlists', str(options['num_playlists'])]
     if options.get('playlist_method'):
@@ -79,12 +77,6 @@ def main():
             ).ask()
             if options['workers'] == "":
                 options['workers'] = None
-        # Worker memory
-        if mode in ("Analyze Only", "Generate Only", "Update"):
-            options['worker_max_mem_mb'] = questionary.text(
-                "Max memory (MB) per worker (default 2048):",
-                default="2048"
-            ).ask()
         # Playlist method
         if mode in ("Generate Only", "Update"):
             options['playlist_method'] = questionary.select(

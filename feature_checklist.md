@@ -171,11 +171,3 @@ Use this checklist to test each feature independently. Mark each as complete (wi
   **Expected Output:** Console shows Docker build output; image is rebuilt.  
   **DB Inspection Command:** (Not applicable)  
   **Comments:** 
-
-- [ ] **--worker_max_mem_mb**  
-  **Test Environment/Setup:** Music directory with large files or files that could cause high memory usage.  
-  **Command:** `./run.sh -a --worker_max_mem_mb=512 ...`  
-  **Check:** Worker processes should not exceed 512MB RAM; files that would cause excess memory usage are skipped with a warning.  
-  **Expected Output:** Console shows warnings for files skipped due to memory; analysis completes without OOM.  
-  **DB Inspection Command:** `sqlite3 /app/cache/audio_analysis.db 'SELECT COUNT(*) FROM audio_features;'`  
-  **Comments:** 
