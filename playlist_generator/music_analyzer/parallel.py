@@ -12,7 +12,7 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-def process_file_worker(filepath):
+def process_file_worker(filepath, dynamic_mem_limit_mb=None):
     import os
     import resource
     from .audio_analyzer import AudioAnalyzer
@@ -22,11 +22,19 @@ def process_file_worker(filepath):
     backoff_time = 1  # Initial backoff time in seconds
 
     # Set per-worker memory limit (Linux only)
+    # If WORKER_MAX_MEM_MB_FORCE is set, use it as a hard override for all workers
+    # Otherwise, use the dynamic value passed in (dynamic_mem_limit_mb)
     def set_memory_limit_mb(mb):
-        soft = hard = mb * 1024 * 1024
+        soft = hard = int(mb) * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
     try:
-        set_memory_limit_mb(int(os.getenv('WORKER_MAX_MEM_MB', '2048')))
+        forced = os.getenv('WORKER_MAX_MEM_MB_FORCE')
+        if forced:
+            set_memory_limit_mb(forced)
+        elif dynamic_mem_limit_mb:
+            set_memory_limit_mb(dynamic_mem_limit_mb)
+        else:
+            set_memory_limit_mb(int(os.getenv('WORKER_MAX_MEM_MB', '2048')))
     except Exception as e:
         # If resource is not available (e.g., on Windows), just continue
         pass
@@ -125,6 +133,7 @@ class AdaptiveMemoryPool:
                 file_path = next(file_iter)
             except StopIteration:
                 break
+            est_mem = self.estimate_memory_for_file(file_path)
             while not self.can_launch_worker(file_path):
                 # Wait for memory to free up
                 time.sleep(1)
@@ -133,13 +142,13 @@ class AdaptiveMemoryPool:
                         if not w.is_alive():
                             w.join()
                             self.active_workers.remove(w)
-            # Launch worker
+            # Launch worker with dynamic memory limit
             pconn, cconn = mp.Pipe()
-            def worker_wrapper(path, conn):
-                result = worker_func(path)
+            def worker_wrapper(path, conn, mem_limit_mb):
+                result = worker_func(path, mem_limit_mb)
                 conn.send(result)
                 conn.close()
-            proc = mp.Process(target=worker_wrapper, args=(file_path, cconn))
+            proc = mp.Process(target=worker_wrapper, args=(file_path, cconn, est_mem))
             proc.start()
             self.active_workers.append(proc)
             results.append(pconn)
