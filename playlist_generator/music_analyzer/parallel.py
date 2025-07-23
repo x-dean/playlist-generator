@@ -8,8 +8,15 @@ import time
 from .audio_analyzer import AudioAnalyzer
 from typing import Optional
 import threading
+import signal
 
 logger = logging.getLogger(__name__)
+
+def timeout_handler(signum, frame):
+    raise TimeoutException()
+
+class TimeoutException(Exception):
+    pass
 
 def process_file_worker(filepath: str, status_queue: Optional[object] = None) -> Optional[tuple]:
     """Worker function to process a single audio file in parallel.
@@ -22,6 +29,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
         Optional[tuple]: (features dict, filepath, db_write_success bool) or None on failure.
     """
     import os
+    import traceback
     from .audio_analyzer import AudioAnalyzer
     audio_analyzer = AudioAnalyzer()
     max_retries = 2
@@ -38,6 +46,9 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
         notifier = threading.Thread(target=notify_if_long, daemon=True)
         notifier.start()
 
+    # Set a timeout for processing each file (e.g., 5 minutes = 300 seconds)
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(300)
     try:
         size_mb = os.path.getsize(filepath) / (1024 * 1024)
     except Exception:
@@ -57,8 +68,14 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
                 notified["shown"] = True
                 logger.warning(f"Unsupported extension, skipping: {filepath}")
                 return None, filepath, False
-            result = audio_analyzer.extract_features(filepath)
-            notified["shown"] = True
+            result = None
+            try:
+                result = audio_analyzer.extract_features(filepath)
+            except Exception as e:
+                print(f"ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
+                return None, filepath, False
+            finally:
+                signal.alarm(0)  # Cancel the alarm
             if result and result[0] is not None:
                 features, db_write_success, _ = result
                 for key in ['bpm', 'centroid', 'duration']:
@@ -74,9 +91,11 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
                 continue
             logger.warning(f"Feature extraction failed for {filepath}")
             return None, filepath, False
+        except TimeoutException:
+            print(f"TIMEOUT in worker for {os.path.basename(filepath)}")
+            return None, filepath, False
         except Exception as e:
-            notified["shown"] = True
-            logger.error(f"Error processing {filepath}: {str(e)}")
+            print(f"FATAL ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
             return None, filepath, False
     notified["shown"] = True
     return None, filepath, False
