@@ -19,6 +19,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.console import Console
 from rich.panel import Panel
 from checkpoint_manager import CheckpointManager
+from typing import Optional
 
 logger = setup_colored_logging()
 
@@ -78,7 +79,7 @@ def convert_to_host_path(container_path: str, host_music_dir: str, container_mus
     rel_path = os.path.relpath(container_path, container_music_dir)
     return os.path.join(host_music_dir, rel_path)
 
-def save_playlists(playlists: dict[str, dict], output_dir: str, host_music_dir: str, container_music_dir: str, failed_files: list[str], playlist_method: str | None = None) -> None:
+def save_playlists(playlists: dict[str, dict], output_dir: str, host_music_dir: str, container_music_dir: str, failed_files: list[str], playlist_method: Optional[str] = None) -> None:
     """Saves generated playlists to disk.
 
     Args:

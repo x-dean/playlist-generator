@@ -6,10 +6,11 @@ from tqdm import tqdm
 import logging
 import time
 from .audio_analyzer import AudioAnalyzer
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-def process_file_worker(filepath: str) -> tuple | None:
+def process_file_worker(filepath: str) -> Optional[tuple]:
     """Worker function to process a single audio file in parallel.
 
     Args:

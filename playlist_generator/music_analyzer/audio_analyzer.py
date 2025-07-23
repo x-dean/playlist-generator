@@ -11,6 +11,8 @@ import traceback
 import musicbrainzngs
 from mutagen import File as MutagenFile
 import json
+from typing import Optional
+from functools import wraps
 
 logger = logging.getLogger(__name__)
 
@@ -241,7 +243,7 @@ class AudioAnalyzer:
             logger.warning(f"MusicBrainz lookup failed: {e}")
         return {}
 
-    def extract_features(self, audio_path: str) -> tuple | None:
+    def extract_features(self, audio_path: str) -> Optional[tuple]:
         """Extract features from an audio file.
 
         Args:
