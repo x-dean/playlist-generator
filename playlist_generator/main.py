@@ -384,13 +384,12 @@ def main() -> None:
                     if args.force_sequential or (args.workers and args.workers <= 1):
                         processor = SequentialProcessor()
                         process_iter = processor.process(normal_files, workers=args.workers or 1)
-                        for filepath in normal_files:
+                        for features, filepath in process_iter:
                             filename = os.path.basename(filepath)
                             try:
                                 size_mb = os.path.getsize(filepath) / (1024 * 1024)
                             except Exception:
                                 size_mb = 0
-                            features, _, _ = process_file_worker(filepath)
                             processed_count += 1
                             progress.update(
                                 task_id,
