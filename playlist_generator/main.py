@@ -193,7 +193,12 @@ def main() -> None:
     # If --status is set, show statistics and exit
     if getattr(args, 'status', False):
         stats = playlist_db.get_library_statistics()
+        # Add failed/skipped files count
+        from music_analyzer.audio_analyzer import AudioAnalyzer
+        audio_db = AudioAnalyzer(cache_file)
+        skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
         cli.show_library_statistics(stats)
+        print(f"Skipped (failed) files: {skipped_count}")
         sys.exit(0)
 
     # If no mutually exclusive mode is set, default to analyze_only
@@ -491,8 +496,16 @@ Runtime: [magenta]{runtime:.1f} seconds[/magenta]
                 processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
                 workers = args.workers or max(1, mp.cpu_count())
                 
-                for i, _ in enumerate(processor.process(file_list, workers)):
-                    progress.update(task_id, advance=1)
+                for i, features in enumerate(processor.process(file_list, workers)):
+                    # Show only the filename in the progress bar
+                    if isinstance(features, tuple):
+                        # SequentialProcessor yields (features, filepath)
+                        _, filepath = features
+                    else:
+                        # ParallelProcessor yields features only, can't get filename
+                        filepath = file_list[i] if i < len(file_list) else ""
+                    filename = os.path.basename(filepath)
+                    progress.update(task_id, advance=1, description=f"Analyzing: {filename} ({i+1}/{len(file_list)})")
                 
                 failed_files.extend(processor.failed_files)
             
