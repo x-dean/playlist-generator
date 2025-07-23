@@ -254,9 +254,9 @@ class AudioAnalyzer:
                 return None, False, None
 
             features = self._extract_all_features(audio_path, audio)
-            self._save_features_to_db(file_info, features)
+            db_write_success = self._save_features_to_db(file_info, features)
 
-            return features, False, file_info['file_hash']
+            return features, db_write_success, file_info['file_hash']
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             logger.error(traceback.format_exc())
@@ -360,29 +360,34 @@ class AudioAnalyzer:
         return features
 
     def _save_features_to_db(self, file_info, features):
-        with self.conn:
-            self.conn.execute("""
-            INSERT OR REPLACE INTO audio_features
-            (file_hash, file_path, duration, bpm, beat_confidence, centroid,
-             loudness, danceability, key, scale, onset_rate, zcr, last_modified, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                str(file_info['file_hash']),
-                str(file_info['file_path']),
-                self._ensure_float(features['duration']),
-                self._ensure_float(features['bpm']),
-                self._ensure_float(features['beat_confidence']),
-                self._ensure_float(features['centroid']),
-                self._ensure_float(features['loudness']),
-                self._ensure_float(features['danceability']),
-                self._ensure_int(features['key']),
-                self._ensure_int(features['scale']),
-                self._ensure_float(features['onset_rate']),
-                self._ensure_float(features['zcr']),
-                self._ensure_float(file_info['last_modified']),
-                json.dumps(features.get('metadata', {}))
-            ))
-            logger.info(f"DB WRITE: {file_info['file_path']}")
+        try:
+            with self.conn:
+                self.conn.execute("""
+                INSERT OR REPLACE INTO audio_features
+                (file_hash, file_path, duration, bpm, beat_confidence, centroid,
+                 loudness, danceability, key, scale, onset_rate, zcr, last_modified, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    str(file_info['file_hash']),
+                    str(file_info['file_path']),
+                    self._ensure_float(features['duration']),
+                    self._ensure_float(features['bpm']),
+                    self._ensure_float(features['beat_confidence']),
+                    self._ensure_float(features['centroid']),
+                    self._ensure_float(features['loudness']),
+                    self._ensure_float(features['danceability']),
+                    self._ensure_int(features['key']),
+                    self._ensure_int(features['scale']),
+                    self._ensure_float(features['onset_rate']),
+                    self._ensure_float(features['zcr']),
+                    self._ensure_float(file_info['last_modified']),
+                    json.dumps(features.get('metadata', {}))
+                ))
+                logger.info(f"DB WRITE: {file_info['file_path']}")
+            return True
+        except Exception as e:
+            logger.error(f"DB WRITE FAILED: {file_info['file_path']} - {str(e)}")
+            return False
 
     def get_all_features(self):
         try:

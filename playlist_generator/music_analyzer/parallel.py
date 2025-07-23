@@ -24,33 +24,33 @@ def process_file_worker(filepath):
     if process.memory_info().rss > max_mem_mb * 1024 * 1024:
         logger.warning(f"Worker memory exceeded {max_mem_mb}MB, skipping {filepath}")
         logger.info(f"SKIP: {filepath} (memory exceeded)")
-        return None, filepath
+        return None, filepath, False
 
     while retry_count <= max_retries:
         try:
             if not os.path.exists(filepath):
                 logger.warning(f"File not found: {filepath}")
                 logger.info(f"SKIP: {filepath} (not found)")
-                return None, filepath
+                return None, filepath, False
             
             if os.path.getsize(filepath) < 1024:
                 logger.warning(f"Skipping small file: {filepath}")
                 logger.info(f"SKIP: {filepath} (too small)")
-                return None, filepath
+                return None, filepath, False
 
             if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
                 logger.info(f"SKIP: {filepath} (unsupported extension)")
-                return None, filepath
+                return None, filepath, False
 
             result = audio_analyzer.extract_features(filepath)
 
             if result and result[0] is not None:
-                features = result[0]
+                features, db_write_success, _ = result
                 for key in ['bpm', 'centroid', 'duration']:
                     if features.get(key) is None:
                         features[key] = 0.0
                 logger.info(f"PROCESSED: {filepath}")
-                return features, filepath
+                return features, filepath, db_write_success
             
             # If we get here, result was None or features were None
             if retry_count < max_retries:
@@ -61,7 +61,7 @@ def process_file_worker(filepath):
                 continue
             
             logger.info(f"FAIL: {filepath} (feature extraction failed)")
-            return None, filepath
+            return None, filepath, False
 
         except Exception as e:
             if retry_count < max_retries:
@@ -73,7 +73,7 @@ def process_file_worker(filepath):
             
             logger.error(f"Error processing {filepath} after {max_retries} retries: {str(e)}", exc_info=True)
             logger.info(f"FAIL: {filepath} (exception: {str(e)})")
-            return None, filepath
+            return None, filepath, False
 
 class ParallelProcessor:
     def __init__(self):
@@ -99,24 +99,24 @@ class ParallelProcessor:
                 logger.info(f"Starting multiprocessing with {self.workers} workers (retry {retries})")
                 ctx = mp.get_context('spawn')
 
+                failed_in_batch = []
                 for i in range(0, len(remaining_files), self.batch_size):
                     batch = remaining_files[i:i+self.batch_size]
-                    failed_in_batch = []
 
                     with ctx.Pool(processes=self.workers) as pool:
-                        for features, filepath in pool.imap_unordered(process_file_worker, batch):
-                            if features:
+                        for features, filepath, db_write_success in pool.imap_unordered(process_file_worker, batch):
+                            if features and db_write_success:
                                 yield features
                             else:
                                 failed_in_batch.append(filepath)
-                    # Update remaining files for next iteration
-                    remaining_files = remaining_files[i+self.batch_size:]
-                    if failed_in_batch:
-                        self.failed_files.extend(failed_in_batch)
-
-                # If we get here, all batches processed successfully
-                logger.info(f"Processing completed - yielded all successful, {len(self.failed_files)} failed")
-                return
+                # Instead of removing processed files, retry only failed ones
+                if failed_in_batch:
+                    logger.info(f"Retrying {len(failed_in_batch)} failed files in next round")
+                    remaining_files = failed_in_batch
+                    self.failed_files.extend(failed_in_batch)
+                else:
+                    logger.info(f"Processing completed - yielded all successful, {len(self.failed_files)} failed")
+                    return
 
             except (mp.TimeoutError, BrokenPipeError, ConnectionResetError) as e:
                 logger.error(f"Multiprocessing error: {str(e)}")
@@ -130,8 +130,8 @@ class ParallelProcessor:
                     logger.error("Max retries reached, switching to sequential for remaining files")
                     # Process remaining files sequentially
                     for filepath in remaining_files:
-                        features, _ = process_file_worker(filepath)
-                        if features:
+                        features, _, db_write_success = process_file_worker(filepath)
+                        if features and db_write_success:
                             yield features
                         else:
                             self.failed_files.append(filepath)
