@@ -74,9 +74,14 @@ class AudioAnalyzer:
                 zcr REAL,
                 last_modified REAL,
                 last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                metadata JSON
+                metadata JSON,
+                failed INTEGER DEFAULT 0
             )
             """)
+            # Migration: add 'failed' column if missing
+            columns = [row[1] for row in self.conn.execute("PRAGMA table_info(audio_features)")]
+            if 'failed' not in columns:
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN failed INTEGER DEFAULT 0")
             self._verify_db_schema()
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
@@ -250,41 +255,35 @@ class AudioAnalyzer:
             audio_path (str): Path to the audio file.
 
         Returns:
-            tuple | None: (features dict, db_write_success bool, file_hash str) or None on failure.
+            Optional[tuple]: (features dict, db_write_success bool, file_hash str) or None on failure.
         """
         try:
             file_info = self._get_file_info(audio_path)
-            # Set timeout to 180 seconds
             self.timeout_seconds = 180
-
-            # Check cache first
             cached_features = self._get_cached_features(file_info)
             if cached_features:
                 logger.info(f"Using cached features for {file_info['file_path']}")
                 return cached_features, True, file_info['file_hash']
-
-            # Process new file
             audio = self._safe_audio_load(audio_path)
             if audio is None:
                 logger.warning(f"Audio loading failed for {audio_path}")
+                self._mark_failed(file_info)
                 return None, False, None
-
             features = self._extract_all_features(audio_path, audio)
-
-            db_write_success = self._save_features_to_db(file_info, features)
-
+            db_write_success = self._save_features_to_db(file_info, features, failed=0)
             if db_write_success:
                 logger.info(f"DB WRITE: {file_info['file_path']}")
             else:
                 logger.error(f"DB WRITE FAILED: {file_info['file_path']}")
-
             return features, db_write_success, file_info['file_hash']
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             logger.warning(traceback.format_exc())
+            self._mark_failed(self._get_file_info(audio_path))
             return None, False, None
         except TimeoutException:
             logger.warning(f"Timeout on {audio_path}")
+            self._mark_failed(self._get_file_info(audio_path))
             return None, False, None
 
     def _get_cached_features(self, file_info):
@@ -381,49 +380,60 @@ class AudioAnalyzer:
                 logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
         return features
 
-    def _save_features_to_db(self, file_info, features):
+    def _mark_failed(self, file_info):
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO audio_features (file_hash, file_path, last_modified, metadata, failed) VALUES (?, ?, ?, ?, 1)",
+                (file_info['file_hash'], file_info['file_path'], file_info['last_modified'], '{}')
+            )
+
+    def _save_features_to_db(self, file_info, features, failed=0):
         try:
             with self.conn:
-                self.conn.execute("""
-                INSERT OR REPLACE INTO audio_features
-                (file_hash, file_path, duration, bpm, beat_confidence, centroid,
-                 loudness, danceability, key, scale, onset_rate, zcr, last_modified, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    str(file_info['file_hash']),
-                    str(file_info['file_path']),
-                    self._ensure_float(features['duration']),
-                    self._ensure_float(features['bpm']),
-                    self._ensure_float(features['beat_confidence']),
-                    self._ensure_float(features['centroid']),
-                    self._ensure_float(features['loudness']),
-                    self._ensure_float(features['danceability']),
-                    self._ensure_int(features['key']),
-                    self._ensure_int(features['scale']),
-                    self._ensure_float(features['onset_rate']),
-                    self._ensure_float(features['zcr']),
-                    self._ensure_float(file_info['last_modified']),
-                    json.dumps(features.get('metadata', {}))
-                ))
-                logger.debug(f"DB WRITE: {file_info['file_path']}")
+                self.conn.execute(
+                    """
+                    INSERT OR REPLACE INTO audio_features (
+                        file_hash, file_path, duration, bpm, beat_confidence, centroid, loudness, danceability, key, scale, onset_rate, zcr, last_modified, metadata, failed
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        file_info['file_hash'],
+                        file_info['file_path'],
+                        features.get('duration'),
+                        features.get('bpm'),
+                        features.get('beat_confidence'),
+                        features.get('centroid'),
+                        features.get('loudness'),
+                        features.get('danceability'),
+                        features.get('key'),
+                        features.get('scale'),
+                        features.get('onset_rate'),
+                        features.get('zcr'),
+                        file_info['last_modified'],
+                        json.dumps(features.get('metadata', {})),
+                        failed
+                    )
+                )
             return True
         except Exception as e:
-            logger.error(f"DB WRITE FAILED: {file_info['file_path']} - {str(e)}")
+            logger.error(f"Error saving features to DB: {str(e)}")
             return False
 
-    def get_all_features(self) -> list[dict]:
-        """Get all features from the database.
-
-        Returns:
-            list[dict]: List of feature dictionaries for all audio files.
-        """
+    def get_all_features(self, include_failed=False):
         try:
             cursor = self.conn.cursor()
-            cursor.execute("""
-            SELECT file_path, duration, bpm, beat_confidence, centroid,
-                   loudness, danceability, key, scale, onset_rate, zcr, metadata
-            FROM audio_features
-            """)
+            if include_failed:
+                cursor.execute("""
+                SELECT file_path, duration, bpm, beat_confidence, centroid,
+                       loudness, danceability, key, scale, onset_rate, zcr, metadata, failed
+                FROM audio_features
+                """)
+            else:
+                cursor.execute("""
+                SELECT file_path, duration, bpm, beat_confidence, centroid,
+                       loudness, danceability, key, scale, onset_rate, zcr, metadata, failed
+                FROM audio_features WHERE failed=0
+                """)
             return [{
                 'filepath': row[0],
                 'duration': row[1],
@@ -436,7 +446,8 @@ class AudioAnalyzer:
                 'scale': row[8],
                 'onset_rate': row[9],
                 'zcr': row[10],
-                'metadata': json.loads(row[11]) if row[11] else {}
+                'metadata': json.loads(row[11]) if row[11] else {},
+                'failed': row[12]
             } for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error fetching features: {str(e)}")

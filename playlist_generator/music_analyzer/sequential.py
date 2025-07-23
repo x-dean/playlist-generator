@@ -33,7 +33,7 @@ class SequentialProcessor:
                 size_mb = 0
             print(f"Processing: {filename} ({size_mb:.1f} MB)")
             try:
-                features, _ = process_file_worker(filepath)
+                features, _, _ = process_file_worker(filepath)
                 if features:
                     yield features
                 else:
