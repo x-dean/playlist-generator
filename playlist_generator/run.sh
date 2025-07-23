@@ -224,7 +224,10 @@ echo "Music Directory (Container): $MUSIC_DIR"
 echo "Music Directory (Host): $HOST_MUSIC_DIR"
 echo "Output Directory: $OUTPUT_DIR"
 echo "Cache Directory: $CACHE_DIR"
-echo "Workers: ${WORKERS:-}"
+# Only print Workers if set
+if [[ -n "${WORKERS:-}" ]]; then
+    echo "Workers: $WORKERS"
+fi
 echo "Playlists: $NUM_PLAYLISTS"
 echo "Force Sequential: ${FORCE_SEQUENTIAL}"
 echo "Generate Only: ${GENERATE_ONLY}"
