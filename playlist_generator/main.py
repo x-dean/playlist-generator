@@ -136,6 +136,12 @@ def main():
     parser.add_argument('--force', action='store_true', help='Force re-enrichment for all tracks in the database (use with --enrich_only)')
     args = parser.parse_args()
 
+    # Set cache file path
+    cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+    os.environ['CACHE_DIR'] = cache_dir
+    cache_file = os.path.join(cache_dir, 'audio_analysis.db')
+    playlist_db = PlaylistDatabase(cache_file)
+
     # If --status is set, show statistics and exit
     if getattr(args, 'status', False):
         stats = playlist_db.get_library_statistics()
@@ -159,15 +165,9 @@ def main():
         'Resume': args.resume,
         'Playlist Method': args.playlist_method
     })
-
-    # Set cache file path
-    cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-    os.environ['CACHE_DIR'] = cache_dir
-    cache_file = os.path.join(cache_dir, 'audio_analysis.db')
     
     # Initialize components
     audio_db = AudioAnalyzer(cache_file)
-    playlist_db = PlaylistDatabase(cache_file)
     # Pass min_tracks_per_genre and enrich_tags to PlaylistManager if using tags method
     if args.playlist_method == 'tags':
         playlist_manager = PlaylistManager(
