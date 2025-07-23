@@ -357,10 +357,11 @@ def main() -> None:
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 TimeElapsedColumn(),
                 TimeRemainingColumn(),
+                TextColumn("{task.fields[trackinfo]}", justify="right"),
                 console=Console()
             )
             with progress:
-                task_id = progress.add_task(f"Processed 0/{total_files} files", total=total_files)
+                task_id = progress.add_task(f"Processed 0/{total_files} files", total=total_files, trackinfo="")
                 # 1. Process normal files in parallel
                 if normal_files:
                     if args.force_sequential or (args.workers and args.workers <= 1):
@@ -374,7 +375,12 @@ def main() -> None:
                                 size_mb = 0
                             features, _, _ = process_file_worker(filepath)
                             processed_count += 1
-                            progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB)")
+                            progress.update(
+                                task_id,
+                                advance=1,
+                                description=f"Processed {processed_count}/{total_files} files",
+                                trackinfo=f"{filename} ({size_mb:.1f} MB)"
+                            )
                             logger.debug(f"Features: {features}")
                             if features and 'metadata' in features:
                                 meta = features['metadata']
@@ -393,7 +399,12 @@ def main() -> None:
                             except Exception:
                                 size_mb = 0
                             processed_count += 1
-                            progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB)")
+                            progress.update(
+                                task_id,
+                                advance=1,
+                                description=f"Processed {processed_count}/{total_files} files",
+                                trackinfo=f"{filename} ({size_mb:.1f} MB)"
+                            )
                             logger.debug(f"Features: {features}")
                             if features and 'metadata' in features:
                                 meta = features['metadata']
@@ -413,14 +424,16 @@ def main() -> None:
                             size_mb = 0
                         progress.update(
                             task_id,
-                            description=f"Processing: {filename} ({size_mb:.1f} MB) | {processed_count}/{total_files} files"
+                            description=f"Processing: {filename} | {processed_count}/{total_files} files",
+                            trackinfo=f"{filename} ({size_mb:.1f} MB)"
                         )
                         for features, _ in processor.process([filepath], workers=1):
                             processed_count += 1
                             progress.update(
                                 task_id,
                                 advance=1,
-                                description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB) (big file)"
+                                description=f"Processed {processed_count}/{total_files} files (big file)",
+                                trackinfo=f"{filename} ({size_mb:.1f} MB)"
                             )
                             logger.debug(f"Features: {features}")
                             if features and 'metadata' in features:
