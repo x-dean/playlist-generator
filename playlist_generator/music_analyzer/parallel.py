@@ -25,12 +25,24 @@ def process_file_worker(filepath, dynamic_mem_limit_mb=None):
     # Return a dict with 'metadata' key for compatibility with main loop
     return {"filepath": filepath, "metadata": {"dummy": True}}, filepath, True
 
-def adaptive_parallel_process(file_list, worker_func, max_workers, timeout=120):
-    active = []  # List of (proc, conn, file_path)
+def estimate_memory_for_file(file_path):
+    try:
+        size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in ('.mp3', '.m4a', '.aac', '.ogg', '.opus'):
+            return max(2048, size_mb * 15)  # 15x file size, min 2GB
+        else:  # wav, flac, etc.
+            return max(1024, size_mb * 2)   # 2x file size, min 1GB
+    except Exception:
+        return 2048
+
+def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, timeout=120):
+    active = []  # List of (proc, conn, file_path, est_mem)
+    mem_used = 0
     file_iter = iter(file_list)
     while True:
         # Clean up finished workers and yield results
-        for proc, conn, file_path in active[:]:
+        for proc, conn, file_path, mem in active[:]:
             if not proc.is_alive():
                 proc.join()
                 if conn.poll():
@@ -41,21 +53,28 @@ def adaptive_parallel_process(file_list, worker_func, max_workers, timeout=120):
                 else:
                     yield (None, file_path, False)
                 conn.close()
-                active.remove((proc, conn, file_path))
+                active.remove((proc, conn, file_path, mem))
+                mem_used -= mem
         # Launch new workers if possible
         if len(active) < max_workers:
             try:
                 file_path = next(file_iter)
             except StopIteration:
                 break
+            est_mem = estimate_memory_for_file(file_path)
+            if mem_used + est_mem > max_mem_mb and len(active) > 0:
+                time.sleep(0.5)
+                continue
+            # Always allow at least one worker
             pconn, cconn = mp.Pipe()
-            proc = mp.Process(target=worker_wrapper, args=(worker_func, file_path, cconn, None))
+            proc = mp.Process(target=worker_wrapper, args=(worker_func, file_path, cconn, est_mem))
             proc.start()
-            active.append((proc, pconn, file_path))
+            active.append((proc, pconn, file_path, est_mem))
+            mem_used += est_mem
         else:
             time.sleep(0.1)
     # Wait for all to finish and yield their results
-    for proc, conn, file_path in active:
+    for proc, conn, file_path, mem in active:
         proc.join(timeout)
         if proc.is_alive():
             logger.warning(f"Timeout: killing process for {file_path}")
@@ -86,14 +105,16 @@ class ParallelProcessor:
         yield from self._process_parallel(file_list)
 
     def _process_parallel(self, file_list):
+        max_memory_mb = int(os.getenv('MAX_MEMORY_MB', '8192'))
+        worker_max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
         retries = 0
         remaining_files = file_list[:]
         while remaining_files and retries < self.max_retries:
             try:
-                logger.info(f"Starting adaptive multiprocessing (retry {retries})")
+                logger.info(f"Starting adaptive multiprocessing with memory cap {max_memory_mb}MB (retry {retries})")
                 failed_in_batch = []
                 for features, filepath, db_write_success in adaptive_parallel_process(
-                    remaining_files, process_file_worker, self.workers):
+                    remaining_files, process_file_worker, self.workers, max_memory_mb):
                     if features and db_write_success:
                         yield features
                     else:
