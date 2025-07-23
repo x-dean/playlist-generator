@@ -194,7 +194,6 @@ def main() -> None:
     if getattr(args, 'status', False):
         stats = playlist_db.get_library_statistics()
         # Add failed/skipped files count
-        from music_analyzer.audio_analyzer import AudioAnalyzer
         audio_db = AudioAnalyzer(cache_file)
         skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
         cli.show_library_statistics(stats)
