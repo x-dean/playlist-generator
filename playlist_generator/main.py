@@ -256,6 +256,7 @@ def main():
         elif args.analyze_only:
             cli.update_status("Running audio analysis only")
             file_list = get_audio_files(args.music_dir)
+            print(f"Found {len(file_list)} files to process")  # DEBUG: Show how many files were found
 
             if args.force_sequential or (args.workers and args.workers <= 1):
                 processor = SequentialProcessor()
