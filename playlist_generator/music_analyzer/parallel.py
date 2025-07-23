@@ -22,82 +22,98 @@ def process_file_worker(filepath, dynamic_mem_limit_mb=None):
     import os
     import resource
     from .audio_analyzer import AudioAnalyzer
-    audio_analyzer = AudioAnalyzer()
-    max_retries = 2
-    retry_count = 0
-    backoff_time = 1  # Initial backoff time in seconds
-
-    # Set per-worker memory limit (Linux only)
-    # If WORKER_MAX_MEM_MB_FORCE is set, use it as a hard override for all workers
-    # Otherwise, use the dynamic value passed in (dynamic_mem_limit_mb)
-    def set_memory_limit_mb(mb):
-        soft = hard = int(mb) * 1024 * 1024
-        resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
+    print(f"[DEBUG] Worker started for {filepath}")
     try:
-        forced = os.getenv('WORKER_MAX_MEM_MB_FORCE')
-        if forced:
-            set_memory_limit_mb(forced)
-        elif dynamic_mem_limit_mb:
-            set_memory_limit_mb(dynamic_mem_limit_mb)
-        else:
-            set_memory_limit_mb(int(os.getenv('WORKER_MAX_MEM_MB', '2048')))
-    except Exception as e:
-        # If resource is not available (e.g., on Windows), just continue
-        pass
+        audio_analyzer = AudioAnalyzer()
+        max_retries = 2
+        retry_count = 0
+        backoff_time = 1  # Initial backoff time in seconds
 
-    # Memory limit check (per worker)
-    max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
-    process = psutil.Process(os.getpid())
-    if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-        logger.warning(f"Worker memory exceeded {max_mem_mb}MB, skipping {filepath}")
-        return None, filepath, False
-
-    while retry_count <= max_retries:
+        # Set per-worker memory limit (Linux only)
+        # If WORKER_MAX_MEM_MB_FORCE is set, use it as a hard override for all workers
+        # Otherwise, use the dynamic value passed in (dynamic_mem_limit_mb)
+        def set_memory_limit_mb(mb):
+            soft = hard = int(mb) * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
         try:
-            if not os.path.exists(filepath):
-                logger.warning(f"File not found: {filepath}")
-                return None, filepath, False
-            
-            if os.path.getsize(filepath) < 1024:
-                logger.warning(f"Skipping small file: {filepath}")
-                return None, filepath, False
-
-            if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
-                logger.warning(f"Unsupported extension, skipping: {filepath}")
-                return None, filepath, False
-
-            result = audio_analyzer.extract_features(filepath)
-
-            if result and result[0] is not None:
-                features, db_write_success, _ = result
-                for key in ['bpm', 'centroid', 'duration']:
-                    if features.get(key) is None:
-                        features[key] = 0.0
-                logger.info(f"PROCESSED: {filepath}")
-                return features, filepath, db_write_success
-            
-            # If we get here, result was None or features were None
-            if retry_count < max_retries:
-                retry_count += 1
-                time.sleep(backoff_time)
-                backoff_time *= 2  # Exponential backoff
-                logger.debug(f"Retrying {filepath} (attempt {retry_count}/{max_retries})")
-                continue
-            
-            logger.warning(f"Feature extraction failed for {filepath}")
-            return None, filepath, False
-
+            forced = os.getenv('WORKER_MAX_MEM_MB_FORCE')
+            if forced:
+                set_memory_limit_mb(forced)
+            elif dynamic_mem_limit_mb:
+                set_memory_limit_mb(dynamic_mem_limit_mb)
+            else:
+                set_memory_limit_mb(int(os.getenv('WORKER_MAX_MEM_MB', '2048')))
         except Exception as e:
-            if retry_count < max_retries:
-                retry_count += 1
-                time.sleep(backoff_time)
-                backoff_time *= 2
-                logger.debug(f"Error processing {filepath}, retrying (attempt {retry_count}/{max_retries}): {str(e)}")
-                continue
-            
-            logger.error(f"Error processing {filepath} after {max_retries} retries: {str(e)}")
-            logger.warning(f"FAIL: {filepath} (exception: {str(e)})")
+            # If resource is not available (e.g., on Windows), just continue
+            pass
+
+        # Memory limit check (per worker)
+        max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
+        process = psutil.Process(os.getpid())
+        if process.memory_info().rss > max_mem_mb * 1024 * 1024:
+            logger.warning(f"Worker memory exceeded {max_mem_mb}MB, skipping {filepath}")
+            print(f"[DEBUG] Worker memory exceeded {max_mem_mb}MB, skipping {filepath}")
             return None, filepath, False
+
+        while retry_count <= max_retries:
+            try:
+                if not os.path.exists(filepath):
+                    logger.warning(f"File not found: {filepath}")
+                    print(f"[DEBUG] File not found: {filepath}")
+                    return None, filepath, False
+                
+                if os.path.getsize(filepath) < 1024:
+                    logger.warning(f"Skipping small file: {filepath}")
+                    print(f"[DEBUG] Skipping small file: {filepath}")
+                    return None, filepath, False
+
+                if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
+                    logger.warning(f"Unsupported extension, skipping: {filepath}")
+                    print(f"[DEBUG] Unsupported extension, skipping: {filepath}")
+                    return None, filepath, False
+
+                result = audio_analyzer.extract_features(filepath)
+
+                if result and result[0] is not None:
+                    features, db_write_success, _ = result
+                    for key in ['bpm', 'centroid', 'duration']:
+                        if features.get(key) is None:
+                            features[key] = 0.0
+                    logger.info(f"PROCESSED: {filepath}")
+                    print(f"[DEBUG] PROCESSED: {filepath}")
+                    return features, filepath, db_write_success
+                
+                # If we get here, result was None or features were None
+                if retry_count < max_retries:
+                    retry_count += 1
+                    time.sleep(backoff_time)
+                    backoff_time *= 2  # Exponential backoff
+                    logger.debug(f"Retrying {filepath} (attempt {retry_count}/{max_retries})")
+                    continue
+                
+                logger.warning(f"Feature extraction failed for {filepath}")
+                print(f"[DEBUG] Feature extraction failed for {filepath}")
+                return None, filepath, False
+
+            except Exception as e:
+                if retry_count < max_retries:
+                    retry_count += 1
+                    time.sleep(backoff_time)
+                    backoff_time *= 2
+                    logger.debug(f"Error processing {filepath}, retrying (attempt {retry_count}/{max_retries}): {str(e)}")
+                    continue
+                
+                logger.error(f"Error processing {filepath} after {max_retries} retries: {str(e)}")
+                logger.warning(f"FAIL: {filepath} (exception: {str(e)})")
+                print(f"[DEBUG] FAIL: {filepath} (exception: {str(e)})")
+                return None, filepath, False
+        print(f"[DEBUG] Worker finished for {filepath}")
+        return None, filepath, False
+    except Exception as e:
+        print(f"[ERROR] Exception in worker for {filepath}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None, filepath, False
 
 class AdaptiveMemoryPool:
     """
