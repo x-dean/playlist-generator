@@ -337,7 +337,8 @@ def main() -> None:
                 db_files = set(f['filepath'] for f in audio_db.get_all_features(include_failed=True))
                 files_to_analyze = [f for f in file_list if f not in db_files]
             if not files_to_analyze:
-                cli.show_success("All files are already analyzed or failed. Nothing to do!")
+                skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
+                cli.show_success(f"Processed 0 files! Skipped {skipped_count} files due to errors (see database for details).")
                 return
             BIG_FILE_SIZE_MB = 200
             def is_big_file(filepath):
@@ -444,6 +445,10 @@ def main() -> None:
                                     pass
                     failed_files.extend(processor.failed_files)
             cli.show_success(f"Analysis completed. Processed {len(files_to_analyze)} files, {len(failed_files)} failed")
+            # Print how many files were skipped due to errors
+            skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
+            if skipped_count > 0:
+                print(f"Skipped {skipped_count} files due to errors (see database for details).")
             runtime = time.time() - start_time
             console = Console()
             summary_text = f"""
@@ -451,6 +456,7 @@ def main() -> None:
 
 Processed Files: [cyan]{len(files_to_analyze)}[/cyan]
 Failed Files: [red]{len(failed_files)}[/red]
+Skipped Files (errors): [yellow]{skipped_count}[/yellow]
 With MusicBrainz Info: [green]{0}[/green]
 Without MusicBrainz Info: [yellow]{0}[/yellow]
 Runtime: [magenta]{runtime:.1f} seconds[/magenta]
