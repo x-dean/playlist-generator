@@ -338,11 +338,10 @@ def main() -> None:
             db_files = set(f['filepath'] for f in db_features)
             failed_files_db = set(f['filepath'] for f in db_features if f['failed'])
             # DEBUG: Print samples to check for path mismatches
-            print("Sample from file_list:", file_list[:3])
-            print("Sample from failed_files_db:", list(failed_files_db)[:3])
-            print("Sample from db_files:", list(db_files)[:3])
-            # DEBUG: Show intersection and files to analyze
-            print("Intersection (should be re-analyzed):", list(set(file_list) & failed_files_db))
+            logger.debug(f"Sample from file_list: {file_list[:3]}")
+            logger.debug(f"Sample from failed_files_db: {list(failed_files_db)[:3]}")
+            logger.debug(f"Sample from db_files: {list(db_files)[:3]}")
+            logger.debug(f"Intersection (should be re-analyzed): {list(set(file_list) & failed_files_db)}")
             # Determine which files to analyze based on flags
             if args.force:
                 # Force: re-analyze all files
@@ -353,8 +352,8 @@ def main() -> None:
             else:
                 # Only analyze files not in DB
                 files_to_analyze = [f for f in file_list if f not in db_files]
-            print("Files to analyze:", files_to_analyze[:10])
-            print(f"About to process {len(files_to_analyze)} files")
+            logger.debug(f"Files to analyze: {files_to_analyze[:10]}")
+            logger.debug(f"About to process {len(files_to_analyze)} files")
             if not files_to_analyze:
                 skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
                 cli.show_success(f"Processed 0 files! Skipped {skipped_count} files due to errors (see database for details).")

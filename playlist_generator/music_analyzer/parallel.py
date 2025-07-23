@@ -105,10 +105,10 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
             logger.warning(f"Feature extraction failed for {filepath}")
             return None, filepath, False
         except TimeoutException:
-            print(f"TIMEOUT in worker for {os.path.basename(filepath)}")
+            logger.debug(f"TIMEOUT in worker for {os.path.basename(filepath)}")
             return None, filepath, False
         except Exception as e:
-            print(f"FATAL ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
+            logger.error(f"FATAL ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
             return None, filepath, False
     notified["shown"] = True
     return None, filepath, False
