@@ -22,11 +22,10 @@ def process_file_worker(filepath, dynamic_mem_limit_mb=None):
     import os
     from .audio_analyzer import AudioAnalyzer
     print(f"[DEBUG] Worker started for {filepath}")
-    try:
-        audio_analyzer = AudioAnalyzer()
-        max_retries = 2
-        retry_count = 0
-        backoff_time = 1  # Initial backoff time in seconds
+    audio_analyzer = AudioAnalyzer()
+    max_retries = 2
+    retry_count = 0
+    backoff_time = 1  # Initial backoff time in seconds
 
     # Memory limit check (per worker)
     max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
