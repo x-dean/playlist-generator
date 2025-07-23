@@ -269,6 +269,31 @@ def main() -> None:
             print(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}")
             exit(0)
 
+        # Create a multiprocessing queue for long-running file notifications
+        status_queue = multiprocessing.Queue()
+        long_running_files = set()
+        spinner_stop = threading.Event()
+
+        def spinner_panel():
+            if not long_running_files:
+                return Panel("All files are processing normally.", title="Long-Running Files", border_style="green")
+            return Panel(
+                "\n".join([f"[yellow]{file}[/yellow]" for file in long_running_files]),
+                title="[cyan]Long-Running Files (>5s) [spinner]",
+                border_style="yellow"
+            )
+
+        def status_listener():
+            while not spinner_stop.is_set():
+                try:
+                    filepath = status_queue.get(timeout=0.5)
+                    long_running_files.add(filepath)
+                except Exception:
+                    continue
+
+        listener_thread = threading.Thread(target=status_listener, daemon=True)
+        listener_thread.start()
+
         if args.update:
             cli.update_status("Running in UPDATE mode")
             features_from_db = audio_db.get_all_features()
