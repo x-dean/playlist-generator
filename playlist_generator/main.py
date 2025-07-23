@@ -366,27 +366,54 @@ def main() -> None:
                     if args.force_sequential or (args.workers and args.workers <= 1):
                         processor = SequentialProcessor()
                         process_iter = processor.process(normal_files, workers=args.workers or 1)
+                        for filepath in normal_files:
+                            filename = os.path.basename(filepath)
+                            try:
+                                size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                            except Exception:
+                                size_mb = 0
+                            features, _, _ = process_file_worker(filepath)
+                            processed_count += 1
+                            progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB)")
+                            logger.debug(f"Features: {features}")
+                            if features and 'metadata' in features:
+                                meta = features['metadata']
+                                if meta.get('musicbrainz_id'):
+                                    pass
+                                else:
+                                    pass
+                        failed_files.extend(processor.failed_files)
                     else:
                         processor = ParallelProcessor()
                         process_iter = processor.process(normal_files, workers=args.workers or multiprocessing.cpu_count())
-                    for features in process_iter:
-                        processed_count += 1
-                        progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files")
-                        logger.debug(f"Features: {features}")
-                        if features and 'metadata' in features:
-                            meta = features['metadata']
-                            if meta.get('musicbrainz_id'):
-                                pass
-                            else:
-                                pass
-                    failed_files.extend(processor.failed_files)
+                        for features, filepath, db_write_success in process_iter:
+                            filename = os.path.basename(filepath)
+                            try:
+                                size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                            except Exception:
+                                size_mb = 0
+                            processed_count += 1
+                            progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB)")
+                            logger.debug(f"Features: {features}")
+                            if features and 'metadata' in features:
+                                meta = features['metadata']
+                                if meta.get('musicbrainz_id'):
+                                    pass
+                                else:
+                                    pass
+                        failed_files.extend(processor.failed_files)
                 # 2. Process big files sequentially
                 if big_files:
                     processor = SequentialProcessor()
-                    process_iter = processor.process(big_files, workers=1)
-                    for features in process_iter:
+                    for filepath in big_files:
+                        filename = os.path.basename(filepath)
+                        try:
+                            size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                        except Exception:
+                            size_mb = 0
+                        features, _, _ = process_file_worker(filepath)
                         processed_count += 1
-                        progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files (big file)")
+                        progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB) (big file)")
                         logger.debug(f"Features: {features}")
                         if features and 'metadata' in features:
                             meta = features['metadata']
