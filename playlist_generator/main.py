@@ -333,11 +333,10 @@ def main() -> None:
 
         elif args.analyze:
             file_list = get_audio_files(args.music_dir)
-            file_list = [convert_to_host_path(f, host_music_dir, container_music_dir) for f in file_list]
-            # Normalize db_files and failed_files_db to host paths for comparison
+            # Revert: use container paths everywhere, no normalization
             db_features = audio_db.get_all_features(include_failed=True)
-            db_files = set(convert_to_host_path(f['filepath'], host_music_dir, container_music_dir) for f in db_features)
-            failed_files_db = set(convert_to_host_path(f['filepath'], host_music_dir, container_music_dir) for f in db_features if f['failed'])
+            db_files = set(f['filepath'] for f in db_features)
+            failed_files_db = set(f['filepath'] for f in db_features if f['failed'])
             # DEBUG: Print samples to check for path mismatches
             print("Sample from file_list:", file_list[:3])
             print("Sample from failed_files_db:", list(failed_files_db)[:3])
