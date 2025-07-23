@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 # Top-level worker wrapper for multiprocessing (must be picklable)
 def worker_wrapper(worker_func, file_path, conn, mem_limit_mb):
+    print(f"[DEBUG] worker_wrapper started for {file_path}")
+    import sys; sys.stdout.flush()
     result = worker_func(file_path, mem_limit_mb)
     conn.send(result)
     conn.close()
