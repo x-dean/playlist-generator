@@ -20,6 +20,10 @@ from rich.console import Console
 from rich.panel import Panel
 from utils.checkpoint import CheckpointManager
 from typing import Optional
+import multiprocessing
+import threading
+from rich.live import Live
+from rich.spinner import Spinner
 
 logger = setup_colored_logging()
 
@@ -284,15 +288,14 @@ def main() -> None:
         elif args.analyze_only:
             cli.update_status("Running audio analysis only")
             file_list = get_audio_files(args.music_dir)
-
             if args.force_sequential or (args.workers and args.workers <= 1):
                 processor = SequentialProcessor()
+                process_iter = processor.process(file_list, workers=args.workers or 1)
             else:
                 processor = ParallelProcessor()
-
+                process_iter = processor.process(file_list, workers=args.workers or multiprocessing.cpu_count(), status_queue=status_queue)
             failed_files = []
             processed_count = 0
-
             progress = Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -302,22 +305,24 @@ def main() -> None:
                 TimeRemainingColumn(),
                 console=Console()
             )
-            with progress:
-                task_id = progress.add_task(f"Processed 0/{len(file_list)} files", total=len(file_list))
-                for features in processor.process(file_list, workers=args.workers or mp.cpu_count()):
-                    processed_count += 1
-                    progress.update(task_id, advance=1, description=f"Processed {processed_count}/{len(file_list)} files")
-                    logger.debug(f"Features: {features}")
-                    if features and 'metadata' in features:
-                        meta = features['metadata']
-                        if meta.get('musicbrainz_id'):
-                            pass # mb_this_run += 1
-                        else:
-                            pass # no_mb_this_run += 1
+            with Live(spinner_panel(), refresh_per_second=4, console=Console(), transient=True) as live:
+                with progress:
+                    task_id = progress.add_task(f"Processed 0/{len(file_list)} files", total=len(file_list))
+                    for features in process_iter:
+                        processed_count += 1
+                        progress.update(task_id, advance=1, description=f"Processed {processed_count}/{len(file_list)} files")
+                        logger.debug(f"Features: {features}")
+                        if features and 'metadata' in features:
+                            meta = features['metadata']
+                            if meta.get('musicbrainz_id'):
+                                pass
+                            else:
+                                pass
+                        # Update spinner panel
+                        live.update(spinner_panel())
             failed_files.extend(processor.failed_files)
-
+            spinner_stop.set()
             cli.show_success(f"Analysis completed. Processed {len(file_list)} files, {len(failed_files)} failed")
-            # Print summary for this run only in a rich Panel
             runtime = time.time() - start_time
             console = Console()
             summary_text = f"""
@@ -330,7 +335,7 @@ Without MusicBrainz Info: [yellow]{0}[/yellow]
 Runtime: [magenta]{runtime:.1f} seconds[/magenta]
 """
             console.print(Panel(summary_text, title="📊 Analysis Summary", border_style="blue"))
-            return  # Exit here to skip playlist generation
+            return
 
         elif args.generate_only:
             cli.update_status("Generating playlists from database")
