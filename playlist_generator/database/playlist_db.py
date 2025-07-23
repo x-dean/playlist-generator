@@ -162,3 +162,7 @@ class PlaylistDatabase:
         except Exception as e:
             logger.error(f"Error getting playlist stats: {str(e)}")
             return {}
+
+    def get_library_statistics(self) -> Dict[str, Any]:
+        """Return statistics about the music library and playlists."""
+        return self.db.get_library_statistics()

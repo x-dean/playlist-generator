@@ -25,6 +25,7 @@ ENRICH_TAGS=false
 FORCE_ENRICH_TAGS=false
 ENRICH_ONLY=false
 FORCE=false
+STATUS=false
 
 # Get current user's UID and GID
 CURRENT_UID=$(id -u)
@@ -104,6 +105,10 @@ while [[ $# -gt 0 ]]; do
             FORCE=true
             shift
             ;;
+        --status)
+            STATUS=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [options]"
             echo "Options:"
@@ -124,6 +129,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --force_enrich_tags      Force re-enrichment of tags and overwrite metadata in the database (default: false)"
             echo "  --enrich_only           Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)"
             echo "  --force                 Force re-enrichment for all tracks in the database (use with --enrich_only)"
+            echo "  --status                 Show library/database statistics and exit"
             echo "  --help, -h               Show this help message"
             exit 0
             ;;
@@ -200,6 +206,7 @@ echo "Enrich Tags: ${ENRICH_TAGS}"
 echo "Force Enrich Tags: ${FORCE_ENRICH_TAGS}"
 echo "Enrich Only: ${ENRICH_ONLY}"
 echo "Force Enrich Only: ${FORCE}"
+echo "Status Mode: ${STATUS}"
 echo "Running as UID:GID = $CURRENT_UID:$CURRENT_GID"
 echo "========================================"
 
@@ -247,6 +254,20 @@ if [ "$FORCE" = true ]; then
 fi
 
 # Run the generator
+if [ "$STATUS" = true ]; then
+    # Only run status, ignore other flags
+    echo "=== Showing Library/Database Status ==="
+    docker compose up --force-recreate --remove-orphans --build --detach
+    docker compose exec playlist-generator python main.py \
+      --music_dir /music \
+      --host_music_dir ${HOST_MUSIC_DIR} \
+      --output_dir /app/playlists \
+      --workers ${WORKERS} \
+      --num_playlists ${NUM_PLAYLISTS} \
+      --status
+    exit $?
+fi
+
 echo "=== Starting Playlist Generation ==="
 docker compose up --force-recreate --remove-orphans --build --detach
 

@@ -125,6 +125,7 @@ def main():
     group.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
     group.add_argument('-a', '--analyze_only', action='store_true', help='Only run audio analysis (no playlist generation)')
     group.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
+    group.add_argument('--status', action='store_true', help='Show library/database statistics and exit')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
     parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags'], default='all',
                       help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
@@ -134,6 +135,12 @@ def main():
     parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
     parser.add_argument('--force', action='store_true', help='Force re-enrichment for all tracks in the database (use with --enrich_only)')
     args = parser.parse_args()
+
+    # If --status is set, show statistics and exit
+    if getattr(args, 'status', False):
+        stats = playlist_db.get_library_statistics()
+        cli.show_library_statistics(stats)
+        sys.exit(0)
 
     # If no mutually exclusive mode is set, default to analyze_only
     if not (args.analyze_only or args.generate_only or args.update):

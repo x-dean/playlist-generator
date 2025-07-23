@@ -223,6 +223,41 @@ Peak CPU Usage: {stats.get('peak_cpu', 0):.1f}%
         """Update status message"""
         self.console.print(f"[blue]ℹ[/blue] {message}")
 
+    def show_library_statistics(self, stats: dict):
+        """Display library/database statistics in a rich panel and table."""
+        from rich.table import Table
+        from rich.panel import Panel
+        from rich.console import Group
+        if not stats:
+            self.console.print(Panel("[yellow]No statistics available[/yellow]", title="Library Statistics", border_style="yellow"))
+            return
+
+        # Main stats table
+        table = Table(title="Library Statistics", show_header=False, box=None)
+        table.add_row("Total Tracks", str(stats.get('total_tracks', 0)))
+        table.add_row("Tracks with Tags", str(stats.get('tracks_with_tags', 0)))
+        table.add_row("Tracks with Genre", str(stats.get('tracks_with_genre', 0)))
+        table.add_row("Tracks with Year", str(stats.get('tracks_with_year', 0)))
+        table.add_row("Total Playlists", str(stats.get('total_playlists', 0)))
+
+        # Playlist membership histogram
+        hist = stats.get('track_playlist_membership', {})
+        if hist:
+            hist_table = Table(title="Track Playlist Membership", show_header=True, header_style="bold magenta")
+            hist_table.add_column("# Playlists", justify="right", style="cyan")
+            hist_table.add_column("# Tracks", justify="right", style="green")
+            for n in sorted(hist):
+                label = str(n)
+                if int(n) >= 3:
+                    label = f"{n}+"
+                hist_table.add_row(label, str(hist[n]))
+        else:
+            hist_table = Table()
+            hist_table.add_row("No playlist membership data.")
+
+        group = Group(table, hist_table)
+        self.console.print(Panel(group, title="📊 Library/Database Status", border_style="blue"))
+
 class CLIContextManager:
     """Context manager for CLI progress tracking"""
     def __init__(self, cli: PlaylistGeneratorCLI, total: int, description: str):

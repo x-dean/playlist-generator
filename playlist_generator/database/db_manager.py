@@ -333,3 +333,52 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting tags for {file_path}: {str(e)}")
             return {} 
+
+    def get_library_statistics(self) -> Dict[str, Any]:
+        """Return statistics about the music library and playlists."""
+        conn = self._get_connection()
+        stats = {}
+        try:
+            cursor = conn.cursor()
+            # Total tracks
+            cursor.execute("SELECT COUNT(*) FROM audio_features")
+            stats['total_tracks'] = cursor.fetchone()[0]
+
+            # Tracks with tags (track_tags table)
+            cursor.execute("SELECT COUNT(DISTINCT file_hash) FROM track_tags")
+            stats['tracks_with_tags'] = cursor.fetchone()[0]
+
+            # Tracks with genre in metadata
+            cursor.execute("SELECT metadata FROM audio_features")
+            genre_count = 0
+            year_count = 0
+            for row in cursor.fetchall():
+                try:
+                    meta = json.loads(row['metadata']) if row['metadata'] else {}
+                    genre = meta.get('genre')
+                    year = meta.get('year') or meta.get('date')
+                    if genre and (isinstance(genre, str) or (isinstance(genre, list) and genre)):
+                        genre_count += 1
+                    if year and str(year).strip():
+                        year_count += 1
+                except Exception:
+                    continue
+            stats['tracks_with_genre'] = genre_count
+            stats['tracks_with_year'] = year_count
+
+            # Total playlists
+            cursor.execute("SELECT COUNT(*) FROM playlists")
+            stats['total_playlists'] = cursor.fetchone()[0]
+
+            # Track playlist membership histogram
+            cursor.execute("SELECT file_hash, COUNT(playlist_id) as n FROM playlist_tracks GROUP BY file_hash")
+            membership_hist = {}
+            for row in cursor.fetchall():
+                n = row['n']
+                membership_hist[n] = membership_hist.get(n, 0) + 1
+            stats['track_playlist_membership'] = membership_hist
+
+            return stats
+        except Exception as e:
+            logger.error(f"Error getting library statistics: {str(e)}")
+            return stats 
