@@ -1,4 +1,3 @@
-import gc
 from tqdm import tqdm
 import logging
 from .audio_analyzer import audio_analyzer

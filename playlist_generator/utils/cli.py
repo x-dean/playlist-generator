@@ -206,8 +206,6 @@ Duration: {duration:.1f} seconds
 Processed Files: {stats.get('processed_files', 0)}
 Generated Playlists: {stats.get('total_playlists', 0)}
 Failed Files: {stats.get('failed_files', 0)}
-Peak Memory Usage: {stats.get('peak_memory_mb', 0):.1f} MB
-Peak CPU Usage: {stats.get('peak_cpu', 0):.1f}%
 """,
             title="📊 Session Summary",
             border_style="blue"

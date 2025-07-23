@@ -6,8 +6,6 @@ from tqdm import tqdm
 import logging
 import time
 from .audio_analyzer import AudioAnalyzer
-import psutil
-import resource
 
 logger = logging.getLogger(__name__)
 

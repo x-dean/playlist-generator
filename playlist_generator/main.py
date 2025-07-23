@@ -13,8 +13,6 @@ from playlist_generator.time_based import TimeBasedScheduler
 from playlist_generator.kmeans import KMeansPlaylistGenerator
 from playlist_generator.cache import CacheBasedGenerator
 from playlist_generator.playlist_manager import PlaylistManager
-from utils.system_monitor import SystemMonitor, monitor_performance
-from utils.checkpoint import CheckpointManager
 import logging
 from utils.cli import PlaylistGeneratorCLI, CLIContextManager
 from rich.progress import track
@@ -27,7 +25,9 @@ import logging as pylogging
 pylogging.getLogger("musicbrainzngs").setLevel(pylogging.WARNING)
 
 # Initialize system monitoring
-system_monitor = SystemMonitor()
+# Remove SystemMonitor and monitor_performance imports
+# Remove @monitor_performance decorators from get_audio_files and main
+# Remove system_monitor initialization
 checkpoint_manager = CheckpointManager()
 
 # Initialize CLI
@@ -36,7 +36,6 @@ cli = PlaylistGeneratorCLI()
 os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
 os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
-@monitor_performance
 def get_audio_files(music_dir):
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
@@ -60,7 +59,6 @@ def convert_to_host_path(container_path, host_music_dir, container_music_dir):
     rel_path = os.path.relpath(container_path, container_music_dir)
     return os.path.join(host_music_dir, rel_path)
 
-@monitor_performance
 def save_playlists(playlists, output_dir, host_music_dir, container_music_dir, failed_files, playlist_method=None):
     # For time-based, create subfolders per slot
     def get_time_slot_from_name(name):
@@ -108,7 +106,6 @@ def save_playlists(playlists, output_dir, host_music_dir, container_music_dir, f
             f.write("\n".join(host_failed))
         logger.info(f"Saved {len(failed_files)} failed files to {failed_path}")
 
-@monitor_performance
 def main():
     # Start CLI session
     cli.start_session()

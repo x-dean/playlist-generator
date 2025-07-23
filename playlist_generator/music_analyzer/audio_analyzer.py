@@ -9,11 +9,9 @@ import sqlite3
 import time
 from functools import wraps
 import traceback
-import gc
 import musicbrainzngs
 from mutagen import File as MutagenFile
 import json
-import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -135,8 +133,6 @@ class AudioAnalyzer:
         except Exception as e:
             logger.error(f"AudioLoader error for {audio_path}: {str(e)}")
             return None
-        finally:
-            gc.collect()
 
 
     def _extract_rhythm_features(self, audio):
@@ -245,7 +241,6 @@ class AudioAnalyzer:
             file_info = self._get_file_info(audio_path)
             # Set timeout to 180 seconds
             self.timeout_seconds = 180
-            # Removed memory limit logic
 
             # Check cache first
             cached_features = self._get_cached_features(file_info)
