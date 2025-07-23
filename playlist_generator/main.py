@@ -256,60 +256,28 @@ def main():
         elif args.analyze_only:
             cli.update_status("Running audio analysis only")
             file_list = get_audio_files(args.music_dir)
-            print(f"Found {len(file_list)} files to process")  # DEBUG: Show how many files were found
-
-            if args.force_sequential or (args.workers and args.workers <= 1):
-                processor = SequentialProcessor()
-            else:
-                processor = ParallelProcessor()
-
-            failed_files = []
-            processed_this_run = []
-            mb_this_run = 0
-            no_mb_this_run = 0
-            total_files = len(file_list)
-            processed_count = 0
-
-            from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
-            progress = Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(bar_width=40),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TimeElapsedColumn(),
-                TimeRemainingColumn(),
-                console=Console()
-            )
-            with progress:
-                task_id = progress.add_task(f"Processed 0/{total_files} files", total=total_files)
+            print(f"[DEBUG] Found {len(file_list)} files to process")  # DEBUG: Show how many files were found
+            if not file_list:
+                print("[DEBUG] No files found to process. Exiting.")
+                return
+            print("[DEBUG] About to launch processor for analysis...")
+            try:
+                if args.force_sequential or (args.workers and args.workers <= 1):
+                    processor = SequentialProcessor()
+                else:
+                    processor = ParallelProcessor()
+                print("[DEBUG] Processor initialized. Starting analysis loop...")
+                failed_files = []
+                processed_this_run = []
                 for features in processor.process(file_list, workers=args.workers or mp.cpu_count()):
-                    processed_count += 1
-                    progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files")
-                    logger.debug(f"Features: {features}")
                     if features and 'metadata' in features:
                         processed_this_run.append(features)
-                        meta = features['metadata']
-                        if meta.get('musicbrainz_id'):
-                            mb_this_run += 1
-                        else:
-                            no_mb_this_run += 1
-            failed_files.extend(processor.failed_files)
-
-            cli.show_success(f"Analysis completed. Processed {len(processed_this_run)} files, {len(failed_files)} failed")
-            # Print summary for this run only in a rich Panel
-            runtime = time.time() - start_time
-            console = Console()
-            summary_text = f"""
-[bold green]Analysis Summary (this run)[/bold green]
-
-Processed Files: [cyan]{len(processed_this_run)}[/cyan]
-Failed Files: [red]{len(failed_files)}[/red]
-With MusicBrainz Info: [green]{mb_this_run}[/green]
-Without MusicBrainz Info: [yellow]{no_mb_this_run}[/yellow]
-Runtime: [magenta]{runtime:.1f} seconds[/magenta]
-"""
-            console.print(Panel(summary_text, title="📊 Analysis Summary", border_style="blue"))
-            return  # Exit here to skip playlist generation
+                print(f"[DEBUG] Analysis loop complete. Processed {len(processed_this_run)} files.")
+            except Exception as e:
+                print(f"[ERROR] Exception during analysis: {e}")
+                import traceback
+                traceback.print_exc()
+                return
 
         elif args.generate_only:
             cli.update_status("Generating playlists from database")
