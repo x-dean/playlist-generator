@@ -333,6 +333,7 @@ def main() -> None:
 
         elif args.analyze:
             file_list = get_audio_files(args.music_dir)
+            file_list = [convert_to_host_path(f, host_music_dir, container_music_dir) for f in file_list]
             # Normalize db_files and failed_files_db to host paths for comparison
             db_features = audio_db.get_all_features(include_failed=True)
             db_files = set(convert_to_host_path(f['filepath'], host_music_dir, container_music_dir) for f in db_features)
@@ -496,6 +497,7 @@ Runtime: [magenta]{runtime:.1f} seconds[/magenta]
         else:
             cli.update_status("Running full processing pipeline")
             file_list = get_audio_files(args.music_dir)
+            file_list = [convert_to_host_path(f, host_music_dir, container_music_dir) for f in file_list]
             
             # Analysis phase
             with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
