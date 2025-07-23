@@ -333,13 +333,14 @@ def main() -> None:
             save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
         elif args.analyze:
+            file_list = get_audio_files(args.music_dir)
+            db_files = set(f['filepath'] for f in audio_db.get_all_features(include_failed=True))
+            failed_files_db = set(f['filepath'] for f in audio_db.get_all_features(include_failed=True) if f['failed'])
             if args.failed:
-                cli.update_status("Reprocessing failed files only")
-                files_to_analyze = [f['filepath'] for f in audio_db.get_all_features(include_failed=True) if f['failed']]
+                # Analyze files not in DB or previously failed
+                files_to_analyze = [f for f in file_list if f not in db_files or f in failed_files_db]
             else:
-                cli.update_status("Running audio analysis only")
-                file_list = get_audio_files(args.music_dir)
-                db_files = set(f['filepath'] for f in audio_db.get_all_features(include_failed=True))
+                # Only analyze files not in DB
                 files_to_analyze = [f for f in file_list if f not in db_files]
             if not files_to_analyze:
                 skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
