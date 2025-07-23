@@ -15,7 +15,7 @@ class CheckpointManager:
         os.makedirs(self.checkpoint_dir, exist_ok=True)
         self.current_checkpoint = None
         self.checkpoint_file = None
-        logger.debug(f"Using checkpoint directory: {self.checkpoint_dir}")
+        logger.info(f"Using checkpoint directory: {self.checkpoint_dir}")
 
     def save_checkpoint(self, state: Dict[str, Any], name: str = None) -> str:
         """Save processing state for recovery"""
@@ -35,7 +35,7 @@ class CheckpointManager:
             
             self.current_checkpoint = name
             self.checkpoint_file = filepath
-            logger.debug(f"Saved checkpoint: {filepath}")
+            logger.info(f"Saved checkpoint: {filepath}")
             return filepath
         
         except Exception as e:

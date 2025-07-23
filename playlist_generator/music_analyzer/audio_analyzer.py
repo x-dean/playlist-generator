@@ -13,7 +13,6 @@ import gc
 import musicbrainzngs
 from mutagen import File as MutagenFile
 import json
-import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -243,58 +242,24 @@ class AudioAnalyzer:
     def extract_features(self, audio_path):
         try:
             file_info = self._get_file_info(audio_path)
-            # Set timeout to 180 seconds
-            self.timeout_seconds = 180
-            # Memory limit (MB)
-            max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
-            process = psutil.Process(os.getpid())
-
-            # Check memory before starting
-            if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                gc.collect()
-                if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                    logger.warning(f"Memory exceeded {max_mem_mb}MB before processing {audio_path}, skipping file.")
-                    return None, False, None
 
             # Check cache first
             cached_features = self._get_cached_features(file_info)
             if cached_features:
-                logger.info(f"Using cached features for {file_info['file_path']}")
                 return cached_features, True, file_info['file_hash']
 
             # Process new file
             audio = self._safe_audio_load(audio_path)
             if audio is None:
-                logger.error(f"Audio loading failed for {audio_path}")
                 return None, False, None
 
-            # Memory check after loading audio
-            if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                gc.collect()
-                if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                    logger.warning(f"Memory exceeded {max_mem_mb}MB after loading audio for {audio_path}, skipping file.")
-                    return None, False, None
-
             features = self._extract_all_features(audio_path, audio)
-
-            # Memory check after feature extraction
-            if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                gc.collect()
-                if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-                    logger.warning(f"Memory exceeded {max_mem_mb}MB after feature extraction for {audio_path}, skipping file.")
-                    return None, False, None
-
             db_write_success = self._save_features_to_db(file_info, features)
-
-            if db_write_success:
-                logger.info(f"DB WRITE: {file_info['file_path']}")
-            else:
-                logger.error(f"DB WRITE FAILED: {file_info['file_path']}")
 
             return features, db_write_success, file_info['file_hash']
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
-            logger.warning(traceback.format_exc())
+            logger.error(traceback.format_exc())
             return None, False, None
         except TimeoutException:
             logger.warning(f"Timeout on {audio_path}")
@@ -364,8 +329,8 @@ class AudioAnalyzer:
 
         # Print/log MusicBrainz info if present
         # (Removed per user request)
-        if mb_tags:
-            logger.debug(f"MusicBrainz info for '{artist} - {title}': {mb_tags}")
+        # if mb_tags:
+        #     logger.info(f"MusicBrainz info for '{artist} - {title}': {mb_tags}")
 
         if len(audio) >= 44100:  # At least 1 second
             try:
@@ -418,7 +383,7 @@ class AudioAnalyzer:
                     self._ensure_float(file_info['last_modified']),
                     json.dumps(features.get('metadata', {}))
                 ))
-                logger.debug(f"DB WRITE: {file_info['file_path']}")
+                logger.info(f"DB WRITE: {file_info['file_path']}")
             return True
         except Exception as e:
             logger.error(f"DB WRITE FAILED: {file_info['file_path']} - {str(e)}")
