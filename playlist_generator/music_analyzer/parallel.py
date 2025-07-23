@@ -59,14 +59,26 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
             if not os.path.exists(filepath):
                 notified["shown"] = True
                 logger.warning(f"File not found: {filepath}")
+                from .audio_analyzer import AudioAnalyzer
+                audio_analyzer = AudioAnalyzer()
+                file_info = audio_analyzer._get_file_info(filepath)
+                audio_analyzer._mark_failed(file_info)
                 return None, filepath, False
             if os.path.getsize(filepath) < 1024:
                 notified["shown"] = True
                 logger.warning(f"Skipping small file: {filepath}")
+                from .audio_analyzer import AudioAnalyzer
+                audio_analyzer = AudioAnalyzer()
+                file_info = audio_analyzer._get_file_info(filepath)
+                audio_analyzer._mark_failed(file_info)
                 return None, filepath, False
             if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
                 notified["shown"] = True
                 logger.warning(f"Unsupported extension, skipping: {filepath}")
+                from .audio_analyzer import AudioAnalyzer
+                audio_analyzer = AudioAnalyzer()
+                file_info = audio_analyzer._get_file_info(filepath)
+                audio_analyzer._mark_failed(file_info)
                 return None, filepath, False
             result = None
             try:
