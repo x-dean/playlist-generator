@@ -125,6 +125,7 @@ class AdaptiveMemoryPool:
 
     def run(self, file_list, worker_func):
         import time
+        import psutil
         results = []
         file_iter = iter(file_list)
         while True:
@@ -140,14 +141,23 @@ class AdaptiveMemoryPool:
             except StopIteration:
                 break
             est_mem = self.estimate_memory_for_file(file_path)
+            current_used = psutil.virtual_memory().used / (1024 * 1024)
+            current_avail = psutil.virtual_memory().available / (1024 * 1024)
+            print(f"[DEBUG] Considering file: {file_path}")
+            print(f"[DEBUG] Estimated memory for file: {est_mem} MB")
+            print(f"[DEBUG] Current used: {current_used:.2f} MB, Available: {current_avail:.2f} MB, Max allowed: {self.max_memory_mb} MB")
             while not self.can_launch_worker(file_path):
-                # Wait for memory to free up
+                print(f"[DEBUG] Not enough memory to launch worker for {file_path}. Waiting...")
                 time.sleep(1)
                 with self.lock:
                     for w in self.active_workers[:]:
                         if not w.is_alive():
                             w.join()
                             self.active_workers.remove(w)
+                current_used = psutil.virtual_memory().used / (1024 * 1024)
+                current_avail = psutil.virtual_memory().available / (1024 * 1024)
+                print(f"[DEBUG] (Wait loop) Used: {current_used:.2f} MB, Available: {current_avail:.2f} MB")
+            print(f"[DEBUG] Launching worker for {file_path} with memory limit {est_mem} MB")
             # Launch worker with dynamic memory limit
             pconn, cconn = mp.Pipe()
             proc = mp.Process(target=worker_wrapper, args=(worker_func, file_path, cconn, est_mem))
