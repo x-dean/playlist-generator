@@ -18,7 +18,7 @@ from utils.cli import PlaylistGeneratorCLI, CLIContextManager
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.console import Console
 from rich.panel import Panel
-from checkpoint_manager import CheckpointManager
+from utils.checkpoint import CheckpointManager
 from typing import Optional
 
 logger = setup_colored_logging()
