@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 def process_file_worker(filepath):
     import os
-    import resource
     from .audio_analyzer import AudioAnalyzer
     audio_analyzer = AudioAnalyzer()
     max_retries = 2

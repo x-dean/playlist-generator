@@ -15,8 +15,7 @@ from playlist_generator.cache import CacheBasedGenerator
 from playlist_generator.playlist_manager import PlaylistManager
 import logging
 from utils.cli import PlaylistGeneratorCLI, CLIContextManager
-from rich.progress import track
-from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.console import Console
 
 logger = setup_colored_logging()
@@ -253,7 +252,6 @@ def main():
         elif args.analyze_only:
             cli.update_status("Running audio analysis only")
             file_list = get_audio_files(args.music_dir)
-            print(f"Found {len(file_list)} files to process")  # DEBUG: Show how many files were found
 
             if args.force_sequential or (args.workers and args.workers <= 1):
                 processor = SequentialProcessor()
@@ -261,13 +259,8 @@ def main():
                 processor = ParallelProcessor()
 
             failed_files = []
-            processed_this_run = []
-            mb_this_run = 0
-            no_mb_this_run = 0
-            total_files = len(file_list)
             processed_count = 0
 
-            from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
             progress = Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -278,31 +271,30 @@ def main():
                 console=Console()
             )
             with progress:
-                task_id = progress.add_task(f"Processed 0/{total_files} files", total=total_files)
+                task_id = progress.add_task(f"Processed 0/{len(file_list)} files", total=len(file_list))
                 for features in processor.process(file_list, workers=args.workers or mp.cpu_count()):
                     processed_count += 1
-                    progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files")
+                    progress.update(task_id, advance=1, description=f"Processed {processed_count}/{len(file_list)} files")
                     logger.debug(f"Features: {features}")
                     if features and 'metadata' in features:
-                        processed_this_run.append(features)
                         meta = features['metadata']
                         if meta.get('musicbrainz_id'):
-                            mb_this_run += 1
+                            pass # mb_this_run += 1
                         else:
-                            no_mb_this_run += 1
+                            pass # no_mb_this_run += 1
             failed_files.extend(processor.failed_files)
 
-            cli.show_success(f"Analysis completed. Processed {len(processed_this_run)} files, {len(failed_files)} failed")
+            cli.show_success(f"Analysis completed. Processed {len(file_list)} files, {len(failed_files)} failed")
             # Print summary for this run only in a rich Panel
             runtime = time.time() - start_time
             console = Console()
             summary_text = f"""
 [bold green]Analysis Summary (this run)[/bold green]
 
-Processed Files: [cyan]{len(processed_this_run)}[/cyan]
+Processed Files: [cyan]{len(file_list)}[/cyan]
 Failed Files: [red]{len(failed_files)}[/red]
-With MusicBrainz Info: [green]{mb_this_run}[/green]
-Without MusicBrainz Info: [yellow]{no_mb_this_run}[/yellow]
+With MusicBrainz Info: [green]{0}[/green]
+Without MusicBrainz Info: [yellow]{0}[/yellow]
 Runtime: [magenta]{runtime:.1f} seconds[/magenta]
 """
             console.print(Panel(summary_text, title="📊 Analysis Summary", border_style="blue"))

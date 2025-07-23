@@ -7,7 +7,6 @@ import hashlib
 import signal
 import sqlite3
 import time
-from functools import wraps
 import traceback
 import musicbrainzngs
 from mutagen import File as MutagenFile
@@ -445,9 +444,3 @@ class AudioAnalyzer:
             return []
 
 audio_analyzer = AudioAnalyzer()
-
-def extract_features(audio_path):
-    return audio_analyzer.extract_features(audio_path)
-
-def get_all_features():
-    return audio_analyzer.get_all_features()
