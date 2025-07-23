@@ -412,8 +412,19 @@ def main() -> None:
                             size_mb = os.path.getsize(filepath) / (1024 * 1024)
                         except Exception:
                             size_mb = 0
+                        # Show which file is being processed right now
+                        progress.update(
+                            task_id,
+                            description=f"Processing: {filename} ({size_mb:.1f} MB) | {processed_count}/{total_files} files"
+                        )
+                        # Actually process the file (already done by process_iter)
                         processed_count += 1
-                        progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB) (big file)")
+                        # After finishing, update as before
+                        progress.update(
+                            task_id,
+                            advance=1,
+                            description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB) (big file)"
+                        )
                         logger.debug(f"Features: {features}")
                         if features and 'metadata' in features:
                             meta = features['metadata']
