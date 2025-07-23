@@ -269,8 +269,9 @@ def main() -> None:
             print(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}")
             exit(0)
 
-        # Create a multiprocessing queue for long-running file notifications
-        status_queue = multiprocessing.Queue()
+        # Create a multiprocessing manager queue for long-running file notifications
+        manager = multiprocessing.Manager()
+        status_queue = manager.Queue()
         long_running_files = set()
         spinner_stop = threading.Event()
 
