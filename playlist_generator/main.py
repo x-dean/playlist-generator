@@ -410,7 +410,7 @@ def main() -> None:
                     else:
                         processor = ParallelProcessor()
                         process_iter = processor.process(normal_files, workers=args.workers or multiprocessing.cpu_count())
-                        for features, filepath, db_write_success in process_iter:
+                        for features, filepath, _ in process_iter:
                             filename = os.path.basename(filepath)
                             try:
                                 size_mb = os.path.getsize(filepath) / (1024 * 1024)
