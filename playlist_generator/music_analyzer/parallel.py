@@ -12,6 +12,12 @@ import threading
 
 logger = logging.getLogger(__name__)
 
+# Top-level worker wrapper for multiprocessing (must be picklable)
+def worker_wrapper(worker_func, file_path, conn, mem_limit_mb):
+    result = worker_func(file_path, mem_limit_mb)
+    conn.send(result)
+    conn.close()
+
 def process_file_worker(filepath, dynamic_mem_limit_mb=None):
     import os
     import resource
@@ -144,11 +150,7 @@ class AdaptiveMemoryPool:
                             self.active_workers.remove(w)
             # Launch worker with dynamic memory limit
             pconn, cconn = mp.Pipe()
-            def worker_wrapper(path, conn, mem_limit_mb):
-                result = worker_func(path, mem_limit_mb)
-                conn.send(result)
-                conn.close()
-            proc = mp.Process(target=worker_wrapper, args=(file_path, cconn, est_mem))
+            proc = mp.Process(target=worker_wrapper, args=(worker_func, file_path, cconn, est_mem))
             proc.start()
             self.active_workers.append(proc)
             results.append(pconn)
