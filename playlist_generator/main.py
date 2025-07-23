@@ -327,21 +327,22 @@ def main() -> None:
         elif args.analyze_only:
             cli.update_status("Running audio analysis only")
             file_list = get_audio_files(args.music_dir)
-            # Get all files already in the database
             db_files = set(f['filepath'] for f in audio_db.get_all_features())
-            # Filter out files that are already in the database
             files_to_analyze = [f for f in file_list if f not in db_files]
             if not files_to_analyze:
                 cli.show_success("All files are already analyzed. Nothing to do!")
                 return
-            if args.force_sequential or (args.workers and args.workers <= 1):
-                processor = SequentialProcessor()
-                process_iter = processor.process(files_to_analyze, workers=args.workers or 1)
-            else:
-                processor = ParallelProcessor()
-                process_iter = processor.process(files_to_analyze, workers=args.workers or multiprocessing.cpu_count())
+            BIG_FILE_SIZE_MB = 200
+            def is_big_file(filepath):
+                try:
+                    return os.path.getsize(filepath) > BIG_FILE_SIZE_MB * 1024 * 1024
+                except Exception:
+                    return False
+            big_files = [f for f in files_to_analyze if is_big_file(f)]
+            normal_files = [f for f in files_to_analyze if not is_big_file(f)]
             failed_files = []
             processed_count = 0
+            total_files = len(files_to_analyze)
             progress = Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -352,18 +353,41 @@ def main() -> None:
                 console=Console()
             )
             with progress:
-                task_id = progress.add_task(f"Processed 0/{len(files_to_analyze)} files", total=len(files_to_analyze))
-                for features in process_iter:
-                    processed_count += 1
-                    progress.update(task_id, advance=1, description=f"Processed {processed_count}/{len(files_to_analyze)} files")
-                    logger.debug(f"Features: {features}")
-                    if features and 'metadata' in features:
-                        meta = features['metadata']
-                        if meta.get('musicbrainz_id'):
-                            pass
-                        else:
-                            pass
-            failed_files.extend(processor.failed_files)
+                task_id = progress.add_task(f"Processed 0/{total_files} files", total=total_files)
+                # 1. Process normal files in parallel
+                if normal_files:
+                    if args.force_sequential or (args.workers and args.workers <= 1):
+                        processor = SequentialProcessor()
+                        process_iter = processor.process(normal_files, workers=args.workers or 1)
+                    else:
+                        processor = ParallelProcessor()
+                        process_iter = processor.process(normal_files, workers=args.workers or multiprocessing.cpu_count())
+                    for features in process_iter:
+                        processed_count += 1
+                        progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files")
+                        logger.debug(f"Features: {features}")
+                        if features and 'metadata' in features:
+                            meta = features['metadata']
+                            if meta.get('musicbrainz_id'):
+                                pass
+                            else:
+                                pass
+                    failed_files.extend(processor.failed_files)
+                # 2. Process big files sequentially
+                if big_files:
+                    processor = SequentialProcessor()
+                    process_iter = processor.process(big_files, workers=1)
+                    for features in process_iter:
+                        processed_count += 1
+                        progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files (big file)")
+                        logger.debug(f"Features: {features}")
+                        if features and 'metadata' in features:
+                            meta = features['metadata']
+                            if meta.get('musicbrainz_id'):
+                                pass
+                            else:
+                                pass
+                    failed_files.extend(processor.failed_files)
             cli.show_success(f"Analysis completed. Processed {len(files_to_analyze)} files, {len(failed_files)} failed")
             runtime = time.time() - start_time
             console = Console()
