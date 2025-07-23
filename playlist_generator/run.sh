@@ -224,7 +224,7 @@ echo "Music Directory (Container): $MUSIC_DIR"
 echo "Music Directory (Host): $HOST_MUSIC_DIR"
 echo "Output Directory: $OUTPUT_DIR"
 echo "Cache Directory: $CACHE_DIR"
-echo "Workers: $WORKERS"
+echo "Workers: ${WORKERS:-}"
 echo "Playlists: $NUM_PLAYLISTS"
 echo "Force Sequential: ${FORCE_SEQUENTIAL}"
 echo "Generate Only: ${GENERATE_ONLY}"
@@ -237,7 +237,7 @@ echo "Enrich Only: ${ENRICH_ONLY}"
 echo "Force Enrich Only: ${FORCE}"
 echo "Status Mode: ${STATUS}"
 echo "Running as UID:GID = $CURRENT_UID:$CURRENT_GID"
-echo "Worker Max Mem (MB): ${WORKER_MAX_MEM_MB}"
+echo "Worker Max Mem (MB): ${WORKER_MAX_MEM_MB:-}"
 echo "========================================"
 
 # Build only if requested
@@ -292,7 +292,7 @@ if [ "$STATUS" = true ]; then
       --music_dir /music \
       --host_music_dir ${HOST_MUSIC_DIR} \
       --output_dir /app/playlists \
-      --workers ${WORKERS} \
+      --workers ${WORKERS:-} \
       --num_playlists ${NUM_PLAYLISTS} \
       --status
     exit $?
@@ -305,7 +305,7 @@ docker compose exec playlist-generator python main.py \
   --music_dir /music \
   --host_music_dir ${HOST_MUSIC_DIR} \
   --output_dir /app/playlists \
-  --workers ${WORKERS} \
+  --workers ${WORKERS:-} \
   --num_playlists ${NUM_PLAYLISTS} \
   $MUTEX_FLAG \
   $PLAYLIST_METHOD_FLAG \
