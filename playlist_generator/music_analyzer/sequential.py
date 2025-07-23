@@ -25,6 +25,13 @@ class SequentialProcessor:
     def _process_sequential(self, file_list: list[str]) -> iter:
         """Internal generator for sequential processing."""
         for filepath in file_list:
+            import os
+            filename = os.path.basename(filepath)
+            try:
+                size_mb = os.path.getsize(filepath) / (1024 * 1024)
+            except Exception:
+                size_mb = 0
+            print(f"Processing: {filename} ({size_mb:.1f} MB)")
             try:
                 features, _ = process_file_worker(filepath)
                 if features:
