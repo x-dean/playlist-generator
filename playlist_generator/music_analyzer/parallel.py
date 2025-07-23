@@ -40,6 +40,9 @@ def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, t
     active = []  # List of (proc, conn, file_path, est_mem)
     mem_used = 0
     file_iter = iter(file_list)
+    # Get per-worker memory limit from environment
+    worker_max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
+    skipped_files = []
     while True:
         # Clean up finished workers and yield results
         for proc, conn, file_path, mem in active[:]:
@@ -62,6 +65,11 @@ def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, t
             except StopIteration:
                 break
             est_mem = estimate_memory_for_file(file_path)
+            # ENFORCE PER-WORKER MEMORY LIMIT
+            if est_mem > worker_max_mem_mb:
+                logger.warning(f"Skipping {file_path}: estimated memory {est_mem:.0f}MB exceeds per-worker limit {worker_max_mem_mb}MB")
+                skipped_files.append(file_path)
+                continue
             if mem_used + est_mem > max_mem_mb and len(active) > 0:
                 time.sleep(0.5)
                 continue
@@ -88,6 +96,9 @@ def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, t
         else:
             yield (None, file_path, False)
         conn.close()
+    # Yield skipped files as failed
+    for file_path in skipped_files:
+        yield (None, file_path, False)
 
 class ParallelProcessor:
     def __init__(self):

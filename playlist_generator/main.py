@@ -134,7 +134,12 @@ def main():
     parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
     parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
     parser.add_argument('--force', action='store_true', help='Force re-enrichment for all tracks in the database (use with --enrich_only)')
+    parser.add_argument('--worker_max_mem_mb', type=int, default=None, help='Max memory (MB) per worker process (default: 2048)')
     args = parser.parse_args()
+
+    # Set per-worker memory limit environment variable if provided
+    if args.worker_max_mem_mb is not None:
+        os.environ['WORKER_MAX_MEM_MB'] = str(args.worker_max_mem_mb)
 
     # Set cache file path
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
