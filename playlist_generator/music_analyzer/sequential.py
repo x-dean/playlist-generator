@@ -18,7 +18,7 @@ class SequentialProcessor:
             workers (int, optional): Ignored for sequential processing.
 
         Yields:
-            dict: Extracted features for each file.
+            tuple: (features, filepath) for each file.
         """
         yield from self._process_sequential(file_list)
 
@@ -26,15 +26,10 @@ class SequentialProcessor:
         """Internal generator for sequential processing."""
         for filepath in file_list:
             import os
-            filename = os.path.basename(filepath)
-            try:
-                size_mb = os.path.getsize(filepath) / (1024 * 1024)
-            except Exception:
-                size_mb = 0
             try:
                 features, _, _ = process_file_worker(filepath)
                 if features:
-                    yield features
+                    yield features, filepath
                 else:
                     self.failed_files.append(filepath)
             except Exception as e:

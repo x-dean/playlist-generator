@@ -405,13 +405,13 @@ def main() -> None:
                 # 2. Process big files sequentially
                 if big_files:
                     processor = SequentialProcessor()
-                    for filepath in big_files:
+                    process_iter = processor.process(big_files, workers=1)
+                    for features, filepath in process_iter:
                         filename = os.path.basename(filepath)
                         try:
                             size_mb = os.path.getsize(filepath) / (1024 * 1024)
                         except Exception:
                             size_mb = 0
-                        features, _, _ = process_file_worker(filepath)
                         processed_count += 1
                         progress.update(task_id, advance=1, description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB) (big file)")
                         logger.debug(f"Features: {features}")
