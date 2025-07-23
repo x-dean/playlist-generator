@@ -29,6 +29,11 @@ essentia.log.infoActive = False
 essentia.log.warningActive = False
 essentia.log.errorActive = False
 
+# Suppress glog output before importing Essentia or any C++ modules
+os.environ["GLOG_minloglevel"] = "3"  # Only FATAL
+os.environ["GLOG_logtostderr"] = "1"
+os.environ["GLOG_stderrthreshold"] = "3"
+
 logger = setup_colored_logging()
 
 import logging as pylogging
