@@ -125,7 +125,6 @@ class AdaptiveMemoryPool:
                 if not proc.is_alive():
                     proc.join()
                     active_workers.remove((proc, mem))
-            print(f"[DEBUG] Active workers: {[(p.pid, m) for p, m in active_workers]}")
             # Calculate current total estimated memory
             total_est_mem = sum(mem for _, mem in active_workers)
             try:
@@ -133,9 +132,6 @@ class AdaptiveMemoryPool:
             except StopIteration:
                 break
             est_mem = self.estimate_memory_for_file(file_path)
-            if est_mem > self.max_memory_mb:
-                print(f"[ERROR] Estimated memory for {file_path} ({est_mem} MB) exceeds max allowed ({self.max_memory_mb} MB). Skipping file.")
-                continue
             print(f"[DEBUG] Considering file: {file_path}")
             print(f"[DEBUG] Estimated memory for file: {est_mem} MB")
             print(f"[DEBUG] Total estimated running memory: {total_est_mem} MB, Max allowed: {self.max_memory_mb} MB")
