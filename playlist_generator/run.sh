@@ -15,7 +15,7 @@ WORKERS=$(nproc)
 NUM_PLAYLISTS=20
 FORCE_SEQUENTIAL=false
 GENERATE_ONLY=false
-ANALYZE_ONLY=false
+ANALYZE=false
 UPDATE=false
 PLAYLIST_METHOD="all"  # Default to all methods
 ENRICH_TAGS=false
@@ -23,6 +23,9 @@ FORCE_ENRICH_TAGS=false
 ENRICH_ONLY=false
 FORCE=false
 STATUS=false
+FAILED=false
+RESUME=false
+MIN_TRACKS_PER_GENRE=""
 
 # Get current user's UID and GID
 CURRENT_UID=$(id -u)
@@ -60,8 +63,10 @@ while [[ $# -gt 0 ]]; do
             GENERATE_ONLY=true
             shift
             ;;
-        --analyze_only|-a)
-            ANALYZE_ONLY=true
+        --analyze|-a)
+            ANALYZE=true
+            GENERATE_ONLY=false
+            UPDATE=false
             shift
             ;;
         --update|-u)
@@ -106,6 +111,18 @@ while [[ $# -gt 0 ]]; do
             STATUS=true
             shift
             ;;
+        --failed)
+            FAILED=true
+            shift
+            ;;
+        --resume)
+            RESUME=true
+            shift
+            ;;
+        --min_tracks_per_genre=*)
+            MIN_TRACKS_PER_GENRE="${1#*=}"
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [options]"
             echo "Options:"
@@ -118,7 +135,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --num_playlists, -num_playlists <num> Number of playlists to generate (default: $NUM_PLAYLISTS)"
             echo "  --force_sequential       Force sequential processing (default: false)"
             echo "  --generate_only, -g      Only generate playlists from database without analysis"
-            echo "  --analyze_only, -a       Only run audio analysis without generating playlists"
+            echo "  --analyze, -a             Only run audio analysis without generating playlists"
             echo "  --update, -u             Update playlists from existing database"
             echo "  --playlist_method, -m <method> Playlist generation method (default: all)"
             echo "                           Options: all, time, kmeans, cache, tags"
@@ -127,6 +144,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --enrich_only           Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)"
             echo "  --force                 Force re-enrichment for all tracks in the database (use with --enrich_only)"
             echo "  --status                 Show library/database statistics and exit"
+            echo "  --failed                 Force re-enrichment for all tracks in the database (use with --enrich_only)"
+            echo "  --resume                 Resume playlist generation from the last saved state"
+            echo "  --min_tracks_per_genre <num> Minimum number of tracks per genre for playlist generation (default: 10)"
             echo "  --help, -h               Show this help message"
             exit 0
             ;;
@@ -181,9 +201,11 @@ CURRENT_UID=${CURRENT_UID}
 CURRENT_GID=${CURRENT_GID}
 FORCE_SEQUENTIAL=${FORCE_SEQUENTIAL}
 GENERATE_ONLY=${GENERATE_ONLY}
-ANALYZE_ONLY=${ANALYZE_ONLY}
+ANALYZE=${ANALYZE}
 UPDATE=${UPDATE}
 PLAYLIST_METHOD=${PLAYLIST_METHOD}
+RESUME=${RESUME}
+MIN_TRACKS_PER_GENRE=${MIN_TRACKS_PER_GENRE}
 EOF
 
 # Print configuration
@@ -196,7 +218,7 @@ echo "Workers: $WORKERS"
 echo "Playlists: $NUM_PLAYLISTS"
 echo "Force Sequential: ${FORCE_SEQUENTIAL}"
 echo "Generate Only: ${GENERATE_ONLY}"
-echo "Analyze Only: ${ANALYZE_ONLY}"
+echo "Analyze: ${ANALYZE}"
 echo "Update Mode: ${UPDATE}"
 echo "Playlist Method: ${PLAYLIST_METHOD}"
 echo "Enrich Tags: ${ENRICH_TAGS}"
@@ -204,6 +226,9 @@ echo "Force Enrich Tags: ${FORCE_ENRICH_TAGS}"
 echo "Enrich Only: ${ENRICH_ONLY}"
 echo "Force Enrich Only: ${FORCE}"
 echo "Status Mode: ${STATUS}"
+echo "Failed: ${FAILED}"
+echo "Resume: ${RESUME}"
+echo "Min Tracks Per Genre: ${MIN_TRACKS_PER_GENRE}"
 echo "Running as UID:GID = $CURRENT_UID:$CURRENT_GID"
 echo "========================================"
 
@@ -215,7 +240,7 @@ fi
 
 # Determine which mutually exclusive flag to pass
 MUTEX_FLAG=""
-if [ "$ANALYZE_ONLY" = true ]; then
+if [ "$ANALYZE" = true ]; then
     MUTEX_FLAG="-a"
 elif [ "$GENERATE_ONLY" = true ]; then
     MUTEX_FLAG="-g"
@@ -250,6 +275,22 @@ if [ "$FORCE" = true ]; then
     FORCE_FLAG="--force"
 fi
 
+# Add failed flag if enabled
+FAILED_FLAG=""
+if [ "$FAILED" = true ]; then
+    FAILED_FLAG="--failed"
+fi
+# Add resume flag if enabled
+RESUME_FLAG=""
+if [ "$RESUME" = true ]; then
+    RESUME_FLAG="--resume"
+fi
+# Add min_tracks_per_genre flag if set
+MIN_TRACKS_PER_GENRE_FLAG=""
+if [ -n "$MIN_TRACKS_PER_GENRE" ]; then
+    MIN_TRACKS_PER_GENRE_FLAG="--min_tracks_per_genre $MIN_TRACKS_PER_GENRE"
+fi
+
 # Run the generator
 if [ "$STATUS" = true ]; then
     # Only run status, ignore other flags
@@ -275,9 +316,12 @@ docker compose exec playlist-generator python main.py \
   --workers ${WORKERS} \
   --num_playlists ${NUM_PLAYLISTS} \
   $MUTEX_FLAG \
+  $FAILED_FLAG \
   $PLAYLIST_METHOD_FLAG \
   $FORCE_SEQUENTIAL_FLAG \
   $ENRICH_TAGS_FLAG \
   $FORCE_ENRICH_TAGS_FLAG \
   $ENRICH_ONLY_FLAG \
-  $FORCE_FLAG
+  $FORCE_FLAG \
+  $RESUME_FLAG \
+  $MIN_TRACKS_PER_GENRE_FLAG

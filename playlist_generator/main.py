@@ -169,10 +169,12 @@ def main() -> None:
     parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists')
     parser.add_argument('--workers', type=int, default=None, help='Number of workers (default: auto)')
     parser.add_argument('--force_sequential', action='store_true', help='Force sequential processing')
-    group.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
-    group.add_argument('-a', '--analyze_only', action='store_true', help='Only run audio analysis (no playlist generation)')
-    group.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
-    group.add_argument('--status', action='store_true', help='Show library/database statistics and exit')
+    parser.add_argument('-a', '--analyze', action='store_true', help='Analyze files (see --failed and --force for options)')
+    parser.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
+    parser.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
+    parser.add_argument('--failed', action='store_true', help='With --analyze: only re-analyze files previously marked as failed')
+    parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze or re-enrich (used with --analyze or --enrich_only)')
+    parser.add_argument('--status', action='store_true', help='Show library/database statistics and exit')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
     parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags'], default='all',
                       help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
@@ -194,8 +196,8 @@ def main() -> None:
         sys.exit(0)
 
     # If no mutually exclusive mode is set, default to analyze_only
-    if not (args.analyze_only or args.generate_only or args.update):
-        args.analyze_only = True
+    if not (args.analyze or args.failed or args.update):
+        args.analyze = True
 
     # Show configuration
     cli.show_config({
@@ -205,7 +207,7 @@ def main() -> None:
         'Workers': args.workers or 'Auto',
         'Mode': 'Sequential' if args.force_sequential or (args.workers is not None and int(args.workers) <= 1) else 'Parallel',
         'Update Mode': args.update,
-        'Analysis Only': args.analyze_only,
+        'Analysis Only': args.analyze,
         'Generate Only': args.generate_only,
         'Resume': args.resume,
         'Playlist Method': args.playlist_method
@@ -324,13 +326,17 @@ def main() -> None:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
             save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
-        elif args.analyze_only:
-            cli.update_status("Running audio analysis only")
-            file_list = get_audio_files(args.music_dir)
-            db_files = set(f['filepath'] for f in audio_db.get_all_features())
-            files_to_analyze = [f for f in file_list if f not in db_files]
+        elif args.analyze:
+            if args.failed:
+                cli.update_status("Reprocessing failed files only")
+                files_to_analyze = [f['filepath'] for f in audio_db.get_all_features(include_failed=True) if f['failed']]
+            else:
+                cli.update_status("Running audio analysis only")
+                file_list = get_audio_files(args.music_dir)
+                db_files = set(f['filepath'] for f in audio_db.get_all_features(include_failed=True))
+                files_to_analyze = [f for f in file_list if f not in db_files]
             if not files_to_analyze:
-                cli.show_success("All files are already analyzed. Nothing to do!")
+                cli.show_success("All files are already analyzed or failed. Nothing to do!")
                 return
             BIG_FILE_SIZE_MB = 200
             def is_big_file(filepath):
@@ -471,7 +477,7 @@ Runtime: [magenta]{runtime:.1f} seconds[/magenta]
         
     finally:
         # Only print summary for generate/update modes (not analyze_only)
-        if not args.analyze_only:
+        if not args.analyze:
             try:
                 features_from_db = audio_db.get_all_features()
                 total_files = len(features_from_db)
