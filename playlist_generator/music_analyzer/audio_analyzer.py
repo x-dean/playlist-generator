@@ -265,7 +265,7 @@ class AudioAnalyzer:
             # Process new file
             audio = self._safe_audio_load(audio_path)
             if audio is None:
-                logger.warning(f"Audio loading failed for {audio_path}")
+                logger.error(f"Audio loading failed for {audio_path}")
                 return None, False, None
 
             # Memory check after loading audio

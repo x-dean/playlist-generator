@@ -8,6 +8,7 @@ import time
 from .audio_analyzer import AudioAnalyzer
 import psutil
 import resource
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,74 @@ def process_file_worker(filepath):
             logger.warning(f"FAIL: {filepath} (exception: {str(e)})")
             return None, filepath, False
 
+class AdaptiveMemoryPool:
+    """
+    Adaptive pool that launches worker processes only if enough memory is available.
+    """
+    def __init__(self, max_memory_mb, worker_max_mem_mb):
+        self.max_memory_mb = max_memory_mb
+        self.worker_max_mem_mb = worker_max_mem_mb
+        self.active_workers = []
+        self.lock = threading.Lock()
+
+    def estimate_memory_for_file(self, file_path):
+        try:
+            size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            return max(512, size_mb * 2)  # 2x file size, min 512MB
+        except Exception:
+            return self.worker_max_mem_mb
+
+    def can_launch_worker(self, file_path):
+        import psutil
+        current_memory = psutil.virtual_memory().used / (1024 * 1024)
+        est_mem = self.estimate_memory_for_file(file_path)
+        # Only launch if total memory usage + estimated for next file is below cap
+        return (current_memory + est_mem) <= self.max_memory_mb
+
+    def run(self, file_list, worker_func):
+        import time
+        results = []
+        file_iter = iter(file_list)
+        while True:
+            # Clean up finished workers
+            with self.lock:
+                for w in self.active_workers[:]:
+                    if not w.is_alive():
+                        w.join()
+                        self.active_workers.remove(w)
+            # Launch new workers if possible
+            try:
+                file_path = next(file_iter)
+            except StopIteration:
+                break
+            while not self.can_launch_worker(file_path):
+                # Wait for memory to free up
+                time.sleep(1)
+                with self.lock:
+                    for w in self.active_workers[:]:
+                        if not w.is_alive():
+                            w.join()
+                            self.active_workers.remove(w)
+            # Launch worker
+            pconn, cconn = mp.Pipe()
+            def worker_wrapper(path, conn):
+                result = worker_func(path)
+                conn.send(result)
+                conn.close()
+            proc = mp.Process(target=worker_wrapper, args=(file_path, cconn))
+            proc.start()
+            self.active_workers.append(proc)
+            results.append(pconn)
+        # Wait for all workers to finish
+        for w in self.active_workers:
+            w.join()
+        # Collect results
+        for conn in results:
+            try:
+                yield conn.recv()
+            except EOFError:
+                yield (None, None, False)
+
 class ParallelProcessor:
     def __init__(self):
         self.failed_files = []
@@ -100,25 +169,22 @@ class ParallelProcessor:
         yield from self._process_parallel(file_list)
 
     def _process_parallel(self, file_list):
+        import os
+        max_memory_mb = int(os.getenv('MAX_MEMORY_MB', '8192'))
+        worker_max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
+        pool = AdaptiveMemoryPool(max_memory_mb, worker_max_mem_mb)
         retries = 0
         remaining_files = file_list[:]
 
         while remaining_files and retries < self.max_retries:
             try:
-                logger.info(f"Starting multiprocessing with {self.workers} workers (retry {retries})")
-                ctx = mp.get_context('spawn')
-
+                logger.info(f"Starting adaptive multiprocessing with memory cap {max_memory_mb}MB (retry {retries})")
                 failed_in_batch = []
-                for i in range(0, len(remaining_files), self.batch_size):
-                    batch = remaining_files[i:i+self.batch_size]
-
-                    with ctx.Pool(processes=self.workers) as pool:
-                        for features, filepath, db_write_success in pool.imap_unordered(process_file_worker, batch):
-                            if features and db_write_success:
-                                yield features
-                            else:
-                                failed_in_batch.append(filepath)
-                # Instead of removing processed files, retry only failed ones
+                for features, filepath, db_write_success in pool.run(remaining_files, process_file_worker):
+                    if features and db_write_success:
+                        yield features
+                    else:
+                        failed_in_batch.append(filepath)
                 if failed_in_batch:
                     logger.info(f"Retrying {len(failed_in_batch)} failed files in next round")
                     remaining_files = failed_in_batch
@@ -126,18 +192,14 @@ class ParallelProcessor:
                 else:
                     logger.info(f"Processing completed - yielded all successful, {len(self.failed_files)} failed")
                     return
-
             except (mp.TimeoutError, BrokenPipeError, ConnectionResetError) as e:
                 logger.error(f"Multiprocessing error: {str(e)}")
                 retries += 1
                 if retries < self.max_retries:
-                    # Reduce workers on retry to handle potential resource constraints
-                    self.workers = max(self.min_workers, self.workers // 2)
-                    logger.warning(f"Reducing workers to {self.workers} and retrying with {len(remaining_files)} remaining files")
-                    time.sleep(2 ** retries)  # Exponential backoff
+                    logger.warning(f"Retrying with {len(remaining_files)} remaining files")
+                    time.sleep(2 ** retries)
                 else:
                     logger.error("Max retries reached, switching to sequential for remaining files")
-                    # Process remaining files sequentially
                     for filepath in remaining_files:
                         features, _, db_write_success = process_file_worker(filepath)
                         if features and db_write_success:
@@ -145,5 +207,4 @@ class ParallelProcessor:
                         else:
                             self.failed_files.append(filepath)
                     break
-
         return
