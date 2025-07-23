@@ -405,33 +405,30 @@ def main() -> None:
                 # 2. Process big files sequentially
                 if big_files:
                     processor = SequentialProcessor()
-                    process_iter = processor.process(big_files, workers=1)
-                    for features, filepath in process_iter:
+                    for filepath in big_files:
                         filename = os.path.basename(filepath)
                         try:
                             size_mb = os.path.getsize(filepath) / (1024 * 1024)
                         except Exception:
                             size_mb = 0
-                        # Show which file is being processed right now
                         progress.update(
                             task_id,
                             description=f"Processing: {filename} ({size_mb:.1f} MB) | {processed_count}/{total_files} files"
                         )
-                        # Actually process the file (already done by process_iter)
-                        processed_count += 1
-                        # After finishing, update as before
-                        progress.update(
-                            task_id,
-                            advance=1,
-                            description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB) (big file)"
-                        )
-                        logger.debug(f"Features: {features}")
-                        if features and 'metadata' in features:
-                            meta = features['metadata']
-                            if meta.get('musicbrainz_id'):
-                                pass
-                            else:
-                                pass
+                        for features, _ in processor.process([filepath], workers=1):
+                            processed_count += 1
+                            progress.update(
+                                task_id,
+                                advance=1,
+                                description=f"Processed {processed_count}/{total_files} files | {filename} ({size_mb:.1f} MB) (big file)"
+                            )
+                            logger.debug(f"Features: {features}")
+                            if features and 'metadata' in features:
+                                meta = features['metadata']
+                                if meta.get('musicbrainz_id'):
+                                    pass
+                                else:
+                                    pass
                     failed_files.extend(processor.failed_files)
             cli.show_success(f"Analysis completed. Processed {len(files_to_analyze)} files, {len(failed_files)} failed")
             runtime = time.time() - start_time
