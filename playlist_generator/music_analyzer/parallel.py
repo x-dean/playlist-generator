@@ -7,6 +7,7 @@ import logging
 import time
 from .audio_analyzer import AudioAnalyzer
 import psutil
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,71 @@ def process_file_worker(filepath, dynamic_mem_limit_mb=None):
             logger.info(f"FAIL: {filepath} (exception: {str(e)})")
             return None, filepath, False
 
+def run_parallel_processing(file_list, worker_func, max_memory_mb, worker_max_mem_mb, timeout=120):
+    """
+    Orchestrates parallel processing of files with robust process management.
+    """
+    import multiprocessing as mp
+    import time
+    processes = []
+    results = []
+    pool = AdaptiveMemoryPool(max_memory_mb, worker_max_mem_mb)
+    file_iter = iter(file_list)
+    active_workers = []  # List of (process, conn, file_path, est_mem)
+
+    try:
+        while True:
+            # Clean up finished workers and update running memory
+            for proc, conn, file_path, mem in active_workers[:]:
+                if not proc.is_alive():
+                    proc.join()
+                    conn.close()
+                    active_workers.remove((proc, conn, file_path, mem))
+            # Calculate current total estimated memory
+            total_est_mem = sum(mem for _, _, _, mem in active_workers)
+            try:
+                file_path = next(file_iter)
+            except StopIteration:
+                break
+            est_mem = pool.estimate_memory_for_file(file_path)
+            while total_est_mem + est_mem > max_memory_mb:
+                time.sleep(1)
+                for proc, conn, file_path, mem in active_workers[:]:
+                    if not proc.is_alive():
+                        proc.join()
+                        conn.close()
+                        active_workers.remove((proc, conn, file_path, mem))
+                total_est_mem = sum(mem for _, _, _, mem in active_workers)
+            # Launch worker
+            pconn, cconn = mp.Pipe()
+            proc = mp.Process(target=worker_wrapper, args=(worker_func, file_path, cconn, est_mem))
+            proc.start()
+            active_workers.append((proc, pconn, file_path, est_mem))
+            results.append((proc, pconn, file_path))
+        # Wait for all workers to finish or timeout
+        for proc, conn, file_path in results:
+            proc.join(timeout)
+            if proc.is_alive():
+                logger.warning(f"Timeout: killing process for {file_path}")
+                proc.terminate()
+                proc.join()
+            if conn.poll():
+                try:
+                    yield conn.recv()
+                except EOFError:
+                    yield (None, file_path, False)
+            else:
+                yield (None, file_path, False)
+            conn.close()
+    except KeyboardInterrupt:
+        logger.warning("Interrupted! Terminating all workers...")
+        for proc, conn, file_path, mem in active_workers:
+            proc.terminate()
+        for proc, conn, file_path, mem in active_workers:
+            proc.join()
+            conn.close()
+        raise
+
 class AdaptiveMemoryPool:
     """
     Adaptive pool that launches worker processes only if enough memory is available.
@@ -113,53 +179,10 @@ class AdaptiveMemoryPool:
         # Only launch if total memory usage + estimated for next file is below cap
         return (current_memory + est_mem) <= self.max_memory_mb
 
-    def run(self, file_list, worker_func):
-        import time
-        import psutil
-        results = []
-        file_iter = iter(file_list)
-        active_workers = []  # List of (process, est_mem)
-        while True:
-            # Clean up finished workers and update running memory
-            for proc, mem in active_workers[:]:
-                if not proc.is_alive():
-                    proc.join()
-                    active_workers.remove((proc, mem))
-            # Calculate current total estimated memory
-            total_est_mem = sum(mem for _, mem in active_workers)
-            try:
-                file_path = next(file_iter)
-            except StopIteration:
-                break
-            est_mem = self.estimate_memory_for_file(file_path)
-            print(f"[DEBUG] Considering file: {file_path}")
-            print(f"[DEBUG] Estimated memory for file: {est_mem} MB")
-            print(f"[DEBUG] Total estimated running memory: {total_est_mem} MB, Max allowed: {self.max_memory_mb} MB")
-            while total_est_mem + est_mem > self.max_memory_mb:
-                print(f"[DEBUG] Not enough memory to launch worker for {file_path}. Waiting...")
-                time.sleep(1)
-                for proc, mem in active_workers[:]:
-                    if not proc.is_alive():
-                        proc.join()
-                        active_workers.remove((proc, mem))
-                total_est_mem = sum(mem for _, mem in active_workers)
-                print(f"[DEBUG] (Wait loop) Total estimated running memory: {total_est_mem} MB")
-            print(f"[DEBUG] Launching worker for {file_path} with memory limit {est_mem} MB")
-            # Launch worker with dynamic memory limit
-            pconn, cconn = mp.Pipe()
-            proc = mp.Process(target=worker_wrapper, args=(worker_func, file_path, cconn, est_mem))
-            proc.start()
-            active_workers.append((proc, est_mem))
-            results.append(pconn)
-        # Wait for all workers to finish
-        for proc, _ in active_workers:
-            proc.join()
-        # Collect results
-        for conn in results:
-            try:
-                yield conn.recv()
-            except EOFError:
-                yield (None, None, False)
+    def run(self, file_list, worker_func, timeout=120):
+        max_memory_mb = self.max_memory_mb
+        worker_max_mem_mb = self.worker_max_mem_mb
+        yield from run_parallel_processing(file_list, worker_func, max_memory_mb, worker_max_mem_mb, timeout=timeout)
 
 class ParallelProcessor:
     def __init__(self):
