@@ -286,6 +286,13 @@ if [ "$FORCE" = true ]; then
     FORCE_FLAG="--force"
 fi
 
+# Build docker-compose or docker run arguments safely
+DOCKER_WORKERS_ARG=""
+if [[ -n "${WORKERS:-}" ]]; then
+    DOCKER_WORKERS_ARG="--workers ${WORKERS}"
+fi
+# Use $DOCKER_WORKERS_ARG in compose/run commands
+
 # Run the generator
 if [ "$STATUS" = true ]; then
     # Only run status, ignore other flags
