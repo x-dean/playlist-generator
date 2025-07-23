@@ -319,7 +319,7 @@ def main() -> None:
                 process_iter = processor.process(file_list, workers=args.workers or 1)
             else:
                 processor = ParallelProcessor()
-                process_iter = processor.process(file_list, workers=args.workers or multiprocessing.cpu_count(), status_queue=status_queue)
+                process_iter = processor.process(file_list, workers=args.workers or multiprocessing.cpu_count())
             failed_files = []
             processed_count = 0
             progress = Progress(
@@ -331,23 +331,19 @@ def main() -> None:
                 TimeRemainingColumn(),
                 console=Console()
             )
-            with Live(spinner_panel(), refresh_per_second=4, console=Console(), transient=True) as live:
-                with progress:
-                    task_id = progress.add_task(f"Processed 0/{len(file_list)} files", total=len(file_list))
-                    for features in process_iter:
-                        processed_count += 1
-                        progress.update(task_id, advance=1, description=f"Processed {processed_count}/{len(file_list)} files")
-                        logger.debug(f"Features: {features}")
-                        if features and 'metadata' in features:
-                            meta = features['metadata']
-                            if meta.get('musicbrainz_id'):
-                                pass
-                            else:
-                                pass
-                        # Update spinner panel
-                        live.update(spinner_panel())
+            with progress:
+                task_id = progress.add_task(f"Processed 0/{len(file_list)} files", total=len(file_list))
+                for features in process_iter:
+                    processed_count += 1
+                    progress.update(task_id, advance=1, description=f"Processed {processed_count}/{len(file_list)} files")
+                    logger.debug(f"Features: {features}")
+                    if features and 'metadata' in features:
+                        meta = features['metadata']
+                        if meta.get('musicbrainz_id'):
+                            pass
+                        else:
+                            pass
             failed_files.extend(processor.failed_files)
-            spinner_stop.set()
             cli.show_success(f"Analysis completed. Processed {len(file_list)} files, {len(failed_files)} failed")
             runtime = time.time() - start_time
             console = Console()
