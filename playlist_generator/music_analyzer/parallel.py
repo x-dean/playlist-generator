@@ -151,45 +151,42 @@ class AdaptiveMemoryPool:
         import psutil
         results = []
         file_iter = iter(file_list)
+        active_workers = []  # List of (process, est_mem)
         while True:
-            # Clean up finished workers
-            with self.lock:
-                for w in self.active_workers[:]:
-                    if not w.is_alive():
-                        w.join()
-                        self.active_workers.remove(w)
-            # Launch new workers if possible
+            # Clean up finished workers and update running memory
+            for proc, mem in active_workers[:]:
+                if not proc.is_alive():
+                    proc.join()
+                    active_workers.remove((proc, mem))
+            # Calculate current total estimated memory
+            total_est_mem = sum(mem for _, mem in active_workers)
             try:
                 file_path = next(file_iter)
             except StopIteration:
                 break
             est_mem = self.estimate_memory_for_file(file_path)
-            current_used = psutil.virtual_memory().used / (1024 * 1024)
-            current_avail = psutil.virtual_memory().available / (1024 * 1024)
             print(f"[DEBUG] Considering file: {file_path}")
             print(f"[DEBUG] Estimated memory for file: {est_mem} MB")
-            print(f"[DEBUG] Current used: {current_used:.2f} MB, Available: {current_avail:.2f} MB, Max allowed: {self.max_memory_mb} MB")
-            while not self.can_launch_worker(file_path):
+            print(f"[DEBUG] Total estimated running memory: {total_est_mem} MB, Max allowed: {self.max_memory_mb} MB")
+            while total_est_mem + est_mem > self.max_memory_mb:
                 print(f"[DEBUG] Not enough memory to launch worker for {file_path}. Waiting...")
                 time.sleep(1)
-                with self.lock:
-                    for w in self.active_workers[:]:
-                        if not w.is_alive():
-                            w.join()
-                            self.active_workers.remove(w)
-                current_used = psutil.virtual_memory().used / (1024 * 1024)
-                current_avail = psutil.virtual_memory().available / (1024 * 1024)
-                print(f"[DEBUG] (Wait loop) Used: {current_used:.2f} MB, Available: {current_avail:.2f} MB")
+                for proc, mem in active_workers[:]:
+                    if not proc.is_alive():
+                        proc.join()
+                        active_workers.remove((proc, mem))
+                total_est_mem = sum(mem for _, mem in active_workers)
+                print(f"[DEBUG] (Wait loop) Total estimated running memory: {total_est_mem} MB")
             print(f"[DEBUG] Launching worker for {file_path} with memory limit {est_mem} MB")
             # Launch worker with dynamic memory limit
             pconn, cconn = mp.Pipe()
             proc = mp.Process(target=worker_wrapper, args=(worker_func, file_path, cconn, est_mem))
             proc.start()
-            self.active_workers.append(proc)
+            active_workers.append((proc, est_mem))
             results.append(pconn)
         # Wait for all workers to finish
-        for w in self.active_workers:
-            w.join()
+        for proc, _ in active_workers:
+            proc.join()
         # Collect results
         for conn in results:
             try:
