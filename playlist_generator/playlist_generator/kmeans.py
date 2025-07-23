@@ -12,14 +12,20 @@ logger = logging.getLogger(__name__)
 # In kmeans.py:
 
 class KMeansPlaylistGenerator:
-    def __init__(self, cache_file=None):
+    """Generate playlists using KMeans clustering on audio features."""
+    def __init__(self, cache_file: str = None) -> None:
+        """Initialize the KMeans playlist generator.
+
+        Args:
+            cache_file (str, optional): Path to the cache database file. Defaults to None.
+        """
         self.cache_file = cache_file
         self.playlist_history = {}
         if cache_file:
             self._verify_db_schema()
 
-    def _verify_db_schema(self):
-        """Ensure all required columns exist with correct types"""
+    def _verify_db_schema(self) -> None:
+        """Ensure all required columns exist with correct types in the database."""
         conn = None
         try:
             conn = sqlite3.connect(self.cache_file)
@@ -48,6 +54,14 @@ class KMeansPlaylistGenerator:
                 conn.close()
 
     def _sanitize_file_name(self, name: str) -> str:
+        """Sanitize a string to be used as a filename.
+
+        Args:
+            name (str): The string to sanitize.
+
+        Returns:
+            str: Sanitized filename.
+        """
         name = re.sub(r'[^A-Za-z0-9_-]+', '_', name)
         name = re.sub(r'_+', '_', name)
         return name.strip('_')

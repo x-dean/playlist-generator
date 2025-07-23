@@ -12,7 +12,13 @@ import re
 logger = logging.getLogger(__name__)
 
 class CacheBasedGenerator:
-    def __init__(self, cache_file: str):
+    """Generate playlists using rule-based feature bins (cache method)."""
+    def __init__(self, cache_file: str) -> None:
+        """Initialize the cache-based playlist generator.
+
+        Args:
+            cache_file (str): Path to the cache database file.
+        """
         self.cache_file = cache_file
         self.playlist_history = defaultdict(list)
 

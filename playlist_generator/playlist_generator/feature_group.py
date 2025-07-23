@@ -7,14 +7,36 @@ from typing import Dict, List, Any
 logger = logging.getLogger(__name__)
 
 class FeatureGroupPlaylistGenerator:
+    """Generate playlists by grouping tracks based on extracted audio features."""
     def __init__(self, cache_file: str):
+        """Initialize the feature group playlist generator.
+
+        Args:
+            cache_file (str): Path to the cache database file.
+        """
         self.cache_file = cache_file
 
     def sanitize_filename(self, name: str) -> str:
+        """Sanitize a string to be used as a filename.
+
+        Args:
+            name (str): The string to sanitize.
+
+        Returns:
+            str: Sanitized filename.
+        """
         name = re.sub(r'[^\w\-_]', '_', name)
         return re.sub(r'_+', '_', name).strip('_')
 
-    def generate(self, features_list: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    def generate(self, features_list: list[dict]) -> dict[str, dict]:
+        """Generate playlists from a list of feature dictionaries.
+
+        Args:
+            features_list (list[dict]): List of feature dictionaries.
+
+        Returns:
+            dict[str, dict]: Dictionary of playlist names to playlist data.
+        """
         # Helper mapping for mood similarity
         centroid_mapping = {
             'Warm': 0,

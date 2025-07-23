@@ -17,6 +17,8 @@ import logging
 from utils.cli import PlaylistGeneratorCLI, CLIContextManager
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.console import Console
+from rich.panel import Panel
+from checkpoint_manager import CheckpointManager
 
 logger = setup_colored_logging()
 
@@ -35,7 +37,15 @@ cli = PlaylistGeneratorCLI()
 os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
 os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
-def get_audio_files(music_dir):
+def get_audio_files(music_dir: str) -> list[str]:
+    """Recursively find all audio files in the given directory.
+
+    Args:
+        music_dir (str): Path to the music directory.
+
+    Returns:
+        list[str]: List of audio file paths.
+    """
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
     
@@ -48,7 +58,17 @@ def get_audio_files(music_dir):
     logger.info(f"Found {len(file_list)} audio files in {music_dir}")
     return file_list
 
-def convert_to_host_path(container_path, host_music_dir, container_music_dir):
+def convert_to_host_path(container_path: str, host_music_dir: str, container_music_dir: str) -> str:
+    """Converts a path from the container to the host.
+
+    Args:
+        container_path (str): Path within the container.
+        host_music_dir (str): Path to the host's music directory.
+        container_music_dir (str): Path to the container's music directory.
+
+    Returns:
+        str: Path on the host.
+    """
     container_path = os.path.normpath(container_path)
     container_music_dir = os.path.normpath(container_music_dir)
     
@@ -58,9 +78,19 @@ def convert_to_host_path(container_path, host_music_dir, container_music_dir):
     rel_path = os.path.relpath(container_path, container_music_dir)
     return os.path.join(host_music_dir, rel_path)
 
-def save_playlists(playlists, output_dir, host_music_dir, container_music_dir, failed_files, playlist_method=None):
+def save_playlists(playlists: dict[str, dict], output_dir: str, host_music_dir: str, container_music_dir: str, failed_files: list[str], playlist_method: str | None = None) -> None:
+    """Saves generated playlists to disk.
+
+    Args:
+        playlists (dict[str, dict]): Dictionary of playlist names to their data.
+        output_dir (str): Root output directory.
+        host_music_dir (str): Path to the host's music directory.
+        container_music_dir (str): Path to the container's music directory.
+        failed_files (list[str]): List of failed file paths.
+        playlist_method (str | None): The method used to generate playlists (e.g., 'time', 'kmeans').
+    """
     # For time-based, create subfolders per slot
-    def get_time_slot_from_name(name):
+    def get_time_slot_from_name(name: str) -> str | None:
         if name.startswith("TimeSlot_"):
             slot_part = name[len("TimeSlot_"):]
             if "_Part" in slot_part:
@@ -105,7 +135,8 @@ def save_playlists(playlists, output_dir, host_music_dir, container_music_dir, f
             f.write("\n".join(host_failed))
         logger.info(f"Saved {len(failed_files)} failed files to {failed_path}")
 
-def main():
+def main() -> None:
+    """Main entry point for the Playlist Generator CLI application."""
     # Start CLI session
     cli.start_session()
 

@@ -6,13 +6,24 @@ from .parallel import process_file_worker  # Reuse worker function
 logger = logging.getLogger(__name__)
 
 class SequentialProcessor:
-    def __init__(self):
-        self.failed_files = []
+    """Sequential processor for audio analysis (single-threaded)."""
+    def __init__(self) -> None:
+        self.failed_files: list[str] = []
     
-    def process(self, file_list, workers=None):
+    def process(self, file_list: list[str], workers: int = None) -> iter:
+        """Process a list of files sequentially.
+
+        Args:
+            file_list (list[str]): List of file paths.
+            workers (int, optional): Ignored for sequential processing.
+
+        Yields:
+            dict: Extracted features for each file.
+        """
         yield from self._process_sequential(file_list)
 
-    def _process_sequential(self, file_list):
+    def _process_sequential(self, file_list: list[str]) -> iter:
+        """Internal generator for sequential processing."""
         for filepath in file_list:
             try:
                 features, _ = process_file_worker(filepath)

@@ -9,7 +9,15 @@ from .audio_analyzer import AudioAnalyzer
 
 logger = logging.getLogger(__name__)
 
-def process_file_worker(filepath):
+def process_file_worker(filepath: str) -> tuple | None:
+    """Worker function to process a single audio file in parallel.
+
+    Args:
+        filepath (str): Path to the audio file.
+
+    Returns:
+        tuple | None: (features dict, filepath, db_write_success bool) or None on failure.
+    """
     import os
     from .audio_analyzer import AudioAnalyzer
     audio_analyzer = AudioAnalyzer()
@@ -67,14 +75,24 @@ def process_file_worker(filepath):
             return None, filepath, False
 
 class ParallelProcessor:
-    def __init__(self):
+    """Parallel processor for batch audio analysis using multiprocessing."""
+    def __init__(self) -> None:
         self.failed_files = []
         self.batch_size = int(os.getenv('BATCH_SIZE', '50'))
         self.max_retries = int(os.getenv('MAX_RETRIES', '3'))
         self.min_workers = 2
         self.max_workers = int(os.getenv('MAX_WORKERS', str(mp.cpu_count())))
 
-    def process(self, file_list, workers=None):
+    def process(self, file_list: list[str], workers: int = None) -> iter:
+        """Process a list of files in parallel.
+
+        Args:
+            file_list (list[str]): List of file paths.
+            workers (int, optional): Number of worker processes. Defaults to None.
+
+        Yields:
+            dict: Extracted features for each file.
+        """
         if not file_list:
             return
         self.workers = max(self.min_workers, min(workers or self.max_workers, self.max_workers))

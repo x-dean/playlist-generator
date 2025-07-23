@@ -35,7 +35,13 @@ def timeout(seconds=60, error_message="Processing timed out"):
     return decorator
 
 class AudioAnalyzer:
-    def __init__(self, cache_file=None):
+    """Analyze audio files and extract features for playlist generation."""
+    def __init__(self, cache_file: str = None) -> None:
+        """Initialize the AudioAnalyzer.
+
+        Args:
+            cache_file (str, optional): Path to the cache database file. Defaults to None.
+        """
         self.timeout_seconds = 120
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
@@ -235,7 +241,15 @@ class AudioAnalyzer:
             logger.warning(f"MusicBrainz lookup failed: {e}")
         return {}
 
-    def extract_features(self, audio_path):
+    def extract_features(self, audio_path: str) -> tuple | None:
+        """Extract features from an audio file.
+
+        Args:
+            audio_path (str): Path to the audio file.
+
+        Returns:
+            tuple | None: (features dict, db_write_success bool, file_hash str) or None on failure.
+        """
         try:
             file_info = self._get_file_info(audio_path)
             # Set timeout to 180 seconds
@@ -395,7 +409,12 @@ class AudioAnalyzer:
             logger.error(f"DB WRITE FAILED: {file_info['file_path']} - {str(e)}")
             return False
 
-    def get_all_features(self):
+    def get_all_features(self) -> list[dict]:
+        """Get all features from the database.
+
+        Returns:
+            list[dict]: List of feature dictionaries for all audio files.
+        """
         try:
             cursor = self.conn.cursor()
             cursor.execute("""
@@ -421,8 +440,12 @@ class AudioAnalyzer:
             logger.error(f"Error fetching features: {str(e)}")
             return []
 
-    def cleanup_database(self):
-        """Remove entries for files that no longer exist"""
+    def cleanup_database(self) -> list[str]:
+        """Remove entries for files that no longer exist.
+
+        Returns:
+            list[str]: List of file paths that were removed from the database.
+        """
         try:
             cursor = self.conn.cursor()
             cursor.execute("SELECT file_path FROM audio_features")

@@ -14,13 +14,15 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 class PlaylistGeneratorCLI:
-    def __init__(self):
+    """Rich CLI for the Playlist Generator application."""
+    def __init__(self) -> None:
+        """Initialize the CLI interface."""
         self.console = Console()
         self.progress = None
         self.start_time = None
 
-    def start_session(self):
-        """Start a new generation session with welcome message"""
+    def start_session(self) -> None:
+        """Start a new generation session with welcome message."""
         self.start_time = time.time()
         self.console.print(Panel(
             "[bold green]Welcome to Playlist Generator[/bold green]\n\n"
@@ -30,8 +32,12 @@ class PlaylistGeneratorCLI:
             border_style="blue"
         ))
 
-    def show_config(self, config: Dict[str, Any]):
-        """Display current configuration"""
+    def show_config(self, config: dict) -> None:
+        """Display current configuration.
+
+        Args:
+            config (dict): Configuration dictionary.
+        """
         table = Table(title="Configuration", show_header=True, header_style="bold magenta")
         table.add_column("Setting", style="cyan")
         table.add_column("Value", style="green")

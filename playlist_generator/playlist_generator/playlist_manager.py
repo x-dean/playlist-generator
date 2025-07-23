@@ -12,7 +12,17 @@ from .tag_based import TagBasedPlaylistGenerator
 logger = logging.getLogger(__name__)
 
 class PlaylistManager:
-    def __init__(self, cache_file: str = None, playlist_method: str = 'all', min_tracks_per_genre: int = 10, enrich_tags: bool = False, force_enrich_tags: bool = False):
+    """Manage playlist generation using various methods and strategies."""
+    def __init__(self, cache_file: str = None, playlist_method: str = 'all', min_tracks_per_genre: int = 10, enrich_tags: bool = False, force_enrich_tags: bool = False) -> None:
+        """Initialize the PlaylistManager.
+
+        Args:
+            cache_file (str, optional): Path to the cache database file. Defaults to None.
+            playlist_method (str, optional): Playlist generation method. Defaults to 'all'.
+            min_tracks_per_genre (int, optional): Minimum tracks per genre for tag-based playlists. Defaults to 10.
+            enrich_tags (bool, optional): Whether to enrich tags. Defaults to False.
+            force_enrich_tags (bool, optional): Whether to force tag enrichment. Defaults to False.
+        """
         self.cache_file = cache_file
         self.playlist_method = playlist_method
         self.feature_group_generator = FeatureGroupPlaylistGenerator(cache_file)
@@ -24,7 +34,16 @@ class PlaylistManager:
         self.enrich_tags = enrich_tags
         self.force_enrich_tags = force_enrich_tags
 
-    def generate_playlists(self, features: List[Dict[str, Any]], num_playlists: int = 8) -> Dict[str, Any]:
+    def generate_playlists(self, features: list[dict], num_playlists: int = 8) -> dict[str, any]:
+        """Generate playlists using the specified method.
+
+        Args:
+            features (list[dict]): List of feature dictionaries.
+            num_playlists (int, optional): Number of playlists to generate (for kmeans). Defaults to 8.
+
+        Returns:
+            dict[str, any]: Dictionary of playlist names to playlist data.
+        """
         """Generate playlists using specified method"""
         if not features:
             logger.warning("No features provided for playlist generation")
@@ -342,13 +361,27 @@ class PlaylistManager:
         return dict(distribution)
 
     def get_playlist_stats(self, playlist_name: Optional[str] = None) -> Dict[str, Any]:
-        """Get statistics for a specific playlist or all playlists"""
+        """Get statistics for a specific playlist or all playlists.
+
+        Args:
+            playlist_name (str, optional): Name of the playlist. Defaults to None.
+
+        Returns:
+            dict: Playlist statistics.
+        """
         if playlist_name:
             return self.playlist_stats.get(playlist_name, {})
         return dict(self.playlist_stats)
 
     def get_recommendations(self, playlist_name: str) -> List[str]:
-        """Get track recommendations for a playlist based on its characteristics"""
+        """Get track recommendations for a playlist based on its characteristics.
+
+        Args:
+            playlist_name (str): Name of the playlist.
+
+        Returns:
+            list[str]: List of recommended track file paths.
+        """
         try:
             stats = self.playlist_stats.get(playlist_name)
             if not stats:
