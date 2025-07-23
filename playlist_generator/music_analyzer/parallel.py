@@ -30,11 +30,11 @@ def estimate_memory_for_file(file_path):
         size_mb = os.path.getsize(file_path) / (1024 * 1024)
         ext = os.path.splitext(file_path)[1].lower()
         if ext in ('.mp3', '.m4a', '.aac', '.ogg', '.opus'):
-            return max(2048, size_mb * 15)  # 15x file size, min 2GB
+            return max(512, size_mb * 4)  # Less aggressive: 4x file size, min 512MB
         else:  # wav, flac, etc.
-            return max(1024, size_mb * 2)   # 2x file size, min 1GB
+            return max(512, size_mb * 1.2)   # Less aggressive: 1.2x file size, min 512MB
     except Exception:
-        return 2048
+        return 512
 
 def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, timeout=120):
     active = []  # List of (proc, conn, file_path, est_mem)
@@ -42,7 +42,6 @@ def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, t
     file_iter = iter(file_list)
     # Get per-worker memory limit from environment
     worker_max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
-    skipped_files = []
     while True:
         # Clean up finished workers and yield results
         for proc, conn, file_path, mem in active[:]:
@@ -65,11 +64,9 @@ def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, t
             except StopIteration:
                 break
             est_mem = estimate_memory_for_file(file_path)
-            # ENFORCE PER-WORKER MEMORY LIMIT
+            # Only warn if estimate exceeds per-worker limit, but do not skip
             if est_mem > worker_max_mem_mb:
-                logger.warning(f"Skipping {file_path}: estimated memory {est_mem:.0f}MB exceeds per-worker limit {worker_max_mem_mb}MB")
-                skipped_files.append(file_path)
-                continue
+                logger.warning(f"File {file_path}: estimated memory {est_mem:.0f}MB exceeds per-worker limit {worker_max_mem_mb}MB. Proceeding anyway.")
             if mem_used + est_mem > max_mem_mb and len(active) > 0:
                 time.sleep(0.5)
                 continue
@@ -96,9 +93,6 @@ def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, t
         else:
             yield (None, file_path, False)
         conn.close()
-    # Yield skipped files as failed
-    for file_path in skipped_files:
-        yield (None, file_path, False)
 
 class ParallelProcessor:
     def __init__(self):
