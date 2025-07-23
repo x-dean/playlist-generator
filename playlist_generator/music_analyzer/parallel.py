@@ -7,73 +7,89 @@ import logging
 import time
 from .audio_analyzer import AudioAnalyzer
 import psutil
+import threading
 
 logger = logging.getLogger(__name__)
 
-def process_file_worker(filepath):
-    import os
-    from .audio_analyzer import AudioAnalyzer
-    audio_analyzer = AudioAnalyzer()
-    max_retries = 2
-    retry_count = 0
-    backoff_time = 1  # Initial backoff time in seconds
+def worker_wrapper(worker_func, file_path, conn, mem_limit_mb):
+    print(f"[DEBUG] worker_wrapper started for {file_path}")
+    import sys; sys.stdout.flush()
+    result = worker_func(file_path, mem_limit_mb)
+    conn.send(result)
+    conn.close()
 
-    # Memory limit check (per worker)
-    max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
-    process = psutil.Process(os.getpid())
-    if process.memory_info().rss > max_mem_mb * 1024 * 1024:
-        logger.warning(f"Worker memory exceeded {max_mem_mb}MB, skipping {filepath}")
-        logger.info(f"SKIP: {filepath} (memory exceeded)")
-        return None, filepath, False
+def process_file_worker(filepath, dynamic_mem_limit_mb=None):
+    import time
+    print(f"[DEBUG] Minimal worker for {filepath}")
+    time.sleep(2)
+    return {"status": "ok", "file": filepath}, filepath, True
 
-    while retry_count <= max_retries:
-        try:
-            if not os.path.exists(filepath):
-                logger.warning(f"File not found: {filepath}")
-                logger.info(f"SKIP: {filepath} (not found)")
-                return None, filepath, False
-            
-            if os.path.getsize(filepath) < 1024:
-                logger.warning(f"Skipping small file: {filepath}")
-                logger.info(f"SKIP: {filepath} (too small)")
-                return None, filepath, False
+def estimate_memory_for_file(file_path):
+    try:
+        size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in ('.mp3', '.m4a', '.aac', '.ogg', '.opus'):
+            return max(2048, size_mb * 15)  # 15x file size, min 2GB
+        else:  # wav, flac, etc.
+            return max(1024, size_mb * 2)   # 2x file size, min 1GB
+    except Exception:
+        return 2048
 
-            if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
-                logger.info(f"SKIP: {filepath} (unsupported extension)")
-                return None, filepath, False
-
-            result = audio_analyzer.extract_features(filepath)
-
-            if result and result[0] is not None:
-                features, db_write_success, _ = result
-                for key in ['bpm', 'centroid', 'duration']:
-                    if features.get(key) is None:
-                        features[key] = 0.0
-                logger.info(f"PROCESSED: {filepath}")
-                return features, filepath, db_write_success
-            
-            # If we get here, result was None or features were None
-            if retry_count < max_retries:
-                retry_count += 1
-                time.sleep(backoff_time)
-                backoff_time *= 2  # Exponential backoff
-                logger.warning(f"Retrying {filepath} (attempt {retry_count}/{max_retries})")
+def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, timeout=120):
+    active = []  # List of (proc, conn, file_path, est_mem)
+    mem_used = 0
+    file_iter = iter(file_list)
+    results = []
+    while True:
+        # Clean up finished workers
+        for proc, conn, file_path, mem in active[:]:
+            if not proc.is_alive():
+                proc.join()
+                conn.close()
+                active.remove((proc, conn, file_path, mem))
+                mem_used -= mem
+        # Launch new workers if possible
+        if len(active) < max_workers:
+            try:
+                file_path = next(file_iter)
+            except StopIteration:
+                break
+            est_mem = estimate_memory_for_file(file_path)
+            if mem_used + est_mem > max_mem_mb and len(active) > 0:
+                time.sleep(0.5)
                 continue
-            
-            logger.info(f"FAIL: {filepath} (feature extraction failed)")
-            return None, filepath, False
-
-        except Exception as e:
-            if retry_count < max_retries:
-                retry_count += 1
-                time.sleep(backoff_time)
-                backoff_time *= 2
-                logger.warning(f"Error processing {filepath}, retrying (attempt {retry_count}/{max_retries}): {str(e)}")
-                continue
-            
-            logger.error(f"Error processing {filepath} after {max_retries} retries: {str(e)}", exc_info=True)
-            logger.info(f"FAIL: {filepath} (exception: {str(e)})")
-            return None, filepath, False
+            # Always allow at least one worker
+            pconn, cconn = mp.Pipe()
+            proc = mp.Process(target=worker_wrapper, args=(worker_func, file_path, cconn, est_mem))
+            proc.start()
+            active.append((proc, pconn, file_path, est_mem))
+            mem_used += est_mem
+            results.append((proc, pconn, file_path))
+        else:
+            time.sleep(0.1)
+    # Wait for all to finish
+    for proc, conn, file_path, mem in active:
+        proc.join(timeout)
+        if proc.is_alive():
+            logger.warning(f"Timeout: killing process for {file_path}")
+            proc.terminate()
+            proc.join()
+        if conn.poll():
+            try:
+                yield conn.recv()
+            except EOFError:
+                yield (None, file_path, False)
+        else:
+            yield (None, file_path, False)
+        conn.close()
+    # Collect results from already finished
+    for proc, conn, file_path in results:
+        if conn.poll():
+            try:
+                yield conn.recv()
+            except EOFError:
+                yield (None, file_path, False)
+        conn.close()
 
 class ParallelProcessor:
     def __init__(self):
@@ -91,18 +107,16 @@ class ParallelProcessor:
         yield from self._process_parallel(file_list)
 
     def _process_parallel(self, file_list):
-        import os
         max_memory_mb = int(os.getenv('MAX_MEMORY_MB', '8192'))
         worker_max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
-        pool = AdaptiveMemoryPool(max_memory_mb, worker_max_mem_mb)
         retries = 0
         remaining_files = file_list[:]
-
         while remaining_files and retries < self.max_retries:
             try:
                 logger.info(f"Starting adaptive multiprocessing with memory cap {max_memory_mb}MB (retry {retries})")
                 failed_in_batch = []
-                for features, filepath, db_write_success in pool.run(remaining_files, process_file_worker):
+                for features, filepath, db_write_success in adaptive_parallel_process(
+                    remaining_files, process_file_worker, self.workers, max_memory_mb):
                     if features and db_write_success:
                         yield features
                     else:
