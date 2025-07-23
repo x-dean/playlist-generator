@@ -23,19 +23,23 @@ def process_file_worker(filepath):
     process = psutil.Process(os.getpid())
     if process.memory_info().rss > max_mem_mb * 1024 * 1024:
         logger.warning(f"Worker memory exceeded {max_mem_mb}MB, skipping {filepath}")
+        logger.info(f"SKIP: {filepath} (memory exceeded)")
         return None, filepath
 
     while retry_count <= max_retries:
         try:
             if not os.path.exists(filepath):
                 logger.warning(f"File not found: {filepath}")
+                logger.info(f"SKIP: {filepath} (not found)")
                 return None, filepath
             
             if os.path.getsize(filepath) < 1024:
                 logger.warning(f"Skipping small file: {filepath}")
+                logger.info(f"SKIP: {filepath} (too small)")
                 return None, filepath
 
             if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
+                logger.info(f"SKIP: {filepath} (unsupported extension)")
                 return None, filepath
 
             result = audio_analyzer.extract_features(filepath)
@@ -45,6 +49,7 @@ def process_file_worker(filepath):
                 for key in ['bpm', 'centroid', 'duration']:
                     if features.get(key) is None:
                         features[key] = 0.0
+                logger.info(f"PROCESSED: {filepath}")
                 return features, filepath
             
             # If we get here, result was None or features were None
@@ -55,6 +60,7 @@ def process_file_worker(filepath):
                 logger.warning(f"Retrying {filepath} (attempt {retry_count}/{max_retries})")
                 continue
             
+            logger.info(f"FAIL: {filepath} (feature extraction failed)")
             return None, filepath
 
         except Exception as e:
@@ -66,6 +72,7 @@ def process_file_worker(filepath):
                 continue
             
             logger.error(f"Error processing {filepath} after {max_retries} retries: {str(e)}", exc_info=True)
+            logger.info(f"FAIL: {filepath} (exception: {str(e)})")
             return None, filepath
 
 class ParallelProcessor:

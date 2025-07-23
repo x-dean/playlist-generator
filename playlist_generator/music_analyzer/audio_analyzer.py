@@ -382,6 +382,7 @@ class AudioAnalyzer:
                 self._ensure_float(file_info['last_modified']),
                 json.dumps(features.get('metadata', {}))
             ))
+            logger.info(f"DB WRITE: {file_info['file_path']}")
 
     def get_all_features(self):
         try:
