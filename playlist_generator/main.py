@@ -46,6 +46,10 @@ cli = PlaylistGeneratorCLI()
 os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
 os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
+cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+logfile_path = os.path.join(cache_dir, 'essentia_stderr.log')
+sys.stderr = open(logfile_path, 'w')
+
 def get_audio_files(music_dir: str) -> list[str]:
     """Recursively find all audio files in the given directory.
 
@@ -173,8 +177,6 @@ def main() -> None:
     args = parser.parse_args()
 
     # Set cache file path
-    cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-    os.environ['CACHE_DIR'] = cache_dir
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
     playlist_db = PlaylistDatabase(cache_file)
 
