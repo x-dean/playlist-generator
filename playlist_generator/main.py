@@ -267,11 +267,17 @@ def main():
             processed_this_run = []
             mb_this_run = 0
             no_mb_this_run = 0
+            total_files = len(file_list)
+            processed_count = 0
+            # Only show progress bar in main process
             for features in track(
                 processor.process(file_list, workers=args.workers or mp.cpu_count()),
-                total=len(file_list)
-                # No description argument, so no leading text
+                total=total_files,
+                description=f"Processed 0/{total_files} files"
             ):
+                processed_count += 1
+                # Update the progress bar description with processed/total
+                track.description = f"Processed {processed_count}/{total_files} files"
                 logger.debug(f"Features: {features}")
                 if features and 'metadata' in features:
                     processed_this_run.append(features)
