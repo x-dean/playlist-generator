@@ -219,7 +219,7 @@ def main() -> None:
     })
     
     # Initialize components
-    audio_db = AudioAnalyzer(cache_file)
+    audio_db = AudioAnalyzer(cache_file, host_music_dir=args.host_music_dir, container_music_dir=args.music_dir)
     # Pass min_tracks_per_genre and enrich_tags to PlaylistManager if using tags method
     if args.playlist_method == 'tags':
         playlist_manager = PlaylistManager(
@@ -333,8 +333,10 @@ def main() -> None:
 
         elif args.analyze:
             file_list = get_audio_files(args.music_dir)
-            db_files = set(f['filepath'] for f in audio_db.get_all_features(include_failed=True))
-            failed_files_db = set(f['filepath'] for f in audio_db.get_all_features(include_failed=True) if f['failed'])
+            # Normalize db_files and failed_files_db to host paths for comparison
+            db_features = audio_db.get_all_features(include_failed=True)
+            db_files = set(convert_to_host_path(f['filepath'], host_music_dir, container_music_dir) for f in db_features)
+            failed_files_db = set(convert_to_host_path(f['filepath'], host_music_dir, container_music_dir) for f in db_features if f['failed'])
             # DEBUG: Print samples to check for path mismatches
             print("Sample from file_list:", file_list[:3])
             print("Sample from failed_files_db:", list(failed_files_db)[:3])

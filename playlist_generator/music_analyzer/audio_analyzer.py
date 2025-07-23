@@ -38,11 +38,13 @@ def timeout(seconds=60, error_message="Processing timed out"):
 
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
-    def __init__(self, cache_file: str = None) -> None:
+    def __init__(self, cache_file: str = None, host_music_dir: str = None, container_music_dir: str = None) -> None:
         """Initialize the AudioAnalyzer.
 
         Args:
             cache_file (str, optional): Path to the cache database file. Defaults to None.
+            host_music_dir (str, optional): Host music directory for path normalization.
+            container_music_dir (str, optional): Container music directory for path normalization.
         """
         self.timeout_seconds = 120
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
@@ -52,6 +54,8 @@ class AudioAnalyzer:
         self.cleanup_database()  # Clean up immediately on init
         # Set MusicBrainz user agent
         musicbrainzngs.set_useragent("PlaylistGenerator", "1.0", "noreply@example.com")
+        self.host_music_dir = host_music_dir
+        self.container_music_dir = container_music_dir
 
     def _init_db(self):
         self.conn = sqlite3.connect(self.cache_file, timeout=600)
@@ -121,20 +125,28 @@ class AudioAnalyzer:
             return 0
 
     def _get_file_info(self, filepath):
+        # Always normalize to host path
+        host_path = self._normalize_to_host_path(filepath)
         try:
-            stat = os.stat(filepath)
+            stat = os.stat(host_path)
             return {
-                'file_hash': f"{os.path.basename(filepath)}_{stat.st_size}_{stat.st_mtime}",
+                'file_hash': f"{os.path.basename(host_path)}_{stat.st_size}_{stat.st_mtime}",
                 'last_modified': stat.st_mtime,
-                'file_path': filepath
+                'file_path': host_path
             }
         except Exception as e:
-            logger.warning(f"Couldn't get file stats for {filepath}: {str(e)}")
+            logger.warning(f"Couldn't get file stats for {host_path}: {str(e)}")
             return {
-                'file_hash': hashlib.md5(filepath.encode()).hexdigest(),
+                'file_hash': hashlib.md5(host_path.encode()).hexdigest(),
                 'last_modified': 0,
-                'file_path': filepath
+                'file_path': host_path
             }
+
+    def _normalize_to_host_path(self, path):
+        if self.host_music_dir and self.container_music_dir:
+            from playlist_generator.main import convert_to_host_path
+            return convert_to_host_path(path, self.host_music_dir, self.container_music_dir)
+        return os.path.normpath(path)
 
     def _safe_audio_load(self, audio_path):
         try:
@@ -381,6 +393,9 @@ class AudioAnalyzer:
         return features
 
     def _mark_failed(self, file_info):
+        # Ensure file_path is host path
+        file_info = dict(file_info)
+        file_info['file_path'] = self._normalize_to_host_path(file_info['file_path'])
         with self.conn:
             self.conn.execute(
                 "INSERT OR REPLACE INTO audio_features (file_hash, file_path, last_modified, metadata, failed) VALUES (?, ?, ?, ?, 1)",
@@ -388,6 +403,9 @@ class AudioAnalyzer:
             )
 
     def _save_features_to_db(self, file_info, features, failed=0):
+        # Ensure file_path is host path
+        file_info = dict(file_info)
+        file_info['file_path'] = self._normalize_to_host_path(file_info['file_path'])
         try:
             with self.conn:
                 self.conn.execute(
