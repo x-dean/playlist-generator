@@ -1,7 +1,6 @@
 from tqdm import tqdm
 import logging
 from .audio_analyzer import audio_analyzer
-from .parallel import process_file_worker  # Reuse worker function
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +26,7 @@ class SequentialProcessor:
         for filepath in file_list:
             import os
             try:
+                from .parallel import process_file_worker
                 features, _, _ = process_file_worker(filepath)
                 if features:
                     yield features, filepath

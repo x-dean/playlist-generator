@@ -351,6 +351,7 @@ def main() -> None:
                 # Only analyze files not in DB
                 files_to_analyze = [f for f in file_list if f not in db_files]
             print("Files to analyze:", files_to_analyze[:10])
+            print(f"About to process {len(files_to_analyze)} files")
             if not files_to_analyze:
                 skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
                 cli.show_success(f"Processed 0 files! Skipped {skipped_count} files due to errors (see database for details).")
