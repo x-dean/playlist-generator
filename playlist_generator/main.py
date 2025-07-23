@@ -24,6 +24,10 @@ import multiprocessing
 import threading
 from rich.live import Live
 from rich.spinner import Spinner
+import essentia
+essentia.log.infoActive = False
+essentia.log.warningActive = False
+essentia.log.errorActive = False
 
 logger = setup_colored_logging()
 
