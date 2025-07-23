@@ -1,5 +1,5 @@
 #!/bin/bash
-# Adaptive, memory-aware parallel analysis: No need to set --workers or --worker_max_mem_mb.
+# Adaptive, memory-aware parallel analysis: No need to set --workers or --worker_max_mem_mb by default.
 # The system will automatically manage parallelism and memory per worker.
 # Advanced: Set MAX_MEMORY_MB for total memory cap, or WORKER_MAX_MEM_MB_FORCE to force per-worker memory.
 set -euo pipefail
@@ -14,10 +14,6 @@ MUSIC_DIR="/root/music/library"
 HOST_MUSIC_DIR="$MUSIC_DIR"
 OUTPUT_DIR="/root/music/library/playlists/by_bpm"
 CACHE_DIR="/root/music/library/playlists/cache"
-WORKERS=$(($(nproc) / 2))
-if [ "$WORKERS" -lt 1 ]; then
-    WORKERS=1
-fi
 NUM_PLAYLISTS=10
 FORCE_SEQUENTIAL=false
 GENERATE_ONLY=false
@@ -30,8 +26,9 @@ ENRICH_ONLY=false
 FORCE=false
 STATUS=false
 
-# Add at the top with other flags
-WORKER_MAX_MEM_MB=2048
+# Advanced/override: Only set if provided by user
+# WORKERS and WORKER_MAX_MEM_MB are not set by default (adaptive pool will manage)
+# MAX_MEMORY_MB and WORKER_MAX_MEM_MB_FORCE can be set by user for advanced control
 
 # Get current user's UID and GID
 CURRENT_UID=$(id -u)
@@ -188,12 +185,15 @@ export MUSIC_DIR
 export HOST_MUSIC_DIR
 export OUTPUT_DIR
 export CACHE_DIR
-export WORKERS
 export NUM_PLAYLISTS
 export CURRENT_UID
 export CURRENT_GID
 export PLAYLIST_METHOD
-export WORKER_MAX_MEM_MB
+# Only export WORKERS, WORKER_MAX_MEM_MB, MAX_MEMORY_MB, WORKER_MAX_MEM_MB_FORCE if set by user
+if [[ -n "${WORKERS:-}" ]]; then export WORKERS; fi
+if [[ -n "${WORKER_MAX_MEM_MB:-}" ]]; then export WORKER_MAX_MEM_MB; fi
+if [[ -n "${MAX_MEMORY_MB:-}" ]]; then export MAX_MEMORY_MB; fi
+if [[ -n "${WORKER_MAX_MEM_MB_FORCE:-}" ]]; then export WORKER_MAX_MEM_MB_FORCE; fi
 
 # Set FORCE_SEQUENTIAL_FLAG only if true
 FORCE_SEQUENTIAL_FLAG=""
