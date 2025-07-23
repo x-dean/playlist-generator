@@ -21,29 +21,6 @@ You must choose **one** of the following modes for each run:
 
 ---
 
-## Adaptive Parallel Analysis
-
-The Playlist Generator uses an **adaptive, memory-aware worker pool** for audio analysis. This means:
-
-- You can simply run:
-  ```sh
-  ./run.sh -a
-  ```
-  and the system will automatically:
-  - Estimate the memory needed for each file.
-  - Dynamically set the per-worker memory limit for each file.
-  - Launch as many parallel workers as your system/container memory allows, without exceeding a safe cap.
-  - Avoid out-of-memory errors and maximize throughput.
-
-### Advanced Options
-
-- **MAX_MEMORY_MB**: (default: 8192) The total memory (in MB) allowed for all workers. Set this in your environment or as an argument in `run.sh` if you want to change the default.
-- **WORKER_MAX_MEM_MB_FORCE**: If set, this will force a fixed per-worker memory limit (in MB) for all workers, overriding the dynamic calculation.
-
-**In most cases, you do not need to set any options.** The system will adapt automatically. Only set these if you have special requirements or want to tune performance for your environment.
-
----
-
 ## 2. Playlist Generation Methods
 
 Choose with `-m` or `--playlist_method`:

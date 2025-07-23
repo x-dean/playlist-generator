@@ -1,7 +1,4 @@
 #!/bin/bash
-# Adaptive, memory-aware parallel analysis: No need to set --workers or --worker_max_mem_mb by default.
-# The system will automatically manage parallelism and memory per worker.
-# Advanced: Set MAX_MEMORY_MB for total memory cap, or WORKER_MAX_MEM_MB_FORCE to force per-worker memory.
 set -euo pipefail
 
 # Suppress Essentia logs globally
@@ -14,6 +11,10 @@ MUSIC_DIR="/root/music/library"
 HOST_MUSIC_DIR="$MUSIC_DIR"
 OUTPUT_DIR="/root/music/library/playlists/by_bpm"
 CACHE_DIR="/root/music/library/playlists/cache"
+WORKERS=$(($(nproc) / 2))
+if [ "$WORKERS" -lt 1 ]; then
+    WORKERS=1
+fi
 NUM_PLAYLISTS=10
 FORCE_SEQUENTIAL=false
 GENERATE_ONLY=false
@@ -26,9 +27,8 @@ ENRICH_ONLY=false
 FORCE=false
 STATUS=false
 
-# Advanced/override: Only set if provided by user
-# WORKERS and WORKER_MAX_MEM_MB are not set by default (adaptive pool will manage)
-# MAX_MEMORY_MB and WORKER_MAX_MEM_MB_FORCE can be set by user for advanced control
+# Add at the top with other flags
+WORKER_MAX_MEM_MB=2048
 
 # Get current user's UID and GID
 CURRENT_UID=$(id -u)
@@ -64,14 +64,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --worker_max_mem_mb=*)
             WORKER_MAX_MEM_MB="${1#*=}"
-            shift
-            ;;
-        --max_memory_mb=*)
-            MAX_MEMORY_MB="${1#*=}"
-            shift
-            ;;
-        --worker_max_mem_mb_force=*)
-            WORKER_MAX_MEM_MB_FORCE="${1#*=}"
             shift
             ;;
         --generate_only|-g)
@@ -132,10 +124,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --host_music_dir, -host_music_dir <path>  Host path to music directory (default: $HOST_MUSIC_DIR)"
             echo "  --output_dir, -output_dir <path>      Path to the output directory (default: $OUTPUT_DIR)"
             echo "  --cache_dir, -cache_dir <path>        Path to the cache directory (default: $CACHE_DIR)"
-            echo "  --workers, -workers <num>             (Advanced) Number of worker threads (default: adaptive)"
-            echo "  --worker_max_mem_mb=<MB>   (Advanced) Max memory (MB) per worker process (default: adaptive)"
-            echo "  --max_memory_mb=<MB>       (Advanced) Total memory (MB) allowed for all workers (default: 8192)"
-            echo "  --worker_max_mem_mb_force=<MB> (Advanced) Force fixed per-worker memory limit (MB), overrides adaptive"
+            echo "  --workers, -workers <num>             Number of worker threads (default: $(nproc))"
+            echo "  --worker_max_mem_mb=<MB>   Max memory (MB) per worker process (default: 2048)"
             echo "  --num_playlists, -num_playlists <num> Number of playlists to generate (default: $NUM_PLAYLISTS)"
             echo "  --force_sequential       Force sequential processing (default: false)"
             echo "  --generate_only, -g      Only generate playlists from database without analysis"
@@ -149,13 +139,6 @@ while [[ $# -gt 0 ]]; do
             echo "  --force                 Force re-enrichment for all tracks in the database (use with --enrich_only)"
             echo "  --status                 Show library/database statistics and exit"
             echo "  --help, -h               Show this help message"
-            echo ""
-            echo "[Adaptive Parallel Analysis]"
-            echo "  By default, you do NOT need to set --workers or --worker_max_mem_mb."
-            echo "  The system will automatically manage parallelism and memory per worker."
-            echo "  Advanced:"
-            echo "    --max_memory_mb=<MB>       Set total memory cap for all workers (default: 8192)"
-            echo "    --worker_max_mem_mb_force=<MB>  Force fixed per-worker memory limit (MB)"
             exit 0
             ;;
         *)
@@ -185,15 +168,12 @@ export MUSIC_DIR
 export HOST_MUSIC_DIR
 export OUTPUT_DIR
 export CACHE_DIR
+export WORKERS
 export NUM_PLAYLISTS
 export CURRENT_UID
 export CURRENT_GID
 export PLAYLIST_METHOD
-# Only export WORKERS, WORKER_MAX_MEM_MB, MAX_MEMORY_MB, WORKER_MAX_MEM_MB_FORCE if set by user
-if [[ -n "${WORKERS:-}" ]]; then export WORKERS; fi
-if [[ -n "${WORKER_MAX_MEM_MB:-}" ]]; then export WORKER_MAX_MEM_MB; fi
-if [[ -n "${MAX_MEMORY_MB:-}" ]]; then export MAX_MEMORY_MB; fi
-if [[ -n "${WORKER_MAX_MEM_MB_FORCE:-}" ]]; then export WORKER_MAX_MEM_MB_FORCE; fi
+export WORKER_MAX_MEM_MB
 
 # Set FORCE_SEQUENTIAL_FLAG only if true
 FORCE_SEQUENTIAL_FLAG=""
@@ -207,7 +187,7 @@ MUSIC_DIR=${MUSIC_DIR}
 HOST_MUSIC_DIR=${HOST_MUSIC_DIR}
 OUTPUT_DIR=${OUTPUT_DIR}
 CACHE_DIR=${CACHE_DIR}
-WORKERS=${WORKERS:-}
+WORKERS=${WORKERS}
 NUM_PLAYLISTS=${NUM_PLAYLISTS}
 CURRENT_UID=${CURRENT_UID}
 CURRENT_GID=${CURRENT_GID}
@@ -224,10 +204,7 @@ echo "Music Directory (Container): $MUSIC_DIR"
 echo "Music Directory (Host): $HOST_MUSIC_DIR"
 echo "Output Directory: $OUTPUT_DIR"
 echo "Cache Directory: $CACHE_DIR"
-# Only print Workers if set
-if [[ -n "${WORKERS:-}" ]]; then
-    echo "Workers: $WORKERS"
-fi
+echo "Workers: $WORKERS"
 echo "Playlists: $NUM_PLAYLISTS"
 echo "Force Sequential: ${FORCE_SEQUENTIAL}"
 echo "Generate Only: ${GENERATE_ONLY}"
@@ -240,7 +217,7 @@ echo "Enrich Only: ${ENRICH_ONLY}"
 echo "Force Enrich Only: ${FORCE}"
 echo "Status Mode: ${STATUS}"
 echo "Running as UID:GID = $CURRENT_UID:$CURRENT_GID"
-echo "Worker Max Mem (MB): ${WORKER_MAX_MEM_MB:-}"
+echo "Worker Max Mem (MB): ${WORKER_MAX_MEM_MB}"
 echo "========================================"
 
 # Build only if requested
@@ -286,13 +263,6 @@ if [ "$FORCE" = true ]; then
     FORCE_FLAG="--force"
 fi
 
-# Build docker-compose or docker run arguments safely
-DOCKER_WORKERS_ARG=""
-if [[ -n "${WORKERS:-}" ]]; then
-    DOCKER_WORKERS_ARG="--workers ${WORKERS}"
-fi
-# Use $DOCKER_WORKERS_ARG in compose/run commands
-
 # Run the generator
 if [ "$STATUS" = true ]; then
     # Only run status, ignore other flags
@@ -302,7 +272,7 @@ if [ "$STATUS" = true ]; then
       --music_dir /music \
       --host_music_dir ${HOST_MUSIC_DIR} \
       --output_dir /app/playlists \
-      $DOCKER_WORKERS_ARG \
+      --workers ${WORKERS} \
       --num_playlists ${NUM_PLAYLISTS} \
       --status
     exit $?
@@ -315,7 +285,7 @@ docker compose exec playlist-generator python main.py \
   --music_dir /music \
   --host_music_dir ${HOST_MUSIC_DIR} \
   --output_dir /app/playlists \
-  $DOCKER_WORKERS_ARG \
+  --workers ${WORKERS} \
   --num_playlists ${NUM_PLAYLISTS} \
   $MUTEX_FLAG \
   $PLAYLIST_METHOD_FLAG \
