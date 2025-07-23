@@ -302,7 +302,7 @@ if [ "$STATUS" = true ]; then
       --music_dir /music \
       --host_music_dir ${HOST_MUSIC_DIR} \
       --output_dir /app/playlists \
-      --workers ${WORKERS:-} \
+      $DOCKER_WORKERS_ARG \
       --num_playlists ${NUM_PLAYLISTS} \
       --status
     exit $?
@@ -315,7 +315,7 @@ docker compose exec playlist-generator python main.py \
   --music_dir /music \
   --host_music_dir ${HOST_MUSIC_DIR} \
   --output_dir /app/playlists \
-  --workers ${WORKERS:-} \
+  $DOCKER_WORKERS_ARG \
   --num_playlists ${NUM_PLAYLISTS} \
   $MUTEX_FLAG \
   $PLAYLIST_METHOD_FLAG \
