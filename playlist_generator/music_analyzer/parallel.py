@@ -38,6 +38,11 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
         notifier = threading.Thread(target=notify_if_long, daemon=True)
         notifier.start()
 
+    try:
+        size_mb = os.path.getsize(filepath) / (1024 * 1024)
+    except Exception:
+        size_mb = 0
+
     while retry_count <= max_retries:
         try:
             if not os.path.exists(filepath):
