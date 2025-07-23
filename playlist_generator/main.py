@@ -270,6 +270,7 @@ def main():
                 failed_files = []
                 processed_this_run = []
                 for features in processor.process(file_list, workers=args.workers or mp.cpu_count()):
+                    print("[DEBUG] Got result:", features)  # Debug print to show each result
                     if features and 'metadata' in features:
                         processed_this_run.append(features)
                 print(f"[DEBUG] Analysis loop complete. Processed {len(processed_this_run)} files.")

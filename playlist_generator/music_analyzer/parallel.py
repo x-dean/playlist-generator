@@ -22,7 +22,8 @@ def process_file_worker(filepath, dynamic_mem_limit_mb=None):
     import time
     print(f"[DEBUG] Minimal worker for {filepath}")
     time.sleep(2)
-    return {"status": "ok", "file": filepath}, filepath, True
+    # Return a dict with 'metadata' key for compatibility with main loop
+    return {"filepath": filepath, "metadata": {"dummy": True}}, filepath, True
 
 def estimate_memory_for_file(file_path):
     try:
