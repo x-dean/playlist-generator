@@ -12,3 +12,4 @@ rich==13.7.0
 musicbrainzngs==0.7.1
 mutagen==1.47.0 
 requests==2.31.0 
+questionary==1.10.0 
