@@ -149,14 +149,22 @@ class ParallelProcessor:
                 for i in range(0, len(remaining_files), self.batch_size):
                     batch = remaining_files[i:i+self.batch_size]
                     with ctx.Pool(processes=self.workers) as pool:
-                        # Use starmap to pass status_queue to each worker
-                        from functools import partial
-                        worker_func = partial(process_file_worker, status_queue=status_queue)
-                        for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
-                            if features and db_write_success:
-                                yield features
-                            else:
-                                failed_in_batch.append(filepath)
+                        try:
+                            from functools import partial
+                            worker_func = partial(process_file_worker, status_queue=status_queue)
+                            for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
+                                if features and db_write_success:
+                                    yield features
+                                else:
+                                    failed_in_batch.append(filepath)
+                        except KeyboardInterrupt:
+                            print("KeyboardInterrupt received, terminating pool...")
+                            pool.terminate()
+                            pool.join()
+                            raise
+                        finally:
+                            pool.close()
+                            pool.join()
                 if failed_in_batch:
                     logger.info(f"Retrying {len(failed_in_batch)} failed files in next round")
                     remaining_files = failed_in_batch
