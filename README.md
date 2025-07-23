@@ -120,6 +120,7 @@ You can adjust the threshold as needed. Genres with fewer tracks will be ignored
   Use `all` for most cases, `time` for dayparting, `kmeans` for experimental clustering, `cache` for legacy compatibility.
 - **Check logs:**  
   The tool logs playlist sizes, fallback behavior, and any errors for easy troubleshooting.
+- You can limit the memory usage of each worker process using `--worker_max_mem_mb`. If a worker exceeds this limit, it will skip the file and log a warning.
 
 ---
 
@@ -164,6 +165,7 @@ You can adjust the threshold as needed. Genres with fewer tracks will be ignored
 | `--music_dir DIR`   | Music directory (container path)             |
 | `--host_music_dir DIR` | Music directory (host path)               |
 | `--min_tracks_per_genre N` | Minimum tracks required for a genre to create a playlist (tags method) |
+| `--worker_max_mem_mb N` | Max memory (MB) per worker process (default: 2048) |
 
 ---
 

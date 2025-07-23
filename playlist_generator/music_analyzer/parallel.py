@@ -6,6 +6,7 @@ from tqdm import tqdm
 import logging
 import time
 from .audio_analyzer import AudioAnalyzer
+import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,13 @@ def process_file_worker(filepath):
     max_retries = 2
     retry_count = 0
     backoff_time = 1  # Initial backoff time in seconds
+
+    # Memory limit check (per worker)
+    max_mem_mb = int(os.getenv('WORKER_MAX_MEM_MB', '2048'))
+    process = psutil.Process(os.getpid())
+    if process.memory_info().rss > max_mem_mb * 1024 * 1024:
+        logger.warning(f"Worker memory exceeded {max_mem_mb}MB, skipping {filepath}")
+        return None, filepath
 
     while retry_count <= max_retries:
         try:
