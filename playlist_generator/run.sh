@@ -1,4 +1,7 @@
 #!/bin/bash
+# Adaptive, memory-aware parallel analysis: No need to set --workers or --worker_max_mem_mb.
+# The system will automatically manage parallelism and memory per worker.
+# Advanced: Set MAX_MEMORY_MB for total memory cap, or WORKER_MAX_MEM_MB_FORCE to force per-worker memory.
 set -euo pipefail
 
 # Suppress Essentia logs globally
@@ -66,6 +69,14 @@ while [[ $# -gt 0 ]]; do
             WORKER_MAX_MEM_MB="${1#*=}"
             shift
             ;;
+        --max_memory_mb=*)
+            MAX_MEMORY_MB="${1#*=}"
+            shift
+            ;;
+        --worker_max_mem_mb_force=*)
+            WORKER_MAX_MEM_MB_FORCE="${1#*=}"
+            shift
+            ;;
         --generate_only|-g)
             GENERATE_ONLY=true
             shift
@@ -124,8 +135,10 @@ while [[ $# -gt 0 ]]; do
             echo "  --host_music_dir, -host_music_dir <path>  Host path to music directory (default: $HOST_MUSIC_DIR)"
             echo "  --output_dir, -output_dir <path>      Path to the output directory (default: $OUTPUT_DIR)"
             echo "  --cache_dir, -cache_dir <path>        Path to the cache directory (default: $CACHE_DIR)"
-            echo "  --workers, -workers <num>             Number of worker threads (default: $(nproc))"
-            echo "  --worker_max_mem_mb=<MB>   Max memory (MB) per worker process (default: 2048)"
+            echo "  --workers, -workers <num>             (Advanced) Number of worker threads (default: adaptive)"
+            echo "  --worker_max_mem_mb=<MB>   (Advanced) Max memory (MB) per worker process (default: adaptive)"
+            echo "  --max_memory_mb=<MB>       (Advanced) Total memory (MB) allowed for all workers (default: 8192)"
+            echo "  --worker_max_mem_mb_force=<MB> (Advanced) Force fixed per-worker memory limit (MB), overrides adaptive"
             echo "  --num_playlists, -num_playlists <num> Number of playlists to generate (default: $NUM_PLAYLISTS)"
             echo "  --force_sequential       Force sequential processing (default: false)"
             echo "  --generate_only, -g      Only generate playlists from database without analysis"
@@ -139,6 +152,13 @@ while [[ $# -gt 0 ]]; do
             echo "  --force                 Force re-enrichment for all tracks in the database (use with --enrich_only)"
             echo "  --status                 Show library/database statistics and exit"
             echo "  --help, -h               Show this help message"
+            echo ""
+            echo "[Adaptive Parallel Analysis]"
+            echo "  By default, you do NOT need to set --workers or --worker_max_mem_mb."
+            echo "  The system will automatically manage parallelism and memory per worker."
+            echo "  Advanced:"
+            echo "    --max_memory_mb=<MB>       Set total memory cap for all workers (default: 8192)"
+            echo "    --worker_max_mem_mb_force=<MB>  Force fixed per-worker memory limit (MB)"
             exit 0
             ;;
         *)
