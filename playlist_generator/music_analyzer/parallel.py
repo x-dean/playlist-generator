@@ -39,12 +39,18 @@ def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, t
     active = []  # List of (proc, conn, file_path, est_mem)
     mem_used = 0
     file_iter = iter(file_list)
-    results = []
     while True:
-        # Clean up finished workers
+        # Clean up finished workers and yield results
         for proc, conn, file_path, mem in active[:]:
             if not proc.is_alive():
                 proc.join()
+                if conn.poll():
+                    try:
+                        yield conn.recv()
+                    except EOFError:
+                        yield (None, file_path, False)
+                else:
+                    yield (None, file_path, False)
                 conn.close()
                 active.remove((proc, conn, file_path, mem))
                 mem_used -= mem
@@ -64,10 +70,9 @@ def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, t
             proc.start()
             active.append((proc, pconn, file_path, est_mem))
             mem_used += est_mem
-            results.append((proc, pconn, file_path))
         else:
             time.sleep(0.1)
-    # Wait for all to finish
+    # Wait for all to finish and yield their results
     for proc, conn, file_path, mem in active:
         proc.join(timeout)
         if proc.is_alive():
@@ -81,14 +86,6 @@ def adaptive_parallel_process(file_list, worker_func, max_workers, max_mem_mb, t
                 yield (None, file_path, False)
         else:
             yield (None, file_path, False)
-        conn.close()
-    # Collect results from already finished
-    for proc, conn, file_path in results:
-        if conn.poll():
-            try:
-                yield conn.recv()
-            except EOFError:
-                yield (None, file_path, False)
         conn.close()
 
 class ParallelProcessor:
