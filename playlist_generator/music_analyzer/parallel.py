@@ -133,7 +133,7 @@ class AdaptiveMemoryPool:
             ext = os.path.splitext(file_path)[1].lower()
             # Use a higher multiplier for compressed formats
             if ext in ('.mp3', '.m4a', '.aac', '.ogg', '.opus'):
-                return max(2048, size_mb * 10)  # 10x file size, min 2GB
+                return max(2048, size_mb * 15)  # 15x file size, min 2GB
             else:  # wav, flac, etc.
                 return max(1024, size_mb * 2)   # 2x file size, min 1GB
         except Exception:
