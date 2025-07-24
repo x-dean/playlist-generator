@@ -235,7 +235,8 @@ Failed Files: {stats.get('failed_files', 0)}
         table.add_column("Stat", style="cyan")
         table.add_column("Value", style="green")
         # Playlist Stats section
-        table.add_row(Text("Playlist Stats", style="bold magenta"), "─" * 30)
+        table.add_row("─" * 30, "─" * 30)
+        table.add_row(Text("Playlist Stats", style="bold magenta"), "")
         playlists_per_mode = stats.get('playlists_per_mode')
         if playlists_per_mode:
             for mode, count in playlists_per_mode.items():
@@ -249,7 +250,8 @@ Failed Files: {stats.get('failed_files', 0)}
         if 'playlists_with_0_tracks' in stats:
             table.add_row("  Playlists with 0 Tracks", str(stats['playlists_with_0_tracks']))
         # Track Stats section
-        table.add_row(Text("Track Stats", style="bold magenta"), "─" * 30)
+        table.add_row("─" * 30, "─" * 30)
+        table.add_row(Text("Track Stats", style="bold magenta"), "")
         table.add_row("  Total Tracks", str(stats.get('total_tracks', 0)))
         table.add_row("  Tracks with Tags", str(stats.get('tracks_with_tags', 0)))
         table.add_row("  Tracks with Year", str(stats.get('tracks_with_year', 0)))
@@ -263,7 +265,8 @@ Failed Files: {stats.get('failed_files', 0)}
         if 'tracks_with_multiple_genres' in stats:
             table.add_row("  Tracks with Multiple Genres", str(stats['tracks_with_multiple_genres']))
         # Genre Stats section
-        table.add_row(Text("Genre Stats", style="bold magenta"), "─" * 30)
+        table.add_row("─" * 30, "─" * 30)
+        table.add_row(Text("Genre Stats", style="bold magenta"), "")
         genre_counts = stats.get('genre_counts', {})
         if 'tracks_with_real_genre' in stats:
             table.add_row("  Track with genres", str(stats['tracks_with_real_genre']))
@@ -278,14 +281,16 @@ Failed Files: {stats.get('failed_files', 0)}
                 top_genres = ", ".join([f"{g} ({c})" for g, c in stats['top_5_genres']])
                 table.add_row("  Top 5 Genres", top_genres)
         # File Stats section
-        table.add_row(Text("File Stats", style="bold magenta"), "─" * 30)
+        table.add_row("─" * 30, "─" * 30)
+        table.add_row(Text("File Stats", style="bold magenta"), "")
         if 'unique_file_extensions' in stats:
             table.add_row("  Unique File Extensions", ", ".join(stats['unique_file_extensions']))
         if 'tracks_per_extension' in stats:
             ext_counts = ", ".join([f"{ext}: {count}" for ext, count in stats['tracks_per_extension'].items()])
             table.add_row("  Tracks per Extension", ext_counts)
         # Dates section
-        table.add_row(Text("Dates", style="bold magenta"), "─" * 30)
+        table.add_row("─" * 30, "─" * 30)
+        table.add_row(Text("Dates", style="bold magenta"), "")
         if 'last_analysis_date' in stats:
             table.add_row("  Last Analysis Date", str(stats['last_analysis_date']))
         if 'last_playlist_update_date' in stats:
