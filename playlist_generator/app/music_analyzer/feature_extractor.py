@@ -1,4 +1,3 @@
-playlist_generator/app/music_analyzer/feature_extractor.py
 import numpy as np
 import essentia.standard as es
 import os
