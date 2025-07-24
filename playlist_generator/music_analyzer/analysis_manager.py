@@ -7,7 +7,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.console import Console
 from music_analyzer.parallel import ParallelProcessor, UserAbortException
 from music_analyzer.sequential import SequentialProcessor
-from music_analyzer.audio_analyzer import AudioAnalyzer
+from music_analyzer.feature_extractor import AudioAnalyzer
 
 logger = logging.getLogger(__name__)
 BIG_FILE_SIZE_MB = 200

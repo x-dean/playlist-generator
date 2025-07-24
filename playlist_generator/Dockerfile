@@ -1,4 +1,4 @@
-# Use a multi-stage build for a smaller final image
+# --- Build stage ---
 FROM python:3.9-slim-bullseye as builder
 
 # Install build dependencies
@@ -6,14 +6,14 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
     libfftw3-dev \
-    libtag1-dev \
-    && rm -rf /var/lib/apt/lists/*
+    libtag1-dev
 
-# Install Python dependencies
-COPY requirements.txt /tmp/
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# Install Python dependencies in a virtualenv (for clean copy)
+WORKDIR /install
+COPY requirements.txt .
+RUN pip install --prefix=/install/deps --no-cache-dir -r requirements.txt
 
-# Final stage
+# --- Final stage ---
 FROM python:3.9-slim-bullseye
 
 # Install runtime dependencies only
@@ -25,16 +25,16 @@ RUN apt-get update && \
     libtag1v5 \
     sqlite3 \
     libmagic1 \
-    gosu \
-    && rm -rf /var/lib/apt/lists/*
+    gosu && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder
-COPY --from=builder /usr/local/lib/python3.9/site-packages /usr/local/lib/python3.9/site-packages
+# Copy only the installed Python packages from builder
+COPY --from=builder /install/deps /usr/local
 
 # Set working directory
 WORKDIR /app
 
-# Copy application files
+# Copy only the necessary application files
 COPY . /app
 
 # Create __init__.py files to make directories importable
@@ -46,10 +46,8 @@ RUN touch /app/database/__init__.py && \
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \
     chmod -R 777 /app/playlists /app/cache
 
-# Make audiolizer executable
+# Make audiolizer executable and add to PATH
 RUN chmod +x /app/audiolizer
-
-# Add /app to PATH so audiolizer can be run as a command
 ENV PATH="/app:${PATH}"
 
 # Set environment variables
@@ -58,6 +56,4 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     CACHE_DIR=/app/cache 
 
-# Use shell form for entrypoint to allow variable expansion
 ENTRYPOINT ["bash"]
-# No CMD, container starts with a shell for interactive use
