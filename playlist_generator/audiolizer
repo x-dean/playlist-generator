@@ -160,24 +160,57 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, host_music_dir: 
 from analysis import run_analysis
 
 def main() -> None:
-    """Main entry point for the Playlist Generator CLI application."""
-    # Start CLI session
+    """Main entry point for the Audiolizer CLI application."""
     cli.start_session()
 
-    # Parse arguments
-    parser = argparse.ArgumentParser(description='Music Playlist Generator')
+    parser = argparse.ArgumentParser(
+        description='''
+Audiolizer: Fast, flexible music playlist generator and analyzer.
+
+- Analyze your music library for audio features
+- Generate playlists using multiple methods (feature-group, time, kmeans, cache, tags)
+- Enrich your library with tags from MusicBrainz/Last.fm
+- Supports parallel and sequential processing
+- Designed for Docker and large libraries
+''',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        epilog='''
+Usage Tips:
+  - All paths are fixed for Docker: /music, /app/playlists, /app/cache
+  - Use --workers N for parallel processing (default: all CPUs)
+  - Use --force_sequential for single-threaded (debugging/low memory)
+  - Use --analyze to analyze new/changed files
+  - Use --generate_only to generate playlists from existing analysis
+  - Use --update to regenerate all playlists
+  - Use --enrich_only to enrich tags for all tracks (no analysis)
+  - Use --failed to re-analyze only failed tracks
+  - Use --status to show library/database stats
+  - Use --playlist_method to select playlist generation method
+  - Use --min_tracks_per_genre for tag-based playlists
+  - Combine --analyze and --enrich_tags for full enrichment
+
+Examples:
+  audiolizer --analyze --workers 8
+  audiolizer --generate_only
+  audiolizer --update
+  audiolizer --enrich_only --force
+  audiolizer --analyze --failed
+  audiolizer --force_sequential
+  audiolizer --playlist_method tags --min_tracks_per_genre 15
+''')
     group = parser.add_mutually_exclusive_group(required=False)
-    parser.add_argument('--music_dir', required=True, help='Music directory in container')
-    parser.add_argument('--host_music_dir', required=True, help='Host music directory')
-    parser.add_argument('--output_dir', default='./playlists', help='Output directory')
-    parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists')
+    # Fixed paths, so not exposed as CLI options:
+    # parser.add_argument('--music_dir', default='/music', help='Music directory in container (default: /music)')
+    # parser.add_argument('--host_music_dir', default='/music', help='Host music directory (default: /music)')
+    # parser.add_argument('--output_dir', default='/app/playlists', help='Output directory (default: /app/playlists)')
+    # parser.add_argument('--cache_dir', default='/app/cache', help='Cache directory (default: /app/cache)')
+    parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists to generate')
     parser.add_argument('--workers', type=int, default=None, help='Number of workers (default: auto)')
-    parser.add_argument('--force_sequential', action='store_true', help='Force sequential processing')
+    parser.add_argument('--force_sequential', action='store_true', help='Force sequential processing (disables multiprocessing)')
     parser.add_argument('-a', '--analyze', action='store_true', help='Analyze files (see --failed and --force for options)')
     parser.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
     parser.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
     parser.add_argument('--failed', action='store_true', help='With --analyze: only re-analyze files previously marked as failed')
-    # Only one add_argument for --force
     parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze or re-enrich (used with --analyze or --enrich_only)')
     parser.add_argument('--status', action='store_true', help='Show library/database statistics and exit')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
@@ -187,7 +220,6 @@ def main() -> None:
     parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs (default: False)')
     parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
     parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
-    # The --force argument is now handled by -f/--force, so we don't need a separate --force argument here.
     args = parser.parse_args()
 
     # Normalize workers: treat 0 as auto (parallel)
