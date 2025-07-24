@@ -426,18 +426,29 @@ class DatabaseManager:
             if genre_counter:
                 sorted_genres = sorted([(g, c) for g, c in genre_counter.items() if g not in ("Other", "UnknownGenre", "", None)], key=lambda x: -x[1])
                 stats['top_5_genres'] = sorted_genres[:5]
-            # Tracks with multiple genres
+            # Tracks with real genre and others (count each track only once)
             cursor.execute("SELECT metadata FROM audio_features")
-            multi_genre_count = 0
+            tracks_with_real_genre = 0
+            tracks_with_no_real_genre = 0
             for row in cursor.fetchall():
                 try:
                     meta = json.loads(row['metadata']) if row['metadata'] else {}
                     genre = meta.get('genre')
-                    if isinstance(genre, list) and len(genre) > 1:
-                        multi_genre_count += 1
+                    found_real = False
+                    if genre:
+                        genre_list = [genre] if isinstance(genre, str) else genre if isinstance(genre, list) else []
+                        for g in genre_list:
+                            if g not in ("Other", "UnknownGenre", "", None):
+                                found_real = True
+                                break
+                    if found_real:
+                        tracks_with_real_genre += 1
+                    else:
+                        tracks_with_no_real_genre += 1
                 except Exception:
-                    continue
-            stats['tracks_with_multiple_genres'] = multi_genre_count
+                    tracks_with_no_real_genre += 1
+            stats['tracks_with_real_genre'] = tracks_with_real_genre
+            stats['tracks_with_no_real_genre'] = tracks_with_no_real_genre
             # Unique file extensions and tracks per extension
             cursor.execute("SELECT file_path FROM audio_features")
             ext_counter = {}
