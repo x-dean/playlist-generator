@@ -138,8 +138,9 @@ def create_progress_bar(total_files):
     )
 
 # --- Main Orchestration ---
-def run_analysis(args, audio_db, playlist_db, cli):
-    stop_event = setup_graceful_shutdown()
+def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
+    if stop_event is None:
+        stop_event = setup_graceful_shutdown()
     normal_files, big_files, file_list, db_features = select_files_for_analysis(args, audio_db)
     failed_files = []
     processed_count = 0
