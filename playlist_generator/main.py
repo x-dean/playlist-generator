@@ -209,7 +209,7 @@ def main() -> None:
     # Show configuration
     cli.show_config({
         'Music Directory': args.host_music_dir,
-        'Output Directory': args.output_dir,
+        'Output Directory': getattr(args, 'host_output_dir', args.output_dir),
         'Number of Playlists (selected)': args.num_playlists,
         'Workers': args.workers or 'Auto',
         'Mode': 'Sequential' if args.force_sequential or (args.workers is not None and int(args.workers) <= 1) else 'Parallel',
