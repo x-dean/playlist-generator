@@ -20,7 +20,6 @@ def setup_colored_logging():
         )
         handler = logging.StreamHandler(sys.stderr)  # Use stderr
         handler.setFormatter(formatter)
-        logger.setLevel(logging.WARNING)
         logger.addHandler(handler)
     return logger
 
