@@ -248,6 +248,7 @@ Failed Files: {stats.get('failed_files', 0)}
             other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
             table.add_row("Track with genres", str(real_count))
             table.add_row("Others (no genres)", str(other_count))
+        # Removed redundant genre summary print
         self.console.print(table)
 
         # Genre breakdown (if present)

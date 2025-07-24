@@ -497,7 +497,7 @@ def main() -> None:
             if genre_counts:
                 real_count = sum(c for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None))
                 other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
-            # Compose the summary table for the panel
+            # Compose the summary table for the panel (match configuration style)
             from rich.table import Table
             summary_table = Table(show_header=True, header_style="bold magenta")
             summary_table.add_column("Stat", style="cyan")
