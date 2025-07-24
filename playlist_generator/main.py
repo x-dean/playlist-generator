@@ -485,6 +485,19 @@ def main() -> None:
             total_failed = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
             processed_this_run = processed_count
             failed_this_run = len(failed_files)
+            # Gather genre summary for the panel
+            genre_counts = None
+            try:
+                stats = playlist_db.get_library_statistics()
+                genre_counts = stats.get('genre_counts')
+            except Exception:
+                genre_counts = None
+            real_count = 0
+            other_count = 0
+            if genre_counts:
+                real_count = sum(c for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None))
+                other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
+            # Compose the summary text
             summary_text = (
                 f"Analysis complete!\n"
                 f"Total tracks found in directory: [cyan]{total_found}[/cyan]\n"
@@ -493,6 +506,8 @@ def main() -> None:
                 f"Processed this run: [cyan]{processed_this_run}[/cyan]\n"
                 f"Failed this run: [red]{failed_this_run}[/red]"
             )
+            if genre_counts is not None:
+                summary_text += (f"\nGenres (excluding Other/Unknown): [green]{real_count}[/green], Other/Unknown genres: [yellow]{other_count}[/yellow]")
             console = Console()
             console.print(Panel(summary_text, title="\U0001F4CA Analysis Summary", border_style="blue"))
             # Show updated library statistics after analysis

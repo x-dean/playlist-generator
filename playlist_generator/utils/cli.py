@@ -236,11 +236,18 @@ Failed Files: {stats.get('failed_files', 0)}
         table.add_column("Value", style="green")
         table.add_row("Total Tracks", str(stats.get('total_tracks', 0)))
         table.add_row("Tracks with Tags", str(stats.get('tracks_with_tags', 0)))
-        table.add_row("Tracks with Genre", str(stats.get('tracks_with_genre', 0)))
         table.add_row("Tracks with Year", str(stats.get('tracks_with_year', 0)))
         table.add_row("Total Playlists", str(stats.get('total_playlists', 0)))
         if 'skipped_failed' in stats:
             table.add_row("Skipped (Failed) Files", str(stats['skipped_failed']))
+        genre_counts = stats.get('genre_counts')
+        real_count = 0
+        other_count = 0
+        if genre_counts:
+            real_count = sum(c for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None))
+            other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
+            table.add_row("Track with genres", str(real_count))
+            table.add_row("Others (no genres)", str(other_count))
         self.console.print(table)
 
         # Genre breakdown (if present)
