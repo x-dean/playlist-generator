@@ -165,12 +165,21 @@ def main() -> None:
         cli.show_library_statistics(stats)
         sys.exit(0)
 
+    # If --enrich_tags is set, run enrichment-only mode and exit
+    if args.enrich_tags:
+        try:
+            from playlist_generator.enrichment_only import run_enrichment_only
+            run_enrichment_only(args, cache_file)
+            return
+        except Exception as e:
+            import traceback
+            print("[FATAL ERROR] Exception during enrichment-only mode:", e)
+            print(traceback.format_exc())
+            raise
+
     # If no mutually exclusive mode is set, default to analyze_only
     if not (args.analyze or args.failed or args.update or args.generate_only):
-        if args.enrich_tags:
-            args.enrich_only = True
-        else:
-            args.analyze = True
+        args.analyze = True
 
     # Show configuration
     cli.show_config({
@@ -214,7 +223,6 @@ def main() -> None:
                 cli.show_warning(f"Removed {len(missing_in_db)} missing files from database")
                 failed_files.extend(missing_in_db)
         else:
-            # In enrichment-only mode, only clean up DB if needed (optional)
             from database.db_manager import DatabaseManager
             dbm = DatabaseManager(cache_file)
             # Optionally, implement DB cleanup here if needed
@@ -224,7 +232,7 @@ def main() -> None:
             try:
                 from playlist_generator.enrichment_only import run_enrichment_only
                 run_enrichment_only(args, cache_file)
-                return
+                return  # Ensure no further code is run after enrichment-only
             except Exception as e:
                 import traceback
                 print("[FATAL ERROR] Exception during enrichment-only mode:", e)
@@ -259,7 +267,8 @@ def main() -> None:
             playlist_manager = PlaylistManager(cache_file, args.playlist_method)
         
         # Create a multiprocessing manager queue for long-running file notifications
-        manager = threading.Manager()
+        import multiprocessing  # Use multiprocessing.Manager, not threading.Manager
+        manager = multiprocessing.Manager()
         status_queue = manager.Queue()
         long_running_files = set()
         spinner_stop = threading.Event()
@@ -522,6 +531,7 @@ def main() -> None:
             cli.show_file_errors(failed_files)
 
     except Exception as e:
+        import traceback
         cli.show_error(str(e), details=traceback.format_exc())
         
         # Save error state

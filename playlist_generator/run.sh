@@ -225,7 +225,9 @@ fi
 
 # Determine which mutually exclusive flag to pass
 MUTEX_FLAG=""
-if [ "$ANALYZE" = true ]; then
+if [ "$ENRICH_TAGS" = true ]; then
+    MUTEX_FLAG="--enrich_tags"
+elif [ "$ANALYZE" = true ]; then
     MUTEX_FLAG="-a"
 elif [ "$GENERATE_ONLY" = true ]; then
     MUTEX_FLAG="-g"
@@ -289,6 +291,5 @@ docker compose exec playlist-generator python main.py \
   $FAILED_FLAG \
   $PLAYLIST_METHOD_FLAG \
   $FORCE_SEQUENTIAL_FLAG \
-  $ENRICH_TAGS_FLAG \
   $RESUME_FLAG \
   $MIN_TRACKS_PER_GENRE_FLAG
