@@ -182,6 +182,13 @@ def run_analysis(args, audio_db, playlist_db, cli):
                             p.terminate()
                             p.join()
                             result = None
+                            # Mark as failed if interrupted
+                            try:
+                                analyzer = AudioAnalyzer(audio_db.cache_file, audio_db.host_music_dir, audio_db.container_music_dir)
+                                file_info = analyzer._get_file_info(filepath)
+                                analyzer._mark_failed(file_info)
+                            except Exception as e:
+                                logger.error(f"Failed to mark interrupted file as failed: {filepath} ({e})")
                         processed_count += 1
                         progress.update(
                             task_id,
@@ -192,7 +199,11 @@ def run_analysis(args, audio_db, playlist_db, cli):
                         logger.debug(f"Features: {result}")
                         if not result or not result[0]:
                             failed_files.append(filepath)
-                    # No need to extend failed_files from a processor, handled above
+                    # Explicitly terminate/join any still-alive big file subprocesses to prevent zombies
+                    for p in bigfile_processes:
+                        if p.is_alive():
+                            p.terminate()
+                        p.join()
         # After processing (always show summary)
         total_found = len(file_list)
         total_in_db = len(audio_db.get_all_features(include_failed=True))
