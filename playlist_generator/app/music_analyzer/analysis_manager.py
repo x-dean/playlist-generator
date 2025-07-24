@@ -168,6 +168,12 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                 logger.debug(f"Features: {features}")
                 if not features:
                     failed_files.append(filepath)
+                if stop_event.is_set():
+                    db_features = audio_db.get_all_features(include_failed=True)
+                    db_files = set(f['filepath'] for f in db_features)
+                    if filepath in db_files:
+                        print(f"Graceful stop: {filepath} successfully added to DB. Exiting.")
+                        break
         else:
             # Parallel for normal files
             par_manager = ParallelWorkerManager(stop_event)
@@ -179,13 +185,18 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     progress.update(
                         task_id,
                         advance=1,
-                        description=f"Processed {processed_count}/{total_files} files",
-                        trackinfo=""
+                        description=f"Analyzing: {filename} ({processed_count}/{total_files})",
+                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else ""
                     )
                     logger.debug(f"Features: {features}")
                     if not features:
-                        # No filepath in features for parallel, can't append to failed_files
-                        pass
+                        failed_files.append(filepath)
+                    if stop_event.is_set():
+                        db_features = audio_db.get_all_features(include_failed=True)
+                        db_files = set(f['filepath'] for f in db_features)
+                        if filepath in db_files:
+                            print(f"Graceful stop: {filepath} successfully added to DB. Exiting.")
+                            break
             # Big files in subprocesses
             if big_files:
                 big_manager = BigFileWorkerManager(stop_event, audio_db)
