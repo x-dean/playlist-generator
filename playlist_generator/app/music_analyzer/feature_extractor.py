@@ -15,7 +15,7 @@ from functools import wraps
 from utils.path_utils import convert_to_host_path
 import requests
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 class TimeoutException(Exception):
     pass
