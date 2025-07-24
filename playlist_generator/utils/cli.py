@@ -255,7 +255,8 @@ Failed Files: {stats.get('failed_files', 0)}
         table.add_row("  Total Tracks", str(stats.get('total_tracks', 0)))
         table.add_row("  Tracks with Tags", str(stats.get('tracks_with_tags', 0)))
         table.add_row("  Tracks with Year", str(stats.get('tracks_with_year', 0)))
-        table.add_row("  Tracks with Genre", str(stats.get('tracks_with_genre', 0)))
+        # Use deduplicated count for Tracks with Genre
+        table.add_row("  Tracks with Genre", str(stats.get('tracks_with_real_genre', 0)))
         if 'skipped_failed' in stats:
             table.add_row("  Skipped (Failed) Files", str(stats['skipped_failed']))
         if 'tracks_not_in_any_playlist' in stats:
