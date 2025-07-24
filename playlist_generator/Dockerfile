@@ -56,4 +56,4 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     CACHE_DIR=/app/cache 
 
-ENTRYPOINT ["audiolizer"]
+CMD ["audiolizer"]
