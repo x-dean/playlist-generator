@@ -221,6 +221,7 @@ Examples:
 
     # Set logging level from CLI
     logger.setLevel(getattr(pylogging, args.log_level.upper(), pylogging.WARNING))
+    os.environ['LOG_LEVEL'] = args.log_level.upper()
 
     # If --status is set, show statistics and exit
     if getattr(args, 'status', False):
