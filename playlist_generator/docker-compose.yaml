@@ -13,4 +13,5 @@ services:
       - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
       - MIN_TRACKS_PER_GENRE=${MIN_TRACKS_PER_GENRE:-10}
     working_dir: /app
+    tty: true
     # Service and entrypoint are now named audiolizer
