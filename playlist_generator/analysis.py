@@ -32,6 +32,12 @@ def cleanup_child_processes():
             pass
 
 def run_analysis(args, audio_db, playlist_db, cli):
+    stop_event = multiprocessing.Event()
+    def handle_stop_signal(signum, frame):
+        stop_event.set()
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+    signal.signal(signal.SIGINT, handle_stop_signal)
+    signal.signal(signal.SIGTERM, handle_stop_signal)
     try:
         file_list = get_audio_files(args.music_dir)
         db_features = audio_db.get_all_features(include_failed=True)
@@ -92,7 +98,9 @@ def run_analysis(args, audio_db, playlist_db, cli):
             if args.force_sequential or (args.workers and args.workers <= 1):
                 # Process all files sequentially (no multiprocessing, no subprocesses)
                 processor = SequentialProcessor()
-                for features, filepath in processor.process(files_to_analyze, workers=args.workers or 1):
+                for features, filepath in processor.process(files_to_analyze, workers=args.workers or 1, stop_event=stop_event):
+                    if stop_event.is_set():
+                        break
                     filename = os.path.basename(filepath)
                     try:
                         size_mb = os.path.getsize(filepath) / (1024 * 1024)
@@ -116,8 +124,10 @@ def run_analysis(args, audio_db, playlist_db, cli):
                 # 1. Process normal files in parallel
                 if normal_files:
                     processor = ParallelProcessor()
-                    process_iter = processor.process(normal_files, workers=args.workers or multiprocessing.cpu_count())
+                    process_iter = processor.process(normal_files, workers=args.workers or multiprocessing.cpu_count(), stop_event=stop_event)
                     for features in process_iter:
+                        if stop_event.is_set():
+                            break
                         processed_count += 1
                         progress.update(
                             task_id,
@@ -138,6 +148,8 @@ def run_analysis(args, audio_db, playlist_db, cli):
                     from music_analyzer.audio_analyzer import AudioAnalyzer
                     bigfile_processes = []
                     for filepath in big_files:
+                        if stop_event.is_set():
+                            break
                         filename = os.path.basename(filepath)
                         try:
                             size_mb = os.path.getsize(filepath) / (1024 * 1024)
@@ -149,15 +161,18 @@ def run_analysis(args, audio_db, playlist_db, cli):
                             trackinfo=f"{filename} ({size_mb:.1f} MB)"
                         )
                         # Use a subprocess for each big file
-                        def analyze_in_subprocess(filepath, cache_file, host_music_dir, container_music_dir, queue):
+                        def analyze_in_subprocess(filepath, cache_file, host_music_dir, container_music_dir, queue, stop_event):
                             try:
+                                if stop_event.is_set():
+                                    queue.put(None)
+                                    return
                                 analyzer = AudioAnalyzer(cache_file, host_music_dir, container_music_dir)
                                 result = analyzer.extract_features(filepath)
                                 queue.put(result)
                             except Exception as e:
                                 queue.put(None)
                         queue = multiprocessing.Queue()
-                        p = multiprocessing.Process(target=analyze_in_subprocess, args=(filepath, audio_db.cache_file, audio_db.host_music_dir, audio_db.container_music_dir, queue))
+                        p = multiprocessing.Process(target=analyze_in_subprocess, args=(filepath, audio_db.cache_file, audio_db.host_music_dir, audio_db.container_music_dir, queue, stop_event))
                         p.start()
                         bigfile_processes.append(p)
                         try:
