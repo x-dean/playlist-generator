@@ -217,12 +217,30 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                         size_mb = os.path.getsize(filepath) / (1024 * 1024)
                     except Exception:
                         size_mb = 0
+                    # Show which big file is being processed before starting
+                    progress.update(
+                        task_id,
+                        description=f"Analyzing (big file): {filename} ({size_mb:.1f} MB) ({processed_count+1}/{total_files})"
+                    )
+                    # Start the subprocess and refresh the bar while waiting
+                    import time
+                    p = None
+                    for proc in big_manager.processes:
+                        if proc.is_alive():
+                            p = proc
+                            break
+                    start_time = time.time()
+                    while p and p.is_alive():
+                        elapsed = int(time.time() - start_time)
+                        progress.update(
+                            task_id,
+                            description=f"Analyzing (big file): {filename} ({size_mb:.1f} MB) ({processed_count+1}/{total_files}) [Elapsed: {elapsed}s]"
+                        )
+                        time.sleep(0.5)
                     processed_count += 1
                     progress.update(
                         task_id,
-                        advance=1,
-                        description=f"Analyzing: {filename} ({processed_count}/{total_files})",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else ""
+                        advance=1
                     )
                     logger.debug(f"Features: {result}")
                     if not result or not result[0]:
