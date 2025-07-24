@@ -178,10 +178,19 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
             # Parallel for normal files
             par_manager = ParallelWorkerManager(stop_event)
             if normal_files:
-                for features in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count()):
+                for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count()):
                     if stop_event.is_set():
                         break
                     processed_count += 1
+                    if filepath:
+                        filename = os.path.basename(filepath)
+                        try:
+                            size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                        except Exception:
+                            size_mb = 0
+                    else:
+                        filename = "Unknown"
+                        size_mb = 0
                     progress.update(
                         task_id,
                         advance=1,
