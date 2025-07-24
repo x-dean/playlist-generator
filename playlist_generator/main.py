@@ -198,8 +198,11 @@ def main() -> None:
         sys.exit(0)
 
     # If no mutually exclusive mode is set, default to analyze_only
-    if not (args.analyze or args.failed or args.update):
-        args.analyze = True
+    if not (args.analyze or args.failed or args.update or args.generate_only):
+        if args.enrich_tags:
+            args.enrich_only = True
+        else:
+            args.analyze = True
 
     # Show configuration
     cli.show_config({
@@ -248,6 +251,63 @@ def main() -> None:
         if missing_in_db:
             cli.show_warning(f"Removed {len(missing_in_db)} missing files from database")
             failed_files.extend(missing_in_db)
+
+        # Enrichment-only mode with progress bar
+        if getattr(args, 'enrich_only', False):
+            from playlist_generator.tag_based import TagBasedPlaylistGenerator
+            from database.db_manager import DatabaseManager
+            import json
+            db_file = cache_file
+            dbm = DatabaseManager(db_file)
+            # Load all tracks from DB
+            conn = dbm._get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT file_path, metadata FROM audio_features")
+            rows = cursor.fetchall()
+            total = len(rows)
+            enriched = 0
+            skipped = 0
+            failed = 0
+            tagger = TagBasedPlaylistGenerator(db_file=db_file, enrich_tags=True)
+            from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
+            from rich.console import Console
+            progress = Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(bar_width=40),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+                TextColumn("{task.fields[trackinfo]}", justify="right"),
+                console=Console()
+            )
+            with progress:
+                task_id = progress.add_task(f"Enriching 0/{total} tracks", total=total, trackinfo="")
+                for i, row in enumerate(rows):
+                    filepath = row[0]
+                    try:
+                        meta = json.loads(row[1]) if row[1] else {}
+                        track_data = {'filepath': filepath, 'metadata': meta}
+                        before = dict(meta)
+                        result = tagger.enrich_track_metadata(track_data)
+                        after = result.get('metadata', {})
+                        filename = os.path.basename(filepath)
+                        progress.update(
+                            task_id,
+                            advance=1,
+                            description=f"Enriching {i+1}/{total} tracks",
+                            trackinfo=f"{filename}"
+                        )
+                        # If genre/year was missing and now present, count as enriched
+                        if (not before.get('genre') and after.get('genre')) or (not before.get('year') and after.get('year')):
+                            enriched += 1
+                        else:
+                            skipped += 1
+                    except Exception as e:
+                        failed += 1
+                        progress.console.print(f"[red]Failed to enrich {filepath}: {e}")
+            print(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}")
+            return
 
         # Remove dedicated enrichment mode and all force/enrich_only/force_enrich_tags logic
 
