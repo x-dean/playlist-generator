@@ -222,8 +222,9 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                         task_id,
                         description=f"Analyzing (big file): {filename} ({size_mb:.1f} MB) ({processed_count+1}/{total_files})"
                     )
-                    # Start the subprocess and refresh the bar while waiting
                     import time
+                    time.sleep(0.5)  # Give the bar a chance to render
+                    # Start the subprocess and refresh the bar while waiting
                     p = None
                     for proc in big_manager.processes:
                         if proc.is_alive():
