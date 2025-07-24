@@ -126,13 +126,14 @@ class ParallelProcessor:
         self.min_workers = 2
         self.max_workers = int(os.getenv('MAX_WORKERS', str(mp.cpu_count())))
 
-    def process(self, file_list: list[str], workers: int = None, status_queue: Optional[object] = None) -> iter:
+    def process(self, file_list: list[str], workers: int = None, status_queue: Optional[object] = None, stop_event=None) -> iter:
         """Process a list of files in parallel.
 
         Args:
             file_list (list[str]): List of file paths.
             workers (int, optional): Number of worker processes. Defaults to None.
             status_queue (multiprocessing.Queue, optional): Queue for long-running file notifications.
+            stop_event (multiprocessing.Event, optional): Event to signal graceful shutdown.
 
         Yields:
             dict: Extracted features for each file.
@@ -141,9 +142,9 @@ class ParallelProcessor:
             return
         self.workers = max(self.min_workers, min(workers or self.max_workers, self.max_workers))
         self.batch_size = min(self.batch_size, len(file_list))
-        yield from self._process_parallel(file_list, status_queue)
+        yield from self._process_parallel(file_list, status_queue, stop_event=stop_event)
 
-    def _process_parallel(self, file_list, status_queue):
+    def _process_parallel(self, file_list, status_queue, stop_event=None):
         retries = 0
         remaining_files = file_list[:]
         while remaining_files and retries < self.max_retries:
@@ -153,11 +154,15 @@ class ParallelProcessor:
                 failed_in_batch = []
                 for i in range(0, len(remaining_files), self.batch_size):
                     batch = remaining_files[i:i+self.batch_size]
+                    if stop_event and stop_event.is_set():
+                        break
                     with ctx.Pool(processes=self.workers) as pool:
                         try:
                             from functools import partial
                             worker_func = partial(process_file_worker, status_queue=status_queue)
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
+                                if stop_event and stop_event.is_set():
+                                    break
                                 if features and db_write_success:
                                     yield features
                                 else:
