@@ -232,12 +232,13 @@ Failed Files: {stats.get('failed_files', 0)}
         from rich.table import Table
         from rich.panel import Panel
         from rich.console import Group
+        from rich.text import Text
         if not stats:
             self.console.print(Panel("[yellow]No statistics available[/yellow]", title="Library Statistics", border_style="yellow"))
             return
 
-        # Main stats table
-        table = Table(title="Library Statistics", show_header=False, box=None)
+        # Main stats table (no title, just a clean table)
+        table = Table(show_header=False, box=None, pad_edge=False)
         table.add_row("Total Tracks", str(stats.get('total_tracks', 0)))
         table.add_row("Tracks with Tags", str(stats.get('tracks_with_tags', 0)))
         table.add_row("Tracks with Genre", str(stats.get('tracks_with_genre', 0)))
@@ -261,8 +262,10 @@ Failed Files: {stats.get('failed_files', 0)}
             hist_table = Table()
             hist_table.add_row("No playlist membership data.")
 
-        group = Group(table, hist_table)
-        self.console.print(Panel(group, title="📊 Library/Database Status", border_style="blue"))
+        # Add a blank line between tables for clarity
+        divider = Text("\n")
+        group = Group(table, divider, hist_table)
+        self.console.print(Panel(group, title="\U0001F4CA Library/Database Status", border_style="blue"))
 
 class CLIContextManager:
     """Context manager for CLI progress tracking"""
