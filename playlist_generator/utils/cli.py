@@ -248,7 +248,6 @@ Failed Files: {stats.get('failed_files', 0)}
             table.add_row("  Smallest Playlist Size", str(stats['smallest_playlist_size']))
         if 'playlists_with_0_tracks' in stats:
             table.add_row("  Playlists with 0 Tracks", str(stats['playlists_with_0_tracks']))
-        table.add_row("─" * 30, "─" * 30)
         # Track Stats section
         table.add_row(Text("Track Stats", style="bold magenta"), "─" * 30)
         table.add_row("  Total Tracks", str(stats.get('total_tracks', 0)))
@@ -263,7 +262,6 @@ Failed Files: {stats.get('failed_files', 0)}
             table.add_row("  Tracks in Multiple Playlists", str(stats['tracks_in_multiple_playlists']))
         if 'tracks_with_multiple_genres' in stats:
             table.add_row("  Tracks with Multiple Genres", str(stats['tracks_with_multiple_genres']))
-        table.add_row("─" * 30, "─" * 30)
         # Genre Stats section
         table.add_row(Text("Genre Stats", style="bold magenta"), "─" * 30)
         genre_counts = stats.get('genre_counts', {})
@@ -279,7 +277,6 @@ Failed Files: {stats.get('failed_files', 0)}
             if 'top_5_genres' in stats and stats['top_5_genres']:
                 top_genres = ", ".join([f"{g} ({c})" for g, c in stats['top_5_genres']])
                 table.add_row("  Top 5 Genres", top_genres)
-        table.add_row("─" * 30, "─" * 30)
         # File Stats section
         table.add_row(Text("File Stats", style="bold magenta"), "─" * 30)
         if 'unique_file_extensions' in stats:
@@ -287,7 +284,6 @@ Failed Files: {stats.get('failed_files', 0)}
         if 'tracks_per_extension' in stats:
             ext_counts = ", ".join([f"{ext}: {count}" for ext, count in stats['tracks_per_extension'].items()])
             table.add_row("  Tracks per Extension", ext_counts)
-        table.add_row("─" * 30, "─" * 30)
         # Dates section
         table.add_row(Text("Dates", style="bold magenta"), "─" * 30)
         if 'last_analysis_date' in stats:
