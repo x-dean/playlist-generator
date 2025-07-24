@@ -1,5 +1,5 @@
 # --- Build stage ---
-FROM python:3.9-slim-bullseye as builder
+FROM python:3.9-slim-bullseye AS builder
 
 # Install build dependencies
 RUN apt-get update && \
