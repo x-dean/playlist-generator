@@ -479,7 +479,7 @@ def main() -> None:
             total_failed = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
             processed_this_run = processed_count
             failed_this_run = len(failed_files)
-            cli.show_success(
+            summary_text = (
                 f"Analysis complete!\n"
                 f"Total tracks found in directory: [cyan]{total_found}[/cyan]\n"
                 f"Total tracks in database: [cyan]{total_in_db}[/cyan]\n"
@@ -487,6 +487,8 @@ def main() -> None:
                 f"Processed this run: [cyan]{processed_this_run}[/cyan]\n"
                 f"Failed this run: [red]{failed_this_run}[/red]"
             )
+            console = Console()
+            console.print(Panel(summary_text, title="\U0001F4CA Analysis Summary", border_style="blue"))
             # Show updated library statistics after analysis
             stats = playlist_db.get_library_statistics()
             stats['skipped_failed'] = total_failed
