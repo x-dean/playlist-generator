@@ -355,8 +355,20 @@ def main() -> None:
             logger.debug(f"Files to analyze: {files_to_analyze[:10]}")
             logger.debug(f"About to process {len(files_to_analyze)} files")
             if not files_to_analyze:
-                skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
-                cli.show_success(f"Processed 0 files! Skipped {skipped_count} files due to errors (see database for details).")
+                # Gather summary stats (always show after analysis)
+                total_found = len(file_list)
+                total_in_db = len(db_features)
+                total_failed = len([f for f in db_features if f['failed']])
+                processed_this_run = 0 # No files processed in this run
+                failed_this_run = 0 # No files failed in this run
+                cli.show_success(
+                    f"Analysis complete!\n"
+                    f"Total tracks found in directory: [cyan]{total_found}[/cyan]\n"
+                    f"Total tracks in database: [cyan]{total_in_db}[/cyan]\n"
+                    f"Total failed tracks (in db): [red]{total_failed}[/red]\n"
+                    f"Processed this run: [cyan]{processed_this_run}[/cyan]\n"
+                    f"Failed this run: [red]{failed_this_run}[/red]"
+                )
                 return
             BIG_FILE_SIZE_MB = 200
             def is_big_file(filepath):
@@ -461,28 +473,23 @@ def main() -> None:
                                 else:
                                     pass
                     failed_files.extend(processor.failed_files)
-            cli.show_success(f"Analysis completed. Processed {len(files_to_analyze)} files, {len(failed_files)} failed")
-            # Print how many files were skipped due to errors
-            skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
-            if skipped_count > 0:
-                print(f"Skipped {skipped_count} files due to errors (see database for details).")
-            runtime = time.time() - start_time
-            console = Console()
-            summary_text = f"""
-[bold green]Analysis Summary (this run)[/bold green]
-
-Processed Files: [cyan]{len(files_to_analyze)}[/cyan]
-Failed Files: [red]{len(failed_files)}[/red]
-Skipped Files (errors): [yellow]{skipped_count}[/yellow]
-With MusicBrainz Info: [green]{0}[/green]
-Without MusicBrainz Info: [yellow]{0}[/yellow]
-Runtime: [magenta]{runtime:.1f} seconds[/magenta]
-"""
-            console.print(Panel(summary_text, title="\U0001F4CA Analysis Summary", border_style="blue"))
+            # After processing (always show summary)
+            total_found = len(file_list)
+            total_in_db = len(audio_db.get_all_features(include_failed=True))
+            total_failed = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
+            processed_this_run = processed_count
+            failed_this_run = len(failed_files)
+            cli.show_success(
+                f"Analysis complete!\n"
+                f"Total tracks found in directory: [cyan]{total_found}[/cyan]\n"
+                f"Total tracks in database: [cyan]{total_in_db}[/cyan]\n"
+                f"Total failed tracks (in db): [red]{total_failed}[/red]\n"
+                f"Processed this run: [cyan]{processed_this_run}[/cyan]\n"
+                f"Failed this run: [red]{failed_this_run}[/red]"
+            )
             # Show updated library statistics after analysis
             stats = playlist_db.get_library_statistics()
-            skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
-            stats['skipped_failed'] = skipped_count
+            stats['skipped_failed'] = total_failed
             cli.show_library_statistics(stats)
             return
 
