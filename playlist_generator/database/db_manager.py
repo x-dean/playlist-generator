@@ -380,17 +380,79 @@ class DatabaseManager:
             stats['tracks_with_year'] = year_count
             stats['genre_counts'] = genre_counter
 
-            # Total playlists
-            cursor.execute("SELECT COUNT(*) FROM playlists")
-            stats['total_playlists'] = cursor.fetchone()[0]
-
-            # Track playlist membership histogram
-            cursor.execute("SELECT file_hash, COUNT(playlist_id) as n FROM playlist_tracks GROUP BY file_hash")
-            membership_hist = {}
+            # Total playlists and playlist details
+            cursor.execute("SELECT name, features FROM playlists")
+            playlists = cursor.fetchall()
+            stats['total_playlists'] = len(playlists)
+            # Count playlists per mode
+            mode_counts = {}
+            playlist_sizes = []
+            for row in playlists:
+                mode = None
+                # Try to parse mode from features JSON
+                try:
+                    features = json.loads(row['features']) if row['features'] else {}
+                    mode = features.get('mode') or features.get('method')
+                except Exception:
+                    mode = None
+                # Fallback: parse from name
+                if not mode and row['name']:
+                    name = row['name'].lower()
+                    for m in ['tags', 'kmeans', 'time', 'cache', 'all']:
+                        if m in name:
+                            mode = m
+                            break
+                if not mode:
+                    mode = 'unknown'
+                mode_counts[mode] = mode_counts.get(mode, 0) + 1
+                # Playlist size
+                cursor2 = conn.cursor()
+                cursor2.execute("SELECT COUNT(*) FROM playlist_tracks pt JOIN playlists p ON pt.playlist_id = p.id WHERE p.name = ?", (row['name'],))
+                size = cursor2.fetchone()[0]
+                playlist_sizes.append(size)
+            stats['playlists_per_mode'] = mode_counts
+            if playlist_sizes:
+                stats['avg_playlist_size'] = sum(playlist_sizes) / len(playlist_sizes)
+                stats['largest_playlist_size'] = max(playlist_sizes)
+                stats['smallest_playlist_size'] = min(playlist_sizes)
+                stats['playlists_with_0_tracks'] = playlist_sizes.count(0)
+            # Tracks not in any playlist
+            cursor.execute("SELECT COUNT(*) FROM audio_features WHERE file_hash NOT IN (SELECT file_hash FROM playlist_tracks)")
+            stats['tracks_not_in_any_playlist'] = cursor.fetchone()[0]
+            # Tracks in multiple playlists
+            cursor.execute("SELECT COUNT(*) FROM (SELECT file_hash FROM playlist_tracks GROUP BY file_hash HAVING COUNT(playlist_id) > 1)")
+            stats['tracks_in_multiple_playlists'] = cursor.fetchone()[0]
+            # Top 5 genres
+            if genre_counter:
+                sorted_genres = sorted([(g, c) for g, c in genre_counter.items() if g not in ("Other", "UnknownGenre", "", None)], key=lambda x: -x[1])
+                stats['top_5_genres'] = sorted_genres[:5]
+            # Tracks with multiple genres
+            cursor.execute("SELECT metadata FROM audio_features")
+            multi_genre_count = 0
             for row in cursor.fetchall():
-                n = row['n']
-                membership_hist[n] = membership_hist.get(n, 0) + 1
-            stats['track_playlist_membership'] = membership_hist
+                try:
+                    meta = json.loads(row['metadata']) if row['metadata'] else {}
+                    genre = meta.get('genre')
+                    if isinstance(genre, list) and len(genre) > 1:
+                        multi_genre_count += 1
+                except Exception:
+                    continue
+            stats['tracks_with_multiple_genres'] = multi_genre_count
+            # Unique file extensions and tracks per extension
+            cursor.execute("SELECT file_path FROM audio_features")
+            ext_counter = {}
+            for row in cursor.fetchall():
+                ext = os.path.splitext(row['file_path'])[1].lower()
+                if ext:
+                    ext_counter[ext] = ext_counter.get(ext, 0) + 1
+            stats['unique_file_extensions'] = list(ext_counter.keys())
+            stats['tracks_per_extension'] = ext_counter
+            # Last analysis date
+            cursor.execute("SELECT MAX(last_analyzed) FROM audio_features")
+            stats['last_analysis_date'] = cursor.fetchone()[0]
+            # Last playlist update date
+            cursor.execute("SELECT MAX(last_updated) FROM playlists")
+            stats['last_playlist_update_date'] = cursor.fetchone()[0]
 
             return stats
         except Exception as e:

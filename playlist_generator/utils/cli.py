@@ -231,33 +231,71 @@ Failed Files: {stats.get('failed_files', 0)}
         """Display library/database statistics in a rich table (no outer panel). Also show genre breakdown tables."""
         from rich.table import Table
         # Main stats table (match show_config style)
-        table = Table(show_header=True, header_style="bold magenta")
+        table = Table(title="Status", show_header=True, header_style="bold magenta")
         table.add_column("Stat", style="cyan")
         table.add_column("Value", style="green")
-        table.add_row("Total Tracks", str(stats.get('total_tracks', 0)))
-        table.add_row("Tracks with Tags", str(stats.get('tracks_with_tags', 0)))
-        table.add_row("Tracks with Year", str(stats.get('tracks_with_year', 0)))
-        table.add_row("Total Playlists", str(stats.get('total_playlists', 0)))
+        # Playlist Stats section
+        table.add_row(Text("Playlist Stats", style="bold magenta"), "")
+        playlists_per_mode = stats.get('playlists_per_mode')
+        if playlists_per_mode:
+            for mode, count in playlists_per_mode.items():
+                table.add_row(f"  Playlists ({mode})", str(count))
+        if 'avg_playlist_size' in stats:
+            table.add_row("  Avg Playlist Size", f"{stats['avg_playlist_size']:.2f}")
+        if 'largest_playlist_size' in stats:
+            table.add_row("  Largest Playlist Size", str(stats['largest_playlist_size']))
+        if 'smallest_playlist_size' in stats:
+            table.add_row("  Smallest Playlist Size", str(stats['smallest_playlist_size']))
+        if 'playlists_with_0_tracks' in stats:
+            table.add_row("  Playlists with 0 Tracks", str(stats['playlists_with_0_tracks']))
+        table.add_row("─" * 30, "")
+        # Track Stats section
+        table.add_row(Text("Track Stats", style="bold magenta"), "")
+        table.add_row("  Total Tracks", str(stats.get('total_tracks', 0)))
+        table.add_row("  Tracks with Tags", str(stats.get('tracks_with_tags', 0)))
+        table.add_row("  Tracks with Year", str(stats.get('tracks_with_year', 0)))
+        table.add_row("  Tracks with Genre", str(stats.get('tracks_with_genre', 0)))
         if 'skipped_failed' in stats:
-            table.add_row("Skipped (Failed) Files", str(stats['skipped_failed']))
+            table.add_row("  Skipped (Failed) Files", str(stats['skipped_failed']))
+        if 'tracks_not_in_any_playlist' in stats:
+            table.add_row("  Tracks Not in Any Playlist", str(stats['tracks_not_in_any_playlist']))
+        if 'tracks_in_multiple_playlists' in stats:
+            table.add_row("  Tracks in Multiple Playlists", str(stats['tracks_in_multiple_playlists']))
+        if 'tracks_with_multiple_genres' in stats:
+            table.add_row("  Tracks with Multiple Genres", str(stats['tracks_with_multiple_genres']))
+        table.add_row("─" * 30, "")
+        # Genre Stats section
+        table.add_row(Text("Genre Stats", style="bold magenta"), "")
         genre_counts = stats.get('genre_counts')
-        real_count = 0
-        other_count = 0
         if genre_counts:
             real_count = sum(c for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None))
             other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
-            table.add_row("Track with genres", str(real_count))
-            table.add_row("Others (no genres)", str(other_count))
-        # Removed redundant genre summary print
+            table.add_row("  Track with genres", str(real_count))
+            table.add_row("  Others (no genres)", str(other_count))
+            unique_genres = len([g for g in genre_counts if g not in ("Other", "UnknownGenre", "", None)])
+            table.add_row("  Unique Genres", str(unique_genres))
+            if unique_genres > 0:
+                most_common = max(((g, c) for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None)), key=lambda x: x[1])
+                table.add_row("  Most Common Genre", f"{most_common[0]} ({most_common[1]})")
+            if 'top_5_genres' in stats and stats['top_5_genres']:
+                top_genres = ", ".join([f"{g} ({c})" for g, c in stats['top_5_genres']])
+                table.add_row("  Top 5 Genres", top_genres)
+        table.add_row("─" * 30, "")
+        # File Stats section
+        table.add_row(Text("File Stats", style="bold magenta"), "")
+        if 'unique_file_extensions' in stats:
+            table.add_row("  Unique File Extensions", ", ".join(stats['unique_file_extensions']))
+        if 'tracks_per_extension' in stats:
+            ext_counts = ", ".join([f"{ext}: {count}" for ext, count in stats['tracks_per_extension'].items()])
+            table.add_row("  Tracks per Extension", ext_counts)
+        table.add_row("─" * 30, "")
+        # Dates section
+        table.add_row(Text("Dates", style="bold magenta"), "")
+        if 'last_analysis_date' in stats:
+            table.add_row("  Last Analysis Date", str(stats['last_analysis_date']))
+        if 'last_playlist_update_date' in stats:
+            table.add_row("  Last Playlist Update Date", str(stats['last_playlist_update_date']))
         self.console.print(table)
-
-        # Genre breakdown (if present)
-        # genre_counts = stats.get('genre_counts')
-        # if genre_counts:
-        #     real_count = sum(c for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None))
-        #     other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
-        #     self.console.print(f"Genres (excluding Other/Unknown): {real_count}, Other/Unknown genres: {other_count}")
-
         # Playlist membership histogram (if present)
         hist = stats.get('track_playlist_membership', {})
         if hist:

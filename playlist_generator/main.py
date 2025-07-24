@@ -387,9 +387,9 @@ def main() -> None:
                 console = Console()
                 console.print(summary_table)
                 # Show updated library statistics after analysis
-                stats = playlist_db.get_library_statistics()
-                stats['skipped_failed'] = total_failed
-                cli.show_library_statistics(stats)
+                # stats = playlist_db.get_library_statistics()
+                # stats['skipped_failed'] = total_failed
+                # cli.show_library_statistics(stats)
                 return
             BIG_FILE_SIZE_MB = 200
             def is_big_file(filepath):
@@ -528,9 +528,9 @@ def main() -> None:
             console = Console()
             console.print(summary_table)
             # Show updated library statistics after analysis
-            stats = playlist_db.get_library_statistics()
-            stats['skipped_failed'] = total_failed
-            cli.show_library_statistics(stats)
+            # stats = playlist_db.get_library_statistics()
+            # stats['skipped_failed'] = total_failed
+            # cli.show_library_statistics(stats)
             return
 
         elif args.generate_only:
