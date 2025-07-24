@@ -374,7 +374,7 @@ def main() -> None:
                     other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
                 from rich.table import Table
                 summary_table = Table(show_header=True, header_style="bold magenta")
-                summary_table.add_column("Stat", style="cyan")
+                summary_table.add_column("Summary", style="cyan")
                 summary_table.add_column("Value", style="green")
                 summary_table.add_row("Total tracks found in directory", str(total_found))
                 summary_table.add_row("Total tracks in database", str(total_in_db))
@@ -385,7 +385,7 @@ def main() -> None:
                     summary_table.add_row("Track with genres", str(real_count))
                     summary_table.add_row("Others (no genres)", str(other_count))
                 console = Console()
-                console.print(Panel(summary_table, title="\U0001F4CA Analysis Summary", border_style="blue"))
+                # console.print(Panel(summary_table, title="\U0001F4CA Analysis Summary", border_style="blue"))
                 # Show updated library statistics after analysis
                 stats = playlist_db.get_library_statistics()
                 stats['skipped_failed'] = total_failed
