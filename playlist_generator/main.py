@@ -200,6 +200,12 @@ def main() -> None:
         cli.show_library_statistics(stats)
         sys.exit(0)
 
+    # Add this block to support --enrich_tags
+    if args.enrich_tags:
+        from playlist_generator.enrichment_only import run_enrichment_only
+        run_enrichment_only(args, cache_file)
+        return
+
     # If no mutually exclusive mode is set, default to analyze_only
     if not (args.analyze or args.failed or args.update):
         args.analyze = True
