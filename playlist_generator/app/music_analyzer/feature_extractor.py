@@ -365,6 +365,7 @@ class AudioAnalyzer:
         return None
 
     def _extract_all_features(self, audio_path, audio):
+        logger.info("TEST: Entered _extract_all_features")
         # Initialize with default values
         features = {
             'duration': float(len(audio) / 44100.0),
