@@ -4,10 +4,25 @@ import time
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.console import Console
 import logging
+import psutil
 
 logger = logging.getLogger(__name__)
 
 BIG_FILE_SIZE_MB = 200
+
+def cleanup_child_processes():
+    parent = psutil.Process(os.getpid())
+    for child in parent.children(recursive=True):
+        try:
+            child.terminate()
+        except Exception:
+            pass
+    gone, alive = psutil.wait_procs(parent.children(recursive=True), timeout=3)
+    for p in alive:
+        try:
+            p.kill()
+        except Exception:
+            pass
 
 def run_analysis(args, audio_db, playlist_db, cli):
     try:
@@ -160,6 +175,7 @@ def run_analysis(args, audio_db, playlist_db, cli):
         return failed_files
     except (KeyboardInterrupt, UserAbortException):
         logger.info("Analysis interrupted by user (Ctrl+C). Exiting analysis step.")
+        cleanup_child_processes()
         return []
 
 def get_audio_files(music_dir: str) -> list[str]:
