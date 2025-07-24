@@ -180,10 +180,7 @@ def main() -> None:
     parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags'], default='all',
                       help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
     parser.add_argument('--min_tracks_per_genre', type=int, default=10, help='Minimum number of tracks required for a genre to create a playlist (tags method only)')
-    parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs (default: False)')
-    parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
-    parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
-    # The --force argument is now handled by -f/--force, so we don't need a separate --force argument here.
+    parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs for tracks missing genre or year (default: False)')
     args = parser.parse_args()
 
     # Set cache file path
@@ -200,7 +197,7 @@ def main() -> None:
         cli.show_library_statistics(stats)
         sys.exit(0)
 
-    # Add this block to support --enrich_tags
+    # Only support --enrich_tags for enrichment
     if args.enrich_tags:
         from playlist_generator.enrichment_only import run_enrichment_only
         run_enrichment_only(args, cache_file)
@@ -259,7 +256,7 @@ def main() -> None:
             failed_files.extend(missing_in_db)
 
         # Dedicated enrichment mode
-        if args.enrich_only:
+        if args.enrich_tags:
             from playlist_generator.tag_based import TagBasedPlaylistGenerator
             from database.db_manager import DatabaseManager
             import json

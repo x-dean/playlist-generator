@@ -38,20 +38,30 @@ def run_enrichment_only(args, db_file):
                 meta = json.loads(row[1]) if row[1] else {}
                 track_data = {'filepath': filepath, 'metadata': meta}
                 before = dict(meta)
-                result = tagger.enrich_track_metadata(track_data)
-                after = result.get('metadata', {})
-                filename = os.path.basename(filepath)
-                progress.update(
-                    task_id,
-                    advance=1,
-                    description=f"Enriching {i+1}/{total} tracks",
-                    trackinfo=f"{filename}"
-                )
-                # If genre/year was missing and now present, count as enriched
-                if (not before.get('genre') and after.get('genre')) or (not before.get('year') and after.get('year')):
-                    enriched += 1
+                # Only enrich if genre or year is missing
+                needs_enrichment = not before.get('genre') or not before.get('year')
+                if needs_enrichment:
+                    result = tagger.enrich_track_metadata(track_data)
+                    after = result.get('metadata', {})
+                    filename = os.path.basename(filepath)
+                    progress.update(
+                        task_id,
+                        advance=1,
+                        description=f"Enriching {i+1}/{total} tracks",
+                        trackinfo=f"{filename}"
+                    )
+                    if (not before.get('genre') and after.get('genre')) or (not before.get('year') and after.get('year')):
+                        enriched += 1
+                    else:
+                        skipped += 1
                 else:
                     skipped += 1
+                    progress.update(
+                        task_id,
+                        advance=1,
+                        description=f"Enriching {i+1}/{total} tracks",
+                        trackinfo=f"{os.path.basename(filepath)} (skipped)"
+                    )
             except Exception as e:
                 failed += 1
                 progress.console.print(f"[red]Failed to enrich {filepath}: {e}")
