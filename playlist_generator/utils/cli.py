@@ -231,14 +231,14 @@ Failed Files: {stats.get('failed_files', 0)}
         """Display library/database statistics in a rich panel and table."""
         from rich.table import Table
         from rich.panel import Panel
-        from rich.console import Group
-        from rich.text import Text
         if not stats:
             self.console.print(Panel("[yellow]No statistics available[/yellow]", title="Library Statistics", border_style="yellow"))
             return
 
-        # Main stats table (no title, just a clean table)
-        table = Table(show_header=False, box=None, pad_edge=False)
+        # Main stats table (match show_config style)
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("Stat", style="cyan")
+        table.add_column("Value", style="green")
         table.add_row("Total Tracks", str(stats.get('total_tracks', 0)))
         table.add_row("Tracks with Tags", str(stats.get('tracks_with_tags', 0)))
         table.add_row("Tracks with Genre", str(stats.get('tracks_with_genre', 0)))
@@ -258,14 +258,10 @@ Failed Files: {stats.get('failed_files', 0)}
                 if int(n) >= 3:
                     label = f"{n}+"
                 hist_table.add_row(label, str(hist[n]))
+            self.console.print(Panel(table, title="\U0001F4CA Library/Database Status", border_style="blue"))
+            self.console.print(Panel(hist_table, title="Track Playlist Membership", border_style="blue"))
         else:
-            hist_table = Table()
-            hist_table.add_row("No playlist membership data.")
-
-        # Add a blank line between tables for clarity
-        divider = Text("\n")
-        group = Group(table, divider, hist_table)
-        self.console.print(Panel(group, title="\U0001F4CA Library/Database Status", border_style="blue"))
+            self.console.print(Panel(table, title="\U0001F4CA Library/Database Status", border_style="blue"))
 
 class CLIContextManager:
     """Context manager for CLI progress tracking"""
