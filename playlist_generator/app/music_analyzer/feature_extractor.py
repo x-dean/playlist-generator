@@ -13,6 +13,7 @@ import json
 from typing import Optional
 from functools import wraps
 from utils.path_utils import convert_to_host_path
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +260,44 @@ class AudioAnalyzer:
             logger.warning(f"MusicBrainz lookup failed: {e}")
         return {}
 
+    def _lastfm_lookup(self, artist, title):
+        """Query Last.fm for track info if MusicBrainz is missing fields."""
+        api_key = os.getenv('LASTFM_API_KEY')
+        if not api_key:
+            logger.warning("LASTFM_API_KEY not set; skipping Last.fm enrichment.")
+            return {}
+        url = "http://ws.audioscrobbler.com/2.0/"
+        params = {
+            'method': 'track.getInfo',
+            'api_key': api_key,
+            'artist': artist,
+            'track': title,
+            'format': 'json'
+        }
+        try:
+            resp = requests.get(url, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            track = data.get('track', {})
+            tags = track.get('toptags', {}).get('tag', [])
+            genre = tags[0]['name'] if tags else None
+            album = track.get('album', {}).get('title')
+            year = None
+            # Last.fm does not provide year directly; try to parse from album or wiki
+            if 'wiki' in track and 'published' in track['wiki']:
+                import re
+                match = re.search(r'(\d{4})', track['wiki']['published'])
+                if match:
+                    year = match.group(1)
+            return {
+                'genre': genre,
+                'album': album,
+                'year': year
+            }
+        except Exception as e:
+            logger.warning(f"Last.fm lookup failed for {artist} - {title}: {e}")
+            return {}
+
     def extract_features(self, audio_path: str) -> Optional[tuple]:
         """Extract features from an audio file.
 
@@ -355,8 +394,18 @@ class AudioAnalyzer:
         mb_tags = {}
         if artist and title:
             mb_tags = self._musicbrainz_lookup(artist, title)
-        # Merge tags
         meta.update({k: v for k, v in mb_tags.items() if v})
+
+        # Fallback: If genre, year, or album are missing, try Last.fm
+        missing_fields = [field for field in ['genre', 'year', 'album'] if not meta.get(field)]
+        if missing_fields and artist and title:
+            logger.debug(f"Last.fm enrichment triggered for {artist} - {title}, missing fields: {missing_fields}")
+            lastfm_tags = self._lastfm_lookup(artist, title)
+            logger.debug(f"Last.fm response for {artist} - {title}: {lastfm_tags}")
+            for field in missing_fields:
+                if lastfm_tags.get(field):
+                    meta[field] = lastfm_tags[field]
+
         features['metadata'] = meta
 
         # Print/log MusicBrainz info if present

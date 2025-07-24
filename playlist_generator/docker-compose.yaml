@@ -12,6 +12,7 @@ services:
       - GID=${CURRENT_GID:-1000}
       - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
       - MIN_TRACKS_PER_GENRE=${MIN_TRACKS_PER_GENRE:-10}
+      - LASTFM_API_KEY=your_actual_lastfm_api_key
     working_dir: /app
     tty: true
     # Service and entrypoint are now named audiolizer
