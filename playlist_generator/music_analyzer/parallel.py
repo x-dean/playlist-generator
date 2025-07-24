@@ -18,6 +18,10 @@ def timeout_handler(signum, frame):
 class TimeoutException(Exception):
     pass
 
+class UserAbortException(Exception):
+    """Raised when user aborts with Ctrl+C and we want to stop all processing."""
+    pass
+
 def process_file_worker(filepath: str, status_queue: Optional[object] = None) -> Optional[tuple]:
     """Worker function to process a single audio file in parallel.
 
@@ -162,8 +166,7 @@ class ParallelProcessor:
                             logger.debug("KeyboardInterrupt received, terminating pool and exiting cleanly...")
                             pool.terminate()
                             pool.join()
-                            # Do not re-raise, just return to exit gracefully
-                            return
+                            raise UserAbortException()
                         finally:
                             # Always ensure pool is terminated and joined on exit
                             pool.terminate()

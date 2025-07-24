@@ -65,6 +65,7 @@ def run_analysis(args, audio_db, playlist_db, cli):
         )
         from music_analyzer.parallel import ParallelProcessor
         from music_analyzer.sequential import SequentialProcessor
+        from music_analyzer.parallel import UserAbortException
         with progress:
             task_id = progress.add_task(f"Processed 0/{total_files} files", total=total_files, trackinfo="")
             # 1. Process normal files in parallel
@@ -157,7 +158,7 @@ def run_analysis(args, audio_db, playlist_db, cli):
             total_failed=total_failed
         )
         return failed_files
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, UserAbortException):
         logger.info("Analysis interrupted by user (Ctrl+C). Exiting analysis step.")
         return []
 
