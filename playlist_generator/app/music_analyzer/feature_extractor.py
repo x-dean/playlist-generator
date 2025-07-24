@@ -13,7 +13,7 @@ from mutagen import File as MutagenFile
 import json
 from typing import Optional
 from functools import wraps
-from audiolizer import convert_to_host_path
+from utils.path_utils import convert_to_host_path
 
 logger = logging.getLogger(__name__)
 
