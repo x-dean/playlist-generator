@@ -28,7 +28,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
     Returns:
         Optional[tuple]: (features dict, filepath, db_write_success bool) or None on failure.
     """
-    print(f"Worker started for: {filepath}")
+    logger.debug(f"Worker started for: {filepath}")
     import os
     import traceback
     from .audio_analyzer import AudioAnalyzer
@@ -85,7 +85,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
             try:
                 result = audio_analyzer.extract_features(filepath)
             except Exception as e:
-                print(f"ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
+                logger.debug(f"ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
                 return None, filepath, False
             finally:
                 signal.alarm(0)  # Cancel the alarm
@@ -159,7 +159,7 @@ class ParallelProcessor:
                                 else:
                                     failed_in_batch.append(filepath)
                         except KeyboardInterrupt:
-                            print("KeyboardInterrupt received, terminating pool...")
+                            logger.debug("KeyboardInterrupt received, terminating pool...")
                             pool.terminate()
                             pool.join()
                             raise

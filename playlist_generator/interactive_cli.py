@@ -3,6 +3,7 @@ import sys
 import subprocess
 import questionary
 from questionary import Separator
+import logging
 
 # Helper to build CLI args
 def build_args(options):
@@ -115,11 +116,11 @@ def main():
             continue
         # Build and run command
         args = build_args(options)
-        print(f"\nRunning: {' '.join(str(a) for a in args)}\n")
+        logger.debug(f"\nRunning: {' '.join(str(a) for a in args)}\n")
         try:
             subprocess.run(args, check=True)
         except subprocess.CalledProcessError as e:
-            print(f"Error: {e}")
+            logger.debug(f"Error: {e}")
         print("\nOperation complete.\n")
         if not questionary.confirm("Do you want to run another operation?", default=True).ask():
             print("Goodbye!")

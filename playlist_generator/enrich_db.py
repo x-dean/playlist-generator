@@ -6,6 +6,9 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.console import Console
 from playlist_generator.tag_based import TagBasedPlaylistGenerator
 from database.db_manager import DatabaseManager
+import logging
+
+logger = logging.getLogger(__name__)
 
 def main():
     parser = argparse.ArgumentParser(description='Enrich music metadata in the database using MusicBrainz/Last.fm APIs.')
@@ -22,7 +25,7 @@ def main():
     db_file = args.db_file or os.path.join(cache_dir, 'audio_analysis.db')
 
     if not os.path.exists(db_file):
-        print(f"[ERROR] Database file not found: {db_file}")
+        logger.debug(f"[ERROR] Database file not found: {db_file}")
         sys.exit(1)
 
     dbm = DatabaseManager(db_file)
@@ -45,7 +48,7 @@ def main():
         TextColumn("{task.fields[trackinfo]}", justify="right"),
         console=Console()
     )
-    print(f"[INFO] Starting enrichment for {total} tracks in {db_file}")
+    logger.debug(f"[INFO] Starting enrichment for {total} tracks in {db_file}")
     with progress:
         task_id = progress.add_task(f"Enriching 0/{total} tracks", total=total, trackinfo="")
         for i, row in enumerate(rows):
@@ -79,8 +82,8 @@ def main():
                     )
             except Exception as e:
                 failed += 1
-                progress.console.print(f"[red]Failed to enrich {filepath}: {e}")
-    print(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}")
+                logger.debug(f"[red]Failed to enrich {filepath}: {e}")
+    logger.debug(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}")
 
 if __name__ == "__main__":
     main() 

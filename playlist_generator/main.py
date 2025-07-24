@@ -269,7 +269,7 @@ def main() -> None:
             skipped = 0
             failed = 0
             tagger = TagBasedPlaylistGenerator(db_file=db_file, enrich_tags=True, force_enrich_tags=args.force)
-            print(f"Starting enrichment for {total} tracks (force: {args.force})...")
+            logger.debug(f"Starting enrichment for {total} tracks (force: {args.force})...")
             for row in rows:
                 filepath = row[0]
                 try:
@@ -285,8 +285,8 @@ def main() -> None:
                         skipped += 1
                 except Exception as e:
                     failed += 1
-                    print(f"Failed to enrich {filepath}: {e}")
-            print(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}")
+                    logger.debug(f"Failed to enrich {filepath}: {e}")
+            logger.debug(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}")
             exit(0)
 
         # Create a multiprocessing manager queue for long-running file notifications
@@ -581,14 +581,13 @@ def main() -> None:
                     else:
                         no_mb_count += 1
                 runtime = time.time() - start_time
-                print("\n=== Analysis Summary ===")
-                print(f"Processed Files: {total_files}")
-                print(f"Failed Files: {failed_count}")
-                print(f"With MusicBrainz Info: {mb_count}")
-                print(f"Without MusicBrainz Info: {no_mb_count}")
-                print(f"Runtime: {runtime:.1f} seconds")
+                logger.debug(f"Processed Files: {total_files}")
+                logger.debug(f"Failed Files: {failed_count}")
+                logger.debug(f"With MusicBrainz Info: {mb_count}")
+                logger.debug(f"Without MusicBrainz Info: {no_mb_count}")
+                logger.debug(f"Runtime: {runtime:.1f} seconds")
             except Exception as e:
-                print(f"Error generating summary: {e}")
+                logger.debug(f"Error generating summary: {e}")
 
 if __name__ == "__main__":
     main()

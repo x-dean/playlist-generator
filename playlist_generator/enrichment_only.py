@@ -7,7 +7,7 @@ from database.db_manager import DatabaseManager
 
 def run_enrichment_only(args, db_file):
     if not os.path.exists(db_file):
-        print(f"[ERROR] Database file not found: {db_file}")
+        logger.debug(f"[ERROR] Database file not found: {db_file}")
         return
     dbm = DatabaseManager(db_file)
     conn = dbm._get_connection()
@@ -29,7 +29,7 @@ def run_enrichment_only(args, db_file):
         TextColumn("{task.fields[trackinfo]}", justify="right"),
         console=Console()
     )
-    print(f"[INFO] Starting enrichment for {total} tracks in {db_file}")
+    logger.debug(f"[INFO] Starting enrichment for {total} tracks in {db_file}")
     with progress:
         task_id = progress.add_task(f"Enriching 0/{total} tracks", total=total, trackinfo="")
         for i, row in enumerate(rows):
@@ -63,5 +63,5 @@ def run_enrichment_only(args, db_file):
                     )
             except Exception as e:
                 failed += 1
-                progress.console.print(f"[red]Failed to enrich {filepath}: {e}")
-    print(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}") 
+                logger.debug(f"[red]Failed to enrich {filepath}: {e}")
+    logger.debug(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}") 
