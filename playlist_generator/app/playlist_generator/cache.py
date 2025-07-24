@@ -1,4 +1,4 @@
-# playlist_generator/cache.py
+# app/playlist_generator/cache.py
 import sqlite3
 import logging
 import traceback

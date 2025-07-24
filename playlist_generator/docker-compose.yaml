@@ -1,8 +1,8 @@
 services:
-  playlist-generator:
+  audiolizer:
     build: .
     user: "${CURRENT_UID:-1000}:${CURRENT_GID:-1000}"
-    entrypoint: ["bash"]
+    entrypoint: ["audiolizer"]
     volumes:
       - /root/music/library:/music:ro
       - /root/music/library/playlists/auto:/app/playlists
@@ -14,4 +14,4 @@ services:
       - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
       - MIN_TRACKS_PER_GENRE=${MIN_TRACKS_PER_GENRE:-10}
     working_dir: /app
-    # Remove command override to allow interactive use
+    # Service and entrypoint are now named audiolizer

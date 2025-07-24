@@ -141,7 +141,7 @@ You can adjust the threshold as needed. Genres with fewer tracks will be ignored
 ## 8. Advanced
 
 - **Customizing playlist logic:**  
-  Edit `playlist_generator/playlist_generator/feature_group.py`, `kmeans.py`, `cache.py`, or `time_based.py` to change grouping, splitting, or naming logic.
+  Edit `app/playlist_generator/feature_group.py`, `app/playlist_generator/kmeans.py`, `app/playlist_generator/cache.py`, or `app/playlist_generator/time_based.py` to change grouping, splitting, or naming logic.
 - **Environment variables:**  
   You can set `MIN_PLAYLIST_SIZE` and `MAX_PLAYLIST_SIZE` to control playlist sizes.
 
