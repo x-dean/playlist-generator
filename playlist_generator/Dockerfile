@@ -35,7 +35,7 @@ COPY --from=builder /install/deps /usr/local
 WORKDIR /app
 
 # Copy only the necessary application files
-COPY . /app
+COPY app /app
 
 # Create __init__.py files to make directories importable
 RUN touch /app/database/__init__.py && \
