@@ -196,8 +196,8 @@ def main() -> None:
         # Add failed/skipped files count
         audio_db = AudioAnalyzer(cache_file)
         skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
+        stats['skipped_failed'] = skipped_count
         cli.show_library_statistics(stats)
-        print(f"Skipped (failed) files: {skipped_count}")
         sys.exit(0)
 
     # If no mutually exclusive mode is set, default to analyze_only
@@ -478,7 +478,12 @@ With MusicBrainz Info: [green]{0}[/green]
 Without MusicBrainz Info: [yellow]{0}[/yellow]
 Runtime: [magenta]{runtime:.1f} seconds[/magenta]
 """
-            console.print(Panel(summary_text, title="📊 Analysis Summary", border_style="blue"))
+            console.print(Panel(summary_text, title="\U0001F4CA Analysis Summary", border_style="blue"))
+            # Show updated library statistics after analysis
+            stats = playlist_db.get_library_statistics()
+            skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
+            stats['skipped_failed'] = skipped_count
+            cli.show_library_statistics(stats)
             return
 
         elif args.generate_only:

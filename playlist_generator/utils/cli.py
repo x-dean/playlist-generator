@@ -243,6 +243,8 @@ Failed Files: {stats.get('failed_files', 0)}
         table.add_row("Tracks with Genre", str(stats.get('tracks_with_genre', 0)))
         table.add_row("Tracks with Year", str(stats.get('tracks_with_year', 0)))
         table.add_row("Total Playlists", str(stats.get('total_playlists', 0)))
+        if 'skipped_failed' in stats:
+            table.add_row("Skipped (Failed) Files", str(stats['skipped_failed']))
 
         # Playlist membership histogram
         hist = stats.get('track_playlist_membership', {})
