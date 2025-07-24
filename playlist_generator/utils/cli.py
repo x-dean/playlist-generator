@@ -310,6 +310,18 @@ Failed Files: {stats.get('failed_files', 0)}
                 hist_table.add_row(label, str(hist[n]))
             self.console.print(hist_table)
 
+    def show_analysis_summary(self, stats: dict, processed_this_run: int, failed_this_run: int, total_found: int, total_in_db: int, total_failed: int):
+        from rich.table import Table
+        summary_table = Table(title="Summary after analysis", show_header=True, header_style="bold magenta")
+        summary_table.add_column("Stat", style="cyan")
+        summary_table.add_column("Value", style="green")
+        summary_table.add_row("Total tracks found in directory", str(total_found))
+        summary_table.add_row("Total tracks in database", str(total_in_db))
+        summary_table.add_row("Total failed tracks (in db)", str(total_failed))
+        summary_table.add_row("Processed this run", str(processed_this_run))
+        summary_table.add_row("Failed this run", str(failed_this_run))
+        self.console.print(summary_table)
+
 class CLIContextManager:
     """Context manager for CLI progress tracking"""
     def __init__(self, cli: PlaylistGeneratorCLI, total: int, description: str):
