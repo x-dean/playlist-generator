@@ -252,11 +252,11 @@ Failed Files: {stats.get('failed_files', 0)}
         self.console.print(table)
 
         # Genre breakdown (if present)
-        genre_counts = stats.get('genre_counts')
-        if genre_counts:
-            real_count = sum(c for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None))
-            other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
-            self.console.print(f"Genres (excluding Other/Unknown): {real_count}, Other/Unknown genres: {other_count}")
+        # genre_counts = stats.get('genre_counts')
+        # if genre_counts:
+        #     real_count = sum(c for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None))
+        #     other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
+        #     self.console.print(f"Genres (excluding Other/Unknown): {real_count}, Other/Unknown genres: {other_count}")
 
         # Playlist membership histogram (if present)
         hist = stats.get('track_playlist_membership', {})
