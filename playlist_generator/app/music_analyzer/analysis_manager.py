@@ -194,8 +194,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     progress.update(
                         task_id,
                         advance=1,
-                        description=f"Analyzing: {filename} ({processed_count}/{total_files})",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else ""
+                        description=f"Analyzing: {filename} ({processed_count}/{total_files})"
                     )
                     logger.debug(f"Features: {features}")
                     if not features:
@@ -221,8 +220,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     progress.update(
                         task_id,
                         advance=1,
-                        description=f"Analyzing: {filename} ({processed_count}/{total_files})",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else ""
+                        description=f"Analyzing: {filename} ({size_mb:.1f} MB) ({processed_count}/{total_files})"
                     )
                     logger.debug(f"Features: {result}")
                     if not result or not result[0]:
