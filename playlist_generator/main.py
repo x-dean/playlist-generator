@@ -382,7 +382,7 @@ def main() -> None:
                 summary_table.add_row("Processed this run", str(processed_this_run))
                 summary_table.add_row("Failed this run", str(failed_this_run))
                 if genre_counts is not None:
-                    summary_table.add_row("Track with genres", str(real_count))
+                    summary_table.add_row("Tracks with Genre", str(real_count))
                     summary_table.add_row("Others (no genres)", str(other_count))
                 console = Console()
                 console.print(summary_table)
@@ -514,7 +514,7 @@ def main() -> None:
                 other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
             # Compose the summary table for the panel (match configuration style)
             from rich.table import Table
-            summary_table = Table(show_header=True, header_style="bold magenta")
+            summary_table = Table(title="Summary", show_header=True, header_style="bold magenta")
             summary_table.add_column("Stat", style="cyan")
             summary_table.add_column("Value", style="green")
             summary_table.add_row("Total tracks found in directory", str(total_found))
@@ -522,9 +522,11 @@ def main() -> None:
             summary_table.add_row("Total failed tracks (in db)", str(total_failed))
             summary_table.add_row("Processed this run", str(processed_this_run))
             summary_table.add_row("Failed this run", str(failed_this_run))
-            if genre_counts is not None:
-                summary_table.add_row("Track with genres", str(real_count))
-                summary_table.add_row("Others (no genres)", str(other_count))
+            # Use stats for genre split, matching status table
+            if 'tracks_with_real_genre' in stats:
+                summary_table.add_row("Tracks with Genre", str(stats['tracks_with_real_genre']))
+            if 'tracks_with_no_real_genre' in stats:
+                summary_table.add_row("Others (no genres)", str(stats['tracks_with_no_real_genre']))
             console = Console()
             console.print(summary_table)
             # Show updated library statistics after analysis
