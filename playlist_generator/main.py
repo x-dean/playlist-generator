@@ -208,9 +208,9 @@ def main() -> None:
 
     # Show configuration
     cli.show_config({
-        'Music Directory': args.music_dir,
+        'Music Directory': args.host_music_dir,
         'Output Directory': args.output_dir,
-        'Number of Playlists': args.num_playlists,
+        'Number of Playlists (selected)': args.num_playlists,
         'Workers': args.workers or 'Auto',
         'Mode': 'Sequential' if args.force_sequential or (args.workers is not None and int(args.workers) <= 1) else 'Parallel',
         'Update Mode': args.update,
