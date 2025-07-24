@@ -397,7 +397,6 @@ class AudioAnalyzer:
             mb_tags = self._musicbrainz_lookup(artist, title)
             updated_fields_mb = [k for k, v in mb_tags.items() if v and (k not in meta or meta[k] != v)]
             meta.update({k: v for k, v in mb_tags.items() if v})
-            print(f"PRINT: MusicBrainz enrichment called for {artist} - {title}, fields updated: {updated_fields_mb}")
             logger.info(f"MusicBrainz enrichment: {artist} - {title} (fields updated: {updated_fields_mb})")
 
         # Define a comprehensive set of non-real genres
@@ -416,7 +415,6 @@ class AudioAnalyzer:
                 if lastfm_tags.get(field):
                     meta[field] = lastfm_tags[field]
                     updated_fields_lastfm.append(field)
-            print(f"PRINT: Last.fm enrichment called for {artist} - {title}, fields updated: {updated_fields_lastfm}")
             logger.info(f"Last.fm enrichment: {artist} - {title} (fields updated: {updated_fields_lastfm})")
 
         features['metadata'] = meta
