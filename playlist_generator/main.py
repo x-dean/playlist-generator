@@ -423,17 +423,12 @@ def main() -> None:
                         processor = ParallelProcessor()
                         process_iter = processor.process(normal_files, workers=args.workers or multiprocessing.cpu_count())
                         for features in process_iter:
-                            filename = os.path.basename(features.get('filepath', ''))
-                            try:
-                                size_mb = os.path.getsize(features.get('filepath', '')) / (1024 * 1024)
-                            except Exception:
-                                size_mb = 0
                             processed_count += 1
                             progress.update(
                                 task_id,
                                 advance=1,
                                 description=f"Processed {processed_count}/{total_files} files",
-                                trackinfo=f"{filename} ({size_mb:.1f} MB)"
+                                trackinfo=""
                             )
                             logger.debug(f"Features: {features}")
                             if features and 'metadata' in features:

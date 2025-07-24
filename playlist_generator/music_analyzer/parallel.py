@@ -28,7 +28,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
     Returns:
         Optional[tuple]: (features dict, filepath, db_write_success bool) or None on failure.
     """
-    logger.debug(f"Worker started for: {filepath}")
+    
     import os
     import traceback
     from .audio_analyzer import AudioAnalyzer
