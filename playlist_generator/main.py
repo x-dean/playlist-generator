@@ -163,23 +163,27 @@ def main() -> None:
     # Parse arguments
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
     group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs for tracks missing genre or year (default: False)')
-    group.add_argument('-a', '--analyze', action='store_true', help='Analyze files (see --failed and --force for options)')
-    group.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
-    group.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
     parser.add_argument('--music_dir', required=True, help='Music directory in container')
     parser.add_argument('--host_music_dir', required=True, help='Host music directory')
     parser.add_argument('--output_dir', default='./playlists', help='Output directory')
     parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists')
     parser.add_argument('--workers', type=int, default=None, help='Number of workers (default: auto)')
     parser.add_argument('--force_sequential', action='store_true', help='Force sequential processing')
+    parser.add_argument('-a', '--analyze', action='store_true', help='Analyze files (see --failed and --force for options)')
+    parser.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
+    parser.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
     parser.add_argument('--failed', action='store_true', help='With --analyze: only re-analyze files previously marked as failed')
-    parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze (used with --analyze)')
+    # Only one add_argument for --force
+    parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze or re-enrich (used with --analyze or --enrich_only)')
     parser.add_argument('--status', action='store_true', help='Show library/database statistics and exit')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
     parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags'], default='all',
                       help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
     parser.add_argument('--min_tracks_per_genre', type=int, default=10, help='Minimum number of tracks required for a genre to create a playlist (tags method only)')
+    parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs (default: False)')
+    parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
+    parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
+    # The --force argument is now handled by -f/--force, so we don't need a separate --force argument here.
     args = parser.parse_args()
 
     # Set cache file path
@@ -196,14 +200,8 @@ def main() -> None:
         cli.show_library_statistics(stats)
         sys.exit(0)
 
-    # Only support --enrich_tags for enrichment
-    if args.enrich_tags:
-        from playlist_generator.enrichment_only import run_enrichment_only
-        run_enrichment_only(args, cache_file)
-        return
-
     # If no mutually exclusive mode is set, default to analyze_only
-    if not (args.analyze or args.failed or args.update or args.generate_only):
+    if not (args.analyze or args.failed or args.update):
         args.analyze = True
 
     # Show configuration
@@ -222,10 +220,10 @@ def main() -> None:
     
     # Initialize components
     audio_db = AudioAnalyzer(cache_file, host_music_dir=args.host_music_dir, container_music_dir=args.music_dir)
-    # Pass min_tracks_per_genre to PlaylistManager if using tags method
+    # Pass min_tracks_per_genre and enrich_tags to PlaylistManager if using tags method
     if args.playlist_method == 'tags':
         playlist_manager = PlaylistManager(
-            cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre)
+            cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre, enrich_tags=args.enrich_tags, force_enrich_tags=args.force_enrich_tags)
     else:
         playlist_manager = PlaylistManager(cache_file, args.playlist_method)
     
@@ -255,7 +253,7 @@ def main() -> None:
             failed_files.extend(missing_in_db)
 
         # Dedicated enrichment mode
-        if args.enrich_tags:
+        if args.enrich_only:
             from playlist_generator.tag_based import TagBasedPlaylistGenerator
             from database.db_manager import DatabaseManager
             import json

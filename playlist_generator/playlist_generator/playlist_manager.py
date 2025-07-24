@@ -29,7 +29,7 @@ class PlaylistManager:
         self.time_scheduler = TimeBasedScheduler()
         self.kmeans_generator = KMeansPlaylistGenerator(cache_file)
         self.cache_generator = CacheBasedGenerator(cache_file)
-        self.tag_generator = TagBasedPlaylistGenerator(min_tracks_per_genre=min_tracks_per_genre, db_file=cache_file)
+        self.tag_generator = TagBasedPlaylistGenerator(min_tracks_per_genre=min_tracks_per_genre, enrich_tags=enrich_tags, force_enrich_tags=force_enrich_tags, db_file=cache_file)
         self.playlist_stats = defaultdict(dict)
         self.enrich_tags = enrich_tags
         self.force_enrich_tags = force_enrich_tags
