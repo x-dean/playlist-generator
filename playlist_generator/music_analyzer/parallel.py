@@ -159,12 +159,14 @@ class ParallelProcessor:
                                 else:
                                     failed_in_batch.append(filepath)
                         except KeyboardInterrupt:
-                            logger.debug("KeyboardInterrupt received, terminating pool...")
+                            logger.debug("KeyboardInterrupt received, terminating pool and exiting cleanly...")
                             pool.terminate()
                             pool.join()
-                            raise
+                            # Do not re-raise, just return to exit gracefully
+                            return
                         finally:
-                            pool.close()
+                            # Always ensure pool is terminated and joined on exit
+                            pool.terminate()
                             pool.join()
                 if failed_in_batch:
                     logger.info(f"Retrying {len(failed_in_batch)} failed files in next round")

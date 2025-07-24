@@ -155,6 +155,8 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, host_music_dir: 
             f.write("\n".join(host_failed))
         logger.info(f"Saved {len(failed_files)} failed files to {failed_path}")
 
+from analysis import run_analysis
+
 def main() -> None:
     """Main entry point for the Playlist Generator CLI application."""
     # Start CLI session
@@ -332,158 +334,7 @@ def main() -> None:
             save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
         elif args.analyze:
-            file_list = get_audio_files(args.music_dir)
-            # Revert: use container paths everywhere, no normalization
-            db_features = audio_db.get_all_features(include_failed=True)
-            db_files = set(f['filepath'] for f in db_features)
-            failed_files_db = set(f['filepath'] for f in db_features if f['failed'])
-            # DEBUG: Print samples to check for path mismatches
-            logger.debug(f"Sample from file_list: {file_list[:3]}")
-            logger.debug(f"Sample from failed_files_db: {list(failed_files_db)[:3]}")
-            logger.debug(f"Sample from db_files: {list(db_files)[:3]}")
-            logger.debug(f"Intersection (should be re-analyzed): {list(set(file_list) & failed_files_db)}")
-            # Determine which files to analyze based on flags
-            if args.force:
-                # Force: re-analyze all files
-                files_to_analyze = file_list
-            elif args.failed:
-                # Analyze files not in DB or previously failed
-                files_to_analyze = [f for f in file_list if f not in db_files or f in failed_files_db]
-            else:
-                # Only analyze files not in DB
-                files_to_analyze = [f for f in file_list if f not in db_files]
-            logger.debug(f"Files to analyze: {files_to_analyze[:10]}")
-            logger.debug(f"About to process {len(files_to_analyze)} files")
-            if not files_to_analyze:
-                total_found = len(file_list)
-                total_in_db = len(db_features)
-                total_failed = len([f for f in db_features if f['failed']])
-                processed_this_run = 0
-                failed_this_run = 0
-                stats = playlist_db.get_library_statistics()
-                cli.show_analysis_summary(
-                    stats=stats,
-                    processed_this_run=processed_this_run,
-                    failed_this_run=failed_this_run,
-                    total_found=total_found,
-                    total_in_db=total_in_db,
-                    total_failed=total_failed
-                )
-                return
-            BIG_FILE_SIZE_MB = 200
-            def is_big_file(filepath):
-                try:
-                    return os.path.getsize(filepath) > BIG_FILE_SIZE_MB * 1024 * 1024
-                except Exception:
-                    return False
-            big_files = [f for f in files_to_analyze if is_big_file(f)]
-            normal_files = [f for f in files_to_analyze if not is_big_file(f)]
-            failed_files = []
-            processed_count = 0
-            total_files = len(files_to_analyze)
-            progress = Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(bar_width=40),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TimeElapsedColumn(),
-                TimeRemainingColumn(),
-                TextColumn("{task.fields[trackinfo]}", justify="right"),
-                console=Console()
-            )
-            with progress:
-                task_id = progress.add_task(f"Processed 0/{total_files} files", total=total_files, trackinfo="")
-                # 1. Process normal files in parallel
-                if normal_files:
-                    if args.force_sequential or (args.workers and args.workers <= 1):
-                        processor = SequentialProcessor()
-                        process_iter = processor.process(normal_files, workers=args.workers or 1)
-                        for features, filepath in process_iter:
-                            filename = os.path.basename(filepath)
-                            try:
-                                size_mb = os.path.getsize(filepath) / (1024 * 1024)
-                            except Exception:
-                                size_mb = 0
-                            processed_count += 1
-                            progress.update(
-                                task_id,
-                                advance=1,
-                                description=f"Processed {processed_count}/{total_files} files",
-                                trackinfo=f"{filename} ({size_mb:.1f} MB)"
-                            )
-                            logger.debug(f"Features: {features}")
-                            if features and 'metadata' in features:
-                                meta = features['metadata']
-                                if meta.get('musicbrainz_id'):
-                                    pass
-                                else:
-                                    pass
-                        failed_files.extend(processor.failed_files)
-                    else:
-                        processor = ParallelProcessor()
-                        process_iter = processor.process(normal_files, workers=args.workers or multiprocessing.cpu_count())
-                        for features in process_iter:
-                            processed_count += 1
-                            progress.update(
-                                task_id,
-                                advance=1,
-                                description=f"Processed {processed_count}/{total_files} files",
-                                trackinfo=""
-                            )
-                            logger.debug(f"Features: {features}")
-                            if features and 'metadata' in features:
-                                meta = features['metadata']
-                                if meta.get('musicbrainz_id'):
-                                    pass
-                                else:
-                                    pass
-                        failed_files.extend(processor.failed_files)
-                # 2. Process big files sequentially
-                if big_files:
-                    processor = SequentialProcessor()
-                    for filepath in big_files:
-                        filename = os.path.basename(filepath)
-                        try:
-                            size_mb = os.path.getsize(filepath) / (1024 * 1024)
-                        except Exception:
-                            size_mb = 0
-                        progress.update(
-                            task_id,
-                            description=f"Processing: {filename} | {processed_count}/{total_files} files",
-                            trackinfo=f"{filename} ({size_mb:.1f} MB)"
-                        )
-                        for features, _ in processor.process([filepath], workers=1):
-                            processed_count += 1
-                            progress.update(
-                                task_id,
-                                advance=1,
-                                description=f"Processed {processed_count}/{total_files} files (big file)",
-                                trackinfo=f"{filename} ({size_mb:.1f} MB)"
-                            )
-                            logger.debug(f"Features: {features}")
-                            if features and 'metadata' in features:
-                                meta = features['metadata']
-                                if meta.get('musicbrainz_id'):
-                                    pass
-                                else:
-                                    pass
-                    failed_files.extend(processor.failed_files)
-            # After processing (always show summary)
-            total_found = len(file_list)
-            total_in_db = len(audio_db.get_all_features(include_failed=True))
-            total_failed = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
-            processed_this_run = processed_count
-            failed_this_run = len(failed_files)
-            stats = playlist_db.get_library_statistics()
-            cli.show_analysis_summary(
-                stats=stats,
-                processed_this_run=processed_this_run,
-                failed_this_run=failed_this_run,
-                total_found=total_found,
-                total_in_db=total_in_db,
-                total_failed=total_failed
-            )
-            return
+            failed_files = run_analysis(args, audio_db, playlist_db, cli)
 
         elif args.generate_only:
             cli.update_status("Generating playlists from database")
