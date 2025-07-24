@@ -95,18 +95,6 @@ while [[ $# -gt 0 ]]; do
             ENRICH_TAGS=true
             shift
             ;;
-        --force_enrich_tags)
-            FORCE_ENRICH_TAGS=true
-            shift
-            ;;
-        --enrich_only)
-            ENRICH_ONLY=true
-            shift
-            ;;
-        --force)
-            FORCE=true
-            shift
-            ;;
         --status)
             STATUS=true
             shift
@@ -140,11 +128,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --playlist_method, -m <method> Playlist generation method (default: all)"
             echo "                           Options: all, time, kmeans, cache, tags"
             echo "  --enrich_tags            Enrich tags using MusicBrainz/Last.fm APIs (default: false)"
-            echo "  --force_enrich_tags      Force re-enrichment of tags and overwrite metadata in the database (default: false)"
-            echo "  --enrich_only           Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)"
-            echo "  --force                 Force re-enrichment for all tracks in the database (use with --enrich_only)"
             echo "  --status                 Show library/database statistics and exit"
-            echo "  --failed                 Force re-enrichment for all tracks in the database (use with --enrich_only)"
+            echo "  --failed                 Only re-analyze files previously marked as failed"
             echo "  --resume                 Resume playlist generation from the last saved state"
             echo "  --min_tracks_per_genre <num> Minimum number of tracks per genre for playlist generation (default: 10)"
             echo "  --help, -h               Show this help message"
@@ -259,21 +244,6 @@ ENRICH_TAGS_FLAG=""
 if [ "$ENRICH_TAGS" = true ]; then
     ENRICH_TAGS_FLAG="--enrich_tags"
 fi
-# Add force enrich tags flag if enabled
-FORCE_ENRICH_TAGS_FLAG=""
-if [ "$FORCE_ENRICH_TAGS" = true ]; then
-    FORCE_ENRICH_TAGS_FLAG="--force_enrich_tags"
-fi
-
-# Add enrich only flags if enabled
-ENRICH_ONLY_FLAG=""
-if [ "$ENRICH_ONLY" = true ]; then
-    ENRICH_ONLY_FLAG="--enrich_only"
-fi
-FORCE_FLAG=""
-if [ "$FORCE" = true ]; then
-    FORCE_FLAG="--force"
-fi
 
 # Add failed flag if enabled
 FAILED_FLAG=""
@@ -320,8 +290,5 @@ docker compose exec playlist-generator python main.py \
   $PLAYLIST_METHOD_FLAG \
   $FORCE_SEQUENTIAL_FLAG \
   $ENRICH_TAGS_FLAG \
-  $FORCE_ENRICH_TAGS_FLAG \
-  $ENRICH_ONLY_FLAG \
-  $FORCE_FLAG \
   $RESUME_FLAG \
   $MIN_TRACKS_PER_GENRE_FLAG

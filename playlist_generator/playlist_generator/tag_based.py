@@ -18,7 +18,7 @@ class TagBasedPlaylistGenerator:
         musicbrainzngs.set_useragent("PlaylistGenerator", "1.0", "noreply@example.com")
         self.lastfm_api_key = os.getenv("LASTFM_API_KEY")
 
-    def enrich_track_metadata(self, track, force_enrich_tags=False):
+    def enrich_track_metadata(self, track):
         """
         Enrich track metadata using MusicBrainz and Last.fm.
         Fills in missing genres, years, etc. if possible.
@@ -26,8 +26,17 @@ class TagBasedPlaylistGenerator:
         meta = track.get('metadata', {})
         artist = meta.get('artist')
         title = meta.get('title')
-        # Only enrich if force_enrich_tags is True, or if genre/year are missing
-        needs_enrichment = force_enrich_tags or not meta.get('genre') or not meta.get('year')
+        # Always enrich if genre is missing, empty, 'Other', or 'UnknownGenre', or year is missing/empty
+        genre = meta.get('genre')
+        year = meta.get('year')
+        def genre_needs_enrichment(g):
+            if not g:
+                return True
+            if isinstance(g, list):
+                g = g[0] if g else ''
+            g = str(g).strip().lower()
+            return g in ('', 'other', 'unknowngenre')
+        needs_enrichment = genre_needs_enrichment(genre) or not year or str(year).strip() == ''
         if not needs_enrichment:
             logger.debug(f"Skipping enrichment for {track.get('filepath', 'unknown')} (metadata exists)")
             return track
@@ -89,7 +98,7 @@ class TagBasedPlaylistGenerator:
         elif not self.lastfm_api_key:
             logger.debug("LASTFM_API_KEY not set; skipping Last.fm enrichment.")
         # Update database if db_file is set
-        if self.db_file and (enriched or force_enrich_tags):
+        if self.db_file and enriched:
             self.update_track_metadata_in_db(track.get('filepath'), meta)
         return track
 
@@ -230,10 +239,9 @@ class TagBasedPlaylistGenerator:
     def generate(self, features_list, enrich_tags=None, force_enrich_tags=None):
         # Only enrich if enabled (from argument or self)
         do_enrich = self.enrich_tags if enrich_tags is None else enrich_tags
-        do_force = self.force_enrich_tags if force_enrich_tags is None else force_enrich_tags
         if do_enrich:
             for track in features_list:
-                self.enrich_track_metadata(track, force_enrich_tags=do_force)
+                self.enrich_track_metadata(track)
         # Normalize genres and count
         genre_counter = Counter()
         track_genres = []

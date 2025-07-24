@@ -181,9 +181,6 @@ def main() -> None:
                       help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
     parser.add_argument('--min_tracks_per_genre', type=int, default=10, help='Minimum number of tracks required for a genre to create a playlist (tags method only)')
     parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs (default: False)')
-    parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
-    parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
-    # The --force argument is now handled by -f/--force, so we don't need a separate --force argument here.
     args = parser.parse_args()
 
     # Set cache file path
@@ -223,7 +220,7 @@ def main() -> None:
     # Pass min_tracks_per_genre and enrich_tags to PlaylistManager if using tags method
     if args.playlist_method == 'tags':
         playlist_manager = PlaylistManager(
-            cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre, enrich_tags=args.enrich_tags, force_enrich_tags=args.force_enrich_tags)
+            cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre, enrich_tags=args.enrich_tags)
     else:
         playlist_manager = PlaylistManager(cache_file, args.playlist_method)
     
@@ -252,42 +249,7 @@ def main() -> None:
             cli.show_warning(f"Removed {len(missing_in_db)} missing files from database")
             failed_files.extend(missing_in_db)
 
-        # Dedicated enrichment mode
-        if args.enrich_only:
-            from playlist_generator.tag_based import TagBasedPlaylistGenerator
-            from database.db_manager import DatabaseManager
-            import json
-            db_file = cache_file
-            dbm = DatabaseManager(db_file)
-            # Load all tracks from DB
-            conn = dbm._get_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT file_path, metadata FROM audio_features")
-            rows = cursor.fetchall()
-            total = len(rows)
-            enriched = 0
-            skipped = 0
-            failed = 0
-            tagger = TagBasedPlaylistGenerator(db_file=db_file, enrich_tags=True, force_enrich_tags=args.force)
-            print(f"Starting enrichment for {total} tracks (force: {args.force})...")
-            for row in rows:
-                filepath = row[0]
-                try:
-                    meta = json.loads(row[1]) if row[1] else {}
-                    track_data = {'filepath': filepath, 'metadata': meta}
-                    before = dict(meta)
-                    result = tagger.enrich_track_metadata(track_data, force_enrich_tags=args.force)
-                    after = result.get('metadata', {})
-                    # If force or if genre/year was missing and now present, count as enriched
-                    if args.force or (not before.get('genre') and after.get('genre')) or (not before.get('year') and after.get('year')):
-                        enriched += 1
-                    else:
-                        skipped += 1
-                except Exception as e:
-                    failed += 1
-                    print(f"Failed to enrich {filepath}: {e}")
-            print(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}")
-            exit(0)
+        # Remove dedicated enrichment mode and all force/enrich_only/force_enrich_tags logic
 
         # Create a multiprocessing manager queue for long-running file notifications
         manager = multiprocessing.Manager()
