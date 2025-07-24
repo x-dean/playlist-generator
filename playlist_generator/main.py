@@ -3,16 +3,6 @@ import os
 import sys
 import time
 import traceback
-import multiprocessing as mp
-from logging_setup import setup_colored_logging
-from music_analyzer.audio_analyzer import AudioAnalyzer
-from database.playlist_db import PlaylistDatabase
-from music_analyzer.parallel import ParallelProcessor
-from music_analyzer.sequential import SequentialProcessor
-from playlist_generator.time_based import TimeBasedScheduler
-from playlist_generator.kmeans import KMeansPlaylistGenerator
-from playlist_generator.cache import CacheBasedGenerator
-from playlist_generator.playlist_manager import PlaylistManager
 import logging
 from utils.cli import PlaylistGeneratorCLI, CLIContextManager
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
@@ -20,42 +10,26 @@ from rich.console import Console
 from rich.panel import Panel
 from utils.checkpoint import CheckpointManager
 from typing import Optional
-import multiprocessing
 import threading
 from rich.live import Live
 from rich.spinner import Spinner
-import essentia
-essentia.log.infoActive = False
-essentia.log.warningActive = False
-essentia.log.errorActive = False
 
-# Suppress glog output before importing Essentia or any C++ modules
-os.environ["GLOG_minloglevel"] = "3"  # Only FATAL
-os.environ["GLOG_logtostderr"] = "1"
-os.environ["GLOG_stderrthreshold"] = "3"
+# Only import Essentia and analysis modules when needed
+# (see below for conditional imports)
 
-logger = setup_colored_logging()
+logger = logging.getLogger("playlist_generator")
 
-import logging as pylogging
-pylogging.getLogger("musicbrainzngs").setLevel(pylogging.WARNING)
-
-# Initialize system monitoring
-# Remove SystemMonitor and monitor_performance imports
-# Remove @monitor_performance decorators from get_audio_files and main
-# Remove system_monitor initialization
 checkpoint_manager = CheckpointManager()
-
-# Initialize CLI
 cli = PlaylistGeneratorCLI()
-
-os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
-os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
 cache_dir = os.getenv('CACHE_DIR', '/app/cache')
 logfile_path = os.path.join(cache_dir, 'essentia_stderr.log')
 logfile = open(logfile_path, 'w')
 os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
 sys.stderr = logfile  # Also update Python's sys.stderr
+
+import logging as pylogging
+pylogging.getLogger("musicbrainzngs").setLevel(pylogging.WARNING)
 
 def get_audio_files(music_dir: str) -> list[str]:
     """Recursively find all audio files in the given directory.
@@ -156,11 +130,6 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, host_music_dir: 
         logger.info(f"Saved {len(failed_files)} failed files to {failed_path}")
 
 def main() -> None:
-    """Main entry point for the Playlist Generator CLI application."""
-    # Start CLI session
-    cli.start_session()
-
-    # Parse arguments
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
     group = parser.add_mutually_exclusive_group(required=False)
     parser.add_argument('--music_dir', required=True, help='Music directory in container')
@@ -173,7 +142,6 @@ def main() -> None:
     parser.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
     parser.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
     parser.add_argument('--failed', action='store_true', help='With --analyze: only re-analyze files previously marked as failed')
-    # Only one add_argument for --force
     parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze or re-enrich (used with --analyze or --enrich_only)')
     parser.add_argument('--status', action='store_true', help='Show library/database statistics and exit')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
@@ -183,14 +151,14 @@ def main() -> None:
     parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs (default: False)')
     args = parser.parse_args()
 
-    # Set cache file path
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
-    playlist_db = PlaylistDatabase(cache_file)
 
     # If --status is set, show statistics and exit
     if getattr(args, 'status', False):
+        from database.playlist_db import PlaylistDatabase
+        playlist_db = PlaylistDatabase(cache_file)
         stats = playlist_db.get_library_statistics()
-        # Add failed/skipped files count
+        from music_analyzer.audio_analyzer import AudioAnalyzer
         audio_db = AudioAnalyzer(cache_file)
         skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
         stats['skipped_failed'] = skipped_count
@@ -217,16 +185,7 @@ def main() -> None:
         'Resume': args.resume,
         'Playlist Method': args.playlist_method
     })
-    
-    # Initialize components
-    audio_db = AudioAnalyzer(cache_file, host_music_dir=args.host_music_dir, container_music_dir=args.music_dir)
-    # Pass min_tracks_per_genre and enrich_tags to PlaylistManager if using tags method
-    if args.playlist_method == 'tags':
-        playlist_manager = PlaylistManager(
-            cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre, enrich_tags=args.enrich_tags)
-    else:
-        playlist_manager = PlaylistManager(cache_file, args.playlist_method)
-    
+
     container_music_dir = args.music_dir.rstrip('/')
     host_music_dir = args.host_music_dir.rstrip('/')
     failed_files = []
@@ -246,11 +205,19 @@ def main() -> None:
                 if 'progress' in state:
                     cli.update_status(f"Resuming from {state['progress']} stage")
 
-        # Clean up database
-        missing_in_db = audio_db.cleanup_database()
-        if missing_in_db:
-            cli.show_warning(f"Removed {len(missing_in_db)} missing files from database")
-            failed_files.extend(missing_in_db)
+        # Clean up database (only if not enrichment-only)
+        if not getattr(args, 'enrich_only', False):
+            from music_analyzer.audio_analyzer import AudioAnalyzer
+            audio_db = AudioAnalyzer(cache_file, host_music_dir=args.host_music_dir, container_music_dir=args.music_dir)
+            missing_in_db = audio_db.cleanup_database()
+            if missing_in_db:
+                cli.show_warning(f"Removed {len(missing_in_db)} missing files from database")
+                failed_files.extend(missing_in_db)
+        else:
+            # In enrichment-only mode, only clean up DB if needed (optional)
+            from database.db_manager import DatabaseManager
+            dbm = DatabaseManager(cache_file)
+            # Optionally, implement DB cleanup here if needed
 
         # Enrichment-only mode with progress bar
         if getattr(args, 'enrich_only', False):
@@ -273,8 +240,6 @@ def main() -> None:
                 skipped = 0
                 failed = 0
                 tagger = TagBasedPlaylistGenerator(db_file=db_file, enrich_tags=True)
-                from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
-                from rich.console import Console
                 progress = Progress(
                     SpinnerColumn(),
                     TextColumn("[progress.description]{task.description}"),
@@ -320,10 +285,35 @@ def main() -> None:
                 print(traceback.format_exc())
                 raise
 
-        # Remove dedicated enrichment mode and all force/enrich_only/force_enrich_tags logic
+        # All other modes (analysis, playlist generation, etc.)
+        # Import Essentia and analysis modules only here
+        import essentia
+        essentia.log.infoActive = False
+        essentia.log.warningActive = False
+        essentia.log.errorActive = False
+        os.environ["GLOG_minloglevel"] = "3"  # Only FATAL
+        os.environ["GLOG_logtostderr"] = "1"
+        os.environ["GLOG_stderrthreshold"] = "3"
+        from music_analyzer.audio_analyzer import AudioAnalyzer
+        from database.playlist_db import PlaylistDatabase
+        from music_analyzer.parallel import ParallelProcessor
+        from music_analyzer.sequential import SequentialProcessor
+        from playlist_generator.time_based import TimeBasedScheduler
+        from playlist_generator.kmeans import KMeansPlaylistGenerator
+        from playlist_generator.cache import CacheBasedGenerator
+        from playlist_generator.playlist_manager import PlaylistManager
 
+        playlist_db = PlaylistDatabase(cache_file)
+        audio_db = AudioAnalyzer(cache_file, host_music_dir=args.host_music_dir, container_music_dir=args.music_dir)
+        # Pass min_tracks_per_genre and enrich_tags to PlaylistManager if using tags method
+        if args.playlist_method == 'tags':
+            playlist_manager = PlaylistManager(
+                cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre, enrich_tags=args.enrich_tags)
+        else:
+            playlist_manager = PlaylistManager(cache_file, args.playlist_method)
+        
         # Create a multiprocessing manager queue for long-running file notifications
-        manager = multiprocessing.Manager()
+        manager = threading.Manager()
         status_queue = manager.Queue()
         long_running_files = set()
         spinner_stop = threading.Event()
