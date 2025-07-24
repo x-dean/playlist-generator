@@ -266,6 +266,7 @@ Failed Files: {stats.get('failed_files', 0)}
         table.add_row("─" * 30, "─" * 30)
         # Genre Stats section
         table.add_row(Text("Genre Stats", style="bold magenta"), "─" * 30)
+        genre_counts = stats.get('genre_counts', {})
         if 'tracks_with_real_genre' in stats:
             table.add_row("  Track with genres", str(stats['tracks_with_real_genre']))
         if 'tracks_with_no_real_genre' in stats:
