@@ -1,18 +1,12 @@
 services:
   playlist-generator:
     build: .
-    user: "${CURRENT_UID:-1000}:${CURRENT_GID:-1000}"  # Use host user's UID/GID
+    user: "${CURRENT_UID:-1000}:${CURRENT_GID:-1000}"
+    entrypoint: ["bash"]
     volumes:
-      - type: bind
-        source: ${MUSIC_DIR}
-        target: /music
-        read_only: true
-      - type: bind
-        source: ${OUTPUT_DIR}
-        target: /app/playlists
-      - type: bind
-        source: ${CACHE_DIR}
-        target: /app/cache
+      - /root/music/library:/music:ro
+      - /root/music/library/playlists/auto:/app/playlists
+      - /root/music/library/playlists/auto/cache:/app/cache
     environment:
       - CACHE_DIR=/app/cache
       - UID=${CURRENT_UID:-1000}
@@ -20,12 +14,4 @@ services:
       - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
       - MIN_TRACKS_PER_GENRE=${MIN_TRACKS_PER_GENRE:-10}
     working_dir: /app
-    command: >
-      python main.py
-      --music_dir /music
-      --host_music_dir ${HOST_MUSIC_DIR}
-      --output_dir /app/playlists
-      --workers ${WORKERS}
-      --num_playlists ${NUM_PLAYLISTS}
-      --playlist_method ${PLAYLIST_METHOD}
-      ${FORCE_SEQUENTIAL:+--force_sequential}
+    # Remove command override to allow interactive use

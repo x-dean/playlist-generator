@@ -144,7 +144,7 @@ class AudioAnalyzer:
 
     def _normalize_to_host_path(self, path):
         if self.host_music_dir and self.container_music_dir:
-            from playlist_generator.main import convert_to_host_path
+            from playlist_generator.audiolizer import convert_to_host_path
             return convert_to_host_path(path, self.host_music_dir, self.container_music_dir)
         return os.path.normpath(path)
 

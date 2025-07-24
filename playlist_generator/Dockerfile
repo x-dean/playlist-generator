@@ -46,9 +46,11 @@ RUN touch /app/database/__init__.py && \
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \
     chmod -R 777 /app/playlists /app/cache
 
-# Add entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Make audiolizer executable
+RUN chmod +x /app/audiolizer
+
+# Add /app to PATH so audiolizer can be run as a command
+ENV PATH="/app:${PATH}"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -57,5 +59,5 @@ ENV PYTHONUNBUFFERED=1 \
     CACHE_DIR=/app/cache 
 
 # Use shell form for entrypoint to allow variable expansion
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["python", "main.py"]
+ENTRYPOINT ["bash"]
+# No CMD, container starts with a shell for interactive use
