@@ -164,7 +164,7 @@ class ParallelProcessor:
                                 if stop_event and stop_event.is_set():
                                     break
                                 if features and db_write_success:
-                                    yield features
+                                    yield features, filepath
                                 else:
                                     failed_in_batch.append(filepath)
                         except KeyboardInterrupt:
@@ -195,7 +195,7 @@ class ParallelProcessor:
                     for filepath in remaining_files:
                         features, _, db_write_success = process_file_worker(filepath, status_queue)
                         if features and db_write_success:
-                            yield features
+                            yield features, filepath
                         else:
                             self.failed_files.append(filepath)
                     return
