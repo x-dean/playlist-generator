@@ -355,22 +355,37 @@ def main() -> None:
             logger.debug(f"Files to analyze: {files_to_analyze[:10]}")
             logger.debug(f"About to process {len(files_to_analyze)} files")
             if not files_to_analyze:
-                # Gather summary stats (always show after analysis)
                 total_found = len(file_list)
                 total_in_db = len(db_features)
                 total_failed = len([f for f in db_features if f['failed']])
-                processed_this_run = 0 # No files processed in this run
-                failed_this_run = 0 # No files failed in this run
+                processed_this_run = 0
+                failed_this_run = 0
+                # Gather genre summary for the panel
+                genre_counts = None
+                try:
+                    stats = playlist_db.get_library_statistics()
+                    genre_counts = stats.get('genre_counts')
+                except Exception:
+                    genre_counts = None
+                real_count = 0
+                other_count = 0
+                if genre_counts:
+                    real_count = sum(c for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None))
+                    other_count = sum(c for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None))
+                from rich.table import Table
+                summary_table = Table(show_header=True, header_style="bold magenta")
+                summary_table.add_column("Stat", style="cyan")
+                summary_table.add_column("Value", style="green")
+                summary_table.add_row("Total tracks found in directory", str(total_found))
+                summary_table.add_row("Total tracks in database", str(total_in_db))
+                summary_table.add_row("Total failed tracks (in db)", str(total_failed))
+                summary_table.add_row("Processed this run", str(processed_this_run))
+                summary_table.add_row("Failed this run", str(failed_this_run))
+                if genre_counts is not None:
+                    summary_table.add_row("Track with genres", str(real_count))
+                    summary_table.add_row("Others (no genres)", str(other_count))
                 console = Console()
-                console.print(Panel(
-                    f"Analysis complete!\n"
-                    f"Total tracks found in directory: [cyan]{total_found}[/cyan]\n"
-                    f"Total tracks in database: [cyan]{total_in_db}[/cyan]\n"
-                    f"Total failed tracks (in db): [red]{total_failed}[/red]\n"
-                    f"Processed this run: [cyan]{processed_this_run}[/cyan]\n"
-                    f"Failed this run: [red]{failed_this_run}[/red]",
-                    title="\U0001F4CA Analysis Summary", border_style="blue"
-                ))
+                console.print(Panel(summary_table, title="\U0001F4CA Analysis Summary", border_style="blue"))
                 # Show updated library statistics after analysis
                 stats = playlist_db.get_library_statistics()
                 stats['skipped_failed'] = total_failed
