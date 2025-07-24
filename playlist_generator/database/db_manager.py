@@ -352,19 +352,33 @@ class DatabaseManager:
             cursor.execute("SELECT metadata FROM audio_features")
             genre_count = 0
             year_count = 0
+            genre_counter = {}
             for row in cursor.fetchall():
                 try:
                     meta = json.loads(row['metadata']) if row['metadata'] else {}
                     genre = meta.get('genre')
                     year = meta.get('year') or meta.get('date')
+                    # Count for stats['tracks_with_genre']
                     if genre and (isinstance(genre, str) or (isinstance(genre, list) and genre)):
                         genre_count += 1
                     if year and str(year).strip():
                         year_count += 1
+                    # Count for genre_counts
+                    if genre:
+                        if isinstance(genre, str):
+                            genre_list = [genre]
+                        elif isinstance(genre, list):
+                            genre_list = genre
+                        else:
+                            genre_list = []
+                        for g in genre_list:
+                            g_norm = g if g else "UnknownGenre"
+                            genre_counter[g_norm] = genre_counter.get(g_norm, 0) + 1
                 except Exception:
                     continue
             stats['tracks_with_genre'] = genre_count
             stats['tracks_with_year'] = year_count
+            stats['genre_counts'] = genre_counter
 
             # Total playlists
             cursor.execute("SELECT COUNT(*) FROM playlists")

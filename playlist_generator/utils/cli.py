@@ -228,13 +228,8 @@ Failed Files: {stats.get('failed_files', 0)}
         self.console.print(f"[blue]ℹ[/blue] {message}")
 
     def show_library_statistics(self, stats: dict):
-        """Display library/database statistics in a rich panel and table."""
+        """Display library/database statistics in a rich table (no outer panel). Also show genre breakdown tables."""
         from rich.table import Table
-        from rich.panel import Panel
-        if not stats:
-            self.console.print(Panel("[yellow]No statistics available[/yellow]", title="Library Statistics", border_style="yellow"))
-            return
-
         # Main stats table (match show_config style)
         table = Table(show_header=True, header_style="bold magenta")
         table.add_column("Stat", style="cyan")
@@ -246,8 +241,29 @@ Failed Files: {stats.get('failed_files', 0)}
         table.add_row("Total Playlists", str(stats.get('total_playlists', 0)))
         if 'skipped_failed' in stats:
             table.add_row("Skipped (Failed) Files", str(stats['skipped_failed']))
+        self.console.print(table)
 
-        # Playlist membership histogram
+        # Genre breakdown (if present)
+        genre_counts = stats.get('genre_counts')
+        if genre_counts:
+            real_genres = [(g, c) for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None)]
+            other_genres = [(g, c) for g, c in genre_counts.items() if g in ("Other", "UnknownGenre", "", None)]
+            if real_genres:
+                genre_table = Table(title="Genres", show_header=True, header_style="bold magenta")
+                genre_table.add_column("Genre", style="cyan")
+                genre_table.add_column("Count", style="green")
+                for g, c in sorted(real_genres, key=lambda x: -x[1]):
+                    genre_table.add_row(str(g), str(c))
+                self.console.print(genre_table)
+            if other_genres:
+                other_table = Table(title="Other/Unknown Genres", show_header=True, header_style="bold magenta")
+                other_table.add_column("Label", style="cyan")
+                other_table.add_column("Count", style="green")
+                for g, c in sorted(other_genres, key=lambda x: -x[1]):
+                    other_table.add_row(str(g), str(c))
+                self.console.print(other_table)
+
+        # Playlist membership histogram (if present)
         hist = stats.get('track_playlist_membership', {})
         if hist:
             hist_table = Table(title="Track Playlist Membership", show_header=True, header_style="bold magenta")
@@ -258,10 +274,7 @@ Failed Files: {stats.get('failed_files', 0)}
                 if int(n) >= 3:
                     label = f"{n}+"
                 hist_table.add_row(label, str(hist[n]))
-            self.console.print(Panel(table, title="\U0001F4CA Library/Database Status", border_style="blue"))
-            self.console.print(Panel(hist_table, title="Track Playlist Membership", border_style="blue"))
-        else:
-            self.console.print(Panel(table, title="\U0001F4CA Library/Database Status", border_style="blue"))
+            self.console.print(hist_table)
 
 class CLIContextManager:
     """Context manager for CLI progress tracking"""
