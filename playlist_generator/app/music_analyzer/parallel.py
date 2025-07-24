@@ -187,7 +187,7 @@ class ParallelProcessor:
                     remaining_files = failed_in_batch
                     self.failed_files.extend(failed_in_batch)
                 else:
-                    logger.info(f"Processing completed - yielded all successful, {len(self.failed_files)} failed")
+                    logger.info(f"Batch processing complete: {len(file_list)} files processed, {len(self.failed_files)} failed in total.")
                     return
             except (mp.TimeoutError, BrokenPipeError, ConnectionResetError) as e:
                 logger.error(f"Multiprocessing error: {str(e)}")
