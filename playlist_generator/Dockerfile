@@ -48,7 +48,7 @@ RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \
 
 # Make audiolizer executable and add to PATH
 RUN chmod +x /app/audiolizer
-ENV PATH="/app:${PATH}"
+ENV PATH="${PATH}:/app"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
