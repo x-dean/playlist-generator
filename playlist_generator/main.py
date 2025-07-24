@@ -361,14 +361,20 @@ def main() -> None:
                 total_failed = len([f for f in db_features if f['failed']])
                 processed_this_run = 0 # No files processed in this run
                 failed_this_run = 0 # No files failed in this run
-                cli.show_success(
+                console = Console()
+                console.print(Panel(
                     f"Analysis complete!\n"
                     f"Total tracks found in directory: [cyan]{total_found}[/cyan]\n"
                     f"Total tracks in database: [cyan]{total_in_db}[/cyan]\n"
                     f"Total failed tracks (in db): [red]{total_failed}[/red]\n"
                     f"Processed this run: [cyan]{processed_this_run}[/cyan]\n"
-                    f"Failed this run: [red]{failed_this_run}[/red]"
-                )
+                    f"Failed this run: [red]{failed_this_run}[/red]",
+                    title="\U0001F4CA Analysis Summary", border_style="blue"
+                ))
+                # Show updated library statistics after analysis
+                stats = playlist_db.get_library_statistics()
+                stats['skipped_failed'] = total_failed
+                cli.show_library_statistics(stats)
                 return
             BIG_FILE_SIZE_MB = 200
             def is_big_file(filepath):
