@@ -188,6 +188,10 @@ def main() -> None:
     # The --force argument is now handled by -f/--force, so we don't need a separate --force argument here.
     args = parser.parse_args()
 
+    # Normalize workers: treat 0 as auto (parallel)
+    if args.workers is not None and int(args.workers) < 1:
+        args.workers = None
+
     # Set cache file path
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
     playlist_db = PlaylistDatabase(cache_file)
@@ -206,13 +210,16 @@ def main() -> None:
     if not (args.analyze or args.failed or args.update):
         args.analyze = True
 
+    # Robust mode selection
+    sequential_mode = args.force_sequential or (args.workers is not None and int(args.workers) == 1)
+
     # Show configuration
     cli.show_config({
         'Music Directory': args.host_music_dir,
         'Output Directory': getattr(args, 'host_output_dir', args.output_dir),
         'Number of Playlists (selected)': args.num_playlists,
         'Workers': args.workers or 'Auto',
-        'Mode': 'Sequential' if args.force_sequential or (args.workers is not None and int(args.workers) <= 1) else 'Parallel',
+        'Mode': 'Sequential' if sequential_mode else 'Parallel',
         'Update Mode': args.update,
         'Analysis Only': args.analyze,
         'Generate Only': args.generate_only,
@@ -361,7 +368,7 @@ def main() -> None:
             
             # Analysis phase
             with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
-                processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
+                processor = ParallelProcessor() if not sequential_mode else SequentialProcessor()
                 workers = args.workers or max(1, mp.cpu_count())
                 
                 for i, features in enumerate(processor.process(file_list, workers)):

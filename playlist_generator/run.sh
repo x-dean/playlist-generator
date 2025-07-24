@@ -13,7 +13,7 @@ OUTPUT_DIR="/root/music/library/playlists/by_bpm"
 CACHE_DIR="/root/music/library/playlists/cache"
 WORKERS=$(nproc)
 NUM_PLAYLISTS=20
-FORCE_SEQUENTIAL=false
+FORCE_SEQUENTIAL=false  # Always reset to false unless set by current args
 GENERATE_ONLY=false
 ANALYZE=false
 UPDATE=false
@@ -189,7 +189,7 @@ if [ "$FORCE_SEQUENTIAL" = true ]; then
     FORCE_SEQUENTIAL_FLAG="--force_sequential"
 fi
 
-# Create .env file for docker-compose
+# Always overwrite .env with current values
 cat > .env << EOF
 MUSIC_DIR=${MUSIC_DIR}
 HOST_MUSIC_DIR=${HOST_MUSIC_DIR}
