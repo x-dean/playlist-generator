@@ -396,8 +396,13 @@ class AudioAnalyzer:
             mb_tags = self._musicbrainz_lookup(artist, title)
         meta.update({k: v for k, v in mb_tags.items() if v})
 
-        # Fallback: If genre, year, or album are missing, try Last.fm
+        # Define a comprehensive set of non-real genres
+        NON_REAL_GENRES = {None, '', 'Other', 'UnknownGenre', 'Unknown', 'Misc', 'Various', 'VA', 'General', 'Soundtrack', 'OST', 'N/A', 'Not Available', 'No Genre', 'Unclassified', 'Unsorted', 'Undefined', 'Genre', 'Genres', 'Music', 'Song', 'Songs', 'Audio', 'MP3', 'Instrumental', 'Vocal', 'Various Artists', 'VA', 'Compilation', 'Compilations', 'Album', 'Albums', 'CD', 'CDs', 'Record', 'Records', 'Single', 'Singles', 'EP', 'EPs', 'LP', 'LPs', 'Demo', 'Demos', 'Test', 'Tests', 'Sample', 'Samples', 'Example', 'Examples', 'Untitled', 'Unknown Artist', 'Unknown Album', 'Unknown Title', 'No Title', 'No Album', 'No Artist'}
+        genre = meta.get('genre')
         missing_fields = [field for field in ['genre', 'year', 'album'] if not meta.get(field)]
+        if genre is None or (isinstance(genre, str) and genre.strip() in NON_REAL_GENRES):
+            if 'genre' not in missing_fields:
+                missing_fields.append('genre')
         if missing_fields and artist and title:
             logger.debug(f"Last.fm enrichment triggered for {artist} - {title}, missing fields: {missing_fields}")
             lastfm_tags = self._lastfm_lookup(artist, title)
