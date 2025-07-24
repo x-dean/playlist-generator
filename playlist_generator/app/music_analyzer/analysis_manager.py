@@ -221,7 +221,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     progress.update(
                         task_id,
                         advance=1,
-                        description=f"Processed {processed_count}/{total_files} files (big file)",
+                        description=f"Analyzing: {filename} ({size_mb:.1f} MB) ({processed_count}/{total_files})",
                         trackinfo=f"{filename} ({size_mb:.1f} MB)"
                     )
                     logger.debug(f"Features: {result}")
