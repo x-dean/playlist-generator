@@ -173,8 +173,7 @@ def main() -> None:
     parser.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
     parser.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
     parser.add_argument('--failed', action='store_true', help='With --analyze: only re-analyze files previously marked as failed')
-    # Only one add_argument for --force
-    parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze or re-enrich (used with --analyze or --enrich_only)')
+    parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze (used with --analyze)')
     parser.add_argument('--status', action='store_true', help='Show library/database statistics and exit')
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
     parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags'], default='all',
@@ -204,7 +203,7 @@ def main() -> None:
         return
 
     # If no mutually exclusive mode is set, default to analyze_only
-    if not (args.analyze or args.failed or args.update):
+    if not (args.analyze or args.failed or args.update or args.generate_only):
         args.analyze = True
 
     # Show configuration
@@ -223,10 +222,10 @@ def main() -> None:
     
     # Initialize components
     audio_db = AudioAnalyzer(cache_file, host_music_dir=args.host_music_dir, container_music_dir=args.music_dir)
-    # Pass min_tracks_per_genre and enrich_tags to PlaylistManager if using tags method
+    # Pass min_tracks_per_genre to PlaylistManager if using tags method
     if args.playlist_method == 'tags':
         playlist_manager = PlaylistManager(
-            cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre, enrich_tags=args.enrich_tags, force_enrich_tags=args.force_enrich_tags)
+            cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre)
     else:
         playlist_manager = PlaylistManager(cache_file, args.playlist_method)
     

@@ -38,7 +38,6 @@ def run_enrichment_only(args, db_file):
                 meta = json.loads(row[1]) if row[1] else {}
                 track_data = {'filepath': filepath, 'metadata': meta}
                 before = dict(meta)
-                # Only enrich if genre or year is missing
                 needs_enrichment = not before.get('genre') or not before.get('year')
                 if needs_enrichment:
                     result = tagger.enrich_track_metadata(track_data)
