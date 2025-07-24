@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 class CheckpointManager:
     def __init__(self, checkpoint_dir: str = None):

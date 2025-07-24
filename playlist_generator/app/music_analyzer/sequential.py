@@ -2,7 +2,7 @@ from tqdm import tqdm
 import logging
 from .feature_extractor import audio_analyzer
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 class SequentialProcessor:
     """Sequential processor for audio analysis (single-threaded)."""

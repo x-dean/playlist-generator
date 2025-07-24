@@ -4,7 +4,7 @@ import musicbrainzngs
 import os
 import requests
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 class TagBasedPlaylistGenerator:
     def __init__(self, min_tracks_per_genre=10, min_subgroup_size=10, large_group_threshold=40, enrich_tags=False, force_enrich_tags=False, db_file=None):

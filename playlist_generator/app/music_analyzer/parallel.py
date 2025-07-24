@@ -10,7 +10,7 @@ from typing import Optional
 import threading
 import signal
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 def timeout_handler(signum, frame):
     raise TimeoutException()

@@ -6,7 +6,7 @@ from typing import Dict, List, Any
 import random
 from collections import defaultdict
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 class TimeBasedScheduler:
     def __init__(self):

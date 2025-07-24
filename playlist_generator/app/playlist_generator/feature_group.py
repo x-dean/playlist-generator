@@ -4,7 +4,7 @@ import logging
 import re
 from typing import Dict, List, Any
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 class FeatureGroupPlaylistGenerator:
     """Generate playlists by grouping tracks based on extracted audio features."""

@@ -9,7 +9,7 @@ from music_analyzer.parallel import ParallelProcessor, UserAbortException
 from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.feature_extractor import AudioAnalyzer
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 BIG_FILE_SIZE_MB = 200
 
 # --- File Selection ---

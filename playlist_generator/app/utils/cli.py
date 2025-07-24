@@ -10,7 +10,7 @@ from datetime import datetime
 import time
 from typing import Dict, Any, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 console = Console()
 
 class PlaylistGeneratorCLI:

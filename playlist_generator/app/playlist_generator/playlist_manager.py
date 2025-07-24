@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler
 from .feature_group import FeatureGroupPlaylistGenerator
 from .tag_based import TagBasedPlaylistGenerator
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 class PlaylistManager:
     """Manage playlist generation using various methods and strategies."""

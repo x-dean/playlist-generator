@@ -4,7 +4,7 @@ from typing import Dict, List, Any, Optional
 from .db_manager import DatabaseManager
 import json
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 class PlaylistDatabase:
     def __init__(self, db_file: str):

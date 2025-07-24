@@ -9,7 +9,7 @@ import numpy as np
 from typing import Dict, List, Any, Optional
 import re
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 class CacheBasedGenerator:
     """Generate playlists using rule-based feature bins (cache method)."""

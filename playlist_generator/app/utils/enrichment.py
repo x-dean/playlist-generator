@@ -2,7 +2,7 @@ import musicbrainzngs
 import requests
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 def enrich_with_musicbrainz(meta, artist, title):
     """

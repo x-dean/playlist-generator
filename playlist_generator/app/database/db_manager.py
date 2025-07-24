@@ -5,7 +5,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import json
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger()
 
 class DatabaseManager:
     def __init__(self, db_file: str):
