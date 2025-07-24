@@ -213,6 +213,12 @@ def main() -> None:
     # Robust mode selection
     sequential_mode = args.force_sequential or (args.workers is not None and int(args.workers) == 1)
 
+    # If sequential mode is forced, always use 1 worker and warn if user set more
+    if args.force_sequential:
+        if args.workers is not None and int(args.workers) != 1:
+            logger.warning("Both --force_sequential and --workers > 1 set. Forcing sequential mode with 1 worker.")
+        args.workers = 1
+
     # Show configuration
     cli.show_config({
         'Music Directory': args.host_music_dir,
