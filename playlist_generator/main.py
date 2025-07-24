@@ -422,10 +422,10 @@ def main() -> None:
                     else:
                         processor = ParallelProcessor()
                         process_iter = processor.process(normal_files, workers=args.workers or multiprocessing.cpu_count())
-                        for features, filepath, _ in process_iter:
-                            filename = os.path.basename(filepath)
+                        for features in process_iter:
+                            filename = os.path.basename(features.get('filepath', ''))
                             try:
-                                size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                                size_mb = os.path.getsize(features.get('filepath', '')) / (1024 * 1024)
                             except Exception:
                                 size_mb = 0
                             processed_count += 1
