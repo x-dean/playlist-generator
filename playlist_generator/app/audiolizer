@@ -208,7 +208,7 @@ Examples:
     parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs (default: False)')
     parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
     parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
-    parser.add_argument('--log_level', default='WARNING', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], help='Set the logging level (default: WARNING)')
+    parser.add_argument('--log_level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], help='Set the logging level (default: INFO)')
     args = parser.parse_args()
 
     # Normalize workers: treat 0 as auto (parallel)
