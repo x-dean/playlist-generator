@@ -5,6 +5,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.console import Console
 import logging
 import psutil
+import signal
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,12 @@ def cleanup_child_processes():
     for p in alive:
         try:
             p.kill()
+        except Exception:
+            pass
+    # Extra: send SIGKILL to any still alive
+    for child in parent.children(recursive=True):
+        try:
+            os.kill(child.pid, signal.SIGKILL)
         except Exception:
             pass
 
@@ -78,37 +85,36 @@ def run_analysis(args, audio_db, playlist_db, cli):
             TextColumn("{task.fields[trackinfo]}", justify="right"),
             console=Console()
         )
-        from music_analyzer.parallel import ParallelProcessor
+        from music_analyzer.parallel import ParallelProcessor, UserAbortException
         from music_analyzer.sequential import SequentialProcessor
-        from music_analyzer.parallel import UserAbortException
         with progress:
             task_id = progress.add_task(f"Processed 0/{total_files} files", total=total_files, trackinfo="")
-            # 1. Process normal files in parallel
-            if normal_files:
-                if args.force_sequential or (args.workers and args.workers <= 1):
-                    processor = SequentialProcessor()
-                    process_iter = processor.process(normal_files, workers=args.workers or 1)
-                    for features, filepath in process_iter:
-                        filename = os.path.basename(filepath)
-                        try:
-                            size_mb = os.path.getsize(filepath) / (1024 * 1024)
-                        except Exception:
-                            size_mb = 0
-                        processed_count += 1
-                        progress.update(
-                            task_id,
-                            advance=1,
-                            trackinfo=f"{filename} ({size_mb:.1f} MB)"
-                        )
-                        logger.debug(f"Features: {features}")
-                        if features and 'metadata' in features:
-                            meta = features['metadata']
-                            if meta.get('musicbrainz_id'):
-                                pass
-                            else:
-                                pass
-                    failed_files.extend(processor.failed_files)
-                else:
+            if args.force_sequential or (args.workers and args.workers <= 1):
+                # Process all files sequentially (no multiprocessing, no subprocesses)
+                processor = SequentialProcessor()
+                for features, filepath in processor.process(files_to_analyze, workers=args.workers or 1):
+                    filename = os.path.basename(filepath)
+                    try:
+                        size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                    except Exception:
+                        size_mb = 0
+                    processed_count += 1
+                    progress.update(
+                        task_id,
+                        advance=1,
+                        trackinfo=f"{filename} ({size_mb:.1f} MB)"
+                    )
+                    logger.debug(f"Features: {features}")
+                    if features and 'metadata' in features:
+                        meta = features['metadata']
+                        if meta.get('musicbrainz_id'):
+                            pass
+                        else:
+                            pass
+                failed_files.extend(processor.failed_files)
+            else:
+                # 1. Process normal files in parallel
+                if normal_files:
                     processor = ParallelProcessor()
                     process_iter = processor.process(normal_files, workers=args.workers or multiprocessing.cpu_count())
                     for features in process_iter:
@@ -127,49 +133,51 @@ def run_analysis(args, audio_db, playlist_db, cli):
                             else:
                                 pass
                     failed_files.extend(processor.failed_files)
-            # 2. Process big files sequentially (now using subprocesses)
-            if big_files:
-                from music_analyzer.audio_analyzer import AudioAnalyzer
-                for filepath in big_files:
-                    filename = os.path.basename(filepath)
-                    try:
-                        size_mb = os.path.getsize(filepath) / (1024 * 1024)
-                    except Exception:
-                        size_mb = 0
-                    progress.update(
-                        task_id,
-                        description=f"Processing: {filename} | {processed_count}/{total_files} files",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)"
-                    )
-                    # Use a subprocess for each big file
-                    def analyze_in_subprocess(filepath, cache_file, host_music_dir, container_music_dir, queue):
+                # 2. Process big files sequentially (now using subprocesses)
+                if big_files:
+                    from music_analyzer.audio_analyzer import AudioAnalyzer
+                    bigfile_processes = []
+                    for filepath in big_files:
+                        filename = os.path.basename(filepath)
                         try:
-                            analyzer = AudioAnalyzer(cache_file, host_music_dir, container_music_dir)
-                            result = analyzer.extract_features(filepath)
-                            queue.put(result)
-                        except Exception as e:
-                            queue.put(None)
-                    queue = multiprocessing.Queue()
-                    p = multiprocessing.Process(target=analyze_in_subprocess, args=(filepath, audio_db.cache_file, audio_db.host_music_dir, audio_db.container_music_dir, queue))
-                    p.start()
-                    try:
-                        result = queue.get(timeout=600)  # 10 min timeout per big file
-                        p.join()
-                    except Exception:
-                        p.terminate()
-                        p.join()
-                        result = None
-                    processed_count += 1
-                    progress.update(
-                        task_id,
-                        advance=1,
-                        description=f"Processed {processed_count}/{total_files} files (big file)",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)"
-                    )
-                    logger.debug(f"Features: {result}")
-                    if not result or not result[0]:
-                        failed_files.append(filepath)
-                # No need to extend failed_files from a processor, handled above
+                            size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                        except Exception:
+                            size_mb = 0
+                        progress.update(
+                            task_id,
+                            description=f"Processing: {filename} | {processed_count}/{total_files} files",
+                            trackinfo=f"{filename} ({size_mb:.1f} MB)"
+                        )
+                        # Use a subprocess for each big file
+                        def analyze_in_subprocess(filepath, cache_file, host_music_dir, container_music_dir, queue):
+                            try:
+                                analyzer = AudioAnalyzer(cache_file, host_music_dir, container_music_dir)
+                                result = analyzer.extract_features(filepath)
+                                queue.put(result)
+                            except Exception as e:
+                                queue.put(None)
+                        queue = multiprocessing.Queue()
+                        p = multiprocessing.Process(target=analyze_in_subprocess, args=(filepath, audio_db.cache_file, audio_db.host_music_dir, audio_db.container_music_dir, queue))
+                        p.start()
+                        bigfile_processes.append(p)
+                        try:
+                            result = queue.get(timeout=600)  # 10 min timeout per big file
+                            p.join()
+                        except Exception:
+                            p.terminate()
+                            p.join()
+                            result = None
+                        processed_count += 1
+                        progress.update(
+                            task_id,
+                            advance=1,
+                            description=f"Processed {processed_count}/{total_files} files (big file)",
+                            trackinfo=f"{filename} ({size_mb:.1f} MB)"
+                        )
+                        logger.debug(f"Features: {result}")
+                        if not result or not result[0]:
+                            failed_files.append(filepath)
+                    # No need to extend failed_files from a processor, handled above
         # After processing (always show summary)
         total_found = len(file_list)
         total_in_db = len(audio_db.get_all_features(include_failed=True))
