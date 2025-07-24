@@ -163,15 +163,16 @@ def main() -> None:
     # Parse arguments
     parser = argparse.ArgumentParser(description='Music Playlist Generator')
     group = parser.add_mutually_exclusive_group(required=False)
+    group.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs for tracks missing genre or year (default: False)')
+    group.add_argument('-a', '--analyze', action='store_true', help='Analyze files (see --failed and --force for options)')
+    group.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
+    group.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
     parser.add_argument('--music_dir', required=True, help='Music directory in container')
     parser.add_argument('--host_music_dir', required=True, help='Host music directory')
     parser.add_argument('--output_dir', default='./playlists', help='Output directory')
     parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists')
     parser.add_argument('--workers', type=int, default=None, help='Number of workers (default: auto)')
     parser.add_argument('--force_sequential', action='store_true', help='Force sequential processing')
-    parser.add_argument('-a', '--analyze', action='store_true', help='Analyze files (see --failed and --force for options)')
-    parser.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
-    parser.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
     parser.add_argument('--failed', action='store_true', help='With --analyze: only re-analyze files previously marked as failed')
     parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze (used with --analyze)')
     parser.add_argument('--status', action='store_true', help='Show library/database statistics and exit')
@@ -179,7 +180,6 @@ def main() -> None:
     parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags'], default='all',
                       help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
     parser.add_argument('--min_tracks_per_genre', type=int, default=10, help='Minimum number of tracks required for a genre to create a playlist (tags method only)')
-    parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs for tracks missing genre or year (default: False)')
     args = parser.parse_args()
 
     # Set cache file path
