@@ -1,6 +1,6 @@
 from tqdm import tqdm
 import logging
-from .audio_analyzer import audio_analyzer
+from .feature_extractor import audio_analyzer
 
 logger = logging.getLogger(__name__)
 

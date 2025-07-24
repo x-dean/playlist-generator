@@ -5,7 +5,7 @@ import sys
 from tqdm import tqdm
 import logging
 import time
-from .audio_analyzer import AudioAnalyzer
+from .feature_extractor import AudioAnalyzer
 from typing import Optional
 import threading
 import signal
@@ -35,7 +35,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
     
     import os
     import traceback
-    from .audio_analyzer import AudioAnalyzer
+    from .feature_extractor import AudioAnalyzer
     audio_analyzer = AudioAnalyzer()
     max_retries = 2
     retry_count = 0
@@ -64,7 +64,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
             if not os.path.exists(filepath):
                 notified["shown"] = True
                 logger.warning(f"File not found: {filepath}")
-                from .audio_analyzer import AudioAnalyzer
+                from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
                 file_info = audio_analyzer._get_file_info(filepath)
                 audio_analyzer._mark_failed(file_info)
@@ -72,7 +72,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
             if os.path.getsize(filepath) < 1024:
                 notified["shown"] = True
                 logger.warning(f"Skipping small file: {filepath}")
-                from .audio_analyzer import AudioAnalyzer
+                from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
                 file_info = audio_analyzer._get_file_info(filepath)
                 audio_analyzer._mark_failed(file_info)
@@ -80,7 +80,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
             if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
                 notified["shown"] = True
                 logger.warning(f"Unsupported extension, skipping: {filepath}")
-                from .audio_analyzer import AudioAnalyzer
+                from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
                 file_info = audio_analyzer._get_file_info(filepath)
                 audio_analyzer._mark_failed(file_info)

@@ -8,7 +8,6 @@ services:
       - /root/music/library/playlists/auto:/app/playlists
       - /root/music/library/playlists/auto/cache:/app/cache
     environment:
-      - CACHE_DIR=/app/cache
       - UID=${CURRENT_UID:-1000}
       - GID=${CURRENT_GID:-1000}
       - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
