@@ -3,16 +3,16 @@ from collections import defaultdict, Counter
 import musicbrainzngs
 import os
 import requests
+from utils.enrichment import enrich_with_musicbrainz, enrich_with_lastfm
 
 logger = logging.getLogger(__name__)
 
 class TagBasedPlaylistGenerator:
-    def __init__(self, min_tracks_per_genre=10, min_subgroup_size=10, large_group_threshold=40, enrich_tags=False, force_enrich_tags=False, db_file=None):
+    def __init__(self, min_tracks_per_genre=10, min_subgroup_size=10, large_group_threshold=40, enrich_tags=False, db_file=None):
         self.min_tracks_per_genre = min_tracks_per_genre
         self.min_subgroup_size = min_subgroup_size
         self.large_group_threshold = large_group_threshold
         self.enrich_tags = enrich_tags
-        self.force_enrich_tags = force_enrich_tags
         self.db_file = db_file
         # Set MusicBrainz user agent once
         musicbrainzngs.set_useragent("PlaylistGenerator", "1.0", "noreply@example.com")
@@ -26,7 +26,6 @@ class TagBasedPlaylistGenerator:
         meta = track.get('metadata', {})
         artist = meta.get('artist')
         title = meta.get('title')
-        # Always enrich if genre is missing, empty, 'Other', or 'UnknownGenre', or year is missing/empty
         genre = meta.get('genre')
         year = meta.get('year')
         def genre_needs_enrichment(g):
@@ -44,71 +43,28 @@ class TagBasedPlaylistGenerator:
         musicbrainz_genre_invalid = True
         # Try MusicBrainz first
         if artist and title:
-            try:
-                result = musicbrainzngs.search_recordings(artist=artist, recording=title, limit=1)
-                if result['recording-list']:
-                    rec = result['recording-list'][0]
-                    if 'first-release-date' in rec:
-                        meta['year'] = rec['first-release-date'][:4]
-                    if 'tag-list' in rec and rec['tag-list']:
-                        mb_genres = [tag['name'] for tag in rec['tag-list']]
-                        meta['genre'] = mb_genres
-                        # Check if genre is valid
-                        musicbrainz_genre_invalid = genre_needs_enrichment(mb_genres)
-                        if not musicbrainz_genre_invalid:
-                            enriched = True
-                    else:
-                        musicbrainz_genre_invalid = True
-                    if 'release-list' in rec and rec['release-list']:
-                        meta['album'] = rec['release-list'][0]['title']
-                    track['metadata'] = meta
-                    logger.info(f"Enriched metadata for {artist} - {title} from MusicBrainz.")
-                else:
-                    logger.info(f"No MusicBrainz result for {artist} - {title}.")
-            except Exception as e:
-                logger.warning(f"MusicBrainz enrichment failed for {artist} - {title}: {e}")
+            mb_result = enrich_with_musicbrainz(meta, artist, title)
+            meta.update(mb_result)
+            mb_genres = meta.get('genre')
+            musicbrainz_genre_invalid = genre_needs_enrichment(mb_genres)
+            if not musicbrainz_genre_invalid:
+                enriched = True
         # If genre is still missing/invalid, or year is missing, try Last.fm
         lastfm_needed = (musicbrainz_genre_invalid or not meta.get('year') or str(meta.get('year')).strip() == '')
         if lastfm_needed and artist and title and self.lastfm_api_key:
-            try:
-                url = (
-                    "http://ws.audioscrobbler.com/2.0/"
-                    "?method=track.getInfo"
-                    f"&api_key={self.lastfm_api_key}"
-                    f"&artist={requests.utils.quote(artist)}"
-                    f"&track={requests.utils.quote(title)}"
-                    "&format=json"
-                )
-                resp = requests.get(url, timeout=5)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if 'track' in data:
-                        track_info = data['track']
-                        # Get tags (only if genre is missing/invalid)
-                        if musicbrainz_genre_invalid:
-                            tags = track_info.get('toptags', {}).get('tag', [])
-                            if tags:
-                                meta['genre'] = [t['name'] for t in tags if 'name' in t]
-                        # Get album
-                        if 'album' in track_info and 'title' in track_info['album']:
-                            meta['album'] = track_info['album']['title']
-                        # Get year (if available and still missing)
-                        if (not meta.get('year') or str(meta.get('year')).strip() == '') and 'wiki' in track_info and 'published' in track_info['wiki']:
-                            import re
-                            match = re.search(r'(\\d{4})', track_info['wiki']['published'])
-                            if match:
-                                meta['year'] = match.group(1)
-                        track['metadata'] = meta
-                        logger.info(f"Enriched metadata for {artist} - {title} from Last.fm.")
-                else:
-                    logger.info(f"Last.fm API returned status {resp.status_code} for {artist} - {title}.")
-            except Exception as e:
-                logger.warning(f"Last.fm enrichment failed for {artist} - {title}: {e}")
+            lastfm_result = enrich_with_lastfm(
+                meta, artist, title, self.lastfm_api_key,
+                genre_needed=musicbrainz_genre_invalid,
+                year_needed=(not meta.get('year') or str(meta.get('year')).strip() == '')
+            )
+            meta.update(lastfm_result)
+            logger.info(f"Enriched metadata for {artist} - {title} from Last.fm.")
         elif not self.lastfm_api_key:
             logger.debug("LASTFM_API_KEY not set; skipping Last.fm enrichment.")
         # Update database if db_file is set
         if self.db_file and (enriched or not musicbrainz_genre_invalid):
             self.update_track_metadata_in_db(track.get('filepath'), meta)
+        track['metadata'] = meta
         return track
 
     def update_track_metadata_in_db(self, filepath, metadata):
