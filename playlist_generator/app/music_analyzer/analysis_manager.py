@@ -159,6 +159,15 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     size_mb = os.path.getsize(filepath) / (1024 * 1024)
                 except Exception:
                     size_mb = 0
+                # If this is the first file, force a bar update and short sleep
+                if processed_count == 0:
+                    progress.update(
+                        task_id,
+                        description=f"Analyzing: {filename} (1/{total_files})",
+                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else ""
+                    )
+                    import time
+                    time.sleep(0.5)
                 processed_count += 1
                 progress.update(
                     task_id,
