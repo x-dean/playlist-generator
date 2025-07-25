@@ -164,6 +164,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             # Only process failed files sequentially, with in-memory retry counter
             retry_counter = {}
             processed_files_set = set()
+            files_to_retry = normal_files[:]
             while files_to_retry:
                 # Remove files that have already failed 3 times
                 files_to_retry = [f for f in files_to_retry if retry_counter.get(f, 0) < 3]
