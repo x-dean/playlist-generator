@@ -214,8 +214,11 @@ class ParallelProcessor:
                                             conn.close()
                                             failed_in_batch.append(filepath)
                                     else:
+                                        # In non-enforce_fail_limit mode, mark as failed and do not retry
+                                        cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                                        conn.commit()
                                         conn.close()
-                                        failed_in_batch.append(filepath)
+                                        # Do NOT add to failed_in_batch
                         except KeyboardInterrupt:
                             logger.debug("KeyboardInterrupt received, terminating pool and exiting cleanly...")
                             pool.terminate()
@@ -236,22 +239,23 @@ class ParallelProcessor:
                     logger.info(f"Retrying {len(failed_in_batch)} failed files in next round")
                     files_to_retry = []
                     for filepath in failed_in_batch:
-                        conn = sqlite3.connect(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                        cur = conn.cursor()
-                        cur.execute("SELECT COALESCE(fail_count, 0) FROM audio_features WHERE file_path = ?", (filepath,))
-                        row = cur.fetchone()
-                        fail_count = row[0] if row else 0
-                        new_fail_count = fail_count + 1
-                        if new_fail_count >= 3:
-                            cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
-                            logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run and resetting fail_count.")
-                            # Do NOT add to files_to_retry; skip for rest of run
-                        else:
-                            cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
-                            files_to_retry.append(filepath)
-                        conn.commit()
-                        conn.close()
-                    remaining_files = files_to_retry
+                        if self.enforce_fail_limit:
+                            conn = sqlite3.connect(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
+                            cur = conn.cursor()
+                            cur.execute("SELECT COALESCE(fail_count, 0) FROM audio_features WHERE file_path = ?", (filepath,))
+                            row = cur.fetchone()
+                            fail_count = row[0] if row else 0
+                            new_fail_count = fail_count + 1
+                            if new_fail_count >= 3:
+                                cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
+                                logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run and resetting fail_count.")
+                                # Do NOT add to files_to_retry; skip for rest of run
+                            else:
+                                cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
+                                files_to_retry.append(filepath)
+                            conn.commit()
+                            conn.close()
+                    remaining_files = files_to_retry if self.enforce_fail_limit else []
                     self.failed_files.extend(files_to_retry)
                 else:
                     logger.info(f"Batch processing complete: {len(file_list)} files processed, {len(self.failed_files)} failed in total.")
