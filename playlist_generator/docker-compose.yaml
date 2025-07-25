@@ -6,7 +6,7 @@ services:
       - /root/music/library:/music
       - /root/music/library/playlists/auto:/app/playlists
       - /root/music/library/playlists/auto/cache:/app/cache
-      - /root/music/library/failed_files:/app/failed_files
+      - /tmp/failed_files:/app/failed_files
     environment:
       - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
       - MIN_TRACKS_PER_GENRE=${MIN_TRACKS_PER_GENRE:-10}

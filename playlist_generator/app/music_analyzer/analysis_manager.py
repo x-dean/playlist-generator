@@ -534,6 +534,26 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
     )
     return failed_files
 
+def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
+    # 1. Analyze (default)
+    logger.info("=== PIPELINE: Starting default analysis ===")
+    args.force = False
+    args.failed = False
+    run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False)
+    logger.info("=== PIPELINE: Default analysis complete ===")
+    # 2. Force
+    logger.info("=== PIPELINE: Starting force re-analyze ===")
+    args.force = True
+    args.failed = False
+    run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=True)
+    logger.info("=== PIPELINE: Force re-analyze complete ===")
+    # 3. Failed
+    logger.info("=== PIPELINE: Starting failed retry ===")
+    args.force = False
+    args.failed = True
+    run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=True)
+    logger.info("=== PIPELINE: Failed retry complete ===")
+
 # --- File Discovery Helper ---
 def get_audio_files(music_dir: str) -> list[str]:
     import os
