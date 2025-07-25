@@ -169,10 +169,37 @@ class ParallelProcessor:
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
                                 if stop_event and stop_event.is_set():
                                     break
+                                import sqlite3
+                                conn = sqlite3.connect(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
+                                cur = conn.cursor()
+                                cur.execute("PRAGMA table_info(audio_features)")
+                                columns = [row[1] for row in cur.fetchall()]
+                                if 'fail_count' not in columns:
+                                    cur.execute("ALTER TABLE audio_features ADD COLUMN fail_count INTEGER DEFAULT 0")
+                                    conn.commit()
                                 if features and db_write_success:
+                                    # On success, reset fail_count and failed
+                                    cur.execute("UPDATE audio_features SET fail_count = 0, failed = 0 WHERE file_path = ?", (filepath,))
+                                    conn.commit()
+                                    conn.close()
                                     yield features, filepath
                                 else:
-                                    failed_in_batch.append(filepath)
+                                    # On failure, increment fail_count
+                                    cur.execute("SELECT COALESCE(fail_count, 0) FROM audio_features WHERE file_path = ?", (filepath,))
+                                    row = cur.fetchone()
+                                    fail_count = row[0] if row else 0
+                                    new_fail_count = fail_count + 1
+                                    if new_fail_count >= 3:
+                                        cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
+                                        conn.commit()
+                                        conn.close()
+                                        logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run and resetting fail_count.")
+                                        continue  # skip for rest of run, keep failed=1
+                                    else:
+                                        cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
+                                        conn.commit()
+                                        conn.close()
+                                        failed_in_batch.append(filepath)
                         except KeyboardInterrupt:
                             logger.debug("KeyboardInterrupt received, terminating pool and exiting cleanly...")
                             pool.terminate()

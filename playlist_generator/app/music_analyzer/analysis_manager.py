@@ -225,6 +225,57 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     cur.execute("UPDATE audio_features SET fail_count = 0, failed = 0 WHERE file_path = ?", (filepath,))
                     conn.commit()
                     conn.close()
+        elif args.force:
+            # Process all files sequentially with force_reextract=True and robust fail logic
+            files_to_process = normal_files + big_files
+            failed_retries = {}
+            processed_count = 0
+            for filepath in files_to_process:
+                processed_count += 1
+                filename = os.path.basename(filepath)
+                max_len = 50
+                if len(filename) > max_len:
+                    display_name = filename[:max_len-3] + "..."
+                else:
+                    display_name = filename
+                try:
+                    size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                except Exception:
+                    size_mb = 0
+                progress.update(
+                    task_id,
+                    advance=1,
+                    description=f"Analyzing: {display_name} ({processed_count}/{total_files})",
+                    trackinfo=f"{display_name} ({size_mb:.1f} MB)" if size_mb > 200 else "",
+                    refresh=True
+                )
+                # Process the file
+                seq_manager = SequentialWorkerManager(stop_event)
+                features = None
+                for f, fp in seq_manager.process([filepath], workers=1, force_reextract=True):
+                    features = f
+                if not features:
+                    failed_retries[filepath] = failed_retries.get(filepath, 0) + 1
+                    import sqlite3
+                    conn = sqlite3.connect(audio_db.cache_file)
+                    cur = conn.cursor()
+                    new_fail_count = failed_retries[filepath]
+                    if new_fail_count >= MAX_SEQUENTIAL_RETRIES:
+                        cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
+                        conn.commit()
+                        conn.close()
+                        logger.warning(f"File {filepath} failed 3 times. Skipping for the rest of this run and resetting fail_count.")
+                        continue  # skip for rest of run, keep failed=1
+                    else:
+                        cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
+                        conn.commit()
+                        conn.close()
+                elif features:
+                    conn = sqlite3.connect(audio_db.cache_file)
+                    cur = conn.cursor()
+                    cur.execute("UPDATE audio_features SET fail_count = 0, failed = 0 WHERE file_path = ?", (filepath,))
+                    conn.commit()
+                    conn.close()
         else:
             # Parallel for normal files
             par_manager = ParallelWorkerManager(stop_event)
