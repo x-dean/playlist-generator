@@ -183,7 +183,8 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                         audio_analyzer = AudioAnalyzer(audio_db.cache_file, audio_db.host_music_dir, audio_db.container_music_dir)
                         file_info = audio_analyzer._get_file_info(filepath)
                         audio_analyzer._mark_failed(file_info)
-                        logger.warning(f"File {filepath} failed {MAX_SEQUENTIAL_RETRIES} times in sequential mode. Marked as permanently failed.")
+                        logger.warning(f"File {filepath} failed {MAX_SEQUENTIAL_RETRIES} times in sequential mode. Marked as permanently failed and will be skipped for the rest of this run.")
+                        # Do NOT append back to normal_files; skip for the rest of the run
                     else:
                         # Retry this file later in the same run
                         normal_files.append(filepath)
