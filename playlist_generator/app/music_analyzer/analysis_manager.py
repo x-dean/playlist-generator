@@ -200,6 +200,10 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     logger.debug(f"Features: {features}")
                     if not features:
                         failed_files.append(filepath)
+                        # Mark as failed in DB
+                        audio_analyzer = AudioAnalyzer(audio_db.cache_file, audio_db.host_music_dir, audio_db.container_music_dir)
+                        file_info = audio_analyzer._get_file_info(filepath)
+                        audio_analyzer._mark_failed(file_info)
                     if stop_event.is_set():
                         db_features = audio_db.get_all_features(include_failed=True)
                         db_files = set(f['filepath'] for f in db_features)
