@@ -296,6 +296,8 @@ Examples:
     parser.add_argument('--pipeline', action='store_true', help='Run full pipeline: analyze, force, then failed')
 
     args = parser.parse_args()
+    
+    print(f"=== DEBUG: args.library after parsing = {args.library} ===")
 
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
@@ -363,6 +365,8 @@ Examples:
     
     music = '/music'
     library = args.library
+    print(f"=== DEBUG: library variable = {library} ===")
+    print(f"=== DEBUG: args.library = {args.library} ===")
     failed_files = []
 
     # Check if the container music directory exists (not the host path)
