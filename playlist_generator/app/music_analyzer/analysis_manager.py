@@ -166,6 +166,10 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             processed_count = 0
             files_to_retry = normal_files[:]
             while files_to_retry:
+                # Remove files that have already failed 3 times
+                files_to_retry = [f for f in files_to_retry if retry_counter.get(f, 0) < 3]
+                if not files_to_retry:
+                    break
                 # Log the files being retried and their retry count
                 logger.info(f"Retry round: {[(os.path.basename(f), retry_counter.get(f, 0)) for f in files_to_retry]}")
                 next_retry = []
@@ -225,7 +229,8 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         conn.commit()
                         conn.close()
                         logger.info(f"File {filepath} succeeded on retry {count+1 if count else 1}.")
-            files_to_retry = next_retry
+                logger.info(f"End of retry round. Files to retry next: {[(os.path.basename(f), retry_counter.get(f, 0)) for f in next_retry]}")
+                files_to_retry = next_retry
             # Sequential for big files (with force_reextract)
             if big_files:
                 from music_analyzer.feature_extractor import AudioAnalyzer
