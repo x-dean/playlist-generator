@@ -147,7 +147,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
     total_files = len(normal_files) + len(big_files)
     progress = create_progress_bar(total_files)
     with progress:
-        task_id = progress.add_task(f"Processed 0/{total_files} files", total=total_files, trackinfo="")
+        task_id = progress.add_task(f"Analyzing: (0/{total_files})", total=total_files, trackinfo="")
         if args.force_sequential or (args.workers and args.workers <= 1):
             # All files sequential
             seq_manager = SequentialWorkerManager(stop_event)
