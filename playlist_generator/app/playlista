@@ -299,7 +299,8 @@ Examples:
     signal.signal(signal.SIGINT, handle_sigint)
 
     # Set logging level from CLI
-    logger.setLevel(getattr(pylogging, args.log_level.upper(), pylogging.WARNING))
+    import logging
+    logging.getLogger().setLevel(getattr(logging, args.log_level.upper(), logging.WARNING))
     os.environ['LOG_LEVEL'] = args.log_level.upper()
 
     # If --status is set, show statistics and exit
