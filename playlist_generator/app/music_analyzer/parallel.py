@@ -22,7 +22,7 @@ class UserAbortException(Exception):
     """Raised when user aborts with Ctrl+C and we want to stop all processing."""
     pass
 
-def process_file_worker(filepath: str, status_queue: Optional[object] = None) -> Optional[tuple]:
+def process_file_worker(filepath: str, status_queue: Optional[object] = None, force_reextract: bool = False) -> Optional[tuple]:
     """Worker function to process a single audio file in parallel.
 
     Args:
@@ -93,7 +93,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None) ->
                 return None, filepath, False
             result = None
             try:
-                result = audio_analyzer.extract_features(filepath)
+                result = audio_analyzer.extract_features(filepath, force_reextract=force_reextract)
             except Exception as e:
                 logger.debug(f"ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
                 return None, filepath, False
@@ -132,7 +132,7 @@ class ParallelProcessor:
         self.min_workers = 2
         self.max_workers = int(os.getenv('MAX_WORKERS', str(mp.cpu_count())))
 
-    def process(self, file_list: list[str], workers: int = None, status_queue: Optional[object] = None, stop_event=None) -> iter:
+    def process(self, file_list: list[str], workers: int = None, status_queue: Optional[object] = None, stop_event=None, force_reextract: bool = False) -> iter:
         """Process a list of files in parallel.
 
         Args:
@@ -140,6 +140,7 @@ class ParallelProcessor:
             workers (int, optional): Number of worker processes. Defaults to None.
             status_queue (multiprocessing.Queue, optional): Queue for long-running file notifications.
             stop_event (multiprocessing.Event, optional): Event to signal graceful shutdown.
+            force_reextract (bool, optional): If True, bypass the cache for all files.
 
         Yields:
             dict: Extracted features for each file.
@@ -148,9 +149,9 @@ class ParallelProcessor:
             return
         self.workers = max(self.min_workers, min(workers or self.max_workers, self.max_workers))
         self.batch_size = min(self.batch_size, len(file_list))
-        yield from self._process_parallel(file_list, status_queue, stop_event=stop_event)
+        yield from self._process_parallel(file_list, status_queue, stop_event=stop_event, force_reextract=force_reextract)
 
-    def _process_parallel(self, file_list, status_queue, stop_event=None):
+    def _process_parallel(self, file_list, status_queue, stop_event=None, force_reextract: bool = False):
         retries = 0
         remaining_files = file_list[:]
         while remaining_files and retries < self.max_retries:
@@ -165,7 +166,7 @@ class ParallelProcessor:
                     with ctx.Pool(processes=self.workers) as pool:
                         try:
                             from functools import partial
-                            worker_func = partial(process_file_worker, status_queue=status_queue)
+                            worker_func = partial(process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
                                 if stop_event and stop_event.is_set():
                                     break

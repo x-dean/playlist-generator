@@ -87,9 +87,9 @@ def cleanup_child_processes():
 class ParallelWorkerManager:
     def __init__(self, stop_event):
         self.stop_event = stop_event
-    def process(self, files, workers, status_queue=None):
+    def process(self, files, workers, status_queue=None, **kwargs):
         processor = ParallelProcessor()
-        return processor.process(files, workers=workers, status_queue=status_queue, stop_event=self.stop_event)
+        return processor.process(files, workers=workers, status_queue=status_queue, stop_event=self.stop_event, **kwargs)
 
 class SequentialWorkerManager:
     def __init__(self, stop_event):
