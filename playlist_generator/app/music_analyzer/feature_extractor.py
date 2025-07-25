@@ -456,6 +456,7 @@ class AudioAnalyzer:
         # Ensure file_path is host path
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_host_path(file_info['file_path'])
+        logging.getLogger().warning(f"Marking file as failed: {file_info['file_path']} (hash: {file_info['file_hash']})")
         with self.conn:
             self.conn.execute(
                 "INSERT OR REPLACE INTO audio_features (file_hash, file_path, last_modified, metadata, failed) VALUES (?, ?, ?, ?, 1)",

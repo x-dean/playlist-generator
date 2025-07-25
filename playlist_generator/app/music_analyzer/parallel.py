@@ -132,17 +132,24 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
 
 class ParallelProcessor:
     """Parallel processor for batch audio analysis using multiprocessing."""
-    def __init__(self, enforce_fail_limit: bool = False) -> None:
+    def __init__(self, enforce_fail_limit: bool = False, retry_counter=None) -> None:
         self.failed_files = []
         self.batch_size = int(os.getenv('BATCH_SIZE', '50'))
         self.max_retries = int(os.getenv('MAX_RETRIES', '3'))
         self.min_workers = 2
         self.max_workers = int(os.getenv('MAX_WORKERS', str(mp.cpu_count())))
         self.enforce_fail_limit = enforce_fail_limit
+        if retry_counter is None and enforce_fail_limit:
+            manager = mp.Manager()
+            self.retry_counter = manager.dict()
+        else:
+            self.retry_counter = retry_counter
 
-    def process(self, file_list: list[str], workers: int = None, status_queue: Optional[object] = None, stop_event=None, force_reextract: bool = False, enforce_fail_limit: bool = None) -> iter:
+    def process(self, file_list: list[str], workers: int = None, status_queue: Optional[object] = None, stop_event=None, force_reextract: bool = False, enforce_fail_limit: bool = None, retry_counter=None) -> iter:
         if enforce_fail_limit is not None:
             self.enforce_fail_limit = enforce_fail_limit
+        if retry_counter is not None:
+            self.retry_counter = retry_counter
         if not file_list:
             return
         self.workers = max(self.min_workers, min(workers or self.max_workers, self.max_workers))
@@ -167,17 +174,19 @@ class ParallelProcessor:
                             from functools import partial
                             worker_func = partial(process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
-                                # Check if file is permanently failed for this run
-                                import sqlite3
-                                conn = sqlite3.connect(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                                cur = conn.cursor()
-                                cur.execute("SELECT failed, COALESCE(fail_count, 0) FROM audio_features WHERE file_path = ?", (filepath,))
-                                row = cur.fetchone()
-                                if self.enforce_fail_limit and row and row[0] == 1 and row[1] == 0:
-                                    conn.close()
-                                    logger.warning(f"Skipping {filepath} as it has already failed 3 times in this run.")
-                                    continue
-                                conn.close()
+                                if self.enforce_fail_limit:
+                                    # Use in-memory retry counter
+                                    count = self.retry_counter.get(filepath, 0)
+                                    if count >= 3:
+                                        # Mark as failed in DB
+                                        import sqlite3
+                                        conn = sqlite3.connect(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
+                                        cur = conn.cursor()
+                                        cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                                        conn.commit()
+                                        conn.close()
+                                        logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                        continue
                                 if stop_event and stop_event.is_set():
                                     break
                                 import sqlite3
@@ -185,50 +194,39 @@ class ParallelProcessor:
                                 cur = conn.cursor()
                                 cur.execute("PRAGMA table_info(audio_features)")
                                 columns = [row[1] for row in cur.fetchall()]
-                                if 'fail_count' not in columns:
-                                    cur.execute("ALTER TABLE audio_features ADD COLUMN fail_count INTEGER DEFAULT 0")
-                                    conn.commit()
                                 if features and db_write_success:
-                                    # On success, reset fail_count and failed
-                                    cur.execute("UPDATE audio_features SET fail_count = 0, failed = 0 WHERE file_path = ?", (filepath,))
+                                    # On success, reset failed
+                                    cur.execute("UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
                                     conn.commit()
                                     conn.close()
                                     yield features, filepath
                                 else:
-                                    # On failure, increment fail_count only if enforce_fail_limit is True
                                     if self.enforce_fail_limit:
-                                        cur.execute("SELECT COALESCE(fail_count, 0) FROM audio_features WHERE file_path = ?", (filepath,))
-                                        row = cur.fetchone()
-                                        fail_count = row[0] if row else 0
-                                        new_fail_count = fail_count + 1
-                                        if new_fail_count >= 3:
-                                            cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
+                                        count = self.retry_counter.get(filepath, 0) + 1
+                                        self.retry_counter[filepath] = count
+                                        logger.warning(f"Retrying file {filepath} (retry count: {count})")
+                                        if count >= 3:
+                                            cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
                                             conn.commit()
                                             conn.close()
                                             enrich_later.append(filepath)
-                                            logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run and resetting fail_count.")
-                                            continue  # skip for rest of run, keep failed=1
+                                            logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                            continue
                                         else:
-                                            cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
-                                            conn.commit()
                                             conn.close()
                                             failed_in_batch.append(filepath)
                                     else:
-                                        # In non-enforce_fail_limit mode, mark as failed and do not retry
                                         cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
                                         conn.commit()
                                         conn.close()
-                                        # Do NOT add to failed_in_batch
                         except KeyboardInterrupt:
                             logger.debug("KeyboardInterrupt received, terminating pool and exiting cleanly...")
                             pool.terminate()
                             pool.join()
                             raise UserAbortException()
                         finally:
-                            # Always ensure pool is terminated and joined on exit
                             pool.terminate()
                             pool.join()
-                # After all batches, enrich metadata for failed files (sequentially, to avoid DB lock)
                 if enrich_later:
                     from music_analyzer.feature_extractor import AudioAnalyzer
                     analyzer = AudioAnalyzer(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
@@ -240,21 +238,9 @@ class ParallelProcessor:
                     files_to_retry = []
                     for filepath in failed_in_batch:
                         if self.enforce_fail_limit:
-                            conn = sqlite3.connect(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                            cur = conn.cursor()
-                            cur.execute("SELECT COALESCE(fail_count, 0) FROM audio_features WHERE file_path = ?", (filepath,))
-                            row = cur.fetchone()
-                            fail_count = row[0] if row else 0
-                            new_fail_count = fail_count + 1
-                            if new_fail_count >= 3:
-                                cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
-                                logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run and resetting fail_count.")
-                                # Do NOT add to files_to_retry; skip for rest of run
-                            else:
-                                cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
+                            count = self.retry_counter.get(filepath, 0)
+                            if count < 3:
                                 files_to_retry.append(filepath)
-                            conn.commit()
-                            conn.close()
                     remaining_files = files_to_retry if self.enforce_fail_limit else []
                     self.failed_files.extend(files_to_retry)
                 else:
