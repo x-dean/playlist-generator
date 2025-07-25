@@ -220,7 +220,8 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     # Show which big file is being processed before starting
                     progress.update(
                         task_id,
-                        description=f"Analyzing (big file): {filename} ({size_mb:.1f} MB) ({processed_count+1}/{total_files})"
+                        description=f"Analyzing: {filename} ({processed_count+1}/{total_files})",
+                        trackinfo=f"{filename} ({size_mb:.1f} MB)"
                     )
                     import time
                     time.sleep(0.5)  # Give the bar a chance to render
