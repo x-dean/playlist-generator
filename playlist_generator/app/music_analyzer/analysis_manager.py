@@ -158,7 +158,7 @@ def create_progress_bar(total_files):
     )
 
 # --- Main Orchestration ---
-def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
+def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextract=False):
     if stop_event is None:
         stop_event = setup_graceful_shutdown()
     normal_files, big_files, file_list, db_features = select_files_for_analysis(args, audio_db)
@@ -224,7 +224,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     conn.commit()
                     conn.close()
         elif args.force:
-            # Process all files sequentially with force_reextract=True and robust fail logic
+            # Process all files sequentially with force_reextract configurable
             files_to_process = normal_files + big_files
             failed_retries = {}
             processed_count = 0
@@ -250,7 +250,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                 # Process the file
                 seq_manager = SequentialWorkerManager(stop_event)
                 features = None
-                for f, fp in seq_manager.process([filepath], workers=1, force_reextract=True):
+                for f, fp in seq_manager.process([filepath], workers=1, force_reextract=force_reextract):
                     features = f
                 if not features:
                     failed_retries[filepath] = failed_retries.get(filepath, 0) + 1

@@ -209,6 +209,7 @@ Examples:
     parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
     parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
     parser.add_argument('--log_level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], help='Set the logging level (default: INFO)')
+    parser.add_argument('--no_cache', action='store_true', help='Bypass the cache and re-extract features for all files')
     args = parser.parse_args()
 
     # Normalize workers: treat 0 as auto (parallel)
@@ -374,7 +375,7 @@ Examples:
             save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
         elif args.analyze or args.failed or args.force:
-            failed_files = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event)
+            failed_files = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=args.no_cache)
 
         elif args.generate_only:
             cli.update_status("Generating playlists from database")
