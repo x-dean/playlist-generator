@@ -147,6 +147,7 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
         music (str): Path to the container's music directory.
         failed_files (list[str]): List of failed file paths.
         playlist_method (str | None): The method used to generate playlists (e.g., 'time', 'kmeans').
+        host_library (str | None): Host library path for path conversion.
     """
     # For time-based, create subfolders per slot
     def get_time_slot_from_name(name: str) -> Optional[str]:
@@ -197,10 +198,10 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
     if failed_files:
         failed_path = os.path.join(output_dir, "Failed_Files.m3u")
         with open(failed_path, 'w') as f:
-                    host_failed = [
-            convert_to_host_path(p, host_library or library, '/music')
-            for p in failed_files
-        ]
+            host_failed = [
+                convert_to_host_path(p, host_library or library, '/music')
+                for p in failed_files
+            ]
             f.write("\n".join(host_failed))
         logger.info(f"Saved {len(failed_files)} failed files to {failed_path}")
 
