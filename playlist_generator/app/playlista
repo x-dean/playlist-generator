@@ -139,6 +139,9 @@ def get_audio_files(music_dir: str) -> list[str]:
     return file_list
 
 def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, music: str, failed_files: list[str], playlist_method: Optional[str] = None, host_library: str = None) -> None:
+    print(f"=== DEBUG: save_playlists called with host_library={host_library} ===")
+    print(f"=== DEBUG: save_playlists called with library={library} ===")
+    print(f"=== DEBUG: save_playlists called with music={music} ===")
     """Saves generated playlists to disk.
 
     Args:
