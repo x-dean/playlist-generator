@@ -152,6 +152,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
             # All files sequential
             seq_manager = SequentialWorkerManager(stop_event)
             for features, filepath in seq_manager.process(normal_files + big_files, workers=args.workers or 1):
+                processed_count += 1
                 if stop_event.is_set():
                     break
                 filename = os.path.basename(filepath)
@@ -160,7 +161,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                 except Exception:
                     size_mb = 0
                 # If this is the first file, force a bar update and short sleep
-                if processed_count == 0:
+                if processed_count == 1:
                     progress.update(
                         task_id,
                         description=f"Analyzing: {filename} (1/{total_files})",
@@ -168,7 +169,6 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     )
                     import time
                     time.sleep(0.5)
-                processed_count += 1
                 progress.update(
                     task_id,
                     advance=1,
