@@ -165,17 +165,17 @@ class BigFileWorkerManager:
             if self.stop_event.is_set():
                 break
             queue = multiprocessing.Queue()
-            def analyze_in_subprocess(filepath, cache_file, host_music_dir, container_music_dir, queue, stop_event):
+            def analyze_in_subprocess(filepath, cache_file, library, music, queue, stop_event):
                 try:
                     if stop_event.is_set():
                         queue.put(None)
                         return
-                    analyzer = AudioAnalyzer(cache_file, host_music_dir, container_music_dir)
+                    analyzer = AudioAnalyzer(cache_file, library, music)
                     result = analyzer.extract_features(filepath)
                     queue.put(result)
                 except Exception as e:
                     queue.put(None)
-            p = multiprocessing.Process(target=analyze_in_subprocess, args=(filepath, self.audio_db.cache_file, self.audio_db.library, self.audio_db.container_music_dir, queue, self.stop_event))
+            p = multiprocessing.Process(target=analyze_in_subprocess, args=(filepath, self.audio_db.cache_file, self.audio_db.library, self.audio_db.music, queue, self.stop_event))
             p.start()
             self.processes.append(p)
             try:
@@ -187,7 +187,7 @@ class BigFileWorkerManager:
                 result = None
                 # Mark as failed if interrupted
                 try:
-                    analyzer = AudioAnalyzer(self.audio_db.cache_file, self.audio_db.library, self.audio_db.container_music_dir)
+                    analyzer = AudioAnalyzer(self.audio_db.cache_file, self.audio_db.library, self.audio_db.music)
                     file_info = analyzer._get_file_info(filepath)
                     analyzer._mark_failed(file_info)
                 except Exception as e:
@@ -602,12 +602,12 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     console.print("\n[bold green]PIPELINE: Complete. Now you can start generating playlists![/bold green]\n")
 
 # --- File Discovery Helper ---
-def get_audio_files(music_dir: str) -> list[str]:
+def get_audio_files(music: str) -> list[str]:
     import os
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
     failed_dir = os.path.abspath('/app/failed_files')
-    for root, _, files in os.walk(music_dir):
+    for root, _, files in os.walk(music):
         abs_root = os.path.abspath(root)
         # Skip failed_files directory
         if abs_root.startswith(failed_dir):
@@ -616,5 +616,5 @@ def get_audio_files(music_dir: str) -> list[str]:
             file_lower = file.lower()
             if file_lower.endswith(valid_ext):
                 file_list.append(os.path.join(root, file))
-    logger.info(f"Found {len(file_list)} audio files in {music_dir}")
+    logger.info(f"Found {len(file_list)} audio files in {music}")
     return file_list 

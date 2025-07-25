@@ -1,19 +1,19 @@
 import os
 
-def convert_to_host_path(container_path: str, host_music_dir: str, container_music_dir: str) -> str:
-    """Converts a path from the container to the host.
+def convert_to_host_path(container_path: str, library: str, music: str) -> str:
+    """Converts a path from the container to the library directory.
 
     Args:
         container_path (str): Path within the container.
-        host_music_dir (str): Path to the host's music directory.
-        container_music_dir (str): Path to the container's music directory.
+        library (str): Path to the user's music library directory.
+        music (str): Path to the container's music directory.
 
     Returns:
-        str: Path on the host.
+        str: Path on the library.
     """
     container_path = os.path.normpath(container_path)
-    container_music_dir = os.path.normpath(container_music_dir)
-    if not container_path.startswith(container_music_dir):
+    music = os.path.normpath(music)
+    if not container_path.startswith(music):
         return container_path
-    rel_path = os.path.relpath(container_path, container_music_dir)
-    return os.path.join(host_music_dir, rel_path) 
+    rel_path = os.path.relpath(container_path, music)
+    return os.path.join(library, rel_path) 
