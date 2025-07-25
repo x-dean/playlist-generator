@@ -24,13 +24,15 @@ class PlaylistGeneratorCLI:
     def start_session(self) -> None:
         """Start a new generation session with welcome message."""
         self.start_time = time.time()
-        self.console.print(Panel(
-            "[bold green]Welcome to Playlist Generator[/bold green]\n\n"
-            "This tool will analyze your music library and create personalized playlists "
-            "based on audio characteristics and patterns.",
-            title="🎵 Playlist Generator",
-            border_style="blue"
-        ))
+        logo = '''[bold magenta]
+   ____        _     _ _       _           
+  / __ \ _   _| |__ (_) | ___ | |__   __ _ 
+ / / _` | | | | '_ \| | |/ _ \| '_ \ / _` |
+| | (_| | |_| | |_) | | | (_) | |_) | (_| |
+ \ \__,_|\__,_|_.__/|_|_|\___/|_.__/ \__,_|
+  \____/                                    
+[/bold magenta]'''
+        self.console.print(Panel(logo, title="🎵 Playlist Generator", border_style="magenta"))
 
     def show_config(self, config: dict) -> None:
         """Display current configuration.
