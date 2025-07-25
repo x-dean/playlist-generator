@@ -34,21 +34,6 @@ class PlaylistGeneratorCLI:
 [/bold magenta]'''
         self.console.print(Panel(logo, title="🎵 Playlist Generator", border_style="magenta"))
 
-    def show_config(self, config: dict) -> None:
-        """Display current configuration.
-
-        Args:
-            config (dict): Configuration dictionary.
-        """
-        table = Table(title="Configuration", show_header=True, header_style="bold magenta")
-        table.add_column("Setting", style="cyan")
-        table.add_column("Value", style="green")
-
-        for key, value in config.items():
-            table.add_row(key.replace('_', ' ').title(), str(value))
-
-        self.console.print(table)
-
     def create_progress(self, description: str, total: int) -> Tuple[Progress, int]:
         """Create a new progress bar"""
         progress = Progress(

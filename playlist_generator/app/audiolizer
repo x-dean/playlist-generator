@@ -249,18 +249,7 @@ Examples:
         args.workers = 1
 
     # Show configuration
-    cli.show_config({
-        'Music Directory': args.host_music_dir,
-        'Output Directory': getattr(args, 'host_output_dir', args.output_dir),
-        'Number of Playlists (selected)': args.num_playlists,
-        'Workers': args.workers or 'Auto',
-        'Mode': 'Sequential' if sequential_mode else 'Parallel',
-        'Update Mode': args.update,
-        'Analysis Only': args.analyze,
-        'Generate Only': args.generate_only,
-        'Resume': args.resume,
-        'Playlist Method': args.playlist_method
-    })
+    # Remove the call to cli.show_config
     
     # Initialize components
     audio_db = AudioAnalyzer(cache_file, host_music_dir=args.host_music_dir, container_music_dir=args.music_dir)

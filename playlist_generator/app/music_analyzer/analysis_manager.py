@@ -545,26 +545,30 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     from rich.table import Table
     from rich.console import Console
     results = []
-    logger.info("PIPELINE: Starting default analysis")
+    console = Console()
+    console.print("[bold cyan]PIPELINE: Starting default analysis[/bold cyan]")
+    console.print("[dim]This step analyzes new or changed files in your music library.[/dim]")
     args.force = False
     args.failed = False
     res1 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False, pipeline_mode=True)
     results.append(('Default', res1))
-    logger.info("PIPELINE: Default analysis complete")
+    console.print("[green]PIPELINE: Default analysis complete[/green]\n")
 
-    logger.info("PIPELINE: Starting force re-analyze (with cache)")
+    console.print("[bold cyan]PIPELINE: Starting force re-analyze (with cache)[/bold cyan]")
+    console.print("[dim]This step re-analyzes all files, updating features and tags if needed (uses cache).[/dim]")
     args.force = True
     args.failed = False
     res2 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False, pipeline_mode=True)
     results.append(('Force', res2))
-    logger.info("PIPELINE: Force re-analyze complete")
+    console.print("[green]PIPELINE: Force re-analyze complete[/green]\n")
 
-    logger.info("PIPELINE: Starting failed retry")
+    console.print("[bold cyan]PIPELINE: Starting failed retry[/bold cyan]")
+    console.print("[dim]This step retries files that failed in previous steps, up to 3 times, and moves them to the failed folder if they still fail.[/dim]")
     args.force = False
     args.failed = True
     res3 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=True, pipeline_mode=True)
     results.append(('Failed', res3))
-    logger.info("PIPELINE: Failed retry complete")
+    console.print("[green]PIPELINE: Failed retry complete[/green]\n")
 
     # Show a single summary table at the end
     table = Table(title="Pipeline Summary")
@@ -575,7 +579,7 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
         processed = res.get('processed_this_run', '-')
         failed = res.get('failed_this_run', '-')
         table.add_row(stage, str(processed), str(failed))
-    Console().print(table)
+    console.print(table)
 
 # --- File Discovery Helper ---
 def get_audio_files(music_dir: str) -> list[str]:
