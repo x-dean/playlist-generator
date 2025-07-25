@@ -19,34 +19,7 @@ logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
 logger = logging.getLogger()
 console = Console()
 
-# --- Queue-based log handler for throttled output ---
-log_queue = queue.Queue()
-
-class QueueHandler(logging.Handler):
-    def emit(self, record):
-        try:
-            msg = self.format(record)
-            log_queue.put(msg)
-        except Exception:
-            pass
-
-def log_consumer():
-    while True:
-        try:
-            msg = log_queue.get(timeout=0.5)
-            print(msg)
-            time.sleep(0.05)  # Throttle: adjust as needed (e.g., 0.05s = 20 logs/sec)
-        except queue.Empty:
-            continue
-
-# Set up queue-based logging at import time
-queue_handler = QueueHandler()
-queue_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
-root_logger = logging.getLogger()
-root_logger.handlers = [queue_handler]
-
-# Start the consumer thread
-threading.Thread(target=log_consumer, daemon=True).start()
+# Remove queue-based log handler and consumer thread setup from this file
 
 class PlaylistGeneratorCLI:
     """Rich CLI for the Playlist Generator application."""

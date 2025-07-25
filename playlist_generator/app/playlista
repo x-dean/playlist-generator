@@ -10,6 +10,38 @@ essentia.log.infoActive = False
 essentia.log.warningActive = False
 essentia.log.errorActive = False
 
+# --- Queue-based log handler for throttled output ---
+import threading
+import queue
+import time
+import logging
+
+log_queue = queue.Queue()
+
+class QueueHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            log_queue.put(msg)
+        except Exception:
+            pass
+
+def log_consumer():
+    while True:
+        try:
+            msg = log_queue.get(timeout=0.5)
+            print(msg)
+            time.sleep(0.05)  # Throttle: adjust as needed (e.g., 0.05s = 20 logs/sec)
+        except queue.Empty:
+            continue
+
+queue_handler = QueueHandler()
+queue_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+root_logger = logging.getLogger()
+root_logger.handlers = [queue_handler]
+
+threading.Thread(target=log_consumer, daemon=True).start()
+
 import argparse
 import sys
 import time
