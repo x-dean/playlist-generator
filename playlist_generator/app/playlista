@@ -246,9 +246,6 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
         return None
 
     # Initialize path converter
-    print(f"DEBUG: host_library = {host_library}")
-    print(f"DEBUG: library = {library}")
-    print(f"DEBUG: Using host_library or library = {host_library or library}")
     path_converter = PathConverter(host_library or library, '/music')
     
     saved_count = 0
@@ -264,14 +261,7 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
                 playlist_out_dir = os.path.join(output_dir, slot)
         os.makedirs(playlist_out_dir, exist_ok=True)
 
-        # Debug: print some sample paths to see what we're working with
-        if saved_count == 0:  # Only print for first playlist
-            logger.info(f"Sample paths from playlist '{name}':")
-            for i, song in enumerate(playlist_data['tracks'][:3]):  # First 3 tracks
-                logger.info(f"  Track {i+1}: {song}")
-                converted = path_converter.container_to_host(song)
-                logger.info(f"  Converted: {converted}")
-                logger.info(f"  Host Library: {path_converter.host_library}, Container Music: {path_converter.container_music}")
+
         
         # Convert container paths to host paths using the path converter
         host_songs = path_converter.convert_playlist_tracks(playlist_data['tracks'])
@@ -377,9 +367,6 @@ Examples:
     parser.add_argument('--pipeline', action='store_true', help='Run full pipeline: analyze, force, then failed')
 
     args = parser.parse_args()
-    
-    print(f"=== DEBUG: Auto-detected host path = {get_host_library_path()} ===")
-    print(f"=== DEBUG: args.library after parsing = {args.library} ===")
 
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
@@ -525,11 +512,7 @@ Examples:
             cli.update_status("Generating playlists from database")
             features_from_db = audio_db.get_all_features()
             
-            # Debug: print some sample paths from database
-            if features_from_db:
-                logger.info(f"Sample paths from database:")
-                for i, feature in enumerate(features_from_db[:3]):  # First 3 features
-                    logger.info(f"  Feature {i+1}: {feature.get('filepath', 'No filepath')}")
+
             
             with CLIContextManager(cli, 3, "[green]Generating playlists...") as (progress, task_id):
                 all_playlists = playlist_manager.generate_playlists(features_from_db, args.num_playlists)
