@@ -52,7 +52,7 @@ def select_files_for_analysis(args, audio_db):
 def move_failed_files(audio_db, failed_dir=None):
     import os
     if failed_dir is None:
-        failed_dir = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'failed_files')
+        failed_dir = '/app/failed_files'
     failed_dir_abs = os.path.abspath(failed_dir)
     if not os.path.exists(failed_dir_abs):
         os.makedirs(failed_dir_abs)
@@ -64,6 +64,9 @@ def move_failed_files(audio_db, failed_dir=None):
             if not os.path.exists(src):
                 continue
             dst = os.path.join(failed_dir_abs, os.path.basename(src))
+            if os.path.abspath(src) == os.path.abspath(dst):
+                logger.info(f"File {src} is already in the failed_files directory, skipping move.")
+                continue
             try:
                 shutil.move(src, dst)
                 logger.warning(f"Moved failed file to {dst}")
@@ -78,7 +81,7 @@ def move_failed_files(audio_db, failed_dir=None):
 def move_newly_failed_files(audio_db, newly_failed, failed_dir=None):
     import os
     if failed_dir is None:
-        failed_dir = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'failed_files')
+        failed_dir = '/app/failed_files'
     failed_dir_abs = os.path.abspath(failed_dir)
     if not os.path.exists(failed_dir_abs):
         os.makedirs(failed_dir_abs)
@@ -88,13 +91,19 @@ def move_newly_failed_files(audio_db, newly_failed, failed_dir=None):
         if not os.path.exists(src):
             continue
         dst = os.path.join(failed_dir_abs, os.path.basename(src))
+        if os.path.abspath(src) == os.path.abspath(dst):
+            logger.info(f"File {src} is already in the failed_files directory, skipping move.")
+            continue
         try:
+            if os.path.exists(dst):
+                os.remove(dst)
+                logger.info(f"Existing file at {dst} deleted before replacement.")
             shutil.move(src, dst)
-            logger.warning(f"Moved failed file to {dst}")
+            logger.warning(f"Moved (or replaced) failed file to {dst}")
             moved += 1
             moved_files.append(src)
         except Exception as e:
-            logger.error(f"Failed to move {src} to {dst}: {e}")
+            logger.error(f"Failed to move/replace {src} to {dst}: {e}")
     if moved > 0:
         logger.info(f"Moved {moved} newly failed files to '{failed_dir_abs}' and excluded them from analysis.")
         logger.info(f"Full paths: {moved_files}")
@@ -210,7 +219,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
         stop_event = setup_graceful_shutdown()
     # Only move failed files before analysis if not --failed mode
     if not getattr(args, 'failed', False):
-        move_failed_files(audio_db)
+        move_failed_files(audio_db, failed_dir='/app/failed_files')
     normal_files, big_files, file_list, db_features = select_files_for_analysis(args, audio_db)
     failed_files = []
     processed_count = 0
@@ -228,7 +237,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             # Track files already failed before this run
             already_failed = set(f['filepath'] for f in db_features if f.get('failed'))
             last_error = {}
-            failed_dir = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'failed_files')
+            failed_dir = '/app/failed_files'
             failed_dir_abs = os.path.abspath(failed_dir)
             if not os.path.exists(failed_dir_abs):
                 os.makedirs(failed_dir_abs)
@@ -259,20 +268,26 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         # Move the file immediately
                         if os.path.exists(filepath):
                             dst = os.path.join(failed_dir_abs, os.path.basename(filepath))
-                            try:
-                                shutil.move(filepath, dst)
-                                logger.warning(f"Moved failed file to {dst}")
-                                moved_files.append(filepath)
-                                error_summary[filepath] = last_error.get(filepath, 'No error captured.')
-                                # Delete from DB
-                                conn = sqlite3.connect(audio_db.cache_file)
-                                cur = conn.cursor()
-                                cur.execute("DELETE FROM audio_features WHERE file_path = ?", (filepath,))
-                                conn.commit()
-                                conn.close()
-                                logger.info(f"Deleted DB entry for {filepath}")
-                            except Exception as e:
-                                logger.error(f"Failed to move {filepath} to {dst}: {e}")
+                            if os.path.abspath(filepath) == os.path.abspath(dst):
+                                logger.info(f"File {filepath} is already in the failed_files directory, skipping move.")
+                            else:
+                                try:
+                                    if os.path.exists(dst):
+                                        os.remove(dst)
+                                        logger.info(f"Existing file at {dst} deleted before replacement.")
+                                    shutil.move(filepath, dst)
+                                    logger.warning(f"Moved (or replaced) failed file to {dst}")
+                                    moved_files.append(filepath)
+                                    error_summary[filepath] = last_error.get(filepath, 'No error captured.')
+                                    # Delete from DB
+                                    conn = sqlite3.connect(audio_db.cache_file)
+                                    cur = conn.cursor()
+                                    cur.execute("DELETE FROM audio_features WHERE file_path = ?", (filepath,))
+                                    conn.commit()
+                                    conn.close()
+                                    logger.info(f"Deleted DB entry for {filepath}")
+                                except Exception as e:
+                                    logger.error(f"Failed to move/replace {filepath} to {dst}: {e}")
                         continue
                     filename = os.path.basename(filepath)
                     max_len = 50
@@ -317,20 +332,26 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                             logger.warning(f"File {filepath} failed 3 times. Marking as failed and skipping for the rest of this run.")
                             if os.path.exists(filepath):
                                 dst = os.path.join(failed_dir_abs, os.path.basename(filepath))
-                                try:
-                                    shutil.move(filepath, dst)
-                                    logger.warning(f"Moved failed file to {dst}")
-                                    moved_files.append(filepath)
-                                    error_summary[filepath] = last_error.get(filepath, 'No error captured.')
-                                    # Delete from DB
-                                    conn = sqlite3.connect(audio_db.cache_file)
-                                    cur = conn.cursor()
-                                    cur.execute("DELETE FROM audio_features WHERE file_path = ?", (filepath,))
-                                    conn.commit()
-                                    conn.close()
-                                    logger.info(f"Deleted DB entry for {filepath}")
-                                except Exception as e:
-                                    logger.error(f"Failed to move {filepath} to {dst}: {e}")
+                                if os.path.abspath(filepath) == os.path.abspath(dst):
+                                    logger.info(f"File {filepath} is already in the failed_files directory, skipping move.")
+                                else:
+                                    try:
+                                        if os.path.exists(dst):
+                                            os.remove(dst)
+                                            logger.info(f"Existing file at {dst} deleted before replacement.")
+                                        shutil.move(filepath, dst)
+                                        logger.warning(f"Moved (or replaced) failed file to {dst}")
+                                        moved_files.append(filepath)
+                                        error_summary[filepath] = last_error.get(filepath, 'No error captured.')
+                                        # Delete from DB
+                                        conn = sqlite3.connect(audio_db.cache_file)
+                                        cur = conn.cursor()
+                                        cur.execute("DELETE FROM audio_features WHERE file_path = ?", (filepath,))
+                                        conn.commit()
+                                        conn.close()
+                                        logger.info(f"Deleted DB entry for {filepath}")
+                                    except Exception as e:
+                                        logger.error(f"Failed to move/replace {filepath} to {dst}: {e}")
                         continue
                     elif features:
                         # Only reset failed if feature extraction is truly successful
@@ -518,12 +539,11 @@ def get_audio_files(music_dir: str) -> list[str]:
     import os
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
-    cache_dir = os.path.abspath(os.getenv('CACHE_DIR', '/app/cache'))
-    failed_dir = os.path.join(cache_dir, 'failed_files')
+    failed_dir = os.path.abspath('/app/failed_files')
     for root, _, files in os.walk(music_dir):
         abs_root = os.path.abspath(root)
-        # Skip cache and failed_files directories
-        if abs_root.startswith(cache_dir) or abs_root.startswith(failed_dir):
+        # Skip failed_files directory
+        if abs_root.startswith(failed_dir):
             continue
         for file in files:
             file_lower = file.lower()

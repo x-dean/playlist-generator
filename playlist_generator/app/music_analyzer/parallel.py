@@ -207,14 +207,11 @@ class ParallelProcessor:
                                         logger.warning(f"Retrying file {filepath} (retry count: {count})")
                                         if count >= 3:
                                             cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                                            conn.commit()
-                                            conn.close()
-                                            enrich_later.append(filepath)
-                                            logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
-                                            continue
-                                        else:
-                                            conn.close()
-                                            failed_in_batch.append(filepath)
+                                        conn.commit()
+                                        conn.close()
+                                        enrich_later.append(filepath)
+                                        logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                        continue
                                     else:
                                         cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
                                         conn.commit()
