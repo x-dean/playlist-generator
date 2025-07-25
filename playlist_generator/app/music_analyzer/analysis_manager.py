@@ -303,7 +303,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         task_id,
                         advance=1,
                         description=f"Analyzing: {display_name} ({processed_count}/{total_files})",
-                        trackinfo=f"{display_name} ({size_mb:.1f} MB)" if size_mb > 200 else "",
+                        trackinfo=f"{size_mb:.1f} MB",
                         refresh=True
                     )
                     # Process the file
@@ -391,7 +391,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         task_id,
                         advance=1,
                         description=f"Analyzing: {display_name} ({processed_count}/{total_files})",
-                        trackinfo=f"{display_name} ({size_mb:.1f} MB)" if size_mb > 200 else "",
+                        trackinfo=f"{size_mb:.1f} MB",
                         refresh=True
                     )
                     # After processing, check if metadata is present
@@ -443,7 +443,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         task_id,
                         advance=1,
                         description=f"Analyzing: {display_name} ({processed_count}/{total_files})",
-                        trackinfo=f"{display_name} ({size_mb:.1f} MB)" if size_mb > 200 else "",
+                        trackinfo=f"{size_mb:.1f} MB",
                         refresh=True
                     )
                     logger.debug(f"Features: {features}")
@@ -488,7 +488,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                     progress.update(
                         task_id,
                         description=f"Analyzing: {display_name} ({processed_count+1}/{total_files})",
-                        trackinfo=f"{display_name} ({size_mb:.1f} MB)",
+                        trackinfo=f"{size_mb:.1f} MB",
                         advance=1,
                         refresh=True
                     )
