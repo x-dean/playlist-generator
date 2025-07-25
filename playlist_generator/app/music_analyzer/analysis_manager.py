@@ -161,10 +161,10 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
     failed_retries = {}
     with progress:
         task_id = progress.add_task(f"Analyzing: (0/{total_files})", total=total_files, trackinfo="")
-        if args.force_sequential or (args.workers and args.workers <= 1):
-            # All files sequential
+        if args.failed:
+            # Only process failed files sequentially
             seq_manager = SequentialWorkerManager(stop_event)
-            for features, filepath in seq_manager.process(normal_files + big_files, workers=args.workers or 1):
+            for features, filepath in seq_manager.process(normal_files, workers=1):
                 processed_count += 1
                 if stop_event.is_set():
                     break
@@ -200,12 +200,9 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                         (filepath,)
                     )
                     conn.commit()
-                    conn.close()
                     if failed_retries[filepath] >= MAX_SEQUENTIAL_RETRIES:
                         failed_files.append(filepath)
                         # Reset fail_count to 0, keep failed=1
-                        conn = sqlite3.connect(audio_db.cache_file)
-                        cur = conn.cursor()
                         cur.execute(
                             "UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?",
                             (filepath,)
@@ -215,6 +212,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                         logger.warning(f"File {filepath} failed {MAX_SEQUENTIAL_RETRIES} times in sequential mode. fail_count reset to 0, will be retried in next --failed/--force run. Skipping for the rest of this run.")
                         # Do NOT append back to normal_files; skip for the rest of the run
                     else:
+                        conn.close()
                         # Retry this file later in the same run
                         normal_files.append(filepath)
                         logger.info(f"Retrying {filepath} ({failed_retries[filepath]}/{MAX_SEQUENTIAL_RETRIES}) in sequential mode.")
