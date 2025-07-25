@@ -1,6 +1,7 @@
 from tqdm import tqdm
 import logging
 from .feature_extractor import audio_analyzer
+from utils.logging_setup import setup_colored_logging
 import os
 setup_colored_logging()
 log_level = os.getenv('LOG_LEVEL', 'INFO')
