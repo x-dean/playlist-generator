@@ -15,6 +15,16 @@ BIG_FILE_SIZE_MB = 200
 # --- File Selection ---
 def select_files_for_analysis(args, audio_db):
     """Return (normal_files, big_files) to analyze based on args and DB state."""
+    # Ensure fail_count column exists
+    import sqlite3
+    conn = sqlite3.connect(audio_db.cache_file)
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(audio_features)")
+    columns = [row[1] for row in cur.fetchall()]
+    if 'fail_count' not in columns:
+        cur.execute("ALTER TABLE audio_features ADD COLUMN fail_count INTEGER DEFAULT 0")
+        conn.commit()
+    conn.close()
     file_list = get_audio_files(args.music_dir)
     db_features = audio_db.get_all_features(include_failed=True)
     db_files = set(f['filepath'] for f in db_features)
