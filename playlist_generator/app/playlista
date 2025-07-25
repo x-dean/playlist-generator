@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 
 import os
+import sys
+import argparse
+
 os.environ["GLOG_minloglevel"] = "3"  # Only FATAL
 os.environ["GLOG_logtostderr"] = "1"
 os.environ["GLOG_stderrthreshold"] = "3"
 
-# Set default log level to DEBUG unless already set
-if 'LOG_LEVEL' not in os.environ:
-    os.environ['LOG_LEVEL'] = 'DEBUG'
+# Parse --log_level early to set LOG_LEVEL env var
+pre_parser = argparse.ArgumentParser(add_help=False)
+pre_parser.add_argument('--log_level', default='WARNING', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
+pre_args, _ = pre_parser.parse_known_args(sys.argv[1:])
+os.environ['LOG_LEVEL'] = pre_args.log_level
 
 import essentia
 essentia.log.infoActive = False
