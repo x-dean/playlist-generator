@@ -10,6 +10,7 @@ from music_analyzer.parallel import ParallelProcessor, UserAbortException
 from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.feature_extractor import AudioAnalyzer
 import json
+import shutil
 
 logger = logging.getLogger()
 BIG_FILE_SIZE_MB = 200
@@ -21,6 +22,10 @@ def select_files_for_analysis(args, audio_db):
     db_features = audio_db.get_all_features(include_failed=True)
     db_files = set(f['filepath'] for f in db_features)
     failed_files_db = set(f['filepath'] for f in db_features if f['failed'])
+    # Exclude files in the failed directory
+    failed_dir = 'failed_files'
+    failed_dir_abs = os.path.abspath(failed_dir)
+    file_list = [f for f in file_list if not os.path.abspath(f).startswith(failed_dir_abs)]
     if args.force:
         files_to_analyze = [f for f in file_list if f not in failed_files_db]
     elif args.failed:
@@ -43,6 +48,52 @@ def select_files_for_analysis(args, audio_db):
     big_files = [f for f in files_to_analyze if is_big_file(f)]
     normal_files = [f for f in files_to_analyze if not is_big_file(f)]
     return normal_files, big_files, file_list, db_features
+
+def move_failed_files(audio_db, failed_dir='failed_files'):
+    import os
+    if not os.path.exists(failed_dir):
+        os.makedirs(failed_dir)
+    db_features = audio_db.get_all_features(include_failed=True)
+    moved = 0
+    for f in db_features:
+        if f.get('failed'):
+            src = f['filepath']
+            if not os.path.exists(src):
+                continue
+            dst = os.path.join(failed_dir, os.path.basename(src))
+            try:
+                shutil.move(src, dst)
+                logger.warning(f"Moved failed file to {dst}")
+                moved += 1
+            except Exception as e:
+                logger.error(f"Failed to move {src} to {dst}: {e}")
+    if moved > 0:
+        logger.info(f"Moved {moved} failed files to '{failed_dir}' and excluded them from analysis.")
+    else:
+        logger.info(f"No failed files to move to '{failed_dir}'.")
+
+def move_newly_failed_files(audio_db, newly_failed, failed_dir='failed_files'):
+    import os
+    if not os.path.exists(failed_dir):
+        os.makedirs(failed_dir)
+    moved = 0
+    moved_files = []
+    for src in newly_failed:
+        if not os.path.exists(src):
+            continue
+        dst = os.path.join(failed_dir, os.path.basename(src))
+        try:
+            shutil.move(src, dst)
+            logger.warning(f"Moved failed file to {dst}")
+            moved += 1
+            moved_files.append(os.path.basename(src))
+        except Exception as e:
+            logger.error(f"Failed to move {src} to {dst}: {e}")
+    if moved > 0:
+        logger.info(f"Moved {moved} newly failed files to '{failed_dir}' and excluded them from analysis.")
+        logger.info(f"Filenames: {moved_files}")
+    else:
+        logger.info(f"No newly failed files to move to '{failed_dir}'.")
 
 # --- Graceful Shutdown ---
 def setup_graceful_shutdown():
@@ -151,6 +202,9 @@ def create_progress_bar(total_files):
 def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextract=False):
     if stop_event is None:
         stop_event = setup_graceful_shutdown()
+    # Only move failed files before analysis if not --failed mode
+    if not getattr(args, 'failed', False):
+        move_failed_files(audio_db)
     normal_files, big_files, file_list, db_features = select_files_for_analysis(args, audio_db)
     failed_files = []
     processed_count = 0
@@ -165,6 +219,9 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             retry_counter = {}
             processed_files_set = set()
             files_to_retry = normal_files[:]
+            # Track files already failed before this run
+            already_failed = set(f['filepath'] for f in db_features if f.get('failed'))
+            last_error = {}
             while files_to_retry:
                 # Remove files that have already failed 3 times
                 files_to_retry = [f for f in files_to_retry if retry_counter.get(f, 0) < 3]
@@ -208,11 +265,16 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                     # Process the file
                     seq_manager = SequentialWorkerManager(stop_event)
                     features = None
-                    for f, fp in seq_manager.process([filepath], workers=1, force_reextract=True):
-                        features = f
+                    error_msg = None
+                    try:
+                        for f, fp in seq_manager.process([filepath], workers=1, force_reextract=True):
+                            features = f
+                    except Exception as e:
+                        error_msg = str(e)
                     if not features:
                         retry_counter[filepath] = count + 1
                         logger.warning(f"Retrying file {filepath} (retry count: {retry_counter[filepath]})")
+                        last_error[filepath] = error_msg or 'Unknown error or extraction failure.'
                         if retry_counter[filepath] < 3:
                             next_retry.append(filepath)
                             logger.info(f"File {filepath} failed this round, will retry.")
@@ -234,6 +296,15 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         logger.info(f"File {filepath} succeeded on retry {count+1 if count else 1}.")
                 logger.info(f"End of retry round. Files to retry next: {[(os.path.basename(f), retry_counter.get(f, 0)) for f in next_retry]}")
                 files_to_retry = next_retry
+            # After retry loop, move and summarize only newly failed files
+            db_features_after = audio_db.get_all_features(include_failed=True)
+            now_failed = set(f['filepath'] for f in db_features_after if f.get('failed'))
+            newly_failed = now_failed - already_failed
+            # Prepare error summary for newly failed files
+            error_summary = {os.path.basename(f): last_error.get(f, 'No error captured.') for f in newly_failed}
+            move_newly_failed_files(audio_db, newly_failed)
+            if newly_failed:
+                logger.info(f"Newly failed files and errors: {error_summary}")
             # Sequential for big files (with force_reextract)
             if big_files:
                 from music_analyzer.feature_extractor import AudioAnalyzer
