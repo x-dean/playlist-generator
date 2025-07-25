@@ -7,7 +7,7 @@ services:
       - /root/music/library:/music
       - /root/music/library/playlists/auto:/app/playlists
       - /root/music/playlista/cache:/app/cache
-      - /root/music/playlista/logs:/app/logs
+      - /root/music/playlista/logs/playlista.log:/app/logs/playlista.log
       - /tmp/failed_files:/app/failed_files
     environment:
       - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
