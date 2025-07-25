@@ -569,6 +569,13 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     args.force = False
     args.failed = True
     res3 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=True, pipeline_mode=True)
+    # Count files in /app/failed_files after failed step
+    import os
+    failed_dir = '/app/failed_files'
+    try:
+        moved_failed = len([f for f in os.listdir(failed_dir) if os.path.isfile(os.path.join(failed_dir, f))])
+    except Exception:
+        moved_failed = 0
     results.append(('Failed', res3))
     console.print("[green]PIPELINE: Failed files retry complete (failures handled)[/green]")
     console.print("[dim]───────────────────────────────────────────────[/dim]\n")
@@ -579,10 +586,18 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     table.add_column("Stage")
     table.add_column("Processed")
     table.add_column("Failed")
-    for stage, res in results:
+    labels = {
+        'Default': 'Analysis Step',
+        'Force': 'Re-enriching Step',
+        'Failed': 'Failed Retry Step'
+    }
+    for i, (stage, res) in enumerate(results):
         processed = res.get('processed_this_run', '-')
-        failed = res.get('failed_this_run', '-')
-        table.add_row(stage, str(processed), str(failed))
+        if stage == 'Failed':
+            failed = str(moved_failed)
+        else:
+            failed = res.get('failed_this_run', '-')
+        table.add_row(labels.get(stage, stage), str(processed), failed)
     console.print(table)
     console.print("\n[bold green]PIPELINE: Complete. Now you can start generating playlists![/bold green]\n")
 
