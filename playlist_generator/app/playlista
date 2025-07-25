@@ -93,7 +93,7 @@ from rich.live import Live
 from rich.spinner import Spinner
 
 logger = setup_colored_logging()
-setup_queue_colored_logging(logfile_path='/app/cache/app.log')
+setup_queue_colored_logging(logfile_path='/app/logs')
 
 import logging as pylogging
 pylogging.getLogger("musicbrainzngs").setLevel(pylogging.WARNING)
@@ -111,8 +111,8 @@ os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
 os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
 cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-logfile_path = os.path.join(cache_dir, 'essentia_stderr.log')
-logfile = open(logfile_path, 'w')
+logfile_path = '/app/logs'
+logfile = open(logfile_path, 'a')
 os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
 sys.stderr = logfile  # Also update Python's sys.stderr
 
