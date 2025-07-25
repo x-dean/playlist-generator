@@ -580,7 +580,7 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
         failed = res.get('failed_this_run', '-')
         table.add_row(stage, str(processed), str(failed))
     console.print(table)
-    console.print("[bold green]PIPELINE: Complete. Exiting.[/bold green]")
+    console.print("[bold green]PIPELINE: Complete. Now you can start generating playlists![/bold green]")
 
 # --- File Discovery Helper ---
 def get_audio_files(music_dir: str) -> list[str]:
