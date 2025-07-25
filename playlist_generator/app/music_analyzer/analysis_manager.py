@@ -247,7 +247,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             if normal_files:
                 from music_analyzer.feature_extractor import AudioAnalyzer
                 analyzer = AudioAnalyzer(audio_db.cache_file)
-                for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count(), force_reextract=force_reextract):
+                for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count(), force_reextract=force_reextract, enforce_fail_limit=False):
                     if stop_event.is_set():
                         break
                     processed_count += 1
@@ -343,7 +343,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             # Parallel for normal files
             par_manager = ParallelWorkerManager(stop_event)
             if normal_files:
-                for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count()):
+                for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count(), enforce_fail_limit=False):
                     if stop_event.is_set():
                         break
                     processed_count += 1
