@@ -19,6 +19,8 @@ logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
 logger = logging.getLogger()
 console = Console()
 
+from typing import Tuple, Dict, Any, List, Optional
+
 # Remove queue-based log handler and consumer thread setup from this file
 
 class PlaylistGeneratorCLI:
