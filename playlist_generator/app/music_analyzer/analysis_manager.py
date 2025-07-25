@@ -218,7 +218,8 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                         cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
                         conn.commit()
                         conn.close()
-                else:
+                elif features:
+                    # Only reset failed if feature extraction is truly successful
                     conn = sqlite3.connect(audio_db.cache_file)
                     cur = conn.cursor()
                     cur.execute("UPDATE audio_features SET fail_count = 0, failed = 0 WHERE file_path = ?", (filepath,))
