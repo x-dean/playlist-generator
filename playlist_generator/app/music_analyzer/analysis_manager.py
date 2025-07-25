@@ -164,81 +164,32 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             # Only process failed files sequentially, with in-memory retry counter
             retry_counter = {}
             processed_count = 0
-            for filepath in normal_files:
-                count = retry_counter.get(filepath, 0)
-                if count >= 3:
-                    # Mark as failed in DB
-                    conn = sqlite3.connect(audio_db.cache_file)
-                    cur = conn.cursor()
-                    cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                    conn.commit()
-                    conn.close()
-                    logger.warning(f"File {filepath} failed 3 times. Skipping for the rest of this run.")
-                    continue
-                processed_count += 1
-                filename = os.path.basename(filepath)
-                max_len = 50
-                if len(filename) > max_len:
-                    display_name = filename[:max_len-3] + "..."
-                else:
-                    display_name = filename
-                try:
-                    size_mb = os.path.getsize(filepath) / (1024 * 1024)
-                except Exception:
-                    size_mb = 0
-                progress.update(
-                    task_id,
-                    advance=1,
-                    description=f"Analyzing: {display_name} ({processed_count}/{total_files})",
-                    trackinfo=f"{display_name} ({size_mb:.1f} MB)" if size_mb > 200 else "",
-                    refresh=True
-                )
-                # Process the file
-                seq_manager = SequentialWorkerManager(stop_event)
-                features = None
-                for f, fp in seq_manager.process([filepath], workers=1, force_reextract=True):
-                    features = f
-                if not features:
-                    retry_counter[filepath] = count + 1
-                    logger.warning(f"Retrying file {filepath} (retry count: {retry_counter[filepath]})")
-                    if retry_counter[filepath] >= 3:
+            files_to_retry = normal_files[:]
+            while files_to_retry:
+                # Log the files being retried and their retry count
+                logger.info(f"Retry round: {[(os.path.basename(f), retry_counter.get(f, 0)) for f in files_to_retry]}")
+                next_retry = []
+                for filepath in files_to_retry:
+                    count = retry_counter.get(filepath, 0)
+                    if count >= 3:
+                        # Mark as failed in DB
                         conn = sqlite3.connect(audio_db.cache_file)
                         cur = conn.cursor()
                         cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
                         conn.commit()
                         conn.close()
-                        logger.warning(f"File {filepath} failed 3 times. Skipping for the rest of this run.")
-                    continue
-                elif features:
-                    # Only reset failed if feature extraction is truly successful
-                    conn = sqlite3.connect(audio_db.cache_file)
-                    cur = conn.cursor()
-                    cur.execute("UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
-                    conn.commit()
-                    conn.close()
-        elif args.force:
-            # Parallel for normal files (with force_reextract)
-            par_manager = ParallelWorkerManager(stop_event)
-            if normal_files:
-                from music_analyzer.feature_extractor import AudioAnalyzer
-                analyzer = AudioAnalyzer(audio_db.cache_file)
-                for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count(), force_reextract=force_reextract, enforce_fail_limit=False):
-                    if stop_event.is_set():
-                        break
+                        logger.warning(f"File {filepath} failed 3 times. Marking as failed and skipping for the rest of this run.")
+                        continue
                     processed_count += 1
-                    if filepath:
-                        filename = os.path.basename(filepath)
-                        max_len = 50
-                        if len(filename) > max_len:
-                            display_name = filename[:max_len-3] + "..."
-                        else:
-                            display_name = filename
-                        try:
-                            size_mb = os.path.getsize(filepath) / (1024 * 1024)
-                        except Exception:
-                            size_mb = 0
+                    filename = os.path.basename(filepath)
+                    max_len = 50
+                    if len(filename) > max_len:
+                        display_name = filename[:max_len-3] + "..."
                     else:
-                        filename = "Unknown"
+                        display_name = filename
+                    try:
+                        size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                    except Exception:
                         size_mb = 0
                     progress.update(
                         task_id,
@@ -247,28 +198,34 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         trackinfo=f"{display_name} ({size_mb:.1f} MB)" if size_mb > 200 else "",
                         refresh=True
                     )
-                    logger.debug(f"Features: {features}")
-                    # After processing, check if metadata is present
-                    file_info = analyzer._get_file_info(filepath)
-                    meta = None
-                    try:
+                    # Process the file
+                    seq_manager = SequentialWorkerManager(stop_event)
+                    features = None
+                    for f, fp in seq_manager.process([filepath], workers=1, force_reextract=True):
+                        features = f
+                    if not features:
+                        retry_counter[filepath] = count + 1
+                        logger.warning(f"Retrying file {filepath} (retry count: {retry_counter[filepath]})")
+                        if retry_counter[filepath] < 3:
+                            next_retry.append(filepath)
+                            logger.info(f"File {filepath} failed this round, will retry.")
+                        else:
+                            conn = sqlite3.connect(audio_db.cache_file)
+                            cur = conn.cursor()
+                            cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                            conn.commit()
+                            conn.close()
+                            logger.warning(f"File {filepath} failed 3 times. Marking as failed and skipping for the rest of this run.")
+                        continue
+                    elif features:
+                        # Only reset failed if feature extraction is truly successful
                         conn = sqlite3.connect(audio_db.cache_file)
                         cur = conn.cursor()
-                        cur.execute("SELECT metadata FROM audio_features WHERE file_path = ?", (filepath,))
-                        row = cur.fetchone()
-                        meta = json.loads(row[0]) if row and row[0] else {}
-                        conn.close()
-                    except Exception as e:
-                        logger.error(f"Error reading metadata for {filepath}: {e}")
-                        meta = {}
-                    if not meta or not any(meta.values()):
-                        # If metadata is still empty, set failed=1
-                        conn = sqlite3.connect(audio_db.cache_file)
-                        cur = conn.cursor()
-                        cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                        cur.execute("UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
                         conn.commit()
                         conn.close()
-                        logger.warning(f"File {filepath} has empty metadata after --force, marked as failed.")
+                        logger.info(f"File {filepath} succeeded on retry {count+1 if count else 1}.")
+            files_to_retry = next_retry
             # Sequential for big files (with force_reextract)
             if big_files:
                 from music_analyzer.feature_extractor import AudioAnalyzer
@@ -315,10 +272,12 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         conn.close()
                         logger.warning(f"Big file {filepath} has empty metadata after --force, marked as failed.")
         else:
-            # Parallel for normal files
+            # Parallel for normal files (with force_reextract)
             par_manager = ParallelWorkerManager(stop_event)
             if normal_files:
-                for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count(), enforce_fail_limit=False):
+                from music_analyzer.feature_extractor import AudioAnalyzer
+                analyzer = AudioAnalyzer(audio_db.cache_file)
+                for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count(), force_reextract=force_reextract, enforce_fail_limit=False):
                     if stop_event.is_set():
                         break
                     processed_count += 1
@@ -344,18 +303,27 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         refresh=True
                     )
                     logger.debug(f"Features: {features}")
-                    if not features:
-                        failed_files.append(filepath)
-                        # Mark as failed in DB
-                        audio_analyzer = AudioAnalyzer(audio_db.cache_file, audio_db.host_music_dir, audio_db.container_music_dir)
-                        file_info = audio_analyzer._get_file_info(filepath)
-                        audio_analyzer._mark_failed(file_info)
-                    if stop_event.is_set():
-                        db_features = audio_db.get_all_features(include_failed=True)
-                        db_files = set(f['filepath'] for f in db_features)
-                        if filepath in db_files:
-                            print(f"Graceful stop: {filepath} successfully added to DB. Exiting.")
-                            break
+                    # After processing, check if metadata is present
+                    file_info = analyzer._get_file_info(filepath)
+                    meta = None
+                    try:
+                        conn = sqlite3.connect(audio_db.cache_file)
+                        cur = conn.cursor()
+                        cur.execute("SELECT metadata FROM audio_features WHERE file_path = ?", (filepath,))
+                        row = cur.fetchone()
+                        meta = json.loads(row[0]) if row and row[0] else {}
+                        conn.close()
+                    except Exception as e:
+                        logger.error(f"Error reading metadata for {filepath}: {e}")
+                        meta = {}
+                    if not meta or not any(meta.values()):
+                        # If metadata is still empty, set failed=1 and log
+                        conn = sqlite3.connect(audio_db.cache_file)
+                        cur = conn.cursor()
+                        cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                        conn.commit()
+                        conn.close()
+                        logger.warning(f"Marking file as failed: {filepath} (no metadata after --force)")
             # Big files in subprocesses
             if big_files:
                 big_manager = BigFileWorkerManager(stop_event, audio_db)
