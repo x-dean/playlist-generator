@@ -25,8 +25,20 @@ def select_files_for_analysis(args, audio_db):
     if args.force:
         files_to_analyze = [f for f in file_list if fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
     elif args.failed:
-        # Only process files explicitly marked as failed in the DB
-        files_to_analyze = [f for f in file_list if f in failed_files_db and fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
+        # Directly query the DB for failed files
+        import sqlite3
+        conn = sqlite3.connect(audio_db.cache_file)
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(audio_features)")
+        columns = [row[1] for row in cur.fetchall()]
+        if 'fail_count' not in columns:
+            cur.execute("ALTER TABLE audio_features ADD COLUMN fail_count INTEGER DEFAULT 0")
+        cur.execute(
+            "SELECT file_path FROM audio_features WHERE failed=1 AND (fail_count IS NULL OR fail_count < ?)",
+            (MAX_SEQUENTIAL_RETRIES,)
+        )
+        files_to_analyze = [row[0] for row in cur.fetchall()]
+        conn.close()
     else:
         files_to_analyze = [f for f in file_list if f not in db_files and fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
     def is_big_file(filepath):
