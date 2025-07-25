@@ -226,6 +226,16 @@ Examples:
 
     args = parser.parse_args()
 
+    import logging as pylogging
+    import os
+    # Set log level and environment variable early
+    log_level = getattr(pylogging, args.log_level.upper(), pylogging.WARNING)
+    pylogging.getLogger().setLevel(log_level)
+    os.environ['LOG_LEVEL'] = args.log_level.upper()
+
+    from utils.logging_setup import setup_colored_logging
+    logger = setup_colored_logging()
+
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
 
@@ -250,10 +260,6 @@ Examples:
         print("\nReceived SIGINT (Ctrl+C), stopping gracefully...")
         stop_event.set()
     signal.signal(signal.SIGINT, handle_sigint)
-
-    # Set logging level from CLI
-    logger.setLevel(getattr(pylogging, args.log_level.upper(), pylogging.WARNING))
-    os.environ['LOG_LEVEL'] = args.log_level.upper()
 
     # If --status is set, show statistics and exit
     if getattr(args, 'status', False):
