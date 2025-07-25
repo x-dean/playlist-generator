@@ -214,7 +214,7 @@ def create_progress_bar(total_files):
     )
 
 # --- Main Orchestration ---
-def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextract=False):
+def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextract=False, pipeline_mode=False):
     if stop_event is None:
         stop_event = setup_graceful_shutdown()
     # Only move failed files before analysis if not --failed mode
@@ -524,35 +524,58 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
     processed_this_run = processed_count
     failed_this_run = len(failed_files)
     stats = playlist_db.get_library_statistics()
-    cli.show_analysis_summary(
-        stats=stats,
-        processed_this_run=processed_this_run,
-        failed_this_run=failed_this_run,
-        total_found=total_found,
-        total_in_db=total_in_db,
-        total_failed=total_failed
-    )
-    return failed_files
+    if not pipeline_mode:
+        cli.show_analysis_summary(
+            stats=stats,
+            processed_this_run=processed_this_run,
+            failed_this_run=failed_this_run,
+            total_found=total_found,
+            total_in_db=total_in_db,
+            total_failed=total_failed
+        )
+    return {
+        'processed_this_run': processed_this_run,
+        'failed_this_run': failed_this_run,
+        'total_found': total_found,
+        'total_in_db': total_in_db,
+        'total_failed': total_failed
+    }
 
 def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
-    # 1. Analyze (default)
-    logger.info("=== PIPELINE: Starting default analysis ===")
+    from rich.table import Table
+    from rich.console import Console
+    results = []
+    logger.info("PIPELINE: Starting default analysis")
     args.force = False
     args.failed = False
-    run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False)
-    logger.info("=== PIPELINE: Default analysis complete ===")
-    # 2. Force (do NOT use no_cache/force_reextract)
-    logger.info("=== PIPELINE: Starting force re-analyze (with cache) ===")
+    res1 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False, pipeline_mode=True)
+    results.append(('Default', res1))
+    logger.info("PIPELINE: Default analysis complete")
+
+    logger.info("PIPELINE: Starting force re-analyze (with cache)")
     args.force = True
     args.failed = False
-    run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False)
-    logger.info("=== PIPELINE: Force re-analyze complete ===")
-    # 3. Failed
-    logger.info("=== PIPELINE: Starting failed retry ===")
+    res2 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False, pipeline_mode=True)
+    results.append(('Force', res2))
+    logger.info("PIPELINE: Force re-analyze complete")
+
+    logger.info("PIPELINE: Starting failed retry")
     args.force = False
     args.failed = True
-    run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=True)
-    logger.info("=== PIPELINE: Failed retry complete ===")
+    res3 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=True, pipeline_mode=True)
+    results.append(('Failed', res3))
+    logger.info("PIPELINE: Failed retry complete")
+
+    # Show a single summary table at the end
+    table = Table(title="Pipeline Summary")
+    table.add_column("Stage")
+    table.add_column("Processed")
+    table.add_column("Failed")
+    for stage, res in results:
+        processed = res.get('processed_this_run', '-')
+        failed = res.get('failed_this_run', '-')
+        table.add_row(stage, str(processed), str(failed))
+    Console().print(table)
 
 # --- File Discovery Helper ---
 def get_audio_files(music_dir: str) -> list[str]:
