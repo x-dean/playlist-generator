@@ -8,6 +8,7 @@ from rich.console import Console
 from music_analyzer.parallel import ParallelProcessor, UserAbortException
 from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.feature_extractor import AudioAnalyzer
+import sqlite3
 
 logger = logging.getLogger()
 BIG_FILE_SIZE_MB = 200
@@ -16,7 +17,6 @@ BIG_FILE_SIZE_MB = 200
 def select_files_for_analysis(args, audio_db):
     """Return (normal_files, big_files) to analyze based on args and DB state."""
     # Ensure fail_count column exists
-    import sqlite3
     conn = sqlite3.connect(audio_db.cache_file)
     cur = conn.cursor()
     cur.execute("PRAGMA table_info(audio_features)")
