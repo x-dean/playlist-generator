@@ -84,7 +84,7 @@ from rich.live import Live
 from rich.spinner import Spinner
 
 logger = setup_colored_logging()
-setup_queue_colored_logging()
+setup_queue_colored_logging(logfile_path='/app/cache/app.log')
 
 import logging as pylogging
 pylogging.getLogger("musicbrainzngs").setLevel(pylogging.WARNING)

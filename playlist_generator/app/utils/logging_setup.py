@@ -8,7 +8,7 @@ from colorlog import ColoredFormatter
 log_queue = None
 log_consumer_thread = None
 
-def setup_queue_colored_logging():
+def setup_queue_colored_logging(logfile_path=None):
     global log_queue, log_consumer_thread
     if log_queue is not None:
         return  # Already set up in this process
@@ -23,11 +23,17 @@ def setup_queue_colored_logging():
                 pass
 
     def log_consumer():
+        log_file = None
+        if logfile_path:
+            log_file = open(logfile_path, 'a', encoding='utf-8')
         while True:
             try:
                 msg = log_queue.get(timeout=0.5)
-                print(msg)
-                time.sleep(0.05)  # Throttle: adjust as needed
+                if log_file:
+                    log_file.write(msg + '\n')
+                    log_file.flush()
+                # Do not print to terminal
+                time.sleep(0.05)
             except queue.Empty:
                 continue
 
@@ -49,7 +55,8 @@ def setup_queue_colored_logging():
     root_logger = logging.getLogger()
     root_logger.handlers = [queue_handler]
 
-    log_consumer_thread = threading.Thread(target=log_consumer, daemon=True)
+    log_consumer_thread = threading.Thread(
+        target=log_consumer, daemon=True)
     log_consumer_thread.start()
 
 
