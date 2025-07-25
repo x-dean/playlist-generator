@@ -515,9 +515,16 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
 
 # --- File Discovery Helper ---
 def get_audio_files(music_dir: str) -> list[str]:
+    import os
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
+    cache_dir = os.path.abspath(os.getenv('CACHE_DIR', '/app/cache'))
+    failed_dir = os.path.join(cache_dir, 'failed_files')
     for root, _, files in os.walk(music_dir):
+        abs_root = os.path.abspath(root)
+        # Skip cache and failed_files directories
+        if abs_root.startswith(cache_dir) or abs_root.startswith(failed_dir):
+            continue
         for file in files:
             file_lower = file.lower()
             if file_lower.endswith(valid_ext):
