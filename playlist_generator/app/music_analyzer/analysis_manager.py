@@ -228,6 +228,12 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             # Track files already failed before this run
             already_failed = set(f['filepath'] for f in db_features if f.get('failed'))
             last_error = {}
+            failed_dir = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'failed_files')
+            failed_dir_abs = os.path.abspath(failed_dir)
+            if not os.path.exists(failed_dir_abs):
+                os.makedirs(failed_dir_abs)
+            moved_files = []
+            error_summary = {}
             while files_to_retry:
                 # Remove files that have already failed 3 times
                 files_to_retry = [f for f in files_to_retry if retry_counter.get(f, 0) < 3]
@@ -250,6 +256,23 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         conn.commit()
                         conn.close()
                         logger.warning(f"File {filepath} failed 3 times. Marking as failed and skipping for the rest of this run.")
+                        # Move the file immediately
+                        if os.path.exists(filepath):
+                            dst = os.path.join(failed_dir_abs, os.path.basename(filepath))
+                            try:
+                                shutil.move(filepath, dst)
+                                logger.warning(f"Moved failed file to {dst}")
+                                moved_files.append(filepath)
+                                error_summary[filepath] = last_error.get(filepath, 'No error captured.')
+                                # Delete from DB
+                                conn = sqlite3.connect(audio_db.cache_file)
+                                cur = conn.cursor()
+                                cur.execute("DELETE FROM audio_features WHERE file_path = ?", (filepath,))
+                                conn.commit()
+                                conn.close()
+                                logger.info(f"Deleted DB entry for {filepath}")
+                            except Exception as e:
+                                logger.error(f"Failed to move {filepath} to {dst}: {e}")
                         continue
                     filename = os.path.basename(filepath)
                     max_len = 50
@@ -285,12 +308,29 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                             next_retry.append(filepath)
                             logger.info(f"File {filepath} failed this round, will retry.")
                         else:
+                            # Mark as failed in DB and move the file immediately
                             conn = sqlite3.connect(audio_db.cache_file)
                             cur = conn.cursor()
                             cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
                             conn.commit()
                             conn.close()
                             logger.warning(f"File {filepath} failed 3 times. Marking as failed and skipping for the rest of this run.")
+                            if os.path.exists(filepath):
+                                dst = os.path.join(failed_dir_abs, os.path.basename(filepath))
+                                try:
+                                    shutil.move(filepath, dst)
+                                    logger.warning(f"Moved failed file to {dst}")
+                                    moved_files.append(filepath)
+                                    error_summary[filepath] = last_error.get(filepath, 'No error captured.')
+                                    # Delete from DB
+                                    conn = sqlite3.connect(audio_db.cache_file)
+                                    cur = conn.cursor()
+                                    cur.execute("DELETE FROM audio_features WHERE file_path = ?", (filepath,))
+                                    conn.commit()
+                                    conn.close()
+                                    logger.info(f"Deleted DB entry for {filepath}")
+                                except Exception as e:
+                                    logger.error(f"Failed to move {filepath} to {dst}: {e}")
                         continue
                     elif features:
                         # Only reset failed if feature extraction is truly successful
@@ -302,15 +342,13 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         logger.info(f"File {filepath} succeeded on retry {count+1 if count else 1}.")
                 logger.info(f"End of retry round. Files to retry next: {[(os.path.basename(f), retry_counter.get(f, 0)) for f in next_retry]}")
                 files_to_retry = next_retry
-            # After retry loop, move and summarize only newly failed files
-            db_features_after = audio_db.get_all_features(include_failed=True)
-            now_failed = set(f['filepath'] for f in db_features_after if f.get('failed'))
-            newly_failed = now_failed - already_failed
-            # Prepare error summary for newly failed files
-            error_summary = {f: last_error.get(f, 'No error captured.') for f in newly_failed}
-            move_newly_failed_files(audio_db, newly_failed)
-            if newly_failed:
+            # After retry loop, print summary
+            if moved_files:
+                logger.info(f"Moved {len(moved_files)} newly failed files to '{failed_dir_abs}' and excluded them from analysis.")
+                logger.info(f"Full paths: {moved_files}")
                 logger.info(f"Newly failed files and errors: {error_summary}")
+            else:
+                logger.info(f"No newly failed files to move to '{failed_dir_abs}'.")
             # Sequential for big files (with force_reextract)
             if big_files:
                 from music_analyzer.feature_extractor import AudioAnalyzer
