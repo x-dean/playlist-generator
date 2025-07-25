@@ -19,12 +19,15 @@ def select_files_for_analysis(args, audio_db):
     db_features = audio_db.get_all_features(include_failed=True)
     db_files = set(f['filepath'] for f in db_features)
     failed_files_db = set(f['filepath'] for f in db_features if f['failed'])
+    # Add fail_count support
+    fail_count_map = {f['filepath']: f.get('fail_count', 0) for f in db_features}
+    MAX_SEQUENTIAL_RETRIES = 3
     if args.force:
-        files_to_analyze = file_list
+        files_to_analyze = [f for f in file_list if fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
     elif args.failed:
-        files_to_analyze = [f for f in file_list if f not in db_files or f in failed_files_db]
+        files_to_analyze = [f for f in file_list if (f not in db_files or f in failed_files_db) and fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
     else:
-        files_to_analyze = [f for f in file_list if f not in db_files]
+        files_to_analyze = [f for f in file_list if f not in db_files and fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
     def is_big_file(filepath):
         try:
             return os.path.getsize(filepath) > BIG_FILE_SIZE_MB * 1024 * 1024
@@ -177,13 +180,31 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                 logger.debug(f"Features: {features}")
                 if not features:
                     failed_retries[filepath] = failed_retries.get(filepath, 0) + 1
+                    import sqlite3
+                    conn = sqlite3.connect(audio_db.cache_file)
+                    cur = conn.cursor()
+                    cur.execute("PRAGMA table_info(audio_features)")
+                    columns = [row[1] for row in cur.fetchall()]
+                    if 'fail_count' not in columns:
+                        cur.execute("ALTER TABLE audio_features ADD COLUMN fail_count INTEGER DEFAULT 0")
+                    cur.execute(
+                        "UPDATE audio_features SET failed = 1, fail_count = COALESCE(fail_count, 0) + 1 WHERE file_path = ?",
+                        (filepath,)
+                    )
+                    conn.commit()
+                    conn.close()
                     if failed_retries[filepath] >= MAX_SEQUENTIAL_RETRIES:
                         failed_files.append(filepath)
-                        # Mark as failed in DB
-                        audio_analyzer = AudioAnalyzer(audio_db.cache_file, audio_db.host_music_dir, audio_db.container_music_dir)
-                        file_info = audio_analyzer._get_file_info(filepath)
-                        audio_analyzer._mark_failed(file_info)
-                        logger.warning(f"File {filepath} failed {MAX_SEQUENTIAL_RETRIES} times in sequential mode. Marked as permanently failed and will be skipped for the rest of this run.")
+                        # Reset fail_count to 0, keep failed=1
+                        conn = sqlite3.connect(audio_db.cache_file)
+                        cur = conn.cursor()
+                        cur.execute(
+                            "UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?",
+                            (filepath,)
+                        )
+                        conn.commit()
+                        conn.close()
+                        logger.warning(f"File {filepath} failed {MAX_SEQUENTIAL_RETRIES} times in sequential mode. fail_count reset to 0, will be retried in next --failed/--force run. Skipping for the rest of this run.")
                         # Do NOT append back to normal_files; skip for the rest of the run
                     else:
                         # Retry this file later in the same run
