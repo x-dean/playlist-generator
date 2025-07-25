@@ -557,4 +557,45 @@ class AudioAnalyzer:
             logger.error(f"Database cleanup failed: {str(e)}")
             return []
 
+    def enrich_metadata_for_failed_file(self, file_info):
+        """Enrich metadata for a failed file using MusicBrainz and Last.fm, and update DB."""
+        # Try to extract artist/title from tags
+        meta = {}
+        try:
+            audiofile = MutagenFile(file_info['file_path'], easy=True)
+            if audiofile:
+                meta = {k: (v[0] if isinstance(v, list) and v else v) for k, v in audiofile.items()}
+        except Exception as e:
+            logger.warning(f"Mutagen tag extraction failed for enrichment: {e}")
+        artist = meta.get('artist')
+        title = meta.get('title')
+        mb_tags = {}
+        lastfm_tags = {}
+        updated_fields = []
+        if artist and title:
+            mb_tags = self._musicbrainz_lookup(artist, title)
+            for k, v in mb_tags.items():
+                if v and (k not in meta or meta[k] != v):
+                    meta[k] = v
+                    updated_fields.append(f"mb:{k}")
+            # Fallback to Last.fm for missing fields
+            missing_fields = [field for field in ['genre', 'year', 'album'] if not meta.get(field)]
+            if missing_fields:
+                lastfm_tags = self._lastfm_lookup(artist, title)
+                for field in missing_fields:
+                    v = lastfm_tags.get(field)
+                    if v and not meta.get(field):
+                        meta[field] = v
+                        updated_fields.append(f"lastfm:{field}")
+        # Update only the metadata column, keep failed=1
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "UPDATE audio_features SET metadata = ?, failed = 1 WHERE file_hash = ?",
+                    (json.dumps(meta), file_info['file_hash'])
+                )
+            logger.info(f"Enriched metadata for failed file {file_info['file_path']} (fields updated: {updated_fields})")
+        except Exception as e:
+            logger.error(f"Error updating metadata for failed file {file_info['file_path']}: {e}")
+
 audio_analyzer = AudioAnalyzer()

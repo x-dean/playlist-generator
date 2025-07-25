@@ -186,6 +186,10 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                     cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
                     conn.commit()
                     conn.close()
+                    # Enrich metadata for failed file
+                    analyzer = AudioAnalyzer(audio_db.cache_file)
+                    file_info = analyzer._get_file_info(filepath)
+                    analyzer.enrich_metadata_for_failed_file(file_info)
                     logger.warning(f"Skipping {filepath} as it has already failed 3 times in this run. fail_count reset to 0.")
                     continue
                 processed_count += 1
@@ -219,6 +223,10 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
                         conn.commit()
                         conn.close()
+                        # Enrich metadata for failed file
+                        analyzer = AudioAnalyzer(audio_db.cache_file)
+                        file_info = analyzer._get_file_info(filepath)
+                        analyzer.enrich_metadata_for_failed_file(file_info)
                         logger.warning(f"File {filepath} failed 3 times. Skipping for the rest of this run and resetting fail_count.")
                         continue  # skip for rest of run, keep failed=1
                     else:

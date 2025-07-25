@@ -205,6 +205,11 @@ class ParallelProcessor:
                                         cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
                                         conn.commit()
                                         conn.close()
+                                        # Enrich metadata for failed file
+                                        from music_analyzer.feature_extractor import AudioAnalyzer
+                                        analyzer = AudioAnalyzer(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
+                                        file_info = analyzer._get_file_info(filepath)
+                                        analyzer.enrich_metadata_for_failed_file(file_info)
                                         logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run and resetting fail_count.")
                                         continue  # skip for rest of run, keep failed=1
                                     else:
