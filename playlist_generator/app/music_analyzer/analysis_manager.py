@@ -146,6 +146,8 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
     processed_count = 0
     total_files = len(normal_files) + len(big_files)
     progress = create_progress_bar(total_files)
+    MAX_SEQUENTIAL_RETRIES = 3
+    failed_retries = {}
     with progress:
         task_id = progress.add_task(f"Analyzing: (0/{total_files})", total=total_files, trackinfo="")
         if args.force_sequential or (args.workers and args.workers <= 1):
@@ -174,7 +176,18 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                 )
                 logger.debug(f"Features: {features}")
                 if not features:
-                    failed_files.append(filepath)
+                    failed_retries[filepath] = failed_retries.get(filepath, 0) + 1
+                    if failed_retries[filepath] >= MAX_SEQUENTIAL_RETRIES:
+                        failed_files.append(filepath)
+                        # Mark as failed in DB
+                        audio_analyzer = AudioAnalyzer(audio_db.cache_file, audio_db.host_music_dir, audio_db.container_music_dir)
+                        file_info = audio_analyzer._get_file_info(filepath)
+                        audio_analyzer._mark_failed(file_info)
+                        logger.warning(f"File {filepath} failed {MAX_SEQUENTIAL_RETRIES} times in sequential mode. Marked as permanently failed.")
+                    else:
+                        # Retry this file later in the same run
+                        normal_files.append(filepath)
+                        logger.info(f"Retrying {filepath} ({failed_retries[filepath]}/{MAX_SEQUENTIAL_RETRIES}) in sequential mode.")
                 if stop_event.is_set():
                     db_features = audio_db.get_all_features(include_failed=True)
                     db_files = set(f['filepath'] for f in db_features)
