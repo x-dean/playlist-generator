@@ -159,6 +159,7 @@ class ParallelProcessor:
                 logger.info(f"Starting multiprocessing with {self.workers} workers (retry {retries})")
                 ctx = mp.get_context('spawn')
                 failed_in_batch = []
+                enrich_later = []
                 for i in range(0, len(remaining_files), self.batch_size):
                     batch = remaining_files[i:i+self.batch_size]
                     if stop_event and stop_event.is_set():
@@ -205,11 +206,7 @@ class ParallelProcessor:
                                         cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
                                         conn.commit()
                                         conn.close()
-                                        # Enrich metadata for failed file
-                                        from music_analyzer.feature_extractor import AudioAnalyzer
-                                        analyzer = AudioAnalyzer(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                                        file_info = analyzer._get_file_info(filepath)
-                                        analyzer.enrich_metadata_for_failed_file(file_info)
+                                        enrich_later.append(filepath)
                                         logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run and resetting fail_count.")
                                         continue  # skip for rest of run, keep failed=1
                                     else:
@@ -226,6 +223,13 @@ class ParallelProcessor:
                             # Always ensure pool is terminated and joined on exit
                             pool.terminate()
                             pool.join()
+                # After all batches, enrich metadata for failed files (sequentially, to avoid DB lock)
+                if enrich_later:
+                    from music_analyzer.feature_extractor import AudioAnalyzer
+                    analyzer = AudioAnalyzer(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
+                    for filepath in enrich_later:
+                        file_info = analyzer._get_file_info(filepath)
+                        analyzer.enrich_metadata_for_failed_file(file_info)
                 if failed_in_batch:
                     logger.info(f"Retrying {len(failed_in_batch)} failed files in next round")
                     files_to_retry = []
