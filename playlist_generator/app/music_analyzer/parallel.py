@@ -168,6 +168,17 @@ class ParallelProcessor:
                             from functools import partial
                             worker_func = partial(process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
+                                # Check if file is permanently failed for this run
+                                import sqlite3
+                                conn = sqlite3.connect(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
+                                cur = conn.cursor()
+                                cur.execute("SELECT failed, COALESCE(fail_count, 0) FROM audio_features WHERE file_path = ?", (filepath,))
+                                row = cur.fetchone()
+                                if row and row[0] == 1 and row[1] == 0:
+                                    conn.close()
+                                    logger.warning(f"Skipping {filepath} as it has already failed 3 times in this run.")
+                                    continue
+                                conn.close()
                                 if stop_event and stop_event.is_set():
                                     break
                                 import sqlite3
