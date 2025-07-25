@@ -9,6 +9,7 @@ from rich.console import Console
 from music_analyzer.parallel import ParallelProcessor, UserAbortException
 from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.feature_extractor import AudioAnalyzer
+import json
 
 logger = logging.getLogger()
 BIG_FILE_SIZE_MB = 200
@@ -244,6 +245,8 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             # Parallel for normal files (with force_reextract)
             par_manager = ParallelWorkerManager(stop_event)
             if normal_files:
+                from music_analyzer.feature_extractor import AudioAnalyzer
+                analyzer = AudioAnalyzer(audio_db.cache_file)
                 for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count(), force_reextract=force_reextract):
                     if stop_event.is_set():
                         break
@@ -270,32 +273,31 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         refresh=True
                     )
                     logger.debug(f"Features: {features}")
-                    if not features:
-                        # Mark as failed in DB
+                    # After processing, check if metadata is present
+                    file_info = analyzer._get_file_info(filepath)
+                    meta = None
+                    try:
                         conn = sqlite3.connect(audio_db.cache_file)
                         cur = conn.cursor()
-                        cur.execute("SELECT COALESCE(fail_count, 0) FROM audio_features WHERE file_path = ?", (filepath,))
+                        cur.execute("SELECT metadata FROM audio_features WHERE file_path = ?", (filepath,))
                         row = cur.fetchone()
-                        fail_count = row[0] if row else 0
-                        new_fail_count = fail_count + 1
-                        if new_fail_count >= MAX_SEQUENTIAL_RETRIES:
-                            cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
-                            conn.commit()
-                            conn.close()
-                            logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run and resetting fail_count.")
-                            continue  # skip for rest of run, keep failed=1
-                        else:
-                            cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
-                            conn.commit()
-                            conn.close()
-                    else:
+                        meta = json.loads(row[0]) if row and row[0] else {}
+                        conn.close()
+                    except Exception as e:
+                        logger.error(f"Error reading metadata for {filepath}: {e}")
+                        meta = {}
+                    if not meta or not any(meta.values()):
+                        # If metadata is still empty, set failed=1
                         conn = sqlite3.connect(audio_db.cache_file)
                         cur = conn.cursor()
-                        cur.execute("UPDATE audio_features SET fail_count = 0, failed = 0 WHERE file_path = ?", (filepath,))
+                        cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
                         conn.commit()
                         conn.close()
+                        logger.warning(f"File {filepath} has empty metadata after --force, marked as failed.")
             # Sequential for big files (with force_reextract)
             if big_files:
+                from music_analyzer.feature_extractor import AudioAnalyzer
+                analyzer = AudioAnalyzer(audio_db.cache_file)
                 seq_manager = SequentialWorkerManager(stop_event)
                 for features, filepath in seq_manager.process(big_files, workers=1, force_reextract=force_reextract):
                     processed_count += 1
@@ -316,29 +318,27 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         trackinfo=f"{display_name} ({size_mb:.1f} MB)" if size_mb > 200 else "",
                         refresh=True
                     )
-                    if not features:
+                    # After processing, check if metadata is present
+                    file_info = analyzer._get_file_info(filepath)
+                    meta = None
+                    try:
                         conn = sqlite3.connect(audio_db.cache_file)
                         cur = conn.cursor()
-                        cur.execute("SELECT COALESCE(fail_count, 0) FROM audio_features WHERE file_path = ?", (filepath,))
+                        cur.execute("SELECT metadata FROM audio_features WHERE file_path = ?", (filepath,))
                         row = cur.fetchone()
-                        fail_count = row[0] if row else 0
-                        new_fail_count = fail_count + 1
-                        if new_fail_count >= MAX_SEQUENTIAL_RETRIES:
-                            cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
-                            conn.commit()
-                            conn.close()
-                            logger.warning(f"File {filepath} failed 3 times in sequential mode. Skipping for the rest of this run and resetting fail_count.")
-                            continue  # skip for rest of run, keep failed=1
-                        else:
-                            cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
-                            conn.commit()
-                            conn.close()
-                    else:
+                        meta = json.loads(row[0]) if row and row[0] else {}
+                        conn.close()
+                    except Exception as e:
+                        logger.error(f"Error reading metadata for {filepath}: {e}")
+                        meta = {}
+                    if not meta or not any(meta.values()):
+                        # If metadata is still empty, set failed=1
                         conn = sqlite3.connect(audio_db.cache_file)
                         cur = conn.cursor()
-                        cur.execute("UPDATE audio_features SET fail_count = 0, failed = 0 WHERE file_path = ?", (filepath,))
+                        cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
                         conn.commit()
                         conn.close()
+                        logger.warning(f"Big file {filepath} has empty metadata after --force, marked as failed.")
         else:
             # Parallel for normal files
             par_manager = ParallelWorkerManager(stop_event)
