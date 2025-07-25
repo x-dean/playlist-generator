@@ -116,18 +116,70 @@ def get_host_library_path() -> str:
                         host_path = parts[0]
                         container_path = parts[1]
                         if container_path == '/music':
-                            return host_path
+                            # Filter out loop devices and prefer actual host paths
+                            if not host_path.startswith('/dev/loop'):
+                                return host_path
+                            # If we only find loop devices, try to resolve the real path
+                            elif host_path.startswith('/dev/loop'):
+                                # Try to get the real path from the loop device
+                                try:
+                                    import subprocess
+                                    result = subprocess.run(['losetup', '-l'], 
+                                                          capture_output=True, text=True, timeout=5)
+                                    if result.returncode == 0:
+                                        for losetup_line in result.stdout.splitlines():
+                                            if host_path in losetup_line:
+                                                # Extract the backing file path
+                                                parts = losetup_line.split()
+                                                if len(parts) >= 7:  # Format: device backing_file
+                                                    backing_file = parts[5]
+                                                    # Extract the directory part
+                                                    if '/music' in backing_file:
+                                                        # Find the host path by removing the container path
+                                                        host_dir = backing_file.replace('/music', '').rstrip('/')
+                                                        if host_dir:
+                                                            return host_dir
+                                except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+                                    pass
     except (FileNotFoundError, PermissionError):
         pass
     
-    # Try to get from Docker Compose environment
-    # The volume mount is /root/music/library:/music
-    # We can detect this by checking if we're in a container
-    if os.path.exists('/.dockerenv'):
-        # We're in a Docker container, use the default host path
-        return '/root/music/library'
+    # Try to get from Docker inspect (if available)
+    try:
+        import subprocess
+        result = subprocess.run(['docker', 'inspect', '--format', '{{.Mounts}}', 'playlista'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            # Parse the mount information
+            mounts = result.stdout.strip()
+            if '/music' in mounts:
+                # Extract the host path from the mount info
+                import re
+                match = re.search(r'([^:]+):/music', mounts)
+                if match:
+                    return match.group(1)
+    except (subprocess.TimeoutExpired, FileNotFoundError, subprocess.SubprocessError):
+        pass
     
-    # Fallback to default
+    # Try to get from /proc/self/mountinfo (more detailed mount info)
+    try:
+        with open('/proc/self/mountinfo', 'r') as f:
+            for line in f:
+                if '/music' in line:
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        # Format: ID MAJOR:MINOR ROOT MOUNT_POINT OPTIONS
+                        mount_point = parts[4]
+                        if mount_point == '/music':
+                            # The host path is in the root field (parts[3])
+                            # But we need to resolve it properly
+                            root_path = parts[3]
+                            # This is complex - let's try a different approach
+                            pass
+    except (FileNotFoundError, PermissionError):
+        pass
+    
+    # If all else fails, use the default
     return '/root/music/library'
 
 # Initialize system monitoring
@@ -326,7 +378,8 @@ Examples:
 
     args = parser.parse_args()
     
-
+    print(f"=== DEBUG: Auto-detected host path = {get_host_library_path()} ===")
+    print(f"=== DEBUG: args.library after parsing = {args.library} ===")
 
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
