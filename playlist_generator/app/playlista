@@ -143,6 +143,8 @@ import signal
 
 def main() -> None:
     """Main entry point for the Playlista CLI application."""
+    # Clear the terminal screen (cross-platform)
+    os.system('cls' if os.name == 'nt' else 'clear')
     # Print Playlista ASCII art banner
     banner = r"""
   _                ___  __ ___     
