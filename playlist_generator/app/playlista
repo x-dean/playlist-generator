@@ -226,6 +226,9 @@ Examples:
 
     args = parser.parse_args()
 
+    cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+    cache_file = os.path.join(cache_dir, 'audio_analysis.db')
+
     console = Console()
     console.print(f"[bold magenta]{banner}[/bold magenta]")
     total_files = len(get_audio_files(args.library))
@@ -247,10 +250,6 @@ Examples:
         print("\nReceived SIGINT (Ctrl+C), stopping gracefully...")
         stop_event.set()
     signal.signal(signal.SIGINT, handle_sigint)
-
-    # Set cache file path
-    cache_file = os.path.join(cache_dir, 'audio_analysis.db')
-    playlist_db = PlaylistDatabase(cache_file)
 
     # Set logging level from CLI
     logger.setLevel(getattr(pylogging, args.log_level.upper(), pylogging.WARNING))
