@@ -11,7 +11,12 @@ from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.feature_extractor import AudioAnalyzer
 import json
 import shutil
+from utils.logging_setup import setup_colored_logging
 import os
+setup_colored_logging()
+log_level = os.getenv('LOG_LEVEL', 'INFO')
+import logging
+logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
 logger = logging.getLogger()
 BIG_FILE_SIZE_MB = 200
