@@ -252,9 +252,7 @@ Examples:
     # -h/--help is available by default in argparse
     # Remove --music_dir argument
     # Rename --library to --library
-    parser.add_argument('--library', default='/music', help='Music library directory (default: /music)')
-    # Host library path for path conversion
-    parser.add_argument('--host_library', default=None, help='Host music library path for playlist path conversion')
+    parser.add_argument('--library', default='/music', help='Host music library directory (default: /music)')
     # Output directory for playlists
     parser.add_argument('--output_dir', default='/app/playlists', help='Output directory')
     # Cache directory
@@ -303,9 +301,7 @@ Examples:
     # Initialize playlist_db and audio_db early for all modes
     playlist_db = PlaylistDatabase(cache_file)
     # For path conversion: library should be host path, music should be container path
-    # Use host_library if provided, otherwise fall back to library
-    host_library = args.host_library or args.library
-    audio_db = AudioAnalyzer(cache_file, library=host_library, music='/music')
+    audio_db = AudioAnalyzer(cache_file, library=args.library, music='/music')
     
     total_in_db = len(audio_db.get_all_features())
     console.print(f"[cyan]Total music files found in library:[/cyan] [bold]{total_files}[/bold]")
