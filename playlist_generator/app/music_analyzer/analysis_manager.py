@@ -25,7 +25,8 @@ def select_files_for_analysis(args, audio_db):
     if args.force:
         files_to_analyze = [f for f in file_list if fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
     elif args.failed:
-        files_to_analyze = [f for f in file_list if (f not in db_files or f in failed_files_db) and fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
+        # Only process files explicitly marked as failed in the DB
+        files_to_analyze = [f for f in file_list if f in failed_files_db and fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
     else:
         files_to_analyze = [f for f in file_list if f not in db_files and fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
     def is_big_file(filepath):
