@@ -143,7 +143,7 @@ import signal
 
 def main() -> None:
     """Main entry point for the Audiolizer CLI application."""
-    cli.start_session()
+    # Remove the call to cli.start_session
 
     stop_event = multiprocessing.Event()
     def handle_sigint(signum, frame):

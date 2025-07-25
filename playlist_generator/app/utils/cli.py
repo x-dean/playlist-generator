@@ -21,19 +21,6 @@ class PlaylistGeneratorCLI:
         self.progress = None
         self.start_time = None
 
-    def start_session(self) -> None:
-        """Start a new generation session with welcome message."""
-        self.start_time = time.time()
-        logo = '''[bold magenta]
-   ____        _     _ _       _           
-  / __ \ _   _| |__ (_) | ___ | |__   __ _ 
- / / _` | | | | '_ \| | |/ _ \| '_ \ / _` |
-| | (_| | |_| | |_) | | | (_) | |_) | (_| |
- \ \__,_|\__,_|_.__/|_|_|\___/|_.__/ \__,_|
-  \____/                                    
-[/bold magenta]'''
-        self.console.print(Panel(logo, title="🎵 Playlist Generator", border_style="magenta"))
-
     def create_progress(self, description: str, total: int) -> Tuple[Progress, int]:
         """Create a new progress bar"""
         progress = Progress(

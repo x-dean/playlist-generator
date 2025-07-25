@@ -554,21 +554,18 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     results.append(('Default', res1))
     console.print("[green]PIPELINE: Default analysis complete[/green]\n")
 
-    console.print("[bold cyan]PIPELINE: Starting force re-analyze (with cache)[/bold cyan]")
-    console.print("[dim]This step re-analyzes all files, updating features and tags if needed (uses cache).[/dim]")
-    args.force = True
-    args.failed = False
+    console.print("[bold cyan]PIPELINE: Enriching missing tags from MusicBrainz and Last.fm (if API provided)[/bold cyan]")
     res2 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False, pipeline_mode=True)
     results.append(('Force', res2))
-    console.print("[green]PIPELINE: Force re-analyze complete[/green]\n")
+    console.print("[green]PIPELINE: Tags enriching complete[/green]\n")
 
-    console.print("[bold cyan]PIPELINE: Starting failed retry[/bold cyan]")
-    console.print("[dim]This step retries files that failed in previous steps, up to 3 times, and moves them to the failed folder if they still fail.[/dim]")
+    console.print("[bold cyan]PIPELINE: Retrying failed files[/bold cyan]")
+
     args.force = False
     args.failed = True
     res3 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=True, pipeline_mode=True)
     results.append(('Failed', res3))
-    console.print("[green]PIPELINE: Failed retry complete[/green]\n")
+    console.print("[green]PIPELINE: Failed files retry complete[/green]\n")
 
     # Show a single summary table at the end
     table = Table(title="Pipeline Summary")
