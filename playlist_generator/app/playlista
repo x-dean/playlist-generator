@@ -137,7 +137,7 @@ def get_audio_files(music_dir: str) -> list[str]:
     logger.info(f"Found {len(file_list)} audio files in {music_dir}")
     return file_list
 
-def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, music: str, failed_files: list[str], playlist_method: Optional[str] = None) -> None:
+def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, music: str, failed_files: list[str], playlist_method: Optional[str] = None, host_library: str = None) -> None:
     """Saves generated playlists to disk.
 
     Args:
@@ -177,13 +177,13 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
             logger.info(f"Sample paths from playlist '{name}':")
             for i, song in enumerate(playlist_data['tracks'][:3]):  # First 3 tracks
                 logger.info(f"  Track {i+1}: {song}")
-                converted = convert_to_host_path(song, args.library, '/music')
+                converted = convert_to_host_path(song, host_library or library, '/music')
                 logger.info(f"  Converted: {converted}")
-                logger.info(f"  Host Library: {args.library}, Container Music: /music")
+                logger.info(f"  Host Library: {host_library or library}, Container Music: /music")
         
-        # Convert container paths to host paths using the library argument
+        # Convert container paths to host paths using the host_library parameter
         host_songs = [
-            convert_to_host_path(song, args.library, '/music')
+            convert_to_host_path(song, host_library or library, '/music')
             for song in playlist_data['tracks']
         ]
         playlist_path = os.path.join(playlist_out_dir, f"{name}.m3u")
@@ -197,10 +197,10 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
     if failed_files:
         failed_path = os.path.join(output_dir, "Failed_Files.m3u")
         with open(failed_path, 'w') as f:
-            host_failed = [
-                convert_to_host_path(p, args.library, '/music')
-                for p in failed_files
-            ]
+                    host_failed = [
+            convert_to_host_path(p, host_library or library, '/music')
+            for p in failed_files
+        ]
             f.write("\n".join(host_failed))
         logger.info(f"Saved {len(failed_files)} failed files to {failed_path}")
 
@@ -426,7 +426,7 @@ Examples:
                 method_dir = os.path.join(args.output_dir, 'tags')
             else:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
-            save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method)
+            save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method, host_library=args.library)
 
         elif args.analyze or args.failed or args.force:
             failed_files = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=args.no_cache)
@@ -453,7 +453,7 @@ Examples:
                 method_dir = os.path.join(args.output_dir, 'tags')
             else:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
-            save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method)
+            save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method, host_library=args.library)
 
         else:
             cli.update_status("Running full processing pipeline")
@@ -499,7 +499,7 @@ Examples:
                 method_dir = os.path.join(args.output_dir, 'tags')
             else:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
-            save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method)
+            save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method, host_library=args.library)
 
         # Show failed files if any
         if failed_files:
