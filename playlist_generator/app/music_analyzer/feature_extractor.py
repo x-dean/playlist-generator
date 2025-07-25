@@ -16,6 +16,7 @@ import json
 from typing import Optional
 from functools import wraps
 from utils.path_utils import convert_to_host_path
+from utils.path_converter import PathConverter
 import requests
 
 logger = logging.getLogger()
@@ -148,7 +149,8 @@ class AudioAnalyzer:
 
     def _normalize_to_library_path(self, path):
         if self.library and self.music:
-            return convert_to_host_path(path, self.library, self.music)
+            path_converter = PathConverter(self.library, self.music)
+            return path_converter.container_to_host(path)
         return os.path.normpath(path)
 
     def _safe_audio_load(self, audio_path):

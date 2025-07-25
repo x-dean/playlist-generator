@@ -72,6 +72,7 @@ import traceback
 import multiprocessing as mp
 from utils.logging_setup import setup_colored_logging, setup_queue_colored_logging
 from utils.path_utils import convert_to_host_path
+from utils.path_converter import PathConverter
 from music_analyzer.feature_extractor import AudioAnalyzer
 from database.playlist_db import PlaylistDatabase
 from music_analyzer.parallel import ParallelProcessor
@@ -160,6 +161,9 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
             return slot
         return None
 
+    # Initialize path converter
+    path_converter = PathConverter(host_library or library, '/music')
+    
     saved_count = 0
     for name, playlist_data in playlists.items():
         if 'tracks' not in playlist_data or not playlist_data['tracks']:
@@ -178,15 +182,12 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
             logger.info(f"Sample paths from playlist '{name}':")
             for i, song in enumerate(playlist_data['tracks'][:3]):  # First 3 tracks
                 logger.info(f"  Track {i+1}: {song}")
-                converted = convert_to_host_path(song, host_library or library, '/music')
+                converted = path_converter.container_to_host(song)
                 logger.info(f"  Converted: {converted}")
-                logger.info(f"  Host Library: {host_library or library}, Container Music: /music")
+                logger.info(f"  Host Library: {path_converter.host_library}, Container Music: {path_converter.container_music}")
         
-        # Convert container paths to host paths using the host_library parameter
-        host_songs = [
-            convert_to_host_path(song, host_library or library, '/music')
-            for song in playlist_data['tracks']
-        ]
+        # Convert container paths to host paths using the path converter
+        host_songs = path_converter.convert_playlist_tracks(playlist_data['tracks'])
         playlist_path = os.path.join(playlist_out_dir, f"{name}.m3u")
         with open(playlist_path, 'w') as f:
             f.write("\n".join(host_songs))
@@ -198,10 +199,7 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
     if failed_files:
         failed_path = os.path.join(output_dir, "Failed_Files.m3u")
         with open(failed_path, 'w') as f:
-            host_failed = [
-                convert_to_host_path(p, host_library or library, '/music')
-                for p in failed_files
-            ]
+            host_failed = path_converter.convert_failed_files(failed_files)
             f.write("\n".join(host_failed))
         logger.info(f"Saved {len(failed_files)} failed files to {failed_path}")
 
