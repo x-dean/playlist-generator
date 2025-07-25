@@ -226,31 +226,20 @@ Examples:
 
     args = parser.parse_args()
 
-    import logging as pylogging
-    import os
-    # Set log level and environment variable early
-    log_level = getattr(pylogging, args.log_level.upper(), pylogging.WARNING)
-    pylogging.getLogger().setLevel(log_level)
-    os.environ['LOG_LEVEL'] = args.log_level.upper()
-
-    from utils.logging_setup import setup_colored_logging
-    logger = setup_colored_logging()
-
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
 
     console = Console()
     console.print(f"[bold magenta]{banner}[/bold magenta]")
     total_files = len(get_audio_files(args.library))
-    # Use a separate instance for stats
-    audio_db_stats = AudioAnalyzer(cache_file, library=args.library, music='/music')
-    total_in_db = len(audio_db_stats.get_all_features())
+    audio_db = AudioAnalyzer(cache_file, library=args.library, music='/music')
+    total_in_db = len(audio_db.get_all_features())
     console.print(f"[cyan]Total music files found in library:[/cyan] [bold]{total_files}[/bold]")
     console.print(f"[cyan]Total tracks in database:[/cyan] [bold]{total_in_db}[/bold]")
 
     if args.pipeline:
         from music_analyzer.analysis_manager import run_pipeline
-        # Fresh instances for pipeline
+        # Initialize audio_db and playlist_db for pipeline
         audio_db = AudioAnalyzer(cache_file, library=args.library, music='/music')
         playlist_db = PlaylistDatabase(cache_file)
         run_pipeline(args, audio_db, playlist_db, cli)
@@ -261,6 +250,10 @@ Examples:
         print("\nReceived SIGINT (Ctrl+C), stopping gracefully...")
         stop_event.set()
     signal.signal(signal.SIGINT, handle_sigint)
+
+    # Set logging level from CLI
+    logger.setLevel(getattr(pylogging, args.log_level.upper(), pylogging.WARNING))
+    os.environ['LOG_LEVEL'] = args.log_level.upper()
 
     # If --status is set, show statistics and exit
     if getattr(args, 'status', False):
