@@ -41,12 +41,8 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     import os
     import traceback
     from .feature_extractor import AudioAnalyzer
-    from utils.logging_setup import setup_colored_logging
-    setup_colored_logging()
     import logging
     import os
-    log_level = os.getenv('LOG_LEVEL', 'INFO')
-    logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
     audio_analyzer = AudioAnalyzer()
     max_retries = 2
     retry_count = 0
