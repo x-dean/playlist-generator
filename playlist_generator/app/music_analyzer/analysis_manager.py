@@ -95,9 +95,9 @@ class ParallelWorkerManager:
 class SequentialWorkerManager:
     def __init__(self, stop_event):
         self.stop_event = stop_event
-    def process(self, files, workers):
+    def process(self, files, workers, **kwargs):
         processor = SequentialProcessor()
-        return processor.process(files, workers=workers, stop_event=self.stop_event)
+        return processor.process(files, workers=workers, stop_event=self.stop_event, **kwargs)
 
 class BigFileWorkerManager:
     def __init__(self, stop_event, audio_db):
