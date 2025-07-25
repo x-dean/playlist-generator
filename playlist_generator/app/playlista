@@ -177,12 +177,13 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
             logger.info(f"Sample paths from playlist '{name}':")
             for i, song in enumerate(playlist_data['tracks'][:3]):  # First 3 tracks
                 logger.info(f"  Track {i+1}: {song}")
-                converted = convert_to_host_path(song, library, music)
+                converted = convert_to_host_path(song, args.library, '/music')
                 logger.info(f"  Converted: {converted}")
-                logger.info(f"  Library: {library}, Music: {music}")
+                logger.info(f"  Host Library: {args.library}, Container Music: /music")
         
+        # Convert container paths to host paths using the library argument
         host_songs = [
-            convert_to_host_path(song, library, music)
+            convert_to_host_path(song, args.library, '/music')
             for song in playlist_data['tracks']
         ]
         playlist_path = os.path.join(playlist_out_dir, f"{name}.m3u")
@@ -197,7 +198,7 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
         failed_path = os.path.join(output_dir, "Failed_Files.m3u")
         with open(failed_path, 'w') as f:
             host_failed = [
-                convert_to_host_path(p, library, music)
+                convert_to_host_path(p, args.library, '/music')
                 for p in failed_files
             ]
             f.write("\n".join(host_failed))
@@ -300,7 +301,7 @@ Examples:
     
     # Initialize playlist_db and audio_db early for all modes
     playlist_db = PlaylistDatabase(cache_file)
-    # For path conversion: library should be host path, music should be container path
+    # AudioAnalyzer needs host library path for database storage, container music path for conversion
     audio_db = AudioAnalyzer(cache_file, library=args.library, music='/music')
     
     total_in_db = len(audio_db.get_all_features())
