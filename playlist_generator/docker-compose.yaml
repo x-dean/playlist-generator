@@ -1,19 +1,16 @@
 services:
   audiolizer:
     build: .
-    user: "${CURRENT_UID:-1000}:${CURRENT_GID:-1000}"
     entrypoint: ["audiolizer"]
     volumes:
       - /root/music/library:/music
       - /root/music/library/playlists/auto:/app/playlists
       - /root/music/library/playlists/auto/cache:/app/cache
     environment:
-      - UID=${CURRENT_UID:-1000}
-      - GID=${CURRENT_GID:-1000}
       - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
       - MIN_TRACKS_PER_GENRE=${MIN_TRACKS_PER_GENRE:-10}
       - LASTFM_API_KEY=9fd1f789ebdf1297e6aa1590a13d85e0
     working_dir: /app
     tty: true
-    # Service and ent
+    # NOTE: The host directory /root/music/library/playlists/auto/cache must be owned by root for file moves to succeed.
     
