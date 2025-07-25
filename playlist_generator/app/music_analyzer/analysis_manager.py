@@ -597,7 +597,7 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
             failed = str(moved_failed)
         else:
             failed = res.get('failed_this_run', '-')
-        table.add_row(labels.get(stage, stage), str(processed), failed)
+        table.add_row(labels.get(stage, stage), str(processed), str(failed))
     console.print(table)
     console.print("\n[bold green]PIPELINE: Complete. Now you can start generating playlists![/bold green]\n")
 
