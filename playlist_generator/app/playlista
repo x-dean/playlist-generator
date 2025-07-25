@@ -149,7 +149,7 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
         playlist_method (str | None): The method used to generate playlists (e.g., 'time', 'kmeans').
     """
     # For time-based, create subfolders per slot
-    def get_time_slot_from_name(name: str) -> str | None:
+    def get_time_slot_from_name(name: str) -> Optional[str]:
         if name.startswith("TimeSlot_"):
             slot_part = name[len("TimeSlot_"):]
             if "_Part" in slot_part:
