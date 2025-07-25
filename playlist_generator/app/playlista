@@ -81,14 +81,14 @@ def get_audio_files(music_dir: str) -> list[str]:
     logger.info(f"Found {len(file_list)} audio files in {music_dir}")
     return file_list
 
-def save_playlists(playlists: dict[str, dict], output_dir: str, host_music_dir: str, container_music_dir: str, failed_files: list[str], playlist_method: Optional[str] = None) -> None:
+def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, music: str, failed_files: list[str], playlist_method: Optional[str] = None) -> None:
     """Saves generated playlists to disk.
 
     Args:
         playlists (dict[str, dict]): Dictionary of playlist names to their data.
         output_dir (str): Root output directory.
-        host_music_dir (str): Path to the host's music directory.
-        container_music_dir (str): Path to the container's music directory.
+        library (str): Path to the host's music directory.
+        music (str): Path to the container's music directory.
         failed_files (list[str]): List of failed file paths.
         playlist_method (str | None): The method used to generate playlists (e.g., 'time', 'kmeans').
     """
@@ -117,7 +117,7 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, host_music_dir: 
         os.makedirs(playlist_out_dir, exist_ok=True)
 
         host_songs = [
-            convert_to_host_path(song, host_music_dir, container_music_dir)
+            convert_to_host_path(song, library, music)
             for song in playlist_data['tracks']
         ]
         playlist_path = os.path.join(playlist_out_dir, f"{name}.m3u")
@@ -132,7 +132,7 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, host_music_dir: 
         failed_path = os.path.join(output_dir, "Failed_Files.m3u")
         with open(failed_path, 'w') as f:
             host_failed = [
-                convert_to_host_path(p, host_music_dir, container_music_dir)
+                convert_to_host_path(p, library, music)
                 for p in failed_files
             ]
             f.write("\n".join(host_failed))
@@ -195,7 +195,7 @@ Examples:
 ''')
     # -h/--help is available by default in argparse
     # Remove --music_dir argument
-    # Rename --host_music_dir to --library
+    # Rename --library to --library
     parser.add_argument('--library', default='/music', help='Music library directory (default: /music)')
     # Output directory for playlists
     parser.add_argument('--output_dir', default='/app/playlists', help='Output directory')
@@ -274,7 +274,7 @@ Examples:
     # Remove the call to cli.show_config
     
     # Initialize components
-    audio_db = AudioAnalyzer(cache_file, host_music_dir=args.library, container_music_dir='/music')
+    audio_db = AudioAnalyzer(cache_file, library=args.library, music='/music')
     # Pass min_tracks_per_genre to PlaylistManager if using tags method
     if args.playlist_method == 'tags':
         playlist_manager = PlaylistManager(
@@ -282,8 +282,8 @@ Examples:
     else:
         playlist_manager = PlaylistManager(cache_file, args.playlist_method)
     
-    container_music_dir = '/music'
-    host_music_dir = args.library
+    music = '/music'
+    library = args.library
     failed_files = []
 
     if not os.path.exists(args.library):
@@ -352,7 +352,7 @@ Examples:
                 method_dir = os.path.join(args.output_dir, 'tags')
             else:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
-            save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
+            save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method)
 
         elif args.analyze or args.failed or args.force:
             failed_files = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=args.no_cache)
@@ -373,12 +373,12 @@ Examples:
                 method_dir = os.path.join(args.output_dir, 'tags')
             else:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
-            save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
+            save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method)
 
         else:
             cli.update_status("Running full processing pipeline")
             file_list = get_audio_files(args.library)
-            file_list = [convert_to_host_path(f, host_music_dir, container_music_dir) for f in file_list]
+            file_list = [convert_to_host_path(f, library, music) for f in file_list]
             
             # Analysis phase
             with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
@@ -419,7 +419,7 @@ Examples:
                 method_dir = os.path.join(args.output_dir, 'tags')
             else:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
-            save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
+            save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method)
 
         # Show failed files if any
         if failed_files:

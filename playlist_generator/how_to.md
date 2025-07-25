@@ -43,7 +43,7 @@ This guide explains every supported command and flag, what it does, and how to t
 | `--num_playlists N`  | Number of playlists to generate (for kmeans).                               | `./run.sh -g -m kmeans --num_playlists 10 ...`<br>Check number of playlists. |
 | `--output_dir DIR`   | Where to save playlists.                                                     | `./run.sh ... --output_dir=/my/output ...`<br>Check output location. |
 | `--music_dir DIR`    | Music directory (container path).                                            | `./run.sh ... --music_dir=/music ...` |
-| `--host_music_dir DIR` | Music directory (host path).                                               | `./run.sh ... --host_music_dir=/music ...` |
+| `--library DIR` | Music directory (host path).                                               | `./run.sh ... --library=/music ...` |
 | `--min_tracks_per_genre N` | Minimum tracks for a genre playlist (tags method).                    | `./run.sh -g -m tags --min_tracks_per_genre 15 ...`<br>Check which genres get playlists. |
 | `--force_sequential` | Forces sequential processing (no parallelism).                              | `./run.sh -a --force_sequential ...`<br>Check for single-threaded operation. |
 

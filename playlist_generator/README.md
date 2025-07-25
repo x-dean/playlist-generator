@@ -38,37 +38,37 @@ Choose with `-m` or `--playlist_method`:
 
 ### A. Analyze Your Music Library
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --host_music_dir=/path/to/music --output_dir=/path/to/playlists
+./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
 ```
 - Scans all audio files, extracts features, and updates the database.
 
 ### B. Generate Playlists (from DB, no re-analysis)
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --host_music_dir=/path/to/music --output_dir=/path/to/playlists
+./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
 ```
 - Uses cached features to generate playlists (default: feature-group method).
 
 ### C. Update All Playlists (regenerate from DB)
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --host_music_dir=/path/to/music --output_dir=/path/to/playlists
+./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
 ```
 - Regenerates all playlists from the database and updates the DB tables.
 
 ### D. Generate Time-Based Playlists
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --host_music_dir=/path/to/music --output_dir=/path/to/playlists
+./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
 ```
 - Creates playlists for each time slot (e.g., Morning, Afternoon), splitting if the total duration exceeds the slot.
 
 ### E. Generate KMeans Playlists
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --host_music_dir=/path/to/music --output_dir=/path/to/playlists
+./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
 ```
 - Clusters tracks by features, always assigns all tracks, fallback to “Mixed_Collection” if needed.
 
 ### F. Generate Cache-Based Playlists
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --host_music_dir=/path/to/music --output_dir=/path/to/playlists
+./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
 ```
 - Groups tracks by feature bins (legacy/alternative to “all”).
 
@@ -81,7 +81,7 @@ When using the tag-based playlist method (`-m tags`), you can control the minimu
 - **Usage Example:**
 
 ```sh
-./run.sh --analyze --music_dir=/music --host_music_dir=/music --output_dir=/playlists
+./run.sh --analyze --music_dir=/music --library=/music --output_dir=/playlists
 ```
 
 This will only create genre+decade playlists for genres that have at least 15 tracks in your library.
@@ -162,7 +162,7 @@ You can adjust the threshold as needed. Genres with fewer tracks will be ignored
 | `--workers N`       | Number of parallel workers                   |
 | `--output_dir DIR`  | Where to save playlists                      |
 | `--music_dir DIR`   | Music directory (container path)             |
-| `--host_music_dir DIR` | Music directory (host path)               |
+| `--library DIR` | Music directory (host path)               |
 | `--min_tracks_per_genre N` | Minimum tracks required for a genre to create a playlist (tags method) |
 
 ---
@@ -171,13 +171,13 @@ You can adjust the threshold as needed. Genres with fewer tracks will be ignored
 
 ```sh
 # 1. Analyze your music library
-./run.sh --analyze --music_dir=/music --host_music_dir=/music --output_dir=/playlists
+./run.sh --analyze --music_dir=/music --library=/music --output_dir=/playlists
 
 # 2. Generate time-based playlists for radio
-./run.sh --analyze --music_dir=/music --host_music_dir=/music --output_dir=/playlists
+./run.sh --analyze --music_dir=/music --library=/music --output_dir=/playlists
 
 # 3. Update all playlists after adding new music
-./run.sh --analyze --music_dir=/music --host_music_dir=/music --output_dir=/playlists
+./run.sh --analyze --music_dir=/music --library=/music --output_dir=/playlists
 ```
 
 ---
