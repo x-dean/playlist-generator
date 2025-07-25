@@ -156,6 +156,14 @@ def main() -> None:
 """
     console = Console()
     console.print(f"[bold magenta]{banner}[/bold magenta]")
+
+    # Show total music files found and total in database
+    total_files = len(get_audio_files(args.library))
+    # Initialize audio_db for DB count (use correct args)
+    audio_db = AudioAnalyzer(cache_file, library=args.library, music='/music')
+    total_in_db = len(audio_db.get_all_features())
+    console.print(f"[cyan]Total music files found in library:[/cyan] [bold]{total_files}[/bold]")
+    console.print(f"[cyan]Total tracks in database:[/cyan] [bold]{total_in_db}[/bold]")
     # Remove the call to cli.start_session
 
     stop_event = multiprocessing.Event()
