@@ -373,7 +373,7 @@ Examples:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
             save_playlists(all_playlists, method_dir, host_music_dir, container_music_dir, failed_files, playlist_method=args.playlist_method)
 
-        elif args.analyze:
+        elif args.analyze or args.failed or args.force:
             failed_files = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event)
 
         elif args.generate_only:
