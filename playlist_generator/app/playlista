@@ -143,6 +143,15 @@ import signal
 
 def main() -> None:
     """Main entry point for the Playlista CLI application."""
+    # Print Playlista ASCII art banner
+    banner = r"""
+  _                ___  __ ___     
+ |_) |   /\ \_/ |   |  (_   |  /\  
+ |   |_ /--\ |  |_ _|_ __)  | /--\ 
+                                    
+"""
+    console = Console()
+    console.print(f"[bold magenta]{banner}[/bold magenta]")
     # Remove the call to cli.start_session
 
     stop_event = multiprocessing.Event()
