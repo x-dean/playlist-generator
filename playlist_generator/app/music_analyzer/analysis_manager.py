@@ -3,12 +3,12 @@ import multiprocessing
 import signal
 import logging
 import psutil
+import sqlite3
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.console import Console
 from music_analyzer.parallel import ParallelProcessor, UserAbortException
 from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.feature_extractor import AudioAnalyzer
-import sqlite3
 
 logger = logging.getLogger()
 BIG_FILE_SIZE_MB = 200
