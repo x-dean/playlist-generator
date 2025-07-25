@@ -142,7 +142,7 @@ from music_analyzer.analysis_manager import run_analysis, run_pipeline
 import signal
 
 def main() -> None:
-    """Main entry point for the Audiolizer CLI application."""
+    """Main entry point for the Playlista CLI application."""
     # Remove the call to cli.start_session
 
     stop_event = multiprocessing.Event()
@@ -153,7 +153,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description='''
-Audiolizer: Fast, flexible music playlist generator and analyzer.
+Playlista: Fast, flexible music playlist generator and analyzer.
 
 - Analyze your music library for audio features
 - Generate playlists using multiple methods (feature-group, time, kmeans, cache, tags)
@@ -178,13 +178,13 @@ Usage Tips:
   - Combine --analyze and --enrich_tags for full enrichment
 
 Examples:
-  audiolizer --analyze --workers 8
-  audiolizer --generate_only
-  audiolizer --update
-  audiolizer --enrich_only --force
-  audiolizer --analyze --failed
-  audiolizer --force_sequential
-  audiolizer --playlist_method tags --min_tracks_per_genre 15
+  playlista --analyze --workers 8
+  playlista --generate_only
+  playlista --update
+  playlista --enrich_only --force
+  playlista --analyze --failed
+  playlista --force_sequential
+  playlista --playlist_method tags --min_tracks_per_genre 15
 ''')
     group = parser.add_mutually_exclusive_group(required=False)
     # Fixed paths, so not exposed as CLI options:

@@ -1,7 +1,8 @@
 services:
-  audiolizer:
+  playlista:
+    container_name: playlista
     build: .
-    entrypoint: ["audiolizer"]
+    entrypoint: ["playlista"]
     volumes:
       - /root/music/library:/music
       - /root/music/library/playlists/auto:/app/playlists

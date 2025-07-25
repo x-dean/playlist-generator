@@ -46,8 +46,8 @@ RUN touch /app/database/__init__.py && \
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \
     chmod -R 777 /app/playlists /app/cache
 
-# Make audiolizer executable and add to PATH
-RUN chmod +x /app/audiolizer
+# Make playlista executable and add to PATH
+RUN chmod +x /app/playlista
 ENV PATH="${PATH}:/app"
 
 # Set environment variables
@@ -56,4 +56,4 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     CACHE_DIR=/app/cache 
 
-CMD ["audiolizer"]
+CMD ["playlista"]
