@@ -99,6 +99,37 @@ setup_queue_colored_logging(logfile_path='/app/logs/playlista.log')
 import logging as pylogging
 pylogging.getLogger("musicbrainzngs").setLevel(pylogging.WARNING)
 
+def get_host_library_path() -> str:
+    """Get the host library path from Docker volume mount."""
+    # Try to get from environment variable first
+    host_library = os.getenv('HOST_LIBRARY_PATH')
+    if host_library:
+        return host_library
+    
+    # Try to detect from /proc/mounts (Linux containers)
+    try:
+        with open('/proc/mounts', 'r') as f:
+            for line in f:
+                if '/music' in line:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        host_path = parts[0]
+                        container_path = parts[1]
+                        if container_path == '/music':
+                            return host_path
+    except (FileNotFoundError, PermissionError):
+        pass
+    
+    # Try to get from Docker Compose environment
+    # The volume mount is /root/music/library:/music
+    # We can detect this by checking if we're in a container
+    if os.path.exists('/.dockerenv'):
+        # We're in a Docker container, use the default host path
+        return '/root/music/library'
+    
+    # Fallback to default
+    return '/root/music/library'
+
 # Initialize system monitoring
 # Remove SystemMonitor and monitor_performance imports
 # Remove @monitor_performance decorators from get_audio_files and main
@@ -256,7 +287,7 @@ Examples:
     # -h/--help is available by default in argparse
     # Remove --music_dir argument
     # Rename --library to --library
-    parser.add_argument('--library', default='/music', help='Host music library directory (default: /music)')
+    parser.add_argument('--library', default=get_host_library_path(), help='Host music library directory (auto-detected from Docker volume mount)')
     # Output directory for playlists
     parser.add_argument('--output_dir', default='/app/playlists', help='Output directory')
     # Cache directory
