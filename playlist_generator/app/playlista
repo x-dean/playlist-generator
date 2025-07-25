@@ -162,6 +162,9 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
         return None
 
     # Initialize path converter
+    print(f"DEBUG: host_library = {host_library}")
+    print(f"DEBUG: library = {library}")
+    print(f"DEBUG: Using host_library or library = {host_library or library}")
     path_converter = PathConverter(host_library or library, '/music')
     
     saved_count = 0
