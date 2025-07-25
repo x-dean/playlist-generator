@@ -154,26 +154,7 @@ def main() -> None:
  |   |_ /--\ |  |_ _|_ __)  | /--\ 
                                     
 """
-    console = Console()
-    console.print(f"[bold magenta]{banner}[/bold magenta]")
-
-    # Argument parsing must come first
-    args = parser.parse_args()
-
-    # Now you can use args.library, etc.
-    total_files = len(get_audio_files(args.library))
-    audio_db = AudioAnalyzer(cache_file, library=args.library, music='/music')
-    total_in_db = len(audio_db.get_all_features())
-    console.print(f"[cyan]Total music files found in library:[/cyan] [bold]{total_files}[/bold]")
-    console.print(f"[cyan]Total tracks in database:[/cyan] [bold]{total_in_db}[/bold]")
-    # Remove the call to cli.start_session
-
-    stop_event = multiprocessing.Event()
-    def handle_sigint(signum, frame):
-        print("\nReceived SIGINT (Ctrl+C), stopping gracefully...")
-        stop_event.set()
-    signal.signal(signal.SIGINT, handle_sigint)
-
+    # ArgumentParser setup must come first
     parser = argparse.ArgumentParser(
         description='''
 Playlista: Fast, flexible music playlist generator and analyzer.
@@ -245,9 +226,20 @@ Examples:
 
     args = parser.parse_args()
 
-    # Normalize workers: treat 0 as auto (parallel)
-    if args.workers is not None and int(args.workers) < 1:
-        args.workers = None
+    console = Console()
+    console.print(f"[bold magenta]{banner}[/bold magenta]")
+    total_files = len(get_audio_files(args.library))
+    audio_db = AudioAnalyzer(cache_file, library=args.library, music='/music')
+    total_in_db = len(audio_db.get_all_features())
+    console.print(f"[cyan]Total music files found in library:[/cyan] [bold]{total_files}[/bold]")
+    console.print(f"[cyan]Total tracks in database:[/cyan] [bold]{total_in_db}[/bold]")
+    # Remove the call to cli.start_session
+
+    stop_event = multiprocessing.Event()
+    def handle_sigint(signum, frame):
+        print("\nReceived SIGINT (Ctrl+C), stopping gracefully...")
+        stop_event.set()
+    signal.signal(signal.SIGINT, handle_sigint)
 
     # Set cache file path
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
