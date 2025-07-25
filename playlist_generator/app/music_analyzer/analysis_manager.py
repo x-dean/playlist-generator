@@ -165,7 +165,9 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     progress.update(
                         task_id,
                         description=f"Analyzing: {filename} (1/{total_files})",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else ""
+                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else "",
+                        advance=1,
+                        refresh=True
                     )
                     import time
                     time.sleep(0.5)
@@ -173,7 +175,8 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     task_id,
                     advance=1,
                     description=f"Analyzing: {filename} ({processed_count}/{total_files})",
-                    trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else ""
+                    trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else "",
+                    refresh=True
                 )
                 logger.debug(f"Features: {features}")
                 if not features:
@@ -205,7 +208,8 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                         task_id,
                         advance=1,
                         description=f"Analyzing: {filename} ({processed_count}/{total_files})",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else ""
+                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else "",
+                        refresh=True
                     )
                     logger.debug(f"Features: {features}")
                     if not features:
@@ -235,7 +239,9 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     progress.update(
                         task_id,
                         description=f"Analyzing: {filename} ({processed_count+1}/{total_files})",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)"
+                        trackinfo=f"{filename} ({size_mb:.1f} MB)",
+                        advance=1,
+                        refresh=True
                     )
                     import time
                     time.sleep(0.5)  # Give the bar a chance to render
@@ -252,11 +258,12 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                             task_id,
                             description=f"Analyzing (big file): {filename} ({size_mb:.1f} MB) ({processed_count+1}/{total_files}) [Elapsed: {elapsed}s]"
                         )
-                        time.sleep(0.5)
+                        time.sleep(0.3)
                     processed_count += 1
                     progress.update(
                         task_id,
-                        advance=1
+                        advance=1,
+                        refresh=True
                     )
                     logger.debug(f"Features: {result}")
                     if not result or not result[0]:
