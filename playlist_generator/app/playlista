@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 
-import argparse
 import os
+os.environ["GLOG_minloglevel"] = "3"  # Only FATAL
+os.environ["GLOG_logtostderr"] = "1"
+os.environ["GLOG_stderrthreshold"] = "3"
+
+import essentia
+essentia.log.infoActive = False
+essentia.log.warningActive = False
+essentia.log.errorActive = False
+
+import argparse
 import sys
 import time
 import traceback
@@ -27,15 +36,6 @@ import multiprocessing
 import threading
 from rich.live import Live
 from rich.spinner import Spinner
-import essentia
-essentia.log.infoActive = False
-essentia.log.warningActive = False
-essentia.log.errorActive = False
-
-# Suppress glog output before importing Essentia or any C++ modules
-os.environ["GLOG_minloglevel"] = "3"  # Only FATAL
-os.environ["GLOG_logtostderr"] = "1"
-os.environ["GLOG_stderrthreshold"] = "3"
 
 logger = setup_colored_logging()
 
