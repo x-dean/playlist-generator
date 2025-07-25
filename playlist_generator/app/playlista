@@ -194,10 +194,9 @@ Examples:
   playlista --playlist_method tags --min_tracks_per_genre 15
 ''')
     # -h/--help is available by default in argparse
-    # Music directory in the container
-    parser.add_argument('--music_dir', default='/music', help='Music directory in container')
-    # Host music directory
-    parser.add_argument('--host_music_dir', default='/music', help='Host music directory')
+    # Remove --music_dir argument
+    # Rename --host_music_dir to --library
+    parser.add_argument('--library', default='/music', help='Music library directory (default: /music)')
     # Output directory for playlists
     parser.add_argument('--output_dir', default='/app/playlists', help='Output directory')
     # Cache directory
@@ -275,7 +274,7 @@ Examples:
     # Remove the call to cli.show_config
     
     # Initialize components
-    audio_db = AudioAnalyzer(cache_file, host_music_dir=args.host_music_dir, container_music_dir=args.music_dir)
+    audio_db = AudioAnalyzer(cache_file, host_music_dir=args.library, container_music_dir='/music')
     # Pass min_tracks_per_genre to PlaylistManager if using tags method
     if args.playlist_method == 'tags':
         playlist_manager = PlaylistManager(
@@ -283,12 +282,12 @@ Examples:
     else:
         playlist_manager = PlaylistManager(cache_file, args.playlist_method)
     
-    container_music_dir = args.music_dir.rstrip('/')
-    host_music_dir = args.host_music_dir.rstrip('/')
+    container_music_dir = '/music'
+    host_music_dir = args.library
     failed_files = []
 
-    if not os.path.exists(args.music_dir):
-        cli.show_error(f"Music directory not found: {args.music_dir}")
+    if not os.path.exists(args.library):
+        cli.show_error(f"Music directory not found: {args.library}")
         sys.exit(1)
 
     start_time = time.time()
@@ -378,7 +377,7 @@ Examples:
 
         else:
             cli.update_status("Running full processing pipeline")
-            file_list = get_audio_files(args.music_dir)
+            file_list = get_audio_files(args.library)
             file_list = [convert_to_host_path(f, host_music_dir, container_music_dir) for f in file_list]
             
             # Analysis phase

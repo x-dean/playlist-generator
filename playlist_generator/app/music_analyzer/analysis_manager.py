@@ -18,7 +18,7 @@ BIG_FILE_SIZE_MB = 200
 # --- File Selection ---
 def select_files_for_analysis(args, audio_db):
     """Return (normal_files, big_files) to analyze based on args and DB state."""
-    file_list = get_audio_files(args.music_dir)
+    file_list = get_audio_files(args.library)
     db_features = audio_db.get_all_features(include_failed=True)
     db_files = set(f['filepath'] for f in db_features)
     failed_files_db = set(f['filepath'] for f in db_features if f['failed'])
@@ -175,7 +175,7 @@ class BigFileWorkerManager:
                     queue.put(result)
                 except Exception as e:
                     queue.put(None)
-            p = multiprocessing.Process(target=analyze_in_subprocess, args=(filepath, self.audio_db.cache_file, self.audio_db.host_music_dir, self.audio_db.container_music_dir, queue, self.stop_event))
+            p = multiprocessing.Process(target=analyze_in_subprocess, args=(filepath, self.audio_db.cache_file, self.audio_db.library, self.audio_db.container_music_dir, queue, self.stop_event))
             p.start()
             self.processes.append(p)
             try:
@@ -187,7 +187,7 @@ class BigFileWorkerManager:
                 result = None
                 # Mark as failed if interrupted
                 try:
-                    analyzer = AudioAnalyzer(self.audio_db.cache_file, self.audio_db.host_music_dir, self.audio_db.container_music_dir)
+                    analyzer = AudioAnalyzer(self.audio_db.cache_file, self.audio_db.library, self.audio_db.container_music_dir)
                     file_info = analyzer._get_file_info(filepath)
                     analyzer._mark_failed(file_info)
                 except Exception as e:
