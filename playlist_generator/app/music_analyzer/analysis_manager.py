@@ -183,7 +183,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                 if fail_count >= MAX_SEQUENTIAL_RETRIES:
                     conn = sqlite3.connect(audio_db.cache_file)
                     cur = conn.cursor()
-                    cur.execute("UPDATE audio_features SET fail_count = 0 WHERE file_path = ?", (filepath,))
+                    cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
                     conn.commit()
                     conn.close()
                     logger.warning(f"Skipping {filepath} as it has already failed 3 times in this run. fail_count reset to 0.")
@@ -216,7 +216,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                     cur = conn.cursor()
                     new_fail_count = fail_count + 1
                     if new_fail_count >= MAX_SEQUENTIAL_RETRIES:
-                        cur.execute("UPDATE audio_features SET fail_count = 0 WHERE file_path = ?", (filepath,))
+                        cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
                         conn.commit()
                         conn.close()
                         logger.warning(f"File {filepath} failed 3 times. Skipping for the rest of this run and resetting fail_count.")
