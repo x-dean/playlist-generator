@@ -163,11 +163,15 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
         task_id = progress.add_task(f"Analyzing: (0/{total_files})", total=total_files, trackinfo="")
         if args.failed:
             # Only process failed files sequentially
-            seq_manager = SequentialWorkerManager(stop_event)
-            for features, filepath in seq_manager.process(normal_files, workers=1):
+            import sqlite3
+            conn = sqlite3.connect(audio_db.cache_file)
+            cur = conn.cursor()
+            cur.execute("SELECT file_path, COALESCE(fail_count, 0) FROM audio_features WHERE failed=1")
+            failed_tracks = cur.fetchall()
+            conn.close()
+            processed_count = 0
+            for filepath, fail_count in failed_tracks:
                 processed_count += 1
-                if stop_event.is_set():
-                    break
                 filename = os.path.basename(filepath)
                 max_len = 50
                 if len(filename) > max_len:
@@ -185,43 +189,31 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     trackinfo=f"{display_name} ({size_mb:.1f} MB)" if size_mb > 200 else "",
                     refresh=True
                 )
-                logger.debug(f"Features: {features}")
+                # Process the file
+                seq_manager = SequentialWorkerManager(stop_event)
+                features = None
+                for f, fp in seq_manager.process([filepath], workers=1):
+                    features = f
                 if not features:
-                    failed_retries[filepath] = failed_retries.get(filepath, 0) + 1
-                    import sqlite3
                     conn = sqlite3.connect(audio_db.cache_file)
                     cur = conn.cursor()
-                    cur.execute("PRAGMA table_info(audio_features)")
-                    columns = [row[1] for row in cur.fetchall()]
-                    if 'fail_count' not in columns:
-                        cur.execute("ALTER TABLE audio_features ADD COLUMN fail_count INTEGER DEFAULT 0")
-                    cur.execute(
-                        "UPDATE audio_features SET failed = 1, fail_count = COALESCE(fail_count, 0) + 1 WHERE file_path = ?",
-                        (filepath,)
-                    )
-                    conn.commit()
-                    if failed_retries[filepath] >= MAX_SEQUENTIAL_RETRIES:
-                        failed_files.append(filepath)
-                        # Reset fail_count to 0, keep failed=1
-                        cur.execute(
-                            "UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?",
-                            (filepath,)
-                        )
+                    new_fail_count = fail_count + 1
+                    if new_fail_count >= MAX_SEQUENTIAL_RETRIES:
+                        cur.execute("UPDATE audio_features SET fail_count = 0 WHERE file_path = ?", (filepath,))
                         conn.commit()
                         conn.close()
-                        logger.warning(f"File {filepath} failed {MAX_SEQUENTIAL_RETRIES} times in sequential mode. fail_count reset to 0, will be retried in next --failed/--force run. Skipping for the rest of this run.")
-                        # Do NOT append back to normal_files; skip for the rest of the run
+                        logger.warning(f"File {filepath} failed 3 times. Skipping for the rest of this run and resetting fail_count.")
+                        continue  # skip for rest of run, keep failed=1
                     else:
+                        cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
+                        conn.commit()
                         conn.close()
-                        # Retry this file later in the same run
-                        normal_files.append(filepath)
-                        logger.info(f"Retrying {filepath} ({failed_retries[filepath]}/{MAX_SEQUENTIAL_RETRIES}) in sequential mode.")
-                if stop_event.is_set():
-                    db_features = audio_db.get_all_features(include_failed=True)
-                    db_files = set(f['filepath'] for f in db_features)
-                    if filepath in db_files:
-                        print(f"Graceful stop: {filepath} successfully added to DB. Exiting.")
-                        break
+                else:
+                    conn = sqlite3.connect(audio_db.cache_file)
+                    cur = conn.cursor()
+                    cur.execute("UPDATE audio_features SET fail_count = 0, failed = 0 WHERE file_path = ?", (filepath,))
+                    conn.commit()
+                    conn.close()
         else:
             # Parallel for normal files
             par_manager = ParallelWorkerManager(stop_event)
