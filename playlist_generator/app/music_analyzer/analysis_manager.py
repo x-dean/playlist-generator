@@ -36,7 +36,6 @@ def select_files_for_analysis(args, audio_db):
         files_to_analyze = [f for f in file_list if fail_count_map.get(f, 0) < MAX_SEQUENTIAL_RETRIES]
     elif args.failed:
         # Directly query the DB for failed files (ignore fail_count)
-        import sqlite3
         conn = sqlite3.connect(audio_db.cache_file)
         cur = conn.cursor()
         cur.execute("SELECT file_path FROM audio_features WHERE failed=1")
@@ -173,7 +172,6 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
         task_id = progress.add_task(f"Analyzing: (0/{total_files})", total=total_files, trackinfo="")
         if args.failed:
             # Only process failed files sequentially
-            import sqlite3
             conn = sqlite3.connect(audio_db.cache_file)
             cur = conn.cursor()
             cur.execute("SELECT file_path, COALESCE(fail_count, 0) FROM audio_features WHERE failed=1")
@@ -256,7 +254,6 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     features = f
                 if not features:
                     failed_retries[filepath] = failed_retries.get(filepath, 0) + 1
-                    import sqlite3
                     conn = sqlite3.connect(audio_db.cache_file)
                     cur = conn.cursor()
                     new_fail_count = failed_retries[filepath]
