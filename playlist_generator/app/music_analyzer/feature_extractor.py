@@ -1,5 +1,8 @@
 import numpy as np
 import essentia.standard as es
+import essentia
+essentia.log.infoActive = False
+essentia.log.warningActive = False
 import os
 import logging
 import hashlib
