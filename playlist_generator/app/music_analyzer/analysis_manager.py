@@ -547,25 +547,28 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     results = []
     console = Console()
     console.print("[bold cyan]PIPELINE: Starting default analysis[/bold cyan]")
-    console.print("[dim]This step analyzes new or changed files in your music library.[/dim]")
+    console.print("[dim]Analyze new files[/dim]")
     args.force = False
     args.failed = False
     res1 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False, pipeline_mode=True)
     results.append(('Default', res1))
-    console.print("[green]PIPELINE: Default analysis complete[/green]\n")
+    console.print("[green]PIPELINE: Default analysis complete (new files analyzed)[/green]\n")
 
     console.print("[bold cyan]PIPELINE: Enriching missing tags from MusicBrainz and Last.fm (if API provided)[/bold cyan]")
+    console.print("[dim]Enriching tags from MusicBrainz and Last.fm[/dim]")
+    args.force = True
+    args.failed = False
     res2 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False, pipeline_mode=True)
     results.append(('Force', res2))
-    console.print("[green]PIPELINE: Tags enriching complete[/green]\n")
+    console.print("[green]PIPELINE: Tags enriching complete (tags updated)[/green]\n")
 
     console.print("[bold cyan]PIPELINE: Retrying failed files[/bold cyan]")
-
+    console.print("[dim]Retry failed files[/dim]")
     args.force = False
     args.failed = True
     res3 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=True, pipeline_mode=True)
     results.append(('Failed', res3))
-    console.print("[green]PIPELINE: Failed files retry complete[/green]\n")
+    console.print("[green]PIPELINE: Failed files retry complete (failures handled)[/green]\n")
 
     # Show a single summary table at the end
     table = Table(title="Pipeline Summary")
@@ -577,6 +580,7 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
         failed = res.get('failed_this_run', '-')
         table.add_row(stage, str(processed), str(failed))
     console.print(table)
+    console.print("[bold green]PIPELINE: Complete. Exiting.[/bold green]")
 
 # --- File Discovery Helper ---
 def get_audio_files(music_dir: str) -> list[str]:
