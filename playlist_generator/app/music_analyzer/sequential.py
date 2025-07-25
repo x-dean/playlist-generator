@@ -31,6 +31,8 @@ class SequentialProcessor:
 
     def _process_sequential(self, file_list: list[str], stop_event=None, force_reextract: bool = False) -> iter:
         """Internal generator for sequential processing."""
+        from utils.logging_setup import setup_queue_colored_logging
+        setup_queue_colored_logging()
         import essentia
         essentia.log.infoActive = False
         essentia.log.warningActive = False

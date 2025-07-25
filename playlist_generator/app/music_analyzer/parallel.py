@@ -32,6 +32,8 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     Returns:
         Optional[tuple]: (features dict, filepath, db_write_success bool) or None on failure.
     """
+    from utils.logging_setup import setup_queue_colored_logging
+    setup_queue_colored_logging()
     import essentia
     essentia.log.infoActive = False
     essentia.log.warningActive = False

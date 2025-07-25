@@ -61,7 +61,7 @@ import sys
 import time
 import traceback
 import multiprocessing as mp
-from utils.logging_setup import setup_colored_logging
+from utils.logging_setup import setup_colored_logging, setup_queue_colored_logging
 from utils.path_utils import convert_to_host_path
 from music_analyzer.feature_extractor import AudioAnalyzer
 from database.playlist_db import PlaylistDatabase
@@ -84,6 +84,7 @@ from rich.live import Live
 from rich.spinner import Spinner
 
 logger = setup_colored_logging()
+setup_queue_colored_logging()
 
 import logging as pylogging
 pylogging.getLogger("musicbrainzngs").setLevel(pylogging.WARNING)

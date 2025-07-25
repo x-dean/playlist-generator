@@ -1,6 +1,57 @@
 import logging
 import sys
+import threading
+import queue
+import time
 from colorlog import ColoredFormatter
+
+log_queue = None
+log_consumer_thread = None
+
+def setup_queue_colored_logging():
+    global log_queue, log_consumer_thread
+    if log_queue is not None:
+        return  # Already set up in this process
+    log_queue = queue.Queue()
+
+    class QueueHandler(logging.Handler):
+        def emit(self, record):
+            try:
+                msg = self.format(record)
+                log_queue.put(msg)
+            except Exception:
+                pass
+
+    def log_consumer():
+        while True:
+            try:
+                msg = log_queue.get(timeout=0.5)
+                print(msg)
+                time.sleep(0.05)  # Throttle: adjust as needed
+            except queue.Empty:
+                continue
+
+    queue_handler = QueueHandler()
+    color_formatter = ColoredFormatter(
+        "%(log_color)s%(asctime)s %(levelname)-8s%(reset)s %(message)s",
+        datefmt="%H:%M:%S",
+        reset=True,
+        log_colors={
+            'DEBUG': 'cyan',
+            'INFO': 'green',
+            'WARNING': 'yellow',
+            'ERROR': 'red',
+            'CRITICAL': 'red,bg_white',
+        },
+        style='%'
+    )
+    queue_handler.setFormatter(color_formatter)
+    root_logger = logging.getLogger()
+    root_logger.handlers = [queue_handler]
+
+    log_consumer_thread = threading.Thread(target=log_consumer, daemon=True)
+    log_consumer_thread.start()
+
 
 def setup_colored_logging():
     logger = logging.getLogger()
