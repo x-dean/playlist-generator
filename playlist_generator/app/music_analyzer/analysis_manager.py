@@ -156,26 +156,20 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                 if stop_event.is_set():
                     break
                 filename = os.path.basename(filepath)
+                max_len = 50
+                if len(filename) > max_len:
+                    display_name = filename[:max_len-3] + "..."
+                else:
+                    display_name = filename
                 try:
                     size_mb = os.path.getsize(filepath) / (1024 * 1024)
                 except Exception:
                     size_mb = 0
-                # If this is the first file, force a bar update and short sleep
-                if processed_count == 1:
-                    progress.update(
-                        task_id,
-                        description=f"Analyzing: {filename} (1/{total_files})",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else "",
-                        advance=1,
-                        refresh=True
-                    )
-                    import time
-                    time.sleep(0.5)
                 progress.update(
                     task_id,
                     advance=1,
-                    description=f"Analyzing: {filename} ({processed_count}/{total_files})",
-                    trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else "",
+                    description=f"Analyzing: {display_name} ({processed_count}/{total_files})",
+                    trackinfo=f"{display_name} ({size_mb:.1f} MB)" if size_mb > 200 else "",
                     refresh=True
                 )
                 logger.debug(f"Features: {features}")
@@ -197,6 +191,11 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     processed_count += 1
                     if filepath:
                         filename = os.path.basename(filepath)
+                        max_len = 50
+                        if len(filename) > max_len:
+                            display_name = filename[:max_len-3] + "..."
+                        else:
+                            display_name = filename
                         try:
                             size_mb = os.path.getsize(filepath) / (1024 * 1024)
                         except Exception:
@@ -207,8 +206,8 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     progress.update(
                         task_id,
                         advance=1,
-                        description=f"Analyzing: {filename} ({processed_count}/{total_files})",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)" if size_mb > 200 else "",
+                        description=f"Analyzing: {display_name} ({processed_count}/{total_files})",
+                        trackinfo=f"{display_name} ({size_mb:.1f} MB)" if size_mb > 200 else "",
                         refresh=True
                     )
                     logger.debug(f"Features: {features}")
@@ -231,6 +230,11 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     if stop_event.is_set():
                         break
                     filename = os.path.basename(filepath)
+                    max_len = 50
+                    if len(filename) > max_len:
+                        display_name = filename[:max_len-3] + "..."
+                    else:
+                        display_name = filename
                     try:
                         size_mb = os.path.getsize(filepath) / (1024 * 1024)
                     except Exception:
@@ -238,8 +242,8 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                     # Show which big file is being processed before starting
                     progress.update(
                         task_id,
-                        description=f"Analyzing: {filename} ({processed_count+1}/{total_files})",
-                        trackinfo=f"{filename} ({size_mb:.1f} MB)",
+                        description=f"Analyzing: {display_name} ({processed_count+1}/{total_files})",
+                        trackinfo=f"{display_name} ({size_mb:.1f} MB)",
                         advance=1,
                         refresh=True
                     )
@@ -256,7 +260,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                         elapsed = int(time.time() - start_time)
                         progress.update(
                             task_id,
-                            description=f"Analyzing (big file): {filename} ({size_mb:.1f} MB) ({processed_count+1}/{total_files}) [Elapsed: {elapsed}s]"
+                            description=f"Analyzing (big file): {display_name} ({size_mb:.1f} MB) ({processed_count+1}/{total_files}) [Elapsed: {elapsed}s]"
                         )
                         time.sleep(0.3)
                     processed_count += 1
