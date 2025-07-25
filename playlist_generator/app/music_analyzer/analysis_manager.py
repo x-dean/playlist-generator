@@ -202,7 +202,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None):
                 # Process the file
                 seq_manager = SequentialWorkerManager(stop_event)
                 features = None
-                for f, fp in seq_manager.process([filepath], workers=1):
+                for f, fp in seq_manager.process([filepath], workers=1, force_reextract=True):
                     features = f
                 if not features:
                     conn = sqlite3.connect(audio_db.cache_file)

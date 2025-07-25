@@ -298,11 +298,12 @@ class AudioAnalyzer:
             logger.warning(f"Last.fm lookup failed for {artist} - {title}: {e}")
             return {}
 
-    def extract_features(self, audio_path: str) -> Optional[tuple]:
+    def extract_features(self, audio_path: str, force_reextract: bool = False) -> Optional[tuple]:
         """Extract features from an audio file.
 
         Args:
             audio_path (str): Path to the audio file.
+            force_reextract (bool): If True, bypass the cache and re-extract features.
 
         Returns:
             Optional[tuple]: (features dict, db_write_success bool, file_hash str) or None on failure.
@@ -310,10 +311,11 @@ class AudioAnalyzer:
         try:
             file_info = self._get_file_info(audio_path)
             self.timeout_seconds = 180
-            cached_features = self._get_cached_features(file_info)
-            if cached_features:
-                logger.info(f"Using cached features for {file_info['file_path']}")
-                return cached_features, True, file_info['file_hash']
+            if not force_reextract:
+                cached_features = self._get_cached_features(file_info)
+                if cached_features:
+                    logger.info(f"Using cached features for {file_info['file_path']}")
+                    return cached_features, True, file_info['file_hash']
             audio = self._safe_audio_load(audio_path)
             if audio is None:
                 logger.warning(f"Audio loading failed for {audio_path}")
