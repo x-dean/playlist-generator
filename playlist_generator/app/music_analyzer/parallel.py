@@ -212,9 +212,7 @@ class ParallelProcessor:
                             pool.join()
                 if failed_in_batch:
                     logger.info(f"Retrying {len(failed_in_batch)} failed files in next round")
-                    remaining_files = failed_in_batch
-                    self.failed_files.extend(failed_in_batch)
-                    # Robust fail_count/failed marking for all failed files in this batch
+                    files_to_retry = []
                     for filepath in failed_in_batch:
                         conn = sqlite3.connect(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
                         cur = conn.cursor()
@@ -225,10 +223,14 @@ class ParallelProcessor:
                         if new_fail_count >= 3:
                             cur.execute("UPDATE audio_features SET fail_count = 0, failed = 1 WHERE file_path = ?", (filepath,))
                             logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run and resetting fail_count.")
+                            # Do NOT add to files_to_retry; skip for rest of run
                         else:
                             cur.execute("UPDATE audio_features SET fail_count = ? WHERE file_path = ?", (new_fail_count, filepath))
+                            files_to_retry.append(filepath)
                         conn.commit()
                         conn.close()
+                    remaining_files = files_to_retry
+                    self.failed_files.extend(files_to_retry)
                 else:
                     logger.info(f"Batch processing complete: {len(file_list)} files processed, {len(self.failed_files)} failed in total.")
                     return
