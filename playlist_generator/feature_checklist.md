@@ -76,38 +76,6 @@ Use this checklist to test each feature independently. Mark each as complete (wi
   **DB Inspection Command:** `sqlite3 /app/cache/audio_analysis.db 'SELECT name FROM playlists WHERE name LIKE "%1990s%";'`  
   **Comments:**
 
-- [ ] **Enrich missing tags (`--enrich_tags`)**  
-  **Test Environment/Setup:** DB should contain tracks missing genre/year metadata.  
-  **Command:** `./run.sh --enrich_tags ...`  
-  **Check:** DB metadata updated.  
-  **Expected Output:** Console shows enrichment progress; DB metadata for tracks missing genre/year is updated.  
-  **DB Inspection Command:** `sqlite3 /app/cache/audio_analysis.db 'SELECT COUNT(*) FROM audio_features WHERE json_extract(metadata, "$.genre") IS NOT NULL;'`  
-  **Comments:**
-
-- [ ] **Force enrich all tags (`--enrich_tags --force_enrich_tags`)**  
-  **Test Environment/Setup:** DB with tracks (regardless of current metadata).  
-  **Command:** `./run.sh --enrich_tags --force_enrich_tags ...`  
-  **Check:** All tags refreshed.  
-  **Expected Output:** Console shows enrichment progress; all tracks' metadata is refreshed in DB.  
-  **DB Inspection Command:** `sqlite3 /app/cache/audio_analysis.db 'SELECT COUNT(*) FROM audio_features WHERE json_extract(metadata, "$.genre") IS NOT NULL;'`  
-  **Comments:**
-
-- [ ] **Enrich only (`--enrich_only`)**  
-  **Test Environment/Setup:** DB with tracks, some missing metadata.  
-  **Command:** `./run.sh --enrich_only ...`  
-  **Check:** Only DB metadata updated, no playlists generated.  
-  **Expected Output:** Console shows enrichment progress; no new playlists in output dir.  
-  **DB Inspection Command:** `sqlite3 /app/cache/audio_analysis.db 'SELECT COUNT(*) FROM audio_features WHERE json_extract(metadata, "$.genre") IS NOT NULL;'`  
-  **Comments:**
-
-- [ ] **Force with enrich only (`--enrich_only --force`)**  
-  **Test Environment/Setup:** DB with tracks (regardless of current metadata).  
-  **Command:** `./run.sh --enrich_only --force ...`  
-  **Check:** All tags refreshed.  
-  **Expected Output:** Console shows enrichment progress; all tracks' metadata is refreshed in DB.  
-  **DB Inspection Command:** `sqlite3 /app/cache/audio_analysis.db 'SELECT COUNT(*) FROM audio_features WHERE json_extract(metadata, "$.genre") IS NOT NULL;'`  
-  **Comments:**
-
 - [ ] **Status & Statistics (`--status`)**  
   **Test Environment/Setup:** DB can be empty or filled.  
   **Command:** `./run.sh --status ...`  

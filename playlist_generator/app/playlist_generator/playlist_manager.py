@@ -13,15 +13,13 @@ logger = logging.getLogger()
 
 class PlaylistManager:
     """Manage playlist generation using various methods and strategies."""
-    def __init__(self, cache_file: str = None, playlist_method: str = 'all', min_tracks_per_genre: int = 10, enrich_tags: bool = False, force_enrich_tags: bool = False) -> None:
+    def __init__(self, cache_file: str = None, playlist_method: str = 'all', min_tracks_per_genre: int = 10) -> None:
         """Initialize the PlaylistManager.
 
         Args:
             cache_file (str, optional): Path to the cache database file. Defaults to None.
             playlist_method (str, optional): Playlist generation method. Defaults to 'all'.
             min_tracks_per_genre (int, optional): Minimum tracks per genre for tag-based playlists. Defaults to 10.
-            enrich_tags (bool, optional): Whether to enrich tags. Defaults to False.
-            force_enrich_tags (bool, optional): Whether to force tag enrichment. Defaults to False.
         """
         self.cache_file = cache_file
         self.playlist_method = playlist_method
@@ -29,10 +27,8 @@ class PlaylistManager:
         self.time_scheduler = TimeBasedScheduler()
         self.kmeans_generator = KMeansPlaylistGenerator(cache_file)
         self.cache_generator = CacheBasedGenerator(cache_file)
-        self.tag_generator = TagBasedPlaylistGenerator(min_tracks_per_genre=min_tracks_per_genre, enrich_tags=enrich_tags, force_enrich_tags=force_enrich_tags, db_file=cache_file)
+        self.tag_generator = TagBasedPlaylistGenerator(min_tracks_per_genre=min_tracks_per_genre, db_file=cache_file)
         self.playlist_stats = defaultdict(dict)
-        self.enrich_tags = enrich_tags
-        self.force_enrich_tags = force_enrich_tags
 
     def generate_playlists(self, features: list[dict], num_playlists: int = 8) -> dict[str, any]:
         """Generate playlists using the specified method.
@@ -104,7 +100,7 @@ class PlaylistManager:
 
             # Tag-based playlists (genre + decade)
             if self.playlist_method == 'tags':
-                tag_playlists = self.tag_generator.generate(features, enrich_tags=self.enrich_tags, force_enrich_tags=self.force_enrich_tags)
+                tag_playlists = self.tag_generator.generate(features)
                 for name, data in tag_playlists.items():
                     if len(data['tracks']) >= 3:
                         final_playlists[name] = data

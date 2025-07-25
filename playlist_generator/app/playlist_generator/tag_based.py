@@ -7,18 +7,16 @@ import requests
 logger = logging.getLogger()
 
 class TagBasedPlaylistGenerator:
-    def __init__(self, min_tracks_per_genre=10, min_subgroup_size=10, large_group_threshold=40, enrich_tags=False, force_enrich_tags=False, db_file=None):
+    def __init__(self, min_tracks_per_genre=10, min_subgroup_size=10, large_group_threshold=40, db_file=None):
         self.min_tracks_per_genre = min_tracks_per_genre
         self.min_subgroup_size = min_subgroup_size
         self.large_group_threshold = large_group_threshold
-        self.enrich_tags = enrich_tags
-        self.force_enrich_tags = force_enrich_tags
         self.db_file = db_file
         # Set MusicBrainz user agent once
         musicbrainzngs.set_useragent("PlaylistGenerator", "1.0", "noreply@example.com")
         self.lastfm_api_key = os.getenv("LASTFM_API_KEY")
 
-    def enrich_track_metadata(self, track, force_enrich_tags=False):
+    def enrich_track_metadata(self, track):
         """
         Enrich track metadata using MusicBrainz and Last.fm.
         Fills in missing genres, years, etc. if possible.
@@ -26,8 +24,8 @@ class TagBasedPlaylistGenerator:
         meta = track.get('metadata', {})
         artist = meta.get('artist')
         title = meta.get('title')
-        # Only enrich if force_enrich_tags is True, or if genre/year are missing
-        needs_enrichment = force_enrich_tags or not meta.get('genre') or not meta.get('year')
+        # Only enrich if genre/year are missing
+        needs_enrichment = not meta.get('genre') or not meta.get('year')
         if not needs_enrichment:
             logger.debug(f"Skipping enrichment for {track.get('filepath', 'unknown')} (metadata exists)")
             return track
@@ -89,7 +87,7 @@ class TagBasedPlaylistGenerator:
         elif not self.lastfm_api_key:
             logger.debug("LASTFM_API_KEY not set; skipping Last.fm enrichment.")
         # Update database if db_file is set
-        if self.db_file and (enriched or force_enrich_tags):
+        if self.db_file and (enriched or not meta.get('genre') or not meta.get('year')):
             self.update_track_metadata_in_db(track.get('filepath'), meta)
         return track
 
@@ -227,13 +225,7 @@ class TagBasedPlaylistGenerator:
         name = name.strip('_')
         return name
 
-    def generate(self, features_list, enrich_tags=None, force_enrich_tags=None):
-        # Only enrich if enabled (from argument or self)
-        do_enrich = self.enrich_tags if enrich_tags is None else enrich_tags
-        do_force = self.force_enrich_tags if force_enrich_tags is None else force_enrich_tags
-        if do_enrich:
-            for track in features_list:
-                self.enrich_track_metadata(track, force_enrich_tags=do_force)
+    def generate(self, features_list):
         # Normalize genres and count
         genre_counter = Counter()
         track_genres = []

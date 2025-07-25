@@ -170,8 +170,6 @@ Playlista: Fast, flexible music playlist generator and analyzer.
 
 - Analyze your music library for audio features
 - Generate playlists using multiple methods (feature-group, time, kmeans, cache, tags)
-- Enrich your library with tags from MusicBrainz/Last.fm
-- Supports parallel and sequential processing
 - Designed for Docker and large libraries
 ''',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -183,31 +181,27 @@ Usage Tips:
   - Use --analyze to analyze new/changed files
   - Use --generate_only to generate playlists from existing analysis
   - Use --update to regenerate all playlists
-  - Use --enrich_only to enrich tags for all tracks (no analysis)
   - Use --failed to re-analyze only failed tracks
   - Use --status to show library/database stats
   - Use --playlist_method to select playlist generation method
   - Use --min_tracks_per_genre for tag-based playlists
-  - Combine --analyze and --enrich_tags for full enrichment
 
 Examples:
   playlista --analyze --workers 8
   playlista --generate_only
   playlista --update
-  playlista --enrich_only --force
-  playlista --analyze --failed
   playlista --force_sequential
   playlista --playlist_method tags --min_tracks_per_genre 15
 ''')
     # -h/--help is available by default in argparse
     # Music directory in the container
-    parser.add_argument('--music_dir', default='/music', help='Music directory in container (default: /music)')
+    parser.add_argument('--music_dir', default='/music', help='Music directory in container')
     # Host music directory
-    parser.add_argument('--host_music_dir', default='/music', help='Host music directory (default: /music)')
+    parser.add_argument('--host_music_dir', default='/music', help='Host music directory')
     # Output directory for playlists
-    parser.add_argument('--output_dir', default='/app/playlists', help='Output directory (default: /app/playlists)')
+    parser.add_argument('--output_dir', default='/app/playlists', help='Output directory')
     # Cache directory
-    parser.add_argument('--cache_dir', default='/app/cache', help='Cache directory (default: /app/cache)')
+    parser.add_argument('--cache_dir', default='/app/cache', help='Cache directory')
     # Number of playlists to generate
     parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists to generate')
     # Number of workers for parallel processing
@@ -222,8 +216,8 @@ Examples:
     parser.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
     # With --analyze: only re-analyze files previously marked as failed
     parser.add_argument('--failed', action='store_true', help='With --analyze: only re-analyze files previously marked as failed')
-    # Force re-analyze or re-enrich (used with --analyze or --enrich_only)
-    parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze or re-enrich (used with --analyze or --enrich_only)')
+    # Force re-analyze (used with --analyze)
+    parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze (used with --analyze)')
     # Show library/database statistics and exit
     parser.add_argument('--status', action='store_true', help='Show library/database statistics and exit')
     # Resume from last checkpoint if available
@@ -233,18 +227,13 @@ Examples:
                       help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
     # Minimum number of tracks required for a genre to create a playlist (tags method only)
     parser.add_argument('--min_tracks_per_genre', type=int, default=10, help='Minimum number of tracks required for a genre to create a playlist (tags method only)')
-    # Enrich tags using MusicBrainz/Last.fm APIs
-    parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs (default: False)')
-    # Force re-enrichment of tags and overwrite metadata in the database
-    parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
-    # Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)
-    parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
     # Set the logging level
     parser.add_argument('--log_level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], help='Set the logging level (default: INFO)')
     # Bypass the cache and re-extract features for all files
     parser.add_argument('--no_cache', action='store_true', help='Bypass the cache and re-extract features for all files')
     # Run full pipeline: analyze, force, then failed
     parser.add_argument('--pipeline', action='store_true', help='Run full pipeline: analyze, force, then failed')
+
     args = parser.parse_args()
 
     # Normalize workers: treat 0 as auto (parallel)
@@ -287,10 +276,10 @@ Examples:
     
     # Initialize components
     audio_db = AudioAnalyzer(cache_file, host_music_dir=args.host_music_dir, container_music_dir=args.music_dir)
-    # Pass min_tracks_per_genre and enrich_tags to PlaylistManager if using tags method
+    # Pass min_tracks_per_genre to PlaylistManager if using tags method
     if args.playlist_method == 'tags':
         playlist_manager = PlaylistManager(
-            cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre, enrich_tags=args.enrich_tags, force_enrich_tags=args.force_enrich_tags)
+            cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre)
     else:
         playlist_manager = PlaylistManager(cache_file, args.playlist_method)
     
@@ -318,43 +307,6 @@ Examples:
         if missing_in_db:
             cli.show_warning(f"Removed {len(missing_in_db)} missing files from database")
             failed_files.extend(missing_in_db)
-
-        # Dedicated enrichment mode
-        if args.enrich_only:
-            from playlist_generator.tag_based import TagBasedPlaylistGenerator
-            from database.db_manager import DatabaseManager
-            import json
-            db_file = cache_file
-            dbm = DatabaseManager(db_file)
-            # Load all tracks from DB
-            conn = dbm._get_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT file_path, metadata FROM audio_features")
-            rows = cursor.fetchall()
-            total = len(rows)
-            enriched = 0
-            skipped = 0
-            failed = 0
-            tagger = TagBasedPlaylistGenerator(db_file=db_file, enrich_tags=True, force_enrich_tags=args.force)
-            logger.debug(f"Starting enrichment for {total} tracks (force: {args.force})...")
-            for row in rows:
-                filepath = row[0]
-                try:
-                    meta = json.loads(row[1]) if row[1] else {}
-                    track_data = {'filepath': filepath, 'metadata': meta}
-                    before = dict(meta)
-                    result = tagger.enrich_track_metadata(track_data, force_enrich_tags=args.force)
-                    after = result.get('metadata', {})
-                    # If force or if genre/year was missing and now present, count as enriched
-                    if args.force or (not before.get('genre') and after.get('genre')) or (not before.get('year') and after.get('year')):
-                        enriched += 1
-                    else:
-                        skipped += 1
-                except Exception as e:
-                    failed += 1
-                    logger.debug(f"Failed to enrich {filepath}: {e}")
-            logger.debug(f"\nEnrichment complete. Total: {total}, Enriched: {enriched}, Skipped: {skipped}, Failed: {failed}")
-            exit(0)
 
         # If --pipeline is set, run the full pipeline and exit
         if getattr(args, 'pipeline', False):

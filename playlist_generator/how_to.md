@@ -27,18 +27,7 @@ This guide explains every supported command and flag, what it does, and how to t
 
 ---
 
-## 3. Enrichment & Tagging
-
-| Command/Flag         | What it Does                                                                 | How to Test |
-|----------------------|------------------------------------------------------------------------------|-------------|
-| `--enrich_tags`      | Enriches missing genre/year tags using MusicBrainz/Last.fm.                  | `./run.sh --enrich_tags ...`<br>Check DB for updated metadata. |
-| `--force_enrich_tags`| Forces re-enrichment for all tracks, overwrites metadata.                    | `./run.sh --enrich_tags --force_enrich_tags ...`<br>Check DB for all tags refreshed. |
-| `--enrich_only`      | Only enriches tags, no analysis or playlist generation.                      | `./run.sh --enrich_only ...`<br>Check DB for tag updates, no playlists generated. |
-| `--force`            | Used with `--enrich_only` to force re-enrichment.                            | `./run.sh --enrich_only --force ...`<br>Check DB for all tags refreshed. |
-
----
-
-## 4. Status & Statistics
+## 3. Status & Statistics
 
 | Command/Flag         | What it Does                                                                 | How to Test |
 |----------------------|------------------------------------------------------------------------------|-------------|
@@ -46,7 +35,7 @@ This guide explains every supported command and flag, what it does, and how to t
 
 ---
 
-## 5. Other Options
+## 4. Other Options
 
 | Command/Flag         | What it Does                                                                 | How to Test |
 |----------------------|------------------------------------------------------------------------------|-------------|
