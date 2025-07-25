@@ -10,11 +10,12 @@ essentia.log.infoActive = False
 essentia.log.warningActive = False
 essentia.log.errorActive = False
 
-# --- Queue-based log handler for throttled output ---
+# --- Queue-based log handler for throttled output with color ---
 import threading
 import queue
 import time
 import logging
+from colorlog import ColoredFormatter
 
 log_queue = queue.Queue()
 
@@ -36,7 +37,20 @@ def log_consumer():
             continue
 
 queue_handler = QueueHandler()
-queue_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+color_formatter = ColoredFormatter(
+    "%(log_color)s%(asctime)s %(levelname)-8s%(reset)s %(message)s",
+    datefmt="%H:%M:%S",
+    reset=True,
+    log_colors={
+        'DEBUG': 'cyan',
+        'INFO': 'green',
+        'WARNING': 'yellow',
+        'ERROR': 'red',
+        'CRITICAL': 'red,bg_white',
+    },
+    style='%'
+)
+queue_handler.setFormatter(color_formatter)
 root_logger = logging.getLogger()
 root_logger.handlers = [queue_handler]
 
