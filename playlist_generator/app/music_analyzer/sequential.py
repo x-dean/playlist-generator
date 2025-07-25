@@ -32,7 +32,7 @@ class SequentialProcessor:
             try:
                 from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
-                features, _, _ = audio_analyzer.extract_features(filepath, force_reextract=force_reextract), filepath, True
+                features, db_write_success, file_hash = audio_analyzer.extract_features(filepath, force_reextract=force_reextract)
                 if features:
                     yield features, filepath
                 else:
