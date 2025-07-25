@@ -32,9 +32,9 @@ class PathConverter:
         container_path = os.path.normpath(container_path)
         container_music = os.path.normpath(self.container_music)
         
-        logger.debug(f"Converting: {container_path}")
-        logger.debug(f"Container music: {container_music}")
-        logger.debug(f"Host library: {self.host_library}")
+        print(f"DEBUG: Converting: {container_path}")
+        print(f"DEBUG: Container music: {container_music}")
+        print(f"DEBUG: Host library: {self.host_library}")
         
         if not container_path.startswith(container_music):
             logger.warning(f"Container path {container_path} doesn't start with {container_music}")
@@ -43,8 +43,8 @@ class PathConverter:
         rel_path = os.path.relpath(container_path, container_music)
         host_path = os.path.join(self.host_library, rel_path)
         
-        logger.debug(f"Relative path: {rel_path}")
-        logger.debug(f"Converted {container_path} -> {host_path}")
+        print(f"DEBUG: Relative path: {rel_path}")
+        print(f"DEBUG: Converted {container_path} -> {host_path}")
         return host_path
     
     def host_to_container(self, host_path: str) -> str:
