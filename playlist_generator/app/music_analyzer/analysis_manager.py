@@ -179,16 +179,15 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             conn.close()
             processed_count = 0
             for filepath, fail_count in failed_tracks:
-                # Check if file is permanently failed for this run
-                conn = sqlite3.connect(audio_db.cache_file)
-                cur = conn.cursor()
-                cur.execute("SELECT failed, COALESCE(fail_count, 0) FROM audio_features WHERE file_path = ?", (filepath,))
-                row = cur.fetchone()
-                if row and row[0] == 1 and row[1] == 0:
+                # Only skip if fail_count >= 3, and reset fail_count to 0
+                if fail_count >= MAX_SEQUENTIAL_RETRIES:
+                    conn = sqlite3.connect(audio_db.cache_file)
+                    cur = conn.cursor()
+                    cur.execute("UPDATE audio_features SET fail_count = 0 WHERE file_path = ?", (filepath,))
+                    conn.commit()
                     conn.close()
-                    logger.warning(f"Skipping {filepath} as it has already failed 3 times in this run.")
+                    logger.warning(f"Skipping {filepath} as it has already failed 3 times in this run. fail_count reset to 0.")
                     continue
-                conn.close()
                 processed_count += 1
                 filename = os.path.basename(filepath)
                 max_len = 50
