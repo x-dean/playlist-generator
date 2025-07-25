@@ -199,30 +199,51 @@ Examples:
   playlista --force_sequential
   playlista --playlist_method tags --min_tracks_per_genre 15
 ''')
-    group = parser.add_mutually_exclusive_group(required=False)
-    # Fixed paths, so not exposed as CLI options:
+    # -h/--help is available by default in argparse
+    # Music directory in the container
     parser.add_argument('--music_dir', default='/music', help='Music directory in container (default: /music)')
+    # Host music directory
     parser.add_argument('--host_music_dir', default='/music', help='Host music directory (default: /music)')
+    # Output directory for playlists
     parser.add_argument('--output_dir', default='/app/playlists', help='Output directory (default: /app/playlists)')
+    # Cache directory
     parser.add_argument('--cache_dir', default='/app/cache', help='Cache directory (default: /app/cache)')
+    # Number of playlists to generate
     parser.add_argument('--num_playlists', type=int, default=8, help='Number of playlists to generate')
+    # Number of workers for parallel processing
     parser.add_argument('--workers', type=int, default=None, help='Number of workers (default: auto)')
+    # Force sequential (single-threaded) processing
     parser.add_argument('--force_sequential', action='store_true', help='Force sequential processing (disables multiprocessing)')
+    # Analyze files (default mode)
     parser.add_argument('-a', '--analyze', action='store_true', help='Analyze files (see --failed and --force for options)')
+    # Only generate playlists from database (no analysis)
     parser.add_argument('-g', '--generate_only', action='store_true', help='Only generate playlists from database (no analysis)')
+    # Update all playlists from database (no analysis, regenerates all playlists)
     parser.add_argument('-u', '--update', action='store_true', help='Update all playlists from database (no analysis, regenerates all playlists)')
+    # With --analyze: only re-analyze files previously marked as failed
     parser.add_argument('--failed', action='store_true', help='With --analyze: only re-analyze files previously marked as failed')
+    # Force re-analyze or re-enrich (used with --analyze or --enrich_only)
     parser.add_argument('-f', '--force', action='store_true', help='Force re-analyze or re-enrich (used with --analyze or --enrich_only)')
+    # Show library/database statistics and exit
     parser.add_argument('--status', action='store_true', help='Show library/database statistics and exit')
+    # Resume from last checkpoint if available
     parser.add_argument('--resume', action='store_true', help='Resume from last checkpoint if available')
+    # Playlist generation method
     parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags'], default='all',
                       help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
+    # Minimum number of tracks required for a genre to create a playlist (tags method only)
     parser.add_argument('--min_tracks_per_genre', type=int, default=10, help='Minimum number of tracks required for a genre to create a playlist (tags method only)')
+    # Enrich tags using MusicBrainz/Last.fm APIs
     parser.add_argument('--enrich_tags', action='store_true', help='Enrich tags using MusicBrainz/Last.fm APIs (default: False)')
+    # Force re-enrichment of tags and overwrite metadata in the database
     parser.add_argument('--force_enrich_tags', action='store_true', help='Force re-enrichment of tags and overwrite metadata in the database (default: False)')
+    # Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)
     parser.add_argument('--enrich_only', action='store_true', help='Enrich tags for all tracks in the database using MusicBrainz/Last.fm APIs (no analysis or playlist generation)')
+    # Set the logging level
     parser.add_argument('--log_level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], help='Set the logging level (default: INFO)')
+    # Bypass the cache and re-extract features for all files
     parser.add_argument('--no_cache', action='store_true', help='Bypass the cache and re-extract features for all files')
+    # Run full pipeline: analyze, force, then failed
     parser.add_argument('--pipeline', action='store_true', help='Run full pipeline: analyze, force, then failed')
     args = parser.parse_args()
 
