@@ -32,6 +32,9 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     Returns:
         Optional[tuple]: (features dict, filepath, db_write_success bool) or None on failure.
     """
+    import essentia
+    essentia.log.infoActive = False
+    essentia.log.warningActive = False
     
     import os
     import traceback

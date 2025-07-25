@@ -31,6 +31,9 @@ class SequentialProcessor:
 
     def _process_sequential(self, file_list: list[str], stop_event=None, force_reextract: bool = False) -> iter:
         """Internal generator for sequential processing."""
+        import essentia
+        essentia.log.infoActive = False
+        essentia.log.warningActive = False
         for filepath in file_list:
             if stop_event and stop_event.is_set():
                 break
