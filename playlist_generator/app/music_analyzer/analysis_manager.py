@@ -163,8 +163,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
         if args.failed:
             # Only process failed files sequentially, with in-memory retry counter
             retry_counter = {}
-            processed_count = 0
-            files_to_retry = normal_files[:]
+            processed_files_set = set()
             while files_to_retry:
                 # Remove files that have already failed 3 times
                 files_to_retry = [f for f in files_to_retry if retry_counter.get(f, 0) < 3]
@@ -175,6 +174,10 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                 next_retry = []
                 for filepath in files_to_retry:
                     count = retry_counter.get(filepath, 0)
+                    # Only increment processed_count for unique files
+                    if filepath not in processed_files_set:
+                        processed_count += 1
+                        processed_files_set.add(filepath)
                     if count >= 3:
                         # Mark as failed in DB
                         conn = sqlite3.connect(audio_db.cache_file)
@@ -184,7 +187,6 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         conn.close()
                         logger.warning(f"File {filepath} failed 3 times. Marking as failed and skipping for the rest of this run.")
                         continue
-                    processed_count += 1
                     filename = os.path.basename(filepath)
                     max_len = 50
                     if len(filename) > max_len:
