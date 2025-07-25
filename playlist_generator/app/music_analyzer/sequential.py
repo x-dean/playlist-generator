@@ -1,6 +1,11 @@
 from tqdm import tqdm
 import logging
 from .feature_extractor import audio_analyzer
+import os
+setup_colored_logging()
+log_level = os.getenv('LOG_LEVEL', 'INFO')
+import logging
+logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
 logger = logging.getLogger()
 
@@ -28,7 +33,6 @@ class SequentialProcessor:
         for filepath in file_list:
             if stop_event and stop_event.is_set():
                 break
-            import os
             try:
                 from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
