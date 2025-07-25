@@ -23,7 +23,7 @@ def select_files_for_analysis(args, audio_db):
     db_files = set(f['filepath'] for f in db_features)
     failed_files_db = set(f['filepath'] for f in db_features if f['failed'])
     # Exclude files in the failed directory
-    failed_dir = 'failed_files'
+    failed_dir = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'failed_files')
     failed_dir_abs = os.path.abspath(failed_dir)
     file_list = [f for f in file_list if not os.path.abspath(f).startswith(failed_dir_abs)]
     if args.force:
@@ -49,10 +49,13 @@ def select_files_for_analysis(args, audio_db):
     normal_files = [f for f in files_to_analyze if not is_big_file(f)]
     return normal_files, big_files, file_list, db_features
 
-def move_failed_files(audio_db, failed_dir='failed_files'):
+def move_failed_files(audio_db, failed_dir=None):
     import os
-    if not os.path.exists(failed_dir):
-        os.makedirs(failed_dir)
+    if failed_dir is None:
+        failed_dir = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'failed_files')
+    failed_dir_abs = os.path.abspath(failed_dir)
+    if not os.path.exists(failed_dir_abs):
+        os.makedirs(failed_dir_abs)
     db_features = audio_db.get_all_features(include_failed=True)
     moved = 0
     for f in db_features:
@@ -60,7 +63,7 @@ def move_failed_files(audio_db, failed_dir='failed_files'):
             src = f['filepath']
             if not os.path.exists(src):
                 continue
-            dst = os.path.join(failed_dir, os.path.basename(src))
+            dst = os.path.join(failed_dir_abs, os.path.basename(src))
             try:
                 shutil.move(src, dst)
                 logger.warning(f"Moved failed file to {dst}")
@@ -68,32 +71,35 @@ def move_failed_files(audio_db, failed_dir='failed_files'):
             except Exception as e:
                 logger.error(f"Failed to move {src} to {dst}: {e}")
     if moved > 0:
-        logger.info(f"Moved {moved} failed files to '{failed_dir}' and excluded them from analysis.")
+        logger.info(f"Moved {moved} failed files to '{failed_dir_abs}' and excluded them from analysis.")
     else:
-        logger.info(f"No failed files to move to '{failed_dir}'.")
+        logger.info(f"No failed files to move to '{failed_dir_abs}'.")
 
-def move_newly_failed_files(audio_db, newly_failed, failed_dir='failed_files'):
+def move_newly_failed_files(audio_db, newly_failed, failed_dir=None):
     import os
-    if not os.path.exists(failed_dir):
-        os.makedirs(failed_dir)
+    if failed_dir is None:
+        failed_dir = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'failed_files')
+    failed_dir_abs = os.path.abspath(failed_dir)
+    if not os.path.exists(failed_dir_abs):
+        os.makedirs(failed_dir_abs)
     moved = 0
     moved_files = []
     for src in newly_failed:
         if not os.path.exists(src):
             continue
-        dst = os.path.join(failed_dir, os.path.basename(src))
+        dst = os.path.join(failed_dir_abs, os.path.basename(src))
         try:
             shutil.move(src, dst)
             logger.warning(f"Moved failed file to {dst}")
             moved += 1
-            moved_files.append(os.path.basename(src))
+            moved_files.append(src)
         except Exception as e:
             logger.error(f"Failed to move {src} to {dst}: {e}")
     if moved > 0:
-        logger.info(f"Moved {moved} newly failed files to '{failed_dir}' and excluded them from analysis.")
-        logger.info(f"Filenames: {moved_files}")
+        logger.info(f"Moved {moved} newly failed files to '{failed_dir_abs}' and excluded them from analysis.")
+        logger.info(f"Full paths: {moved_files}")
     else:
-        logger.info(f"No newly failed files to move to '{failed_dir}'.")
+        logger.info(f"No newly failed files to move to '{failed_dir_abs}'.")
 
 # --- Graceful Shutdown ---
 def setup_graceful_shutdown():
@@ -301,7 +307,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             now_failed = set(f['filepath'] for f in db_features_after if f.get('failed'))
             newly_failed = now_failed - already_failed
             # Prepare error summary for newly failed files
-            error_summary = {os.path.basename(f): last_error.get(f, 'No error captured.') for f in newly_failed}
+            error_summary = {f: last_error.get(f, 'No error captured.') for f in newly_failed}
             move_newly_failed_files(audio_db, newly_failed)
             if newly_failed:
                 logger.info(f"Newly failed files and errors: {error_summary}")
