@@ -172,6 +172,15 @@ def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, mu
                 playlist_out_dir = os.path.join(output_dir, slot)
         os.makedirs(playlist_out_dir, exist_ok=True)
 
+        # Debug: print some sample paths to see what we're working with
+        if saved_count == 0:  # Only print for first playlist
+            logger.info(f"Sample paths from playlist '{name}':")
+            for i, song in enumerate(playlist_data['tracks'][:3]):  # First 3 tracks
+                logger.info(f"  Track {i+1}: {song}")
+                converted = convert_to_host_path(song, library, music)
+                logger.info(f"  Converted: {converted}")
+                logger.info(f"  Library: {library}, Music: {music}")
+        
         host_songs = [
             convert_to_host_path(song, library, music)
             for song in playlist_data['tracks']
@@ -428,6 +437,12 @@ Examples:
         elif args.generate_only:
             cli.update_status("Generating playlists from database")
             features_from_db = audio_db.get_all_features()
+            
+            # Debug: print some sample paths from database
+            if features_from_db:
+                logger.info(f"Sample paths from database:")
+                for i, feature in enumerate(features_from_db[:3]):  # First 3 features
+                    logger.info(f"  Feature {i+1}: {feature.get('filepath', 'No filepath')}")
             
             with CLIContextManager(cli, 3, "[green]Generating playlists...") as (progress, task_id):
                 all_playlists = playlist_manager.generate_playlists(features_from_db, args.num_playlists)
