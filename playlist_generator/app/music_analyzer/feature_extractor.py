@@ -545,8 +545,10 @@ class AudioAnalyzer:
                 self.conn.execute(
                     """
                     INSERT OR REPLACE INTO audio_features (
-                        file_hash, file_path, duration, bpm, beat_confidence, centroid, loudness, danceability, key, scale, onset_rate, zcr, last_modified, metadata, failed
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        file_hash, file_path, duration, bpm, beat_confidence, centroid, loudness, danceability, key, scale, onset_rate, zcr,
+                        mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff,
+                        last_modified, metadata, failed
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         file_info['file_hash'],
@@ -561,6 +563,11 @@ class AudioAnalyzer:
                         features.get('scale'),
                         features.get('onset_rate'),
                         features.get('zcr'),
+                        json.dumps(features.get('mfcc', [])),
+                        json.dumps(features.get('chroma', [])),
+                        json.dumps(features.get('spectral_contrast', [])),
+                        features.get('spectral_flatness'),
+                        features.get('spectral_rolloff'),
                         file_info['last_modified'],
                         json.dumps(features.get('metadata', {})),
                         failed
