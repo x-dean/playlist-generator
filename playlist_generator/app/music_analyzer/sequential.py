@@ -40,7 +40,7 @@ class SequentialProcessor:
         import essentia
         essentia.log.infoActive = False
         essentia.log.warningActive = False
-        
+
         for i, filepath in enumerate(file_list):
             try:
                 from .feature_extractor import AudioAnalyzer
@@ -52,7 +52,7 @@ class SequentialProcessor:
                 else:
                     self.failed_files.append(filepath)
                     yield None, filepath, False
-                    
+
             except Exception as e:
                 self.failed_files.append(filepath)
                 logger.error(f"Error processing {filepath}: {str(e)}")

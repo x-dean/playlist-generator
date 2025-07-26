@@ -543,7 +543,7 @@ def run_failed_mode(args, audio_db, cli):
     return still_failed
 
 
-def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
+def run_pipeline(args, audio_db, playlist_db, cli):
     from rich.table import Table
     from rich.console import Console
     results = []

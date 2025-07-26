@@ -385,7 +385,7 @@ Examples:
         logger.info("Starting pipeline mode")
         from music_analyzer.analysis_manager import run_pipeline
         run_pipeline(args, audio_db, playlist_db,
-                         cli)
+                     cli)
         logger.info("Pipeline mode completed")
         sys.exit(0)
 
@@ -400,7 +400,6 @@ Examples:
     logfile = open(logfile_path, 'a')
     os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
     sys.stderr = logfile  # Also update Python's sys.stderr
-
 
     # Show configuration
     # Remove the call to cli.show_config
@@ -609,12 +608,6 @@ Examples:
             logger.warning(f"Showing {len(failed_files)} failed files")
             cli.show_file_errors(failed_files)
 
-        # Show final summary if interrupted
-        if stop_event.is_set():
-            logger.info("Application interrupted by user")
-            print(
-                f"\n📊 Summary: {len(audio_db.get_all_features())} processed, {len(failed_files)} failed")
-
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
         logger.error(f"Error traceback: {traceback.format_exc()}")
@@ -623,7 +616,6 @@ Examples:
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
         print("\nInterrupted by user. Exiting...")
-        stop_event.set()
         sys.exit(130)
     finally:
         # Only print summary for generate/update modes (not analyze_only)
