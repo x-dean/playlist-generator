@@ -4,24 +4,27 @@ import essentia
 essentia.log.infoActive = False
 essentia.log.warningActive = False
 import os
-import logging
+import sys
+import json
 import hashlib
 import signal
 import sqlite3
+import logging
+from functools import wraps
+from typing import Optional, Dict, Any, List
 import time
 import traceback
 import musicbrainzngs
 from mutagen import File as MutagenFile
-import json
-from typing import Optional
-from functools import wraps
-from utils.path_utils import convert_to_host_path
-from utils.path_converter import PathConverter
 import requests
-import tensorflow as tf
-import librosa
+from utils.path_converter import PathConverter
 
-logger = logging.getLogger()
+# Suppress TensorFlow warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import tensorflow as tf
+tf.get_logger().setLevel('ERROR')
+
+logger = logging.getLogger(__name__)
 
 class TimeoutException(Exception):
     pass
@@ -359,13 +362,17 @@ class AudioAnalyzer:
             return [0.0] * num_coeffs
 
     def _extract_chroma(self, audio):
+        """Extract chroma features from audio."""
         try:
-            chromagram = es.Chromagram()
-            chroma = chromagram(audio)
-            return np.mean(chroma, axis=1).tolist()  # average per pitch class
+            # Use ChromaCrossSimilarity which handles frame size properly
+            chroma = es.ChromaCrossSimilarity()
+            chroma_matrix = chroma(audio, audio)
+            # Take the diagonal (self-similarity) and average
+            chroma_features = np.mean(np.diag(chroma_matrix))
+            return float(chroma_features)
         except Exception as e:
             logger.warning(f"Chroma extraction failed: {str(e)}")
-            return [0.0] * 12
+            return 0.0
 
     def _extract_spectral_contrast(self, audio):
         try:
@@ -544,8 +551,7 @@ class AudioAnalyzer:
             'chroma': [0.0] * 12,
             'spectral_contrast': [0.0] * 6,
             'spectral_flatness': 0.0,
-            'spectral_rolloff': 0.0,
-            'vggish_embedding': None
+            'spectral_rolloff': 0.0
         }
         # --- Metadata extraction ---
         meta = {}
@@ -605,7 +611,6 @@ class AudioAnalyzer:
                 spectral_contrast = self._extract_spectral_contrast(audio)
                 spectral_flatness = self._extract_spectral_flatness(audio)
                 spectral_rolloff = self._extract_spectral_rolloff(audio)
-                vggish_embedding = self._extract_vggish_embedding(audio)
 
                 # Update features
                 features.update({
@@ -622,8 +627,7 @@ class AudioAnalyzer:
                     'chroma': chroma,
                     'spectral_contrast': spectral_contrast,
                     'spectral_flatness': self._ensure_float(spectral_flatness),
-                    'spectral_rolloff': self._ensure_float(spectral_rolloff),
-                    'vggish_embedding': vggish_embedding
+                    'spectral_rolloff': self._ensure_float(spectral_rolloff)
                 })
             except Exception as e:
                 logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
