@@ -550,13 +550,12 @@ Examples:
                 workers = args.workers or max(1, mp.cpu_count())
                 logger.debug(f"Using {workers} workers for analysis")
 
-                for i, features in enumerate(processor.process(file_list, workers)):
-                    # Show only the filename in the progress bar
-                    if isinstance(features, tuple):
-                        # SequentialProcessor yields (features, filepath)
-                        _, filepath = features
+                for i, result in enumerate(processor.process(file_list, workers)):
+                    # Both SequentialProcessor and ParallelProcessor yield (features, filepath, db_write_success)
+                    if isinstance(result, tuple) and len(result) == 3:
+                        _, filepath, _ = result
                     else:
-                        # ParallelProcessor yields features only, can't get filename
+                        # Fallback
                         filepath = file_list[i] if i < len(file_list) else ""
                     filename = os.path.basename(filepath)
                     progress.update(
