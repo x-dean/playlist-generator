@@ -39,7 +39,7 @@ RUN pip install --upgrade pip && \
     pip install -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY app /app
 
 # Create directories with proper permissions
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics
