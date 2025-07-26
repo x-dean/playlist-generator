@@ -540,23 +540,59 @@ class AudioAnalyzer:
             logger.debug("Running chroma extraction pipeline")
             # Process audio in frames
             chroma_values = []
-            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
-                logger.debug(f"Processing frame of length {len(frame)}")
-                windowed = window(frame)
-                spec = spectrum(windowed)
-                frequencies, magnitudes = spectral_peaks(spec)
-                hpcp_value = hpcp(frequencies, magnitudes)
-                chroma_values.append(hpcp_value)
+            frame_count = 0
             
-            logger.debug(f"Extracted {len(chroma_values)} chroma frames")
+            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
+                frame_count += 1
+                if frame_count % 100 == 0:
+                    logger.debug(f"Processed {frame_count} frames for chroma extraction")
+                
+                try:
+                    logger.debug(f"Processing frame {frame_count} of length {len(frame)}")
+                    windowed = window(frame)
+                    spec = spectrum(windowed)
+                    frequencies, magnitudes = spectral_peaks(spec)
+                    
+                    # Check if we have valid spectral peaks
+                    if len(frequencies) > 0 and len(magnitudes) > 0:
+                        # Ensure frequencies and magnitudes are numpy arrays
+                        freq_array = np.array(frequencies)
+                        mag_array = np.array(magnitudes)
+                        
+                        # Check for valid frequency and magnitude ranges
+                        if len(freq_array) > 0 and len(mag_array) > 0 and np.any(mag_array > 0):
+                            hpcp_value = hpcp(freq_array, mag_array)
+                            if hpcp_value is not None and len(hpcp_value) == 12:
+                                chroma_values.append(hpcp_value)
+                                logger.debug(f"Frame {frame_count}: valid HPCP value with {len(hpcp_value)} dimensions")
+                            else:
+                                logger.debug(f"Frame {frame_count}: invalid HPCP value")
+                        else:
+                            logger.debug(f"Frame {frame_count}: no valid frequencies/magnitudes")
+                    else:
+                        logger.debug(f"Frame {frame_count}: no spectral peaks found")
+                        
+                except Exception as frame_error:
+                    logger.debug(f"Frame {frame_count} processing error: {frame_error}")
+                    continue
+            
+            logger.debug(f"Extracted {len(chroma_values)} chroma frames from {frame_count} total frames")
+            
             # Calculate global average
-            chroma_avg = np.mean(chroma_values, axis=0).tolist()
-            logger.debug(f"Calculated mean chroma features: {len(chroma_avg)} values")
-            logger.debug(f"Chroma feature range: min={min(chroma_avg):.3f}, max={max(chroma_avg):.3f}")
-            return chroma_avg
+            if chroma_values:
+                chroma_avg = np.mean(chroma_values, axis=0).tolist()
+                logger.debug(f"Calculated mean chroma features: {len(chroma_avg)} values")
+                logger.debug(f"Chroma feature range: min={min(chroma_avg):.3f}, max={max(chroma_avg):.3f}")
+                return chroma_avg
+            else:
+                logger.debug("No valid chroma values calculated, returning default")
+                return [0.0] * 12
+                
         except Exception as e:
             logger.warning(f"Chroma extraction failed: {str(e)}")
             logger.debug(f"Chroma extraction error details: {type(e).__name__}")
+            import traceback
+            logger.debug(f"Chroma extraction full traceback: {traceback.format_exc()}")
             return [0.0] * 12
 
     def _extract_spectral_contrast(self, audio):
@@ -586,14 +622,27 @@ class AudioAnalyzer:
                 spec = spectrum(window(frame))
                 freqs, mags = spectral_peaks(spec)
                 
-                if len(freqs) > 0:
-                    # Calculate spectral contrast manually
-                    # Sort magnitudes and find valleys
-                    sorted_mags = np.sort(mags)
-                    valleys = sorted_mags[:len(sorted_mags)//3]  # Bottom third
-                    peaks = sorted_mags[-len(sorted_mags)//3:]   # Top third
-                    contrast = np.mean(peaks) - np.mean(valleys) if len(peaks) > 0 and len(valleys) > 0 else 0.0
-                    contrast_list.append(contrast)
+                if len(freqs) > 0 and len(mags) > 0:
+                    # Ensure mags is a numpy array and has valid values
+                    mags_array = np.array(mags)
+                    if len(mags_array) > 0 and np.any(mags_array > 0):
+                        # Calculate spectral contrast manually
+                        # Sort magnitudes and find valleys
+                        sorted_mags = np.sort(mags_array)
+                        third = max(1, len(sorted_mags) // 3)  # Ensure at least 1 element
+                        valleys = sorted_mags[:third]  # Bottom third
+                        peaks = sorted_mags[-third:]   # Top third
+                        
+                        if len(peaks) > 0 and len(valleys) > 0:
+                            contrast = float(np.mean(peaks) - np.mean(valleys))
+                            contrast_list.append(contrast)
+                            logger.debug(f"Frame {frame_count}: contrast={contrast:.3f}")
+                        else:
+                            logger.debug(f"Frame {frame_count}: insufficient peaks/valleys for contrast")
+                    else:
+                        logger.debug(f"Frame {frame_count}: no valid magnitudes")
+                else:
+                    logger.debug(f"Frame {frame_count}: no spectral peaks found")
             
             logger.debug(f"Processed {frame_count} frames, calculated contrast for {len(contrast_list)} frames")
             # Return mean contrast across all frames
@@ -608,6 +657,8 @@ class AudioAnalyzer:
         except Exception as e:
             logger.warning(f"Spectral contrast extraction failed: {str(e)}")
             logger.debug(f"Spectral contrast extraction error details: {type(e).__name__}")
+            import traceback
+            logger.debug(f"Spectral contrast full traceback: {traceback.format_exc()}")
             return 0.0
 
     def _extract_spectral_flatness(self, audio):

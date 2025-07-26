@@ -35,6 +35,31 @@ class PlaylistDatabase:
                 """)
                 logger.debug("Created playlists table")
                 
+                # Check if tracks column exists, if not add it
+                cursor.execute("PRAGMA table_info(playlists)")
+                columns = [row[1] for row in cursor.fetchall()]
+                logger.debug(f"Existing playlist table columns: {columns}")
+                
+                if 'tracks' not in columns:
+                    logger.info("Adding missing 'tracks' column to playlists table")
+                    cursor.execute("ALTER TABLE playlists ADD COLUMN tracks TEXT NOT NULL DEFAULT '[]'")
+                    logger.debug("Added tracks column to playlists table")
+                
+                if 'features' not in columns:
+                    logger.info("Adding missing 'features' column to playlists table")
+                    cursor.execute("ALTER TABLE playlists ADD COLUMN features TEXT")
+                    logger.debug("Added features column to playlists table")
+                
+                if 'created_at' not in columns:
+                    logger.info("Adding missing 'created_at' column to playlists table")
+                    cursor.execute("ALTER TABLE playlists ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                    logger.debug("Added created_at column to playlists table")
+                
+                if 'updated_at' not in columns:
+                    logger.info("Adding missing 'updated_at' column to playlists table")
+                    cursor.execute("ALTER TABLE playlists ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                    logger.debug("Added updated_at column to playlists table")
+                
                 conn.commit()
                 logger.info("Playlist database initialization completed successfully")
         except Exception as e:
@@ -155,6 +180,27 @@ class PlaylistDatabase:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
+                # Check if playlists table exists
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='playlists'")
+                if not cursor.fetchone():
+                    logger.warning("Playlists table does not exist, returning empty statistics")
+                    return {
+                        'total_playlists': 0,
+                        'total_tracks': 0,
+                        'unique_tracks': 0
+                    }
+                
+                # Check if tracks column exists
+                cursor.execute("PRAGMA table_info(playlists)")
+                columns = [row[1] for row in cursor.fetchall()]
+                if 'tracks' not in columns:
+                    logger.warning("Tracks column does not exist in playlists table, returning empty statistics")
+                    return {
+                        'total_playlists': 0,
+                        'total_tracks': 0,
+                        'unique_tracks': 0
+                    }
+                
                 # Get total playlists
                 cursor.execute("SELECT COUNT(*) FROM playlists")
                 total_playlists = cursor.fetchone()[0]
@@ -164,9 +210,16 @@ class PlaylistDatabase:
                 total_tracks = 0
                 unique_tracks = set()
                 for row in cursor.fetchall():
-                    tracks = json.loads(row[0])
-                    total_tracks += len(tracks)
-                    unique_tracks.update(tracks)
+                    try:
+                        tracks = json.loads(row[0])
+                        if isinstance(tracks, list):
+                            total_tracks += len(tracks)
+                            unique_tracks.update(tracks)
+                        else:
+                            logger.warning(f"Invalid tracks data format: {type(tracks)}")
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"Error parsing tracks JSON: {e}")
+                        continue
                 
                 stats = {
                     'total_playlists': total_playlists,
@@ -180,4 +233,8 @@ class PlaylistDatabase:
             logger.error(f"Error getting library statistics: {str(e)}")
             import traceback
             logger.error(f"Library statistics error traceback: {traceback.format_exc()}")
-            return {}
+            return {
+                'total_playlists': 0,
+                'total_tracks': 0,
+                'unique_tracks': 0
+            }
