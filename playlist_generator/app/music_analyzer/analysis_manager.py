@@ -327,6 +327,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
 
     # Get files that need analysis
     files_to_analyze = audio_db.get_files_needing_analysis()
+    logger.debug(f"Files needing analysis: {len(files_to_analyze) if files_to_analyze else 0}")
 
     if not files_to_analyze:
         logger.info("No files need analysis. All files are up to date.")
@@ -444,6 +445,7 @@ def run_force_mode(args, audio_db, cli):
 
     # Get invalid files that need retry
     invalid_files = audio_db.get_invalid_files_from_db()
+    logger.debug(f"Invalid files found: {len(invalid_files) if invalid_files else 0}")
 
     if not invalid_files:
         logger.info("No invalid files found in database")
@@ -519,6 +521,7 @@ def run_failed_mode(args, audio_db, cli):
 
     # Get all failed files from database
     failed_files = audio_db.get_failed_files_from_db()
+    logger.debug(f"Failed files found: {len(failed_files) if failed_files else 0}")
 
     if not failed_files:
         logger.info("No failed files found in database")
@@ -596,13 +599,19 @@ def run_pipeline(args, audio_db, playlist_db, cli):
     from rich.console import Console
     results = []
     console = Console()
+    
+    logger.info("Starting pipeline execution")
+    logger.debug(f"Pipeline args: force={args.force}, failed={args.failed}, workers={args.workers}")
+    
     console.print(
         "\n[bold cyan]PIPELINE: Starting default analysis[/bold cyan]")
     console.print("[dim]Analyze new files[/dim]")
     args.force = False
     args.failed = False
+    logger.info("Pipeline Stage 1: Running default analysis (new files only)")
     res1 = run_analysis(args, audio_db, playlist_db, cli,
                         force_reextract=False, pipeline_mode=True)
+    logger.info(f"Pipeline Stage 1 result: {len(res1) if res1 else 0} files processed")
     results.append(('Default', {'processed_this_run': len(res1) if res1 else 0, 'failed_this_run': len(res1) if res1 else 0}))
     console.print(
         "[green]PIPELINE: Default analysis complete (new files analyzed)[/green]")
@@ -614,8 +623,10 @@ def run_pipeline(args, audio_db, playlist_db, cli):
     console.print("[dim]Enriching tags from MusicBrainz and Last.fm[/dim]")
     args.force = True
     args.failed = False
+    logger.info("Pipeline Stage 2: Running force analysis (re-enrich all files)")
     res2 = run_analysis(args, audio_db, playlist_db, cli,
                         force_reextract=True, pipeline_mode=True)
+    logger.info(f"Pipeline Stage 2 result: {len(res2) if res2 else 0} files processed")
     results.append(('Force', {'processed_this_run': len(res2) if res2 else 0, 'failed_this_run': len(res2) if res2 else 0}))
     console.print(
         "[green]PIPELINE: Tags enriching complete (tags updated)[/green]")
@@ -626,8 +637,10 @@ def run_pipeline(args, audio_db, playlist_db, cli):
     console.print("[dim]Retry failed files[/dim]")
     args.force = False
     args.failed = True
+    logger.info("Pipeline Stage 3: Running failed analysis (retry failed files)")
     res3 = run_analysis(args, audio_db, playlist_db, cli,
                         force_reextract=True, pipeline_mode=True)
+    logger.info(f"Pipeline Stage 3 result: {len(res3) if res3 else 0} files processed")
     # Count files in /app/failed_files after failed step
     import os
     failed_dir = '/app/failed_files'
