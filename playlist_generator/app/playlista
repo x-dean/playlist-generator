@@ -178,7 +178,7 @@ sys.stderr = logfile  # Also update Python's sys.stderr
 
 
 def get_audio_files(music_dir: str) -> List[str]:
-    """Recursively find all audio files in the given directory.
+    """Get audio files using the FileDiscovery module.
 
     Args:
         music_dir (str): Path to the music directory.
@@ -186,15 +186,12 @@ def get_audio_files(music_dir: str) -> List[str]:
     Returns:
         List[str]: List of audio file paths.
     """
-    file_list = []
-    valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
-
-    for root, _, files in os.walk(music_dir):
-        for file in files:
-            file_lower = file.lower()
-            if file_lower.endswith(valid_ext):
-                file_list.append(os.path.join(root, file))
-
+    from music_analyzer.file_discovery import FileDiscovery
+    
+    # Use FileDiscovery to get all valid audio files
+    file_discovery = FileDiscovery(music_dir=music_dir)
+    file_list = file_discovery.discover_files()
+    
     logger.info(f"Found {len(file_list)} audio files in {music_dir}")
     return file_list
 

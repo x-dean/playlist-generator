@@ -105,9 +105,12 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 except Exception:
                     pass  # Ignore database errors
                 return None, filepath, False
-            if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
+            # Use FileDiscovery to validate the file
+            from .file_discovery import FileDiscovery
+            file_discovery = FileDiscovery()
+            if not file_discovery._is_valid_audio_file(filepath):
                 notified["shown"] = True
-                logger.warning(f"Unsupported extension, skipping: {filepath}")
+                logger.warning(f"Invalid audio file, skipping: {filepath}")
                 try:
                     from .feature_extractor import AudioAnalyzer
                     audio_analyzer = AudioAnalyzer()

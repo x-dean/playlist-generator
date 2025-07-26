@@ -338,26 +338,60 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
     failed_files = []
 
     with CLIContextManager(cli, len(files_to_analyze), f"[cyan]Analyzing {len(files_to_analyze)} files...") as (progress, task_id):
-        processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
-        workers = args.workers or max(1, mp.cpu_count())
-
-        # Log which processor is being used
-        processor_type = "Sequential" if args.force_sequential else "Parallel"
-        logger.info(f"Using {processor_type} processor with {workers} workers")
-        logger.info(f"Starting to process {len(files_to_analyze)} files")
-
-        # Pre-update progress bar with first file
-        if files_to_analyze:
-            _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze),
-                                 "[cyan]", "", "", None, not args.force_sequential)
+        # Separate files by size for different processing strategies
+        big_files = []
+        normal_files = []
+        
+        # Get file sizes from database instead of filesystem
+        file_sizes = audio_db.get_file_sizes_from_db(file_paths_only)
+        
+        for file_path in file_paths_only:
+            file_size_bytes = file_sizes.get(file_path, 0)
+            file_size_mb = file_size_bytes / (1024 * 1024)
+            
+            if file_size_mb > BIG_FILE_SIZE_MB:
+                big_files.append(file_path)
+            else:
+                normal_files.append(file_path)
+        
+        logger.info(f"File distribution: {len(normal_files)} normal files, {len(big_files)} big files (>200MB)")
+        logger.debug(f"Big files: {[os.path.basename(f) for f in big_files]}")
+        
+        # Process big files first (sequentially), then normal files (parallel)
+        all_results = []
+        
+        # Step 1: Process big files sequentially
+        if big_files:
+            logger.info(f"Processing {len(big_files)} big files sequentially...")
+            sequential_processor = SequentialProcessor()
+            workers = 1  # Sequential processing uses 1 worker
+            
+            for features, filepath, db_write_success in sequential_processor.process(big_files, workers, force_reextract=force_reextract):
+                all_results.append((features, filepath, db_write_success))
+        
+        # Step 2: Process normal files in parallel
+        if normal_files:
+            logger.info(f"Processing {len(normal_files)} normal files in parallel...")
+            parallel_processor = ParallelProcessor()
+            workers = args.workers or max(1, mp.cpu_count())
+            
+            for features, filepath, db_write_success in parallel_processor.process(normal_files, workers, force_reextract=force_reextract):
+                all_results.append((features, filepath, db_write_success))
+        
+        # Process all results
+        processed_count = 0
 
         # Prepare list of file paths only for processing
         file_paths_only = [item[0] if isinstance(
             item, tuple) else item for item in files_to_analyze]
 
-        processed_count = 0
+        # Pre-update progress bar with first file
+        if files_to_analyze:
+            _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze),
+                                 "[cyan]", "", "", None, True)  # Always show as sequential for progress
 
-        for features, filepath, db_write_success in processor.process(file_paths_only, workers, force_reextract=force_reextract):
+        # Process all results from both sequential and parallel processing
+        for features, filepath, db_write_success in all_results:
             processed_count += 1
             filename = os.path.basename(filepath)
 
@@ -366,7 +400,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
 
             # Update progress bar with next file
             _update_progress_bar(progress, task_id, files_to_analyze, processed_count, len(files_to_analyze),
-                                 "[cyan]", "", status_dot, None, not args.force_sequential)
+                                 "[cyan]", "", status_dot, None, True)
 
             logger.debug(
                 f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")

@@ -2005,14 +2005,11 @@ class AudioAnalyzer:
             return []
 
     def get_all_audio_files(self, music_dir='/music'):
-        """Get all audio files from the filesystem."""
-        current_files = set()
-        for root, dirs, files in os.walk(music_dir):
-            for file in files:
-                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
-                    file_path = os.path.join(root, file)
-                    current_files.add(file_path)
-        return list(current_files)
+        """Get all audio files from the filesystem using FileDiscovery."""
+        from .file_discovery import FileDiscovery
+        
+        file_discovery = FileDiscovery(music_dir=music_dir, audio_db=self)
+        return file_discovery.discover_files()
 
     def get_all_tracks(self):
         """Get all tracks from the database (non-failed)."""
@@ -2236,13 +2233,10 @@ class AudioAnalyzer:
         """Efficiently determine which files need analysis"""
         logger.info(f"Scanning for files needing analysis in {music_dir}")
 
-        # Get all audio files from filesystem (only once)
-        current_files = set()
-        for root, dirs, files in os.walk(music_dir):
-            for file in files:
-                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
-                    file_path = os.path.join(root, file)
-                    current_files.add(file_path)
+        # Use FileDiscovery to get all audio files
+        from .file_discovery import FileDiscovery
+        file_discovery = FileDiscovery(music_dir=music_dir, audio_db=self)
+        current_files = set(file_discovery.discover_files())
 
         logger.info(f"Found {len(current_files)} audio files in filesystem")
 
@@ -2502,6 +2496,27 @@ class AudioAnalyzer:
 
         except Exception as e:
             logger.error(f"Error cleaning up file discovery state: {e}")
+
+    def get_file_sizes_from_db(self, file_paths: List[str]) -> Dict[str, int]:
+        """Get file sizes from database for the given file paths."""
+        try:
+            cursor = self.conn.execute("""
+                SELECT file_path, file_size 
+                FROM file_discovery_state 
+                WHERE file_path IN ({})
+            """.format(','.join(['?' for _ in file_paths])), file_paths)
+            
+            file_sizes = {}
+            for row in cursor.fetchall():
+                file_path, file_size = row
+                file_sizes[file_path] = file_size
+            
+            logger.debug(f"Retrieved file sizes for {len(file_sizes)} files from database")
+            return file_sizes
+            
+        except Exception as e:
+            logger.error(f"Error getting file sizes from database: {e}")
+            return {}
 
 
 audio_analyzer = AudioAnalyzer()
