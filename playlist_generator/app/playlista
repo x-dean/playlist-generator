@@ -391,9 +391,60 @@ Examples:
     stop_event = multiprocessing.Event()
 
     def handle_sigint(signum, frame):
-        logger.info("Received SIGINT (Ctrl+C), stopping gracefully...")
-        print("\nReceived SIGINT (Ctrl+C), stopping gracefully...")
+        logger.info("Received SIGINT (Ctrl+C), initiating graceful shutdown...")
+        print("\n" + "="*60)
+        print("🛑 RECEIVED CTRL+C - INITIATING GRACEFUL SHUTDOWN")
+        print("="*60)
+        print("⏳ Waiting for workers to finish current tasks...")
         stop_event.set()
+
+        # Give workers time to finish current tasks (30 seconds timeout)
+        import time
+        timeout = 30
+        start_wait = time.time()
+
+        while time.time() - start_wait < timeout:
+            # Check if any child processes are still running
+            try:
+                import psutil
+                current_pid = os.getpid()
+                active_workers = 0
+                for proc in psutil.process_iter(['pid', 'ppid', 'name']):
+                    try:
+                        proc_info = proc.info
+                        if (proc_info['ppid'] == current_pid and
+                            proc_info['name'] and
+                                'python' in proc_info['name'].lower()):
+                            active_workers += 1
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
+                        continue
+
+                if active_workers == 0:
+                    logger.info(
+                        "All workers have finished. Exiting gracefully.")
+                    print("✅ All workers finished. Exiting gracefully.")
+                    break
+
+                remaining_time = timeout - (time.time() - start_wait)
+                print(
+                    f"⏳ Waiting for {active_workers} workers to finish... ({remaining_time:.1f}s remaining)")
+                time.sleep(1)
+
+            except Exception as e:
+                logger.warning(f"Error checking worker status: {e}")
+                time.sleep(1)
+
+        # Force cleanup if timeout reached
+        if time.time() - start_wait >= timeout:
+            logger.warning(
+                "Timeout reached, forcing cleanup of remaining workers")
+            print("⏰ Timeout reached, forcing cleanup of remaining workers...")
+            from music_analyzer.analysis_manager import cleanup_child_processes
+            cleanup_child_processes()
+
+        logger.info("Graceful shutdown completed")
+        sys.exit(0)
+
     signal.signal(signal.SIGINT, handle_sigint)
 
     # Set logging level from CLI
@@ -603,8 +654,8 @@ Examples:
                         task_id, advance=1, description=f"Analyzing: {filename} ({i+1}/{len(file_list)})")
                     if stop_event.is_set():
                         logger.info("Analysis interrupted by user")
-                        print("\nInterrupted by user. Exiting...")
-                        sys.exit(130)
+                        print("\nAnalysis interrupted by user. Exiting gracefully...")
+                        break
 
                 failed_files.extend(processor.failed_files)
                 logger.info(
@@ -624,8 +675,9 @@ Examples:
                 logger.info(f"Generated {len(all_playlists)} playlists")
                 if stop_event.is_set():
                     logger.info("Playlist generation interrupted by user")
-                    print("\nInterrupted by user. Exiting...")
-                    sys.exit(130)
+                    print(
+                        "\nPlaylist generation interrupted by user. Exiting gracefully...")
+                    return
 
             # Show playlist statistics
             logger.debug("Calculating and displaying playlist statistics")
@@ -646,6 +698,16 @@ Examples:
         if failed_files:
             logger.warning(f"Showing {len(failed_files)} failed files")
             cli.show_file_errors(failed_files)
+
+        # Show final summary if interrupted
+        if stop_event.is_set():
+            logger.info("Application interrupted by user")
+            print("\n" + "="*60)
+            print("APPLICATION INTERRUPTED BY USER")
+            print("="*60)
+            print(f"Processed files: {len(audio_db.get_all_features())}")
+            print(f"Failed files: {len(failed_files)}")
+            print("="*60)
 
     except Exception as e:
         logger.error(f"Application error: {str(e)}")
