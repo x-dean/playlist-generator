@@ -32,7 +32,7 @@ BIG_FILE_SIZE_MB = 200
 
 def _update_progress_bar(progress, task_id, files_list, current_index, total_count,
                          mode_color="[cyan]", mode_text="Processing", status_dot="",
-                         current_filepath=None, is_parallel=True):
+                         current_filepath=None, is_parallel=True, file_sizes=None):
     """Update progress bar with current file info and next file preview."""
     if current_index >= len(files_list):
         return
@@ -46,18 +46,29 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
     else:
         display_name = current_filename
 
-    # Get file size
-    try:
-        size_mb = os.path.getsize(file_path) / (1024 * 1024)
+    # Get file size from database or filesystem
+    if file_sizes and file_path in file_sizes:
+        # Use database file size
+        size_bytes = file_sizes[file_path]
+        size_mb = size_bytes / (1024 * 1024)
         file_size_info = f"{size_mb:.1f}MB"
-        # Determine processing mode based on file size and context
+        # Determine processing mode based on file size
         if size_mb > BIG_FILE_SIZE_MB:
             processing_mode = "Sequential"  # Big files always use sequential
         else:
             processing_mode = "Parallel" if is_parallel else "Sequential"
-    except:
-        file_size_info = "Unknown"
-        processing_mode = "Sequential" if not is_parallel else "Parallel"
+    else:
+        # Fallback to filesystem check
+        try:
+            size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            file_size_info = f"{size_mb:.1f}MB"
+            if size_mb > BIG_FILE_SIZE_MB:
+                processing_mode = "Sequential"
+            else:
+                processing_mode = "Parallel" if is_parallel else "Sequential"
+        except:
+            file_size_info = "Unknown"
+            processing_mode = "Sequential" if not is_parallel else "Parallel"
 
     # Calculate percentage
     percentage = (current_index / total_count * 100) if total_count > 0 else 0
@@ -362,8 +373,14 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
         logger.debug(f"Big files: {[os.path.basename(f) for f in big_files]}")
         
         # Process big files first (sequentially), then normal files (parallel)
-        all_results = []
-        
+        processed_count = 0
+        failed_files = []
+
+        # Pre-update progress bar with first file
+        if files_to_analyze:
+            _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze),
+                                 "[cyan]", "", "", None, True, file_sizes)
+
         # Step 1: Process big files sequentially
         if big_files:
             logger.info(f"Processing {len(big_files)} big files sequentially...")
@@ -371,7 +388,23 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             workers = 1  # Sequential processing uses 1 worker
             
             for features, filepath, db_write_success in sequential_processor.process(big_files, workers, force_reextract=force_reextract):
-                all_results.append((features, filepath, db_write_success))
+                processed_count += 1
+                filename = os.path.basename(filepath)
+                
+                # Get status dot for result
+                status_dot = _get_status_dot(features, db_write_success)
+                
+                # Update progress bar
+                _update_progress_bar(progress, task_id, files_to_analyze, processed_count, len(files_to_analyze),
+                                     "[cyan]", "", status_dot, None, True, file_sizes)
+                
+                logger.debug(f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
+                
+                if not features or not db_write_success:
+                    failed_files.append(filepath)
+                    logger.warning(f"Analysis failed for {filepath}")
+                else:
+                    logger.info(f"Analysis completed for {filepath}")
         
         # Step 2: Process normal files in parallel
         if normal_files:
@@ -380,39 +413,25 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             workers = args.workers or max(1, mp.cpu_count())
             
             for features, filepath, db_write_success in parallel_processor.process(normal_files, workers, force_reextract=force_reextract):
-                all_results.append((features, filepath, db_write_success))
-        
-        # Process all results
-        processed_count = 0
+                processed_count += 1
+                filename = os.path.basename(filepath)
+                
+                # Get status dot for result
+                status_dot = _get_status_dot(features, db_write_success)
+                
+                # Update progress bar
+                _update_progress_bar(progress, task_id, files_to_analyze, processed_count, len(files_to_analyze),
+                                     "[cyan]", "", status_dot, None, True, file_sizes)
+                
+                logger.debug(f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
+                
+                if not features or not db_write_success:
+                    failed_files.append(filepath)
+                    logger.warning(f"Analysis failed for {filepath}")
+                else:
+                    logger.info(f"Analysis completed for {filepath}")
 
-        # Pre-update progress bar with first file
-        if files_to_analyze:
-            _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze),
-                                 "[cyan]", "", "", None, True)  # Always show as sequential for progress
-
-        # Process all results from both sequential and parallel processing
-        for features, filepath, db_write_success in all_results:
-            processed_count += 1
-            filename = os.path.basename(filepath)
-
-            # Get status dot for previous file result
-            status_dot = _get_status_dot(features, db_write_success)
-
-            # Update progress bar with next file
-            _update_progress_bar(progress, task_id, files_to_analyze, processed_count, len(files_to_analyze),
-                                 "[cyan]", "", status_dot, None, True)
-
-            logger.debug(
-                f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
-
-            if not features or not db_write_success:
-                failed_files.append(filepath)
-                logger.warning(f"Analysis failed for {filepath}")
-            else:
-                logger.info(f"Analysis completed for {filepath}")
-
-        logger.info(
-            f"Processing loop completed. Processed {processed_count} files out of {len(files_to_analyze)}")
+        logger.info(f"Processing completed. Processed {processed_count} files out of {len(files_to_analyze)}")
 
     logger.info(
         f"ANALYZE mode completed with {len(failed_files)} failed files")
