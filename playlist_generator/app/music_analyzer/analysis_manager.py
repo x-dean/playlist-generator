@@ -112,6 +112,9 @@ def select_files_for_analysis(args, audio_db):
     failed_db_files = set(f['filepath'] for f in db_features if f['failed'])
     
     logger.debug(f"DISCOVERY: files in db={len(db_files)}, failed in db={len(failed_db_files)}")
+    if db_files:
+        sample_db_files = list(db_files)[:3]
+        logger.debug(f"DISCOVERY: Sample files from db: {sample_db_files}")
     
     if args.failed:
         # Failed mode: only process failed files that aren't in failed directory
@@ -128,11 +131,17 @@ def select_files_for_analysis(args, audio_db):
         # Filter out failed files
         files_to_analyze = [f[0] for f in files_to_analyze if f[0] not in failed_db_files]
         logger.info(f"DISCOVERY: Force mode - {len(files_to_analyze)} files to process")
+        if files_to_analyze:
+            sample_files = files_to_analyze[:3]
+            logger.debug(f"DISCOVERY: Sample files to analyze (force): {sample_files}")
     else:
         # Normal mode: only new/modified files
         files_to_analyze = audio_db.get_files_needing_analysis()
         files_to_analyze = [f[0] for f in files_to_analyze]
         logger.info(f"DISCOVERY: Normal mode - {len(files_to_analyze)} files to process")
+        if files_to_analyze:
+            sample_files = files_to_analyze[:3]
+            logger.debug(f"DISCOVERY: Sample files to analyze (normal): {sample_files}")
     
     # Get file sizes from database for classification
     file_sizes = audio_db.get_file_sizes_from_db(files_to_analyze)
