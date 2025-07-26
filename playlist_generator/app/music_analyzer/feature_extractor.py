@@ -521,8 +521,7 @@ class AudioAnalyzer:
                     mbid,
                     includes=[
                         'artists', 'releases', 'tags', 'isrcs', 'work-rels', 'artist-credits',
-                        'artist-rels', 'aliases', 'recording-rels', 'labels', 'release-groups',
-                        'media', 'discs', 'tracks', 'ratings', 'user-tags', 'user-ratings'
+                        'artist-rels', 'aliases', 'recording-rels'
                     ]
                 )['recording']
                 
