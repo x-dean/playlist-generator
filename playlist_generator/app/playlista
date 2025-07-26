@@ -389,53 +389,73 @@ Examples:
         sys.exit(0)
 
     stop_event = multiprocessing.Event()
+    shutdown_initiated = False
 
     def handle_sigint(signum, frame):
+        nonlocal shutdown_initiated
+        if shutdown_initiated:
+            logger.info("Shutdown already initiated, forcing exit...")
+            sys.exit(1)
+            
+        shutdown_initiated = True
         logger.info("Received SIGINT (Ctrl+C), initiating graceful shutdown...")
         print("\n🛑 Process termination requested - stopping gracefully...")
         stop_event.set()
-
+        
         # Give workers time to finish current tasks
         import time
         timeout = 60  # Reduced from 120 to 60 seconds
         start_wait = time.time()
-
+        
         print("⏳ Waiting for workers to finish current tasks...")
-
+        
         while time.time() - start_wait < timeout:
             try:
                 import psutil
                 current_pid = os.getpid()
                 active_workers = 0
-                for proc in psutil.process_iter(['pid', 'ppid', 'name']):
+                active_worker_pids = []
+                
+                for proc in psutil.process_iter(['pid', 'ppid', 'name', 'status']):
                     try:
                         proc_info = proc.info
                         if (proc_info['ppid'] == current_pid and
                             proc_info['name'] and
                                 'python' in proc_info['name'].lower()):
-                            active_workers += 1
+                            # Check if process is actually running (not zombie)
+                            if proc_info.get('status') != 'zombie':
+                                active_workers += 1
+                                active_worker_pids.append(proc_info['pid'])
                     except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                         continue
-
+                
                 if active_workers == 0:
                     print("✅ All workers finished - exiting gracefully.")
                     break
-
+                
                 remaining_time = timeout - (time.time() - start_wait)
                 print(
                     f"⏳ {active_workers} workers still active, {remaining_time:.0f}s remaining...")
+                
+                # If we're getting close to timeout and workers are still active, be more aggressive
+                if remaining_time < 10 and active_workers > 0:
+                    print(f"⚠️  {active_workers} workers still active near timeout - forcing termination...")
+                    from music_analyzer.analysis_manager import cleanup_child_processes
+                    cleanup_child_processes()
+                    break
+                
                 time.sleep(2)
-
+                
             except Exception as e:
                 logger.warning(f"Error checking worker status: {e}")
                 time.sleep(1)
-
+        
         # Force cleanup if timeout reached
         if time.time() - start_wait >= timeout:
             print("⏰ Grace period expired - forcing termination...")
             from music_analyzer.analysis_manager import cleanup_child_processes
             cleanup_child_processes()
-
+        
         print("👋 Exiting...")
         sys.exit(0)
 

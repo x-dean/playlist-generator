@@ -242,23 +242,43 @@ def setup_graceful_shutdown():
 
 
 def cleanup_child_processes():
+    """Force cleanup of child processes with more aggressive termination."""
+    logger.info("Starting aggressive cleanup of child processes...")
     parent = psutil.Process(os.getpid())
-    for child in parent.children(recursive=True):
+    
+    # First, try to terminate all children gracefully
+    children = parent.children(recursive=True)
+    logger.info(f"Found {len(children)} child processes to terminate")
+    
+    for child in children:
         try:
+            logger.debug(f"Terminating child process {child.pid}")
             child.terminate()
-        except Exception:
-            pass
-    gone, alive = psutil.wait_procs(parent.children(recursive=True), timeout=3)
+        except Exception as e:
+            logger.debug(f"Error terminating child {child.pid}: {e}")
+    
+    # Wait for processes to terminate gracefully
+    gone, alive = psutil.wait_procs(children, timeout=5)
+    logger.info(f"Gracefully terminated {len(gone)} processes, {len(alive)} still alive")
+    
+    # Force kill any remaining processes
     for p in alive:
         try:
+            logger.debug(f"Force killing child process {p.pid}")
             p.kill()
-        except Exception:
-            pass
-    for child in parent.children(recursive=True):
+        except Exception as e:
+            logger.debug(f"Error force killing child {p.pid}: {e}")
+    
+    # Final cleanup - kill any remaining children
+    remaining_children = parent.children(recursive=True)
+    for child in remaining_children:
         try:
+            logger.debug(f"Final cleanup: killing child process {child.pid}")
             os.kill(child.pid, signal.SIGKILL)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Error in final cleanup of child {child.pid}: {e}")
+    
+    logger.info("Child process cleanup completed")
 
 # --- Worker Managers ---
 
