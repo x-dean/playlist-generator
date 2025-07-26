@@ -6,7 +6,7 @@ from tqdm import tqdm
 import logging
 import time
 from .feature_extractor import AudioAnalyzer
-from typing import Optional
+from typing import Optional, List
 import threading
 import signal
 
@@ -150,7 +150,7 @@ class ParallelProcessor:
         else:
             self.retry_counter = retry_counter
 
-    def process(self, file_list: list[str], workers: int = None, status_queue: Optional[object] = None, stop_event=None, force_reextract: bool = False, enforce_fail_limit: bool = None, retry_counter=None) -> iter:
+    def process(self, file_list: List[str], workers: int = None, status_queue: Optional[object] = None, stop_event=None, force_reextract: bool = False, enforce_fail_limit: bool = None, retry_counter=None) -> iter:
         if enforce_fail_limit is not None:
             self.enforce_fail_limit = enforce_fail_limit
         if retry_counter is not None:

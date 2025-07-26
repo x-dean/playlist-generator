@@ -4,6 +4,7 @@ import signal
 import logging
 import psutil
 import sqlite3
+from typing import List
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.console import Console
 from music_analyzer.parallel import ParallelProcessor, UserAbortException
@@ -692,7 +693,7 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     console.print("\n[bold green]PIPELINE: Complete. Now you can start generating playlists![/bold green]\n")
 
 # --- File Discovery Helper ---
-def get_audio_files(music: str) -> list[str]:
+def get_audio_files(music: str) -> List[str]:
     import os
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')

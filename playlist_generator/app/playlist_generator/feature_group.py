@@ -28,11 +28,11 @@ class FeatureGroupPlaylistGenerator:
         name = re.sub(r'[^\w\-_]', '_', name)
         return re.sub(r'_+', '_', name).strip('_')
 
-    def generate(self, features_list: list[dict]) -> dict[str, dict]:
+    def generate(self, features_list: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
         """Generate playlists from a list of feature dictionaries.
 
         Args:
-            features_list (list[dict]): List of feature dictionaries.
+            features_list (List[Dict[str, Any]]): List of feature dictionaries.
 
         Returns:
             dict[str, dict]: Dictionary of playlist names to playlist data.

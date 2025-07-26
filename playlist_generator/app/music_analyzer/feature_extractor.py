@@ -886,7 +886,7 @@ class AudioAnalyzer:
             logger.error(f"Error fetching features: {str(e)}")
             return []
 
-    def cleanup_database(self) -> list[str]:
+    def cleanup_database(self) -> List[str]:
         """Remove entries for files that no longer exist.
 
         Returns:

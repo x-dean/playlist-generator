@@ -30,11 +30,11 @@ class PlaylistManager:
         self.tag_generator = TagBasedPlaylistGenerator(min_tracks_per_genre=min_tracks_per_genre, db_file=cache_file)
         self.playlist_stats = defaultdict(dict)
 
-    def generate_playlists(self, features: list[dict], num_playlists: int = 8) -> dict[str, any]:
+    def generate_playlists(self, features: List[Dict[str, Any]], num_playlists: int = 8) -> Dict[str, Any]:
         """Generate playlists using the specified method.
 
         Args:
-            features (list[dict]): List of feature dictionaries.
+            features (List[Dict[str, Any]]): List of feature dictionaries.
             num_playlists (int, optional): Number of playlists to generate (for kmeans). Defaults to 8.
 
         Returns:
@@ -376,7 +376,7 @@ class PlaylistManager:
             playlist_name (str): Name of the playlist.
 
         Returns:
-            list[str]: List of recommended track file paths.
+            List[str]: List of recommended track file paths.
         """
         try:
             stats = self.playlist_stats.get(playlist_name)

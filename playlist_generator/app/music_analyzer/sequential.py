@@ -1,5 +1,6 @@
 from tqdm import tqdm
 import logging
+from typing import List
 from .feature_extractor import audio_analyzer
 from utils.logging_setup import setup_colored_logging
 import os
@@ -13,13 +14,13 @@ logger = logging.getLogger()
 class SequentialProcessor:
     """Sequential processor for audio analysis (single-threaded)."""
     def __init__(self) -> None:
-        self.failed_files: list[str] = []
+        self.failed_files: List[str] = []
     
-    def process(self, file_list: list[str], workers: int = None, stop_event=None, force_reextract: bool = False) -> iter:
+    def process(self, file_list: List[str], workers: int = None, stop_event=None, force_reextract: bool = False) -> iter:
         """Process a list of files sequentially.
 
         Args:
-            file_list (list[str]): List of file paths.
+            file_list (List[str]): List of file paths.
             workers (int, optional): Ignored for sequential processing.
             stop_event (multiprocessing.Event, optional): Event to signal graceful shutdown.
             force_reextract (bool, optional): If True, bypass the cache for all files.
@@ -29,7 +30,7 @@ class SequentialProcessor:
         """
         yield from self._process_sequential(file_list, stop_event=stop_event, force_reextract=force_reextract)
 
-    def _process_sequential(self, file_list: list[str], stop_event=None, force_reextract: bool = False) -> iter:
+    def _process_sequential(self, file_list: List[str], stop_event=None, force_reextract: bool = False) -> iter:
         """Internal generator for sequential processing."""
         from utils.logging_setup import setup_queue_colored_logging
         setup_queue_colored_logging()
