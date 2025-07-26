@@ -354,8 +354,11 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
             _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze), 
                                "[cyan]", "", "", None, not args.force_sequential)
         
+        # Prepare list of file paths only for processing
+        file_paths_only = [item[0] if isinstance(item, tuple) else item for item in files_to_analyze]
+        
         processed_count = 0
-        for features, filepath, db_write_success in processor.process(files_to_analyze, workers, force_reextract=force_reextract):
+        for features, filepath, db_write_success in processor.process(file_paths_only, workers, force_reextract=force_reextract):
             if stop_event and stop_event.is_set():
                 break
             
@@ -416,8 +419,11 @@ def run_force_mode(args, audio_db, cli, stop_event):
             _update_progress_bar(progress, task_id, invalid_files, 0, len(invalid_files), 
                                "[yellow]", "", "", None, True)  # Handles tuple or str
         
+        # Prepare list of file paths only for processing
+        file_paths_only = [item[0] if isinstance(item, tuple) else item for item in invalid_files]
+        
         processed_count = 0
-        for file_path in invalid_files:
+        for file_path in file_paths_only:
             if stop_event and stop_event.is_set():
                 break
             
@@ -482,8 +488,11 @@ def run_failed_mode(args, audio_db, cli, stop_event):
             _update_progress_bar(progress, task_id, failed_files, 0, len(failed_files), 
                                "[red]", "", "", None, False)  # Handles tuple or str
         
+        # Prepare list of file paths only for processing
+        file_paths_only = [item[0] if isinstance(item, tuple) else item for item in failed_files]
+        
         processed_count = 0
-        for file_path in failed_files:
+        for file_path in file_paths_only:
             if stop_event and stop_event.is_set():
                 break
             
