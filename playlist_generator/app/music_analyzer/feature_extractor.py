@@ -658,7 +658,8 @@ class AudioAnalyzer:
         WHERE file_hash = ? AND last_modified >= ?
         """, (file_info['file_hash'], file_info['last_modified']))
 
-        if row := cursor.fetchone():
+        row = cursor.fetchone()
+        if row:
             logger.debug(f"Using cached features for {file_info['file_path']}")
             return {
                 'duration': row[0],
