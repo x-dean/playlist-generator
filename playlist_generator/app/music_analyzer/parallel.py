@@ -204,7 +204,7 @@ class ParallelProcessor:
                                     cur.execute("UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
                                     conn.commit()
                                     conn.close()
-                                    yield features, filepath
+                                    yield features, filepath, db_write_success
                                 else:
                                     if self.enforce_fail_limit:
                                         count = self.retry_counter.get(filepath, 0) + 1
@@ -221,6 +221,7 @@ class ParallelProcessor:
                                         cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
                                         conn.commit()
                                         conn.close()
+                                        yield None, filepath, False
                         except KeyboardInterrupt:
                             logger.debug("KeyboardInterrupt received, terminating pool and exiting cleanly...")
                             pool.terminate()
@@ -260,7 +261,8 @@ class ParallelProcessor:
                     for filepath in remaining_files:
                         features, _, db_write_success = process_file_worker(filepath, status_queue)
                         if features and db_write_success:
-                            yield features, filepath
+                            yield features, filepath, db_write_success
                         else:
                             self.failed_files.append(filepath)
+                            yield None, filepath, False
                     return

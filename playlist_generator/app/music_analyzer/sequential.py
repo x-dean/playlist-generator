@@ -28,7 +28,7 @@ class SequentialProcessor:
             force_reextract (bool, optional): If True, bypass the cache for all files.
 
         Yields:
-            tuple: (features, filepath) for each file.
+            tuple: (features, filepath, db_write_success) for each file.
         """
         yield from self._process_sequential(file_list, stop_event=stop_event, force_reextract=force_reextract)
 
