@@ -1,7 +1,9 @@
-FROM python:3.7-slim-bullseye
+# --- Build stage ---
+FROM python:3.7-slim-bullseye AS builder
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
     libssl-dev \
@@ -9,8 +11,16 @@ RUN apt-get update && apt-get install -y \
     portaudio19-dev \
     python3-dev \
     libfftw3-dev \
-    libtag1-dev \
-    && rm -rf /var/lib/apt/lists/*
+    libtag1-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies in a virtualenv (for clean copy)
+WORKDIR /install
+COPY requirements.txt .
+RUN pip install --prefix=/install/deps --no-cache-dir -r requirements.txt
+
+# --- Final stage ---
+FROM python:3.7-slim-bullseye
 
 # Install runtime dependencies only
 RUN apt-get update && \
@@ -25,20 +35,12 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy only the installed Python packages from builder
-# COPY --from=builder /install/deps /usr/local # This line is removed as per the new_code
+COPY --from=builder /install/deps /usr/local
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Clean install of essentia-tensorflow and compatible TensorFlow
-RUN pip install --upgrade pip && \
-    pip uninstall -y essentia essentia-tensorflow tensorflow tensorflow-cpu tensorflow-gpu || true && \
-    pip install -r requirements.txt
-
-# Copy application code
+# Copy application code (this layer will be rebuilt when code changes)
 COPY app /app
 
 # Create directories with proper permissions
