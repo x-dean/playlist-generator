@@ -42,9 +42,9 @@ RUN pip install --upgrade pip && \
 COPY . .
 
 # Create __init__.py files to make directories importable
-RUN touch /app/database/__init__.py && \
-    touch /app/music_analyzer/__init__.py && \
-    touch /app/playlist_generator/__init__.py
+RUN touch /app/playlist_generator/app/database/__init__.py && \
+    touch /app/playlist_generator/app/music_analyzer/__init__.py && \
+    touch /app/playlist_generator/app/playlist_generator/__init__.py
 
 # Create directories with proper permissions
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \
