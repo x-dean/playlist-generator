@@ -352,6 +352,10 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             sequential_processor = SequentialProcessor(audio_analyzer=audio_db)
             workers = 1  # Sequential processing uses 1 worker
 
+            # Add a periodic update for large files
+            start_time = time.time()
+            last_update_time = start_time
+
             for features, filepath, db_write_success in sequential_processor.process(big_files, workers, force_reextract=force_reextract):
                 processed_count += 1
                 filename = os.path.basename(filepath)
@@ -362,6 +366,26 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 # Update progress bar with the file that was just processed
                 _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
                                      "[cyan]", "", status_dot, filepath, True, file_sizes)
+                
+                # Log completion
+                logger.info(f"SEQUENTIAL: Completed processing {filename}")
+                
+                # Check if we need to show a periodic update for long-running processes
+                current_time = time.time()
+                if current_time - last_update_time > 30:  # Update every 30 seconds
+                    elapsed = current_time - start_time
+                    logger.info(f"SEQUENTIAL: Still processing... ({elapsed:.0f}s elapsed)")
+                    last_update_time = current_time
+                
+                # Log completion
+                logger.info(f"SEQUENTIAL: Completed processing {filename}")
+                
+                # Check if we need to show a periodic update for long-running processes
+                current_time = time.time()
+                if current_time - last_update_time > 30:  # Update every 30 seconds
+                    elapsed = current_time - start_time
+                    logger.info(f"SEQUENTIAL: Still processing... ({elapsed:.0f}s elapsed)")
+                    last_update_time = current_time
 
                 logger.debug(
                     f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")

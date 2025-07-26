@@ -62,6 +62,10 @@ class SequentialProcessor:
                     analyzer = self.audio_analyzer
                 else:
                     analyzer = AudioAnalyzer()
+                
+                # Log that we're starting the extraction
+                logger.info(f"SEQUENTIAL: Starting feature extraction for {os.path.basename(filepath)}")
+                
                 features, db_write_success, file_hash = analyzer.extract_features(
                     filepath, force_reextract=force_reextract)
                 logger.debug(
