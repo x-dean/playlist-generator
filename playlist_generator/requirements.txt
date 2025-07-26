@@ -15,4 +15,4 @@ requests==2.31.0
 questionary==1.10.0
 tensorflow>=2.8.0
 librosa>=0.10.0
-keras-vggish>=0.1.6 
+keras-vggish 
