@@ -294,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "2.8.0"  # Version identifier for tracking updates - fixed Essentia tuple handling
+    VERSION = "2.9.0"  # Version identifier for tracking updates - enhanced rhythm extraction debugging
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -595,25 +595,41 @@ class AudioAnalyzer:
             logger.debug("Running rhythm analysis on audio")
             rhythm_result = rhythm_algo(audio)
             logger.debug(f"Rhythm result type: {type(rhythm_result)}")
+            logger.debug(f"Rhythm result length: {len(rhythm_result) if isinstance(rhythm_result, tuple) else 'not tuple'}")
+            logger.debug(f"Rhythm result: {rhythm_result}")
             
             # Handle different return types from Essentia
             if isinstance(rhythm_result, tuple):
-                if len(rhythm_result) >= 4:
-                    bpm, _, _, _ = rhythm_result
-                elif len(rhythm_result) >= 1:
+                # Try to get BPM from the first element
+                if len(rhythm_result) > 0:
                     bpm = rhythm_result[0]
+                    logger.debug(f"Extracted BPM from tuple[0]: {bpm}")
                 else:
-                    logger.warning("Unexpected rhythm result tuple length")
+                    logger.warning("Empty rhythm result tuple")
                     bpm = 120.0
             else:
+                # Single value return
                 bpm = rhythm_result
+                logger.debug(f"Extracted BPM from single value: {bpm}")
             
-            logger.debug(f"Extracted BPM: {bpm}")
+            # Ensure BPM is a valid number
+            try:
+                bpm = float(bpm)
+                if not np.isfinite(bpm) or bpm <= 0:
+                    logger.warning(f"Invalid BPM value: {bpm}, using default")
+                    bpm = 120.0
+            except (ValueError, TypeError):
+                logger.warning(f"Could not convert BPM to float: {bpm}, using default")
+                bpm = 120.0
+            
+            logger.debug(f"Final BPM: {bpm}")
             logger.info(f"Rhythm extraction completed: BPM = {bpm:.1f}")
             return {'bpm': float(bpm)}
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
             logger.debug(f"Rhythm extraction error details: {type(e).__name__}")
+            import traceback
+            logger.debug(f"Rhythm extraction full traceback: {traceback.format_exc()}")
             return {'bpm': 120.0}
 
     def _extract_spectral_features(self, audio):
