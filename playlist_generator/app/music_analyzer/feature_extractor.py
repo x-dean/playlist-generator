@@ -13,6 +13,9 @@ import requests
 import musicbrainzngs
 from mutagen import File as MutagenFile
 
+# Set up logger first
+logger = logging.getLogger(__name__)
+
 # Check if Essentia was built with TensorFlow support
 try:
     # Try to import TensorflowPredictMusiCNN to see if it's available
