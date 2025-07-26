@@ -188,7 +188,9 @@ class ParallelProcessor:
                 enrich_later = []
                 for i in range(0, len(remaining_files), self.batch_size):
                     batch = remaining_files[i:i+self.batch_size]
+                    # Check stop_event before starting new batch - this prevents feeding new files
                     if stop_event and stop_event.is_set():
+                        logger.info("Stop event detected - stopping new file processing")
                         break
                     with ctx.Pool(processes=self.workers) as pool:
                         try:
@@ -212,8 +214,8 @@ class ParallelProcessor:
                                         logger.warning(
                                             f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
                                         continue
-                                if stop_event and stop_event.is_set():
-                                    break
+                                # Don't check stop_event here - let workers complete their current file
+                                # The stop_event is only used to prevent feeding new files
                                 import sqlite3
                                 conn = sqlite3.connect(
                                     os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
