@@ -20,6 +20,7 @@ from utils.path_converter import PathConverter
 import requests
 import tensorflow as tf
 import librosa
+import keras_vggish
 
 logger = logging.getLogger()
 
@@ -67,47 +68,13 @@ class AudioAnalyzer:
         self.vggish_model = self._load_vggish_model()
 
     def _load_vggish_model(self):
-        """Load VGGish model for audio embeddings. Downloads if missing."""
+        """Load VGGish model for audio embeddings using keras-vggish (auto-downloads weights)."""
         try:
-            model_dir = os.getenv('MODEL_DIR', os.path.join(os.path.dirname(__file__), '..', 'feature_extraction', 'models'))
-            model_path = os.path.join(model_dir, 'vggish_model.h5')
-            if not os.path.exists(model_path):
-                # Import download_models using absolute path
-                import sys
-                # Get the project root directory (playlist_generator)
-                current_dir = os.path.dirname(__file__)  # music_analyzer
-                project_root = os.path.join(current_dir, '..', '..')  # playlist_generator
-                if project_root not in sys.path:
-                    sys.path.insert(0, project_root)
-                try:
-                    from download_models import download_vggish_model
-                    download_vggish_model(model_dir)
-                except ImportError as e:
-                    logger.error(f"Could not import download_models: {e}")
-                    # Create placeholder file directly
-                    os.makedirs(model_dir, exist_ok=True)
-                    with open(model_path, 'w') as f:
-                        f.write("# Placeholder for VGGish model\n")
-                        f.write("# Please download the actual model and replace this file\n")
-                        f.write("# Visit: https://github.com/tensorflow/models/tree/master/research/audioset/vggish\n")
-                    logger.warning(f"Created placeholder VGGish model at {model_path}")
-                    logger.warning("Please download the actual model and replace this file")
-                    return None
-            if os.path.exists(model_path):
-                # Check if it's a placeholder file
-                with open(model_path, 'r') as f:
-                    content = f.read()
-                    if 'Placeholder' in content:
-                        logger.warning(f"VGGish model at {model_path} is a placeholder. Please download the actual model.")
-                        return None
-                model = tf.keras.models.load_model(model_path)
-                logger.info(f"Loaded VGGish model from {model_path}")
-                return model
-            else:
-                logger.warning(f"VGGish model not found at {model_path}. Please download the model.")
-                return None
+            model = keras_vggish.get_vggish_keras()
+            logger.info("Loaded VGGish model using keras-vggish.")
+            return model
         except Exception as e:
-            logger.error(f"Failed to load VGGish model: {e}")
+            logger.error(f"Failed to load VGGish model with keras-vggish: {e}")
             return None
 
     def _audio_to_mel_spectrogram(self, audio, sr=44100):
