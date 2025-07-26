@@ -181,12 +181,6 @@ def get_host_library_path() -> str:
     # If all else fails, use the default
     return '/root/music/library'
 
-# Initialize system monitoring
-# Remove SystemMonitor and monitor_performance imports
-# Remove @monitor_performance decorators from get_audio_files and main
-# Remove system_monitor initialization
-checkpoint_manager = CheckpointManager()
-
 # Initialize CLI
 cli = PlaylistGeneratorCLI()
 
@@ -442,15 +436,6 @@ Examples:
 
     start_time = time.time()
     try:
-        # Try to resume from checkpoint
-        if args.resume:
-            state = checkpoint_manager.get_recovery_state()
-            if state:
-                cli.update_status("Resuming from checkpoint")
-                failed_files = state.get('failed_files', [])
-                if 'progress' in state:
-                    cli.update_status(f"Resuming from {state['progress']} stage")
-
         # Clean up database
         missing_in_db = audio_db.cleanup_database()
         if missing_in_db:
@@ -579,15 +564,6 @@ Examples:
 
     except Exception as e:
         cli.show_error(str(e), details=traceback.format_exc())
-        
-        # Save error state
-        checkpoint_manager.save_checkpoint({
-            'stage': 'error',
-            'error': str(e),
-            'traceback': traceback.format_exc(),
-            'failed_files': failed_files
-        }, name='error_state')
-        
         sys.exit(1)
     except KeyboardInterrupt:
         print("\nInterrupted by user. Exiting...")
