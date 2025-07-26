@@ -1902,6 +1902,21 @@ class AudioAnalyzer:
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_library_path(
             file_info['file_path'])
+        
+        # Check if database is writable
+        try:
+            import os
+            db_path = self.cache_file
+            if not os.access(os.path.dirname(db_path), os.W_OK):
+                logger.error(f"Database directory not writable: {os.path.dirname(db_path)}")
+                return False
+            if os.path.exists(db_path) and not os.access(db_path, os.W_OK):
+                logger.error(f"Database file not writable: {db_path}")
+                return False
+        except Exception as e:
+            logger.error(f"Error checking database permissions: {e}")
+            return False
+            
         try:
             # Validate and convert all features to proper Python types
             features = validate_and_convert_features(features)
@@ -1913,6 +1928,15 @@ class AudioAnalyzer:
             columns = cursor.fetchall()
             logger.debug(f"Database columns: {[col[1] for col in columns]}")
             logger.debug(f"Number of columns: {len(columns)}")
+            
+            # Test database write capability
+            try:
+                test_cursor = self.conn.execute("SELECT COUNT(*) FROM audio_features")
+                count = test_cursor.fetchone()[0]
+                logger.debug(f"Current database has {count} records")
+            except Exception as e:
+                logger.error(f"Database read test failed: {e}")
+                return False
 
             # Prepare values with proper type conversion
             values_tuple = (

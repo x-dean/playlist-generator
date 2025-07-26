@@ -48,6 +48,15 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     log_level = os.getenv('LOG_LEVEL', 'INFO')
     logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
     audio_analyzer = AudioAnalyzer()
+    
+    # Test database connection in worker
+    try:
+        test_cursor = audio_analyzer.conn.execute("SELECT COUNT(*) FROM audio_features")
+        count = test_cursor.fetchone()[0]
+        logger.debug(f"Worker database connection test: {count} records in DB")
+    except Exception as e:
+        logger.error(f"Worker database connection failed: {e}")
+        return None, filepath, False
 
     max_retries = 2
     retry_count = 0
@@ -121,8 +130,10 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 return None, filepath, False
             result = None
             try:
+                logger.debug(f"Worker starting extraction for {filepath}")
                 result = audio_analyzer.extract_features(
                     filepath, force_reextract=force_reextract)
+                logger.debug(f"Worker completed extraction for {filepath}: {result is not None}")
             except Exception as e:
                 logger.debug(
                     f"ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
@@ -142,6 +153,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                     return None, filepath, False
             if result and result[0] is not None:
                 features, db_write_success, _ = result
+                logger.debug(f"Worker result for {filepath}: features={features is not None}, db_write={db_write_success}")
                 for key in ['bpm', 'centroid', 'duration']:
                     if features.get(key) is None:
                         features[key] = 0.0
