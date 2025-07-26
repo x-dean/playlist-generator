@@ -68,7 +68,30 @@ class AudioAnalyzer:
 
     # Removed _audio_to_mel_spectrogram
 
-    # Removed _extract_vggish_embedding
+    def _extract_musicnn_embedding(self, audio):
+        """Extract MusiCNN embedding using Essentia's TensorflowPredictMusiCNN."""
+        try:
+            model_path = os.getenv(
+                'MUSICNN_MODEL_PATH',
+                '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
+            )
+            if not os.path.exists(model_path):
+                logger.error(f"MusiCNN model not found at {model_path}. Please download it from https://essentia.upf.edu/models/")
+                return None
+            # Resample to 16kHz mono if needed
+            import librosa
+            if hasattr(audio, 'shape') and len(audio.shape) > 1:
+                audio = np.mean(audio, axis=0)
+            audio = librosa.resample(audio, orig_sr=44100, target_sr=16000)
+            musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
+            embeddings = musicnn(audio)
+            if isinstance(embeddings, list) or (hasattr(embeddings, 'shape') and len(embeddings.shape) == 2):
+                embedding = np.mean(np.array(embeddings), axis=0)
+                return embedding.tolist()
+            return None
+        except Exception as e:
+            logger.warning(f"MusiCNN embedding extraction failed: {str(e)}")
+            return None
 
     def _init_db(self):
         self.conn = sqlite3.connect(self.cache_file, timeout=600)
@@ -552,15 +575,6 @@ class AudioAnalyzer:
                 'filename': os.path.basename(file_info['file_path'])
             }
         return None
-
-    def _extract_musicnn_embedding(self, audio):
-        """Extract MusiCNN embedding using Essentia's built-in model."""
-        try:
-            embedding = es.MusiCNNEmbedding()(audio)
-            return embedding.tolist() if hasattr(embedding, 'tolist') else list(embedding)
-        except Exception as e:
-            logger.warning(f"MusiCNN embedding extraction failed: {str(e)}")
-            return None
 
     def _extract_all_features(self, audio_path, audio):
         # Initialize with default values
