@@ -35,7 +35,7 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
     item = files_list[current_index]
     file_path = item[0] if isinstance(item, tuple) else item
     current_filename = os.path.basename(file_path)
-    max_len = 30  # Shorter to make room for file size and mode
+    max_len = 50  # Increased to make better use of available space
     if len(current_filename) > max_len:
         display_name = current_filename[:max_len-3] + "..."
     else:
