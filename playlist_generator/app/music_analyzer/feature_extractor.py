@@ -16,27 +16,34 @@ from mutagen import File as MutagenFile
 # Set up logger first
 logger = logging.getLogger(__name__)
 
-# Check if Essentia was built with TensorFlow support
-try:
-    # Try to import TensorflowPredictMusiCNN to see if it's available
-    from essentia.standard import TensorflowPredictMusiCNN
-    logger.info("Essentia TensorFlow support: AVAILABLE")
-except ImportError as e:
-    logger.warning(f"Essentia TensorFlow support: NOT AVAILABLE - {e}")
-    logger.warning("MusiCNN embeddings will not work. Install Essentia with TensorFlow support.")
+# Check if Essentia was built with TensorFlow support (only once)
+_essentia_tf_support_checked = False
+def check_essentia_tf_support():
+    global _essentia_tf_support_checked
+    if not _essentia_tf_support_checked:
+        try:
+            from essentia.standard import TensorflowPredictMusiCNN
+            logger.info("Essentia TensorFlow support: AVAILABLE")
+        except ImportError as e:
+            logger.warning(f"Essentia TensorFlow support: NOT AVAILABLE - {e}")
+            logger.warning("MusiCNN embeddings will not work. Install Essentia with TensorFlow support.")
+        _essentia_tf_support_checked = True
+
+# Run the check once at module import
+check_essentia_tf_support()
 
 # Configure Numba to use fallback mode to avoid compilation errors
 import numba
+# Only disable CUDA JIT, keep CPU JIT for librosa
 numba.config.CUDA_DISABLE_JIT = True
-numba.config.DISABLE_JIT = True
 
-# Configure TensorFlow to suppress warnings
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow as tf
-# Enable TensorFlow 1.x compatibility mode for Essentia
-tf.compat.v1.disable_eager_execution()
-tf.compat.v1.disable_v2_behavior()
-tf.get_logger().setLevel('ERROR')
+# Configure TensorFlow to suppress warnings (only if TensorFlow is used)
+try:
+    import tensorflow as tf
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+    tf.get_logger().setLevel('ERROR')
+except ImportError:
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -101,72 +108,71 @@ class AudioAnalyzer:
     # Removed _audio_to_mel_spectrogram
 
     def _extract_musicnn_embedding(self, audio):
-        """Extract deep learning-style embedding using librosa features (alternative to MusiCNN)."""
+        """Extract deep learning-style embedding using basic audio features (alternative to MusiCNN)."""
         try:
-            logger.info("Creating deep learning embedding using librosa features")
+            logger.info("Creating deep learning embedding using basic audio features")
             
-            # Resample to 16kHz mono if needed
+            # Ensure audio is mono
             if hasattr(audio, 'shape') and len(audio.shape) > 1:
                 audio = np.mean(audio, axis=0)
             
-            # Resample to 16kHz for consistency
-            audio_16k = librosa.resample(audio, orig_sr=44100, target_sr=16000)
-            logger.info(f"Audio resampled to 16kHz, shape: {audio_16k.shape}, dtype: {audio_16k.dtype}")
-            
-            # Extract comprehensive audio features using librosa
+            # Create comprehensive feature vector
             features = []
             
-            # 1. Mel-frequency cepstral coefficients (MFCCs) - 13 coefficients
-            mfccs = librosa.feature.mfcc(y=audio_16k, sr=16000, n_mfcc=13)
-            features.extend(np.mean(mfccs, axis=1).tolist())  # 13 features
+            # 1. Basic statistical features
+            features.extend([float(audio.mean()), float(audio.std())])
+            features.extend([float(np.percentile(audio, p)) for p in [25, 50, 75]])
+            features.extend([float(np.max(audio)), float(np.min(audio))])
             
-            # 2. Spectral features
-            spectral_centroids = librosa.feature.spectral_centroid(y=audio_16k, sr=16000)[0]
-            spectral_rolloff = librosa.feature.spectral_rolloff(y=audio_16k, sr=16000)[0]
-            spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio_16k, sr=16000)[0]
-            spectral_contrast = librosa.feature.spectral_contrast(y=audio_16k, sr=16000)
+            # 2. FFT-based features
+            fft = np.fft.fft(audio)
+            fft_magnitude = np.abs(fft)
+            features.extend([float(np.mean(fft_magnitude)), float(np.std(fft_magnitude))])
+            features.extend([float(np.percentile(fft_magnitude, p)) for p in [25, 50, 75]])
             
-            features.extend([np.mean(spectral_centroids), np.std(spectral_centroids)])
-            features.extend([np.mean(spectral_rolloff), np.std(spectral_rolloff)])
-            features.extend([np.mean(spectral_bandwidth), np.std(spectral_bandwidth)])
-            features.extend(np.mean(spectral_contrast, axis=1).tolist())  # 7 features
+            # 3. Spectral features (using numpy)
+            # Power spectral density
+            psd = np.abs(fft) ** 2
+            features.extend([float(np.mean(psd)), float(np.std(psd))])
             
-            # 3. Chroma features (harmonic content)
-            chroma = librosa.feature.chroma_stft(y=audio_16k, sr=16000)
-            features.extend(np.mean(chroma, axis=1).tolist())  # 12 features
+            # 4. Energy features
+            energy = np.sum(audio ** 2)
+            features.extend([float(energy), float(np.sqrt(energy))])
             
-            # 4. Rhythm features
-            tempo, beats = librosa.beat.beat_track(y=audio_16k, sr=16000)
-            features.extend([tempo, len(beats)])
+            # 5. Zero crossing rate (simplified)
+            zero_crossings = np.sum(np.diff(np.sign(audio)) != 0)
+            features.extend([float(zero_crossings), float(zero_crossings / len(audio))])
             
-            # 5. Zero crossing rate
-            zcr = librosa.feature.zero_crossing_rate(audio_16k)
-            features.extend([np.mean(zcr), np.std(zcr)])
-            
-            # 6. Root mean square energy
-            rms = librosa.feature.rms(y=audio_16k)
-            features.extend([np.mean(rms), np.std(rms)])
-            
-            # 7. Spectral flatness
-            flatness = librosa.feature.spectral_flatness(y=audio_16k)
-            features.extend([np.mean(flatness), np.std(flatness)])
-            
-            # 8. Tonnetz features (harmonic content)
-            y_harmonic = librosa.effects.harmonic(audio_16k)
-            tonnetz = librosa.feature.tonnetz(y=y_harmonic, sr=16000)
-            features.extend(np.mean(tonnetz, axis=1).tolist())  # 6 features
-            
-            # 9. Poly features (polyphonic features)
-            poly_features = librosa.feature.poly_features(y=audio_16k, sr=16000)
-            features.extend(np.mean(poly_features, axis=1).tolist())  # 2 features
-            
-            # 10. Additional statistical features
+            # 6. Additional statistical features
             features.extend([
-                np.mean(audio_16k), np.std(audio_16k), np.max(audio_16k), np.min(audio_16k),
-                np.percentile(audio_16k, 25), np.percentile(audio_16k, 50), np.percentile(audio_16k, 75)
+                float(np.var(audio)),  # Variance
+                float(np.median(audio)),  # Median
+                float(np.ptp(audio)),  # Peak-to-peak
+                float(np.mean(np.abs(audio))),  # Mean absolute value
+                float(np.std(np.abs(audio))),  # Std of absolute values
             ])
             
-            # Pad or truncate to 128 dimensions (like MusiCNN)
+            # 7. Frequency domain features
+            freqs = np.fft.fftfreq(len(audio))
+            positive_freqs = freqs[freqs > 0]
+            positive_fft = fft_magnitude[freqs > 0]
+            if len(positive_freqs) > 0:
+                # Spectral centroid
+                spectral_centroid = np.sum(positive_freqs * positive_fft) / np.sum(positive_fft)
+                features.extend([float(spectral_centroid)])
+            else:
+                features.extend([0.0])
+            
+            # 8. Additional features to reach 128 dimensions
+            # Use different window sizes for analysis
+            for window_size in [512, 1024, 2048]:
+                if len(audio) >= window_size:
+                    window = audio[:window_size]
+                    features.extend([float(window.mean()), float(window.std())])
+                else:
+                    features.extend([0.0, 0.0])
+            
+            # Pad or truncate to 128 dimensions
             while len(features) < 128:
                 features.append(0.0)
             if len(features) > 128:
@@ -180,36 +186,15 @@ class AudioAnalyzer:
             logger.warning(f"Exception type: {type(e).__name__}")
             import traceback
             logger.warning(f"Full traceback: {traceback.format_exc()}")
-            # Fallback: create a simple embedding from basic features
+            # Final fallback: create minimal embedding
             try:
-                # Create a simple 128-dimensional embedding from basic features
-                features = []
-                features.extend([float(audio.mean()), float(audio.std())])  # Basic stats
-                features.extend([float(np.percentile(audio, p)) for p in [25, 50, 75]])  # Percentiles
-                features.extend([float(np.max(audio)), float(np.min(audio))])  # Min/max
-                
-                # Add spectral features
-                if hasattr(audio, 'shape') and len(audio.shape) > 1:
-                    audio_mono = np.mean(audio, axis=0)
-                else:
-                    audio_mono = audio
-                
-                # FFT features
-                fft = np.fft.fft(audio_mono)
-                fft_magnitude = np.abs(fft)
-                features.extend([float(np.mean(fft_magnitude)), float(np.std(fft_magnitude))])
-                features.extend([float(np.percentile(fft_magnitude, p)) for p in [25, 50, 75]])
-                
-                # Pad or truncate to 128 dimensions
+                features = [float(audio.mean()), float(audio.std())]
                 while len(features) < 128:
                     features.append(0.0)
-                if len(features) > 128:
-                    features = features[:128]
-                
-                logger.info("Created fallback embedding from basic audio features")
+                logger.info("Created minimal fallback embedding")
                 return features
             except Exception as fallback_error:
-                logger.warning(f"Fallback embedding also failed: {str(fallback_error)}")
+                logger.warning(f"Minimal fallback embedding also failed: {str(fallback_error)}")
                 return None
 
     def _init_db(self):
