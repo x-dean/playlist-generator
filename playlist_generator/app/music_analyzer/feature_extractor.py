@@ -397,28 +397,111 @@ class AudioAnalyzer:
             return [0.0] * 12
 
     def _extract_spectral_contrast(self, audio):
+        """Extract spectral contrast features from audio."""
         try:
-            # SpectralContrast expects frame-by-frame input, not the entire audio
-            # We'll skip this for now and use a simpler approach
-            return [0.0] * 6  # Return default values
+            # Use frame-by-frame processing for spectral contrast
+            frame_size = 2048
+            hop_size = 1024
+            
+            window = es.Windowing(type='hann')
+            spectrum = es.Spectrum()
+            spectral_peaks = es.SpectralPeaks()
+            
+            contrast_list = []
+            
+            # Process audio frame by frame
+            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                spec = spectrum(window(frame))
+                freqs, mags = spectral_peaks(spec)
+                
+                if len(freqs) > 0:
+                    # Calculate spectral contrast manually
+                    # Sort magnitudes and find valleys
+                    sorted_mags = np.sort(mags)
+                    valleys = sorted_mags[:len(sorted_mags)//3]  # Bottom third
+                    peaks = sorted_mags[-len(sorted_mags)//3:]   # Top third
+                    contrast = np.mean(peaks) - np.mean(valleys) if len(peaks) > 0 and len(valleys) > 0 else 0.0
+                    contrast_list.append(contrast)
+            
+            # Return mean contrast across all frames
+            if contrast_list:
+                return float(np.mean(contrast_list))
+            else:
+                return 0.0
+                
         except Exception as e:
             logger.warning(f"Spectral contrast extraction failed: {str(e)}")
-            return [0.0] * 6  # Essentia default: 6 bands
+            return 0.0
 
     def _extract_spectral_flatness(self, audio):
+        """Extract spectral flatness from audio."""
         try:
-            # SpectralFlatness might not be available in this Essentia version
-            # Use a simple alternative or return 0
-            return 0.0
+            # Use frame-by-frame processing for spectral flatness
+            frame_size = 2048
+            hop_size = 1024
+            
+            window = es.Windowing(type='hann')
+            spectrum = es.Spectrum()
+            
+            flatness_list = []
+            
+            # Process audio frame by frame
+            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                spec = spectrum(window(frame))
+                
+                # Calculate spectral flatness manually
+                # Flatness = geometric_mean / arithmetic_mean
+                spec_positive = spec[spec > 0]  # Avoid log(0)
+                if len(spec_positive) > 0:
+                    geometric_mean = np.exp(np.mean(np.log(spec_positive)))
+                    arithmetic_mean = np.mean(spec_positive)
+                    flatness = geometric_mean / arithmetic_mean if arithmetic_mean > 0 else 0.0
+                    flatness_list.append(flatness)
+            
+            # Return mean flatness across all frames
+            if flatness_list:
+                return float(np.mean(flatness_list))
+            else:
+                return 0.0
+                
         except Exception as e:
             logger.warning(f"Spectral flatness extraction failed: {str(e)}")
             return 0.0
 
     def _extract_spectral_rolloff(self, audio):
+        """Extract spectral rolloff from audio."""
         try:
-            # SpectralRollOff might not be available in this Essentia version
-            # Use a simple alternative or return 0
-            return 0.0
+            # Use frame-by-frame processing for spectral rolloff
+            frame_size = 2048
+            hop_size = 1024
+            
+            window = es.Windowing(type='hann')
+            spectrum = es.Spectrum()
+            
+            rolloff_list = []
+            
+            # Process audio frame by frame
+            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                spec = spectrum(window(frame))
+                
+                # Calculate spectral rolloff manually
+                # Rolloff is the frequency below which 85% of the energy is contained
+                total_energy = np.sum(spec)
+                if total_energy > 0:
+                    cumulative_energy = np.cumsum(spec)
+                    threshold = 0.85 * total_energy
+                    rolloff_idx = np.where(cumulative_energy >= threshold)[0]
+                    if len(rolloff_idx) > 0:
+                        # Convert bin index to frequency (assuming 44.1kHz sample rate)
+                        rolloff_freq = (rolloff_idx[0] / len(spec)) * 22050  # Nyquist frequency
+                        rolloff_list.append(rolloff_freq)
+            
+            # Return mean rolloff across all frames
+            if rolloff_list:
+                return float(np.mean(rolloff_list))
+            else:
+                return 0.0
+                
         except Exception as e:
             logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
             return 0.0
@@ -571,7 +654,7 @@ class AudioAnalyzer:
             'zcr': 0.0,
             'mfcc': [0.0] * 13,
             'chroma': [0.0] * 12,  # 12-dimensional HPCP vector
-            'spectral_contrast': [0.0] * 6,
+            'spectral_contrast': 0.0,  # Single float value
             'spectral_flatness': 0.0,
             'spectral_rolloff': 0.0
         }
