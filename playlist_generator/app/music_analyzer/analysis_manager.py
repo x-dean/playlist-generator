@@ -1,17 +1,22 @@
 import os
-import multiprocessing
-import signal
+import sys
+import time
 import logging
-import psutil
+import multiprocessing as mp
 import sqlite3
-from typing import List
+import json
+import shutil
+from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
+
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.console import Console
 from music_analyzer.parallel import ParallelProcessor, UserAbortException
 from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.feature_extractor import AudioAnalyzer
-import json
-import shutil
+import psutil
+from utils.cli import CLIContextManager
+
 # Default logging level for workers
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 import logging
@@ -131,7 +136,7 @@ def move_newly_failed_files(audio_db, newly_failed, failed_dir=None):
 
 # --- Graceful Shutdown ---
 def setup_graceful_shutdown():
-    stop_event = multiprocessing.Event()
+    stop_event = mp.Event()
     def handle_stop_signal(signum, frame):
         stop_event.set()
         logger.info(f"Received signal {signum}, initiating graceful shutdown...")
@@ -142,6 +147,7 @@ def setup_graceful_shutdown():
         import sys
         sys.exit(0)
     # Handle multiple signal types for Docker compatibility
+    import signal
     signal.signal(signal.SIGINT, handle_stop_signal)
     signal.signal(signal.SIGTERM, handle_stop_signal)
     signal.signal(signal.SIGQUIT, handle_stop_signal)
@@ -191,7 +197,7 @@ class BigFileWorkerManager:
         for filepath in files:
             if self.stop_event.is_set():
                 break
-            queue = multiprocessing.Queue()
+            queue = mp.Queue()
             def analyze_in_subprocess(filepath, cache_file, library, music, queue, stop_event):
                 try:
                     if stop_event.is_set():
@@ -202,7 +208,7 @@ class BigFileWorkerManager:
                     queue.put(result)
                 except Exception as e:
                     queue.put(None)
-            p = multiprocessing.Process(target=analyze_in_subprocess, args=(filepath, self.audio_db.cache_file, self.audio_db.library, self.audio_db.music, queue, self.stop_event))
+            p = mp.Process(target=analyze_in_subprocess, args=(filepath, self.audio_db.cache_file, self.audio_db.library, self.audio_db.music, queue, self.stop_event))
             p.start()
             self.processes.append(p)
             try:
