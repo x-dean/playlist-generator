@@ -54,8 +54,7 @@ class SequentialProcessor:
                     yield None, filepath, False
                     continue
 
-                from .feature_extractor import AudioAnalyzer
-                audio_analyzer = AudioAnalyzer()
+                # Use the global audio_analyzer instance instead of creating a new one
                 logger.debug(f"SEQUENTIAL: Calling extract_features for: {filepath}")
                 features, db_write_success, file_hash = audio_analyzer.extract_features(
                     filepath, force_reextract=force_reextract)

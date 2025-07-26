@@ -1537,7 +1537,19 @@ class AudioAnalyzer:
 
         try:
             file_info = self._get_file_info(audio_path)
-            self.timeout_seconds = 180
+            
+            # Dynamic timeout based on file size
+            try:
+                file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+                if file_size_mb > 100:  # Very large files (>100MB)
+                    self.timeout_seconds = 600  # 10 minutes
+                elif file_size_mb > 50:  # Large files (>50MB)
+                    self.timeout_seconds = 300  # 5 minutes
+                else:
+                    self.timeout_seconds = 180  # 3 minutes for normal files
+                logger.debug(f"Set timeout to {self.timeout_seconds}s for {file_size_mb:.1f}MB file")
+            except:
+                self.timeout_seconds = 180  # Fallback timeout
             if not force_reextract:
                 cached_features = self._get_cached_features(file_info)
                 if cached_features:
