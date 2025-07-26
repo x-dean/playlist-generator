@@ -338,6 +338,10 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
     failed_files = []
 
     with CLIContextManager(cli, len(files_to_analyze), f"[cyan]Analyzing {len(files_to_analyze)} files...") as (progress, task_id):
+        # Prepare list of file paths only for processing
+        file_paths_only = [item[0] if isinstance(
+            item, tuple) else item for item in files_to_analyze]
+        
         # Separate files by size for different processing strategies
         big_files = []
         normal_files = []
@@ -380,10 +384,6 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
         
         # Process all results
         processed_count = 0
-
-        # Prepare list of file paths only for processing
-        file_paths_only = [item[0] if isinstance(
-            item, tuple) else item for item in files_to_analyze]
 
         # Pre-update progress bar with first file
         if files_to_analyze:
