@@ -40,6 +40,21 @@ from datetime import datetime
 # Add the app directory to the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Suppress TensorFlow GPU warnings and verbose logging
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU usage
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimizations
+os.environ['TF_GPU_ALLOCATOR'] = 'cpu'  # Force CPU allocation
+
+# Suppress other verbose logging
+import logging
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
+logging.getLogger('librosa').setLevel(logging.ERROR)
+logging.getLogger('essentia').setLevel(logging.ERROR)
+logging.getLogger('numba').setLevel(logging.ERROR)
+logging.getLogger('matplotlib').setLevel(logging.ERROR)
+
 # Parse --log_level early to set LOG_LEVEL env var
 pre_parser = argparse.ArgumentParser(add_help=False)
 pre_parser.add_argument('--log_level', default='INFO',
