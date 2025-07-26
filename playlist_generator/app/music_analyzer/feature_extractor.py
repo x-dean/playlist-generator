@@ -274,7 +274,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "2.2.0"  # Version identifier for tracking updates - fixed MFCC, spectral features, and MusiCNN
+    VERSION = "2.3.0"  # Version identifier for tracking updates - fixed MFCC type handling and MusiCNN import
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -308,7 +308,6 @@ class AudioAnalyzer:
         try:
             import essentia.standard as es
             import numpy as np
-            import os
             import json
             
             model_path = os.getenv(
@@ -678,15 +677,45 @@ class AudioAnalyzer:
             mfcc_algo = es.MFCC(numberCoefficients=num_coeffs)
             logger.debug("Running MFCC analysis on audio")
             _, mfcc_coeffs = mfcc_algo(audio)
-            logger.debug(f"MFCC coefficients shape: {np.array(mfcc_coeffs).shape if hasattr(mfcc_coeffs, 'shape') else type(mfcc_coeffs)}")
+            logger.debug(f"MFCC coefficients type: {type(mfcc_coeffs)}")
+            logger.debug(f"MFCC coefficients shape: {np.array(mfcc_coeffs).shape if hasattr(mfcc_coeffs, 'shape') else 'no shape'}")
             
-            mfcc_mean = np.mean(mfcc_coeffs, axis=0).tolist()  # global average
-            logger.debug(f"Calculated mean MFCC coefficients: {len(mfcc_mean)} values")
+            # Handle different return types from Essentia MFCC
+            if isinstance(mfcc_coeffs, (list, np.ndarray)):
+                if len(mfcc_coeffs) > 0:
+                    # If it's a 2D array (time x coefficients)
+                    if hasattr(mfcc_coeffs, 'shape') and len(mfcc_coeffs.shape) == 2:
+                        mfcc_mean = np.mean(mfcc_coeffs, axis=0).tolist()
+                        logger.debug(f"Calculated mean MFCC coefficients from 2D array: {len(mfcc_mean)} values")
+                    # If it's a 1D array (single frame)
+                    else:
+                        mfcc_mean = np.array(mfcc_coeffs).tolist()
+                        logger.debug(f"Using single frame MFCC coefficients: {len(mfcc_mean)} values")
+                else:
+                    logger.warning("MFCC coefficients array is empty")
+                    mfcc_mean = [0.0] * num_coeffs
+            else:
+                logger.warning(f"Unexpected MFCC coefficients type: {type(mfcc_coeffs)}")
+                mfcc_mean = [0.0] * num_coeffs
+            
+            # Ensure we have the right number of coefficients
+            if len(mfcc_mean) != num_coeffs:
+                logger.warning(f"MFCC coefficients length mismatch: got {len(mfcc_mean)}, expected {num_coeffs}")
+                if len(mfcc_mean) < num_coeffs:
+                    # Pad with zeros
+                    mfcc_mean.extend([0.0] * (num_coeffs - len(mfcc_mean)))
+                else:
+                    # Truncate
+                    mfcc_mean = mfcc_mean[:num_coeffs]
+            
+            logger.debug(f"Final MFCC coefficients: {len(mfcc_mean)} values")
             logger.debug(f"MFCC coefficient range: min={min(mfcc_mean):.3f}, max={max(mfcc_mean):.3f}")
             return {'mfcc': mfcc_mean}
         except Exception as e:
             logger.warning(f"MFCC extraction failed: {str(e)}")
             logger.debug(f"MFCC extraction error details: {type(e).__name__}")
+            import traceback
+            logger.debug(f"MFCC extraction full traceback: {traceback.format_exc()}")
             return {'mfcc': [0.0] * num_coeffs}
 
     def _extract_chroma(self, audio):
