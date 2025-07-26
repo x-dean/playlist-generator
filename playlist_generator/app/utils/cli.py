@@ -12,7 +12,6 @@ from rich.layout import Layout
 from rich.text import Text
 from datetime import datetime
 import os
-from utils.logging_setup import setup_file_only_logging
 # Default logging level
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 import logging

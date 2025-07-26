@@ -12,7 +12,6 @@ from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.feature_extractor import AudioAnalyzer
 import json
 import shutil
-from utils.logging_setup import setup_file_only_logging
 # Default logging level for workers
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 import logging
