@@ -46,10 +46,12 @@ class SequentialProcessor:
                 from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
                 features, db_write_success, file_hash = audio_analyzer.extract_features(filepath, force_reextract=force_reextract)
-                if features:
-                    yield features, filepath
+                if features and db_write_success:
+                    yield features, filepath, db_write_success
                 else:
                     self.failed_files.append(filepath)
+                    yield None, filepath, False
             except Exception as e:
                 self.failed_files.append(filepath)
                 logger.error(f"Error processing {filepath}: {str(e)}")
+                yield None, filepath, False

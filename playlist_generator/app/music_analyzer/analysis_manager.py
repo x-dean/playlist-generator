@@ -282,6 +282,10 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
         workers = args.workers or max(1, mp.cpu_count())
         
+        # Log which processor is being used
+        processor_type = "Sequential" if args.force_sequential else "Parallel"
+        logger.info(f"Using {processor_type} processor with {workers} workers")
+        
         for features, filepath, db_write_success in processor.process(files_to_analyze, workers, force_reextract=force_reextract):
             if stop_event and stop_event.is_set():
                 break
@@ -312,6 +316,9 @@ def run_force_mode(args, audio_db, cli, stop_event):
     # Retry analysis for invalid files
     failed_files = []
     with CLIContextManager(cli, len(invalid_files), "[yellow]Retrying invalid files...") as (progress, task_id):
+        # Log processor type for force mode (always sequential for retries)
+        logger.info("Using Sequential processor for force mode retries")
+        
         for file_path in invalid_files:
             if stop_event and stop_event.is_set():
                 break
@@ -349,6 +356,9 @@ def run_failed_mode(args, audio_db, cli, stop_event):
     # Retry each failed file up to 3 times
     still_failed = []
     with CLIContextManager(cli, len(failed_files), "[red]Retrying failed files...") as (progress, task_id):
+        # Log processor type for failed mode (always sequential for retries)
+        logger.info("Using Sequential processor for failed mode retries")
+        
         for file_path in failed_files:
             if stop_event and stop_event.is_set():
                 break
