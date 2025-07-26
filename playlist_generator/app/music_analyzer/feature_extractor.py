@@ -19,11 +19,6 @@ from mutagen import File as MutagenFile
 import requests
 from utils.path_converter import PathConverter
 
-# Suppress TensorFlow warnings
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-import tensorflow as tf
-tf.get_logger().setLevel('ERROR')
-
 logger = logging.getLogger(__name__)
 
 class TimeoutException(Exception):
@@ -67,92 +62,13 @@ class AudioAnalyzer:
         self.library = library
         self.music = music
         # Load TensorFlow models
-        self.vggish_model = self._load_vggish_model()
+        # self.vggish_model = self._load_vggish_model() # Removed VGGish model loading
 
-    def _load_vggish_model(self):
-        """Load MusiCNN model for audio embeddings using Essentia."""
-        try:
-            # Use Essentia's MusiCNN model for embeddings
-            # This model is already available in Essentia and provides similar functionality to VGGish
-            logger.info("Using Essentia's MusiCNN model for audio embeddings.")
-            return True  # Model is available through Essentia
-        except Exception as e:
-            logger.error(f"Failed to load MusiCNN model: {e}")
-            return None
+    # Removed _load_vggish_model
 
-    def _audio_to_mel_spectrogram(self, audio, sr=44100):
-        """Convert audio to mel-spectrogram for VGGish input."""
-        try:
-            # VGGish expects 96 mel bands, 64 time frames
-            mel_spec = librosa.feature.melspectrogram(
-                y=audio, 
-                sr=sr, 
-                n_mels=96, 
-                hop_length=512,
-                n_fft=2048
-            )
-            # Convert to log scale
-            mel_spec = librosa.power_to_db(mel_spec, ref=np.max)
-            # Pad or truncate to 64 time frames
-            if mel_spec.shape[1] < 64:
-                mel_spec = np.pad(mel_spec, ((0, 0), (0, 64 - mel_spec.shape[1])))
-            else:
-                mel_spec = mel_spec[:, :64]
-            return mel_spec
-        except Exception as e:
-            logger.warning(f"Mel-spectrogram conversion failed: {str(e)}")
-            return None
+    # Removed _audio_to_mel_spectrogram
 
-    def _extract_vggish_embedding(self, audio):
-        """Extract MusiCNN embeddings from audio using Essentia."""
-        try:
-            # Use Essentia's MusiCNN for embeddings
-            # This provides similar functionality to VGGish but is more reliable
-            # For now, we'll use a combination of existing Essentia features as embeddings
-            # This gives us a 128-dimensional vector similar to VGGish
-            
-            # Extract multiple Essentia features and combine them
-            features = []
-            
-            # Spectral features
-            spectral_centroid = es.SpectralCentroidTime(sampleRate=44100)
-            centroid_values = spectral_centroid(audio)
-            features.extend([float(np.mean(centroid_values)), float(np.std(centroid_values))])
-            
-            # MFCC features (first 13 coefficients)
-            mfcc = es.MFCC(numberCoefficients=13)
-            _, mfcc_coeffs = mfcc(audio)
-            mfcc_mean = np.mean(mfcc_coeffs, axis=0)
-            features.extend([float(x) for x in mfcc_mean])
-            
-            # Chroma features
-            chromagram = es.Chromagram()
-            chroma = chromagram(audio)
-            chroma_mean = np.mean(chroma, axis=1)
-            features.extend([float(x) for x in chroma_mean])
-            
-            # Rhythm features
-            rhythm_extractor = es.RhythmExtractor()
-            bpm, _, confidence, _ = rhythm_extractor(audio)
-            features.extend([float(bpm), float(np.mean(confidence))])
-            
-            # Loudness features
-            loudness = es.RMS()(audio)
-            features.append(float(loudness))
-            
-            # Danceability
-            danceability, _ = es.Danceability()(audio)
-            features.append(float(danceability))
-            
-            # Pad or truncate to 128 dimensions (like VGGish)
-            while len(features) < 128:
-                features.append(0.0)
-            features = features[:128]
-            
-            return features
-        except Exception as e:
-            logger.warning(f"MusiCNN embedding extraction failed: {str(e)}")
-            return None
+    # Removed _extract_vggish_embedding
 
     def _init_db(self):
         self.conn = sqlite3.connect(self.cache_file, timeout=600)
@@ -175,22 +91,22 @@ class AudioAnalyzer:
                 zcr REAL,
                 mfcc JSON,
                 chroma JSON,
-                spectral_contrast JSON,
+                spectral_contrast REAL,
                 spectral_flatness REAL,
                 spectral_rolloff REAL,
+                musicnn_embedding JSON,
                 last_modified REAL,
                 last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 metadata JSON,
-                failed INTEGER DEFAULT 0,
-                vggish_embedding JSON
+                failed INTEGER DEFAULT 0
             )
             """)
             # Migration: add 'failed' column if missing
             columns = [row[1] for row in self.conn.execute("PRAGMA table_info(audio_features)")]
             if 'failed' not in columns:
                 self.conn.execute("ALTER TABLE audio_features ADD COLUMN failed INTEGER DEFAULT 0")
-            if 'vggish_embedding' not in columns:
-                self.conn.execute("ALTER TABLE audio_features ADD COLUMN vggish_embedding JSON")
+            if 'musicnn_embedding' not in columns:
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN musicnn_embedding JSON")
             self._verify_db_schema()
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
@@ -210,7 +126,7 @@ class AudioAnalyzer:
             'metadata': 'JSON',
             'mfcc': 'JSON',
             'chroma': 'JSON',
-            'spectral_contrast': 'JSON',
+            'spectral_contrast': 'REAL',
             'spectral_flatness': 'REAL DEFAULT 0',
             'spectral_rolloff': 'REAL DEFAULT 0'
         }
@@ -607,7 +523,7 @@ class AudioAnalyzer:
         cursor.execute("""
         SELECT duration, bpm, beat_confidence, centroid,
                loudness, danceability, key, scale, onset_rate, zcr,
-               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, metadata, vggish_embedding
+               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, metadata
         FROM audio_features
         WHERE file_hash = ? AND last_modified >= ?
         """, (file_info['file_hash'], file_info['last_modified']))
@@ -627,15 +543,24 @@ class AudioAnalyzer:
                 'zcr': row[9],
                 'mfcc': json.loads(row[10]) if row[10] else [0.0] * 13,
                 'chroma': json.loads(row[11]) if row[11] else [0.0] * 12,
-                'spectral_contrast': json.loads(row[12]) if row[12] else [0.0] * 6,
+                'spectral_contrast': row[12],
                 'spectral_flatness': row[13],
                 'spectral_rolloff': row[14],
-                'metadata': json.loads(row[15]) if row[15] else {},
-                'vggish_embedding': json.loads(row[16]) if row[16] else None,
+                'musicnn_embedding': json.loads(row[15]) if row[15] else None,
+                'metadata': json.loads(row[16]) if row[16] else {},
                 'filepath': file_info['file_path'],
                 'filename': os.path.basename(file_info['file_path'])
             }
         return None
+
+    def _extract_musicnn_embedding(self, audio):
+        """Extract MusiCNN embedding using Essentia's built-in model."""
+        try:
+            embedding = es.MusiCNNEmbedding()(audio)
+            return embedding.tolist() if hasattr(embedding, 'tolist') else list(embedding)
+        except Exception as e:
+            logger.warning(f"MusiCNN embedding extraction failed: {str(e)}")
+            return None
 
     def _extract_all_features(self, audio_path, audio):
         # Initialize with default values
@@ -656,7 +581,8 @@ class AudioAnalyzer:
             'chroma': [0.0] * 12,  # 12-dimensional HPCP vector
             'spectral_contrast': 0.0,  # Single float value
             'spectral_flatness': 0.0,
-            'spectral_rolloff': 0.0
+            'spectral_rolloff': 0.0,
+            'musicnn_embedding': None
         }
         # --- Metadata extraction ---
         meta = {}
@@ -716,6 +642,7 @@ class AudioAnalyzer:
                 spectral_contrast = self._extract_spectral_contrast(audio)
                 spectral_flatness = self._extract_spectral_flatness(audio)
                 spectral_rolloff = self._extract_spectral_rolloff(audio)
+                musicnn_embedding = self._extract_musicnn_embedding(audio)
 
                 # Update features
                 features.update({
@@ -732,7 +659,8 @@ class AudioAnalyzer:
                     'chroma': chroma,
                     'spectral_contrast': spectral_contrast,
                     'spectral_flatness': self._ensure_float(spectral_flatness),
-                    'spectral_rolloff': self._ensure_float(spectral_rolloff)
+                    'spectral_rolloff': self._ensure_float(spectral_rolloff),
+                    'musicnn_embedding': musicnn_embedding
                 })
             except Exception as e:
                 logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
@@ -776,9 +704,10 @@ class AudioAnalyzer:
                 features.get('zcr'),
                 json.dumps(features.get('mfcc', [])),
                 json.dumps(features.get('chroma', [])),
-                json.dumps(features.get('spectral_contrast', [])),
+                features.get('spectral_contrast'),
                 features.get('spectral_flatness'),
                 features.get('spectral_rolloff'),
+                json.dumps(features.get('musicnn_embedding', None)),
                 file_info['last_modified'],
                 json.dumps(features.get('metadata', {})),
                 failed
@@ -791,9 +720,9 @@ class AudioAnalyzer:
                     """
                     INSERT OR REPLACE INTO audio_features (
                         file_hash, file_path, duration, bpm, beat_confidence, centroid, loudness, danceability, key, scale, onset_rate, zcr,
-                        mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff,
+                        mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding,
                         last_modified, metadata, failed
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     values_tuple
                 )
