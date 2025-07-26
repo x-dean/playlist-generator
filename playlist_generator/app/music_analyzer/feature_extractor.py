@@ -294,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "3.8.0"  # Version identifier for tracking updates - fixed logging robustness for worker processes
+    VERSION = "4.1.0"  # Version identifier for tracking updates - final implementation of improved analysis modes
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -1854,5 +1854,295 @@ class AudioAnalyzer:
             logger.info(f"Enriched metadata for failed file {file_info['file_path']} (fields updated: {updated_fields})")
         except Exception as e:
             logger.error(f"Error updating metadata for failed file {file_info['file_path']}: {e}")
+
+    def validate_essential_fields(self, features):
+        """Check if essential features are present and valid"""
+        if not isinstance(features, dict):
+            return False, "Features must be a dictionary"
+        
+        essential_fields = {
+            'duration': (float, lambda x: x > 0, "Duration must be positive"),
+            'bpm': (float, lambda x: 0 <= x <= 300, "BPM must be between 0-300"),
+            'centroid': (float, lambda x: x >= 0, "Centroid must be non-negative"),
+            'loudness': (float, lambda x: x >= 0, "Loudness must be non-negative"),
+            'danceability': (float, lambda x: 0 <= x <= 1, "Danceability must be between 0-1"),
+            'key': (str, lambda x: x in ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B', ''], "Invalid key"),
+            'scale': (str, lambda x: x in ['major', 'minor', ''], "Invalid scale"),
+            'onset_rate': (float, lambda x: x >= 0, "Onset rate must be non-negative"),
+            'zcr': (float, lambda x: x >= 0, "ZCR must be non-negative"),
+            'mfcc': (list, lambda x: len(x) == 13, "MFCC must have 13 coefficients"),
+            'chroma': (list, lambda x: len(x) == 12, "Chroma must have 12 coefficients"),
+            'spectral_flatness': (float, lambda x: 0 <= x <= 1, "Spectral flatness must be between 0-1"),
+            'spectral_rolloff': (float, lambda x: x >= 0, "Spectral rolloff must be non-negative"),
+            'spectral_contrast': (float, lambda x: x >= 0, "Spectral contrast must be non-negative")
+        }
+        
+        for field, (expected_type, validator, error_msg) in essential_fields.items():
+            if field not in features:
+                return False, f"Missing essential field: {field}"
+            if not isinstance(features[field], expected_type):
+                return False, f"Invalid type for {field}: expected {expected_type}, got {type(features[field])}"
+            if not validator(features[field]):
+                return False, f"{error_msg}: {features[field]}"
+        
+        return True, "All essential fields valid"
+
+    def validate_optional_fields(self, features):
+        """Check if optional features are present and valid"""
+        optional_fields = {
+            'musicnn_embedding': (list, lambda x: len(x) > 0 if x else True, "MusiCNN embedding must be non-empty list"),
+            'musicnn_tags': (dict, lambda x: isinstance(x, dict), "MusiCNN tags must be dictionary"),
+            'metadata': (dict, lambda x: isinstance(x, dict), "Metadata must be dictionary"),
+            'beat_confidence': (float, lambda x: 0 <= x <= 1, "Beat confidence must be between 0-1"),
+            'key_strength': (float, lambda x: 0 <= x <= 1, "Key strength must be between 0-1")
+        }
+        
+        warnings = []
+        for field, (expected_type, validator, error_msg) in optional_fields.items():
+            if field in features:
+                if not isinstance(features[field], expected_type):
+                    warnings.append(f"Invalid type for {field}: {error_msg}")
+                elif not validator(features[field]):
+                    warnings.append(f"Invalid value for {field}: {error_msg}")
+        
+        return warnings
+
+    def validate_feature_quality(self, features):
+        """Progressive validation with quality scoring"""
+        if not features:
+            return 0, "No features provided"
+        
+        score = 0
+        max_score = 100
+        
+        # Essential features (60 points)
+        essential_valid, essential_msg = self.validate_essential_fields(features)
+        if essential_valid:
+            score += 60
+            logger.debug("Essential features validation passed")
+        else:
+            logger.warning(f"Essential features validation failed: {essential_msg}")
+            return score, essential_msg
+        
+        # Optional features (40 points)
+        optional_warnings = self.validate_optional_fields(features)
+        optional_score = max(0, 40 - len(optional_warnings) * 5)  # -5 points per warning
+        score += optional_score
+        
+        if optional_warnings:
+            logger.debug(f"Optional field warnings: {optional_warnings}")
+        
+        # Quality assessment
+        if score >= 90:
+            quality = 'excellent'
+        elif score >= 70:
+            quality = 'good'
+        elif score >= 50:
+            quality = 'acceptable'
+        else:
+            quality = 'poor'
+        
+        logger.info(f"Feature quality score: {score}/{max_score} ({quality})")
+        return score, quality
+
+    def retry_analysis_with_backoff(self, file_path, max_attempts=3):
+        """Retry analysis with exponential backoff"""
+        logger.info(f"Starting retry analysis for {file_path} (max {max_attempts} attempts)")
+        
+        for attempt in range(max_attempts):
+            try:
+                logger.info(f"Attempt {attempt + 1}/{max_attempts} for {file_path}")
+                result = self.extract_features(file_path, force_reextract=True)
+                
+                if result and result[0]:  # features exist
+                    features, db_success, file_hash = result
+                    quality_score, quality = self.validate_feature_quality(features)
+                    
+                    if quality in ['excellent', 'good', 'acceptable'] and db_success:
+                        logger.info(f"Retry successful for {file_path} (quality: {quality})")
+                        return True, features
+                    else:
+                        logger.warning(f"Retry attempt {attempt + 1} failed quality check for {file_path} (quality: {quality})")
+                else:
+                    logger.warning(f"Retry attempt {attempt + 1} failed for {file_path}")
+                    
+            except Exception as e:
+                logger.warning(f"Retry attempt {attempt + 1} failed for {file_path}: {e}")
+            
+            if attempt < max_attempts - 1:
+                wait_time = 2 ** attempt  # Exponential backoff: 1, 2, 4 seconds
+                logger.info(f"Waiting {wait_time}s before next attempt for {file_path}")
+                time.sleep(wait_time)
+        
+        logger.error(f"All {max_attempts} retry attempts failed for {file_path}")
+        return False, None
+
+    def get_files_needing_analysis(self, music_dir='/music'):
+        """Efficiently determine which files need analysis"""
+        logger.info(f"Scanning for files needing analysis in {music_dir}")
+        
+        # Get all audio files from filesystem
+        current_files = set()
+        for root, dirs, files in os.walk(music_dir):
+            for file in files:
+                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
+                    file_path = os.path.join(root, file)
+                    current_files.add(file_path)
+        
+        logger.info(f"Found {len(current_files)} audio files in filesystem")
+        
+        # Get cached files with their modification times
+        cached_files = {}
+        cursor = self.conn.execute("""
+            SELECT file_path, last_modified, failed 
+            FROM audio_features 
+            WHERE failed = 0
+        """)
+        
+        for row in cursor.fetchall():
+            file_path, last_modified, failed = row
+            if os.path.exists(file_path):
+                current_mtime = os.path.getmtime(file_path)
+                if current_mtime > last_modified:
+                    # File modified since last analysis
+                    yield file_path, 'modified'
+                else:
+                    # File unchanged, skip
+                    cached_files[file_path] = True
+            else:
+                # File deleted, mark for cleanup
+                yield file_path, 'deleted'
+        
+        # New files
+        for file_path in current_files:
+            if file_path not in cached_files:
+                yield file_path, 'new'
+        
+        logger.info(f"Analysis needed for {len([f for f, _ in self.get_files_needing_analysis()])} files")
+
+    def validate_cached_features(self):
+        """Quick validation of all cached files"""
+        logger.info("Validating cached features...")
+        
+        cursor = self.conn.execute("""
+            SELECT file_path, duration, bpm, centroid, loudness, danceability, 
+                   key, scale, onset_rate, zcr, mfcc, chroma, 
+                   spectral_flatness, spectral_rolloff, spectral_contrast
+            FROM audio_features 
+            WHERE failed = 0
+        """)
+        
+        invalid_files = []
+        for row in cursor.fetchall():
+            file_path = row[0]
+            features = {
+                'duration': row[1],
+                'bpm': row[2],
+                'centroid': row[3],
+                'loudness': row[4],
+                'danceability': row[5],
+                'key': row[6],
+                'scale': row[7],
+                'onset_rate': row[8],
+                'zcr': row[9],
+                'mfcc': json.loads(row[10]) if row[10] else [],
+                'chroma': json.loads(row[11]) if row[11] else [],
+                'spectral_flatness': row[12],
+                'spectral_rolloff': row[13],
+                'spectral_contrast': row[14]
+            }
+            
+            # Quick validation
+            if not self.is_valid_feature_set(features):
+                invalid_files.append(file_path)
+        
+        logger.info(f"Found {len(invalid_files)} files with invalid cached features")
+        return invalid_files
+
+    def is_valid_feature_set(self, features):
+        """Quick validation of essential features"""
+        try:
+            # Check essential fields exist and have reasonable values
+            if not features.get('duration') or features['duration'] <= 0:
+                return False
+            if not features.get('bpm') or features['bpm'] < 0 or features['bpm'] > 300:
+                return False
+            if not features.get('centroid') or features['centroid'] < 0:
+                return False
+            if not features.get('mfcc') or len(features['mfcc']) != 13:
+                return False
+            if not features.get('chroma') or len(features['chroma']) != 12:
+                return False
+            
+            return True
+        except Exception:
+            return False
+
+    def get_failed_files_from_db(self):
+        """Get all failed files from database"""
+        cursor = self.conn.execute("""
+            SELECT file_path, last_analyzed 
+            FROM audio_features 
+            WHERE failed = 1
+        """)
+        
+        failed_files = []
+        for row in cursor.fetchall():
+            file_path, last_analyzed = row
+            if os.path.exists(file_path):
+                failed_files.append(file_path)
+            else:
+                logger.warning(f"Failed file no longer exists: {file_path}")
+        
+        logger.info(f"Found {len(failed_files)} failed files to retry")
+        return failed_files
+
+    def unmark_as_failed(self, file_path):
+        """Remove failed status from a file"""
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    UPDATE audio_features 
+                    SET failed = 0, last_analyzed = CURRENT_TIMESTAMP 
+                    WHERE file_path = ?
+                """, (file_path,))
+            logger.info(f"Unmarked {file_path} as failed")
+            return True
+        except Exception as e:
+            logger.error(f"Error unmarking {file_path} as failed: {e}")
+            return False
+
+    def move_to_failed_directory(self, file_path):
+        """Move a file to the failed_files directory"""
+        try:
+            failed_dir = '/music/failed_files'
+            os.makedirs(failed_dir, exist_ok=True)
+            
+            filename = os.path.basename(file_path)
+            failed_path = os.path.join(failed_dir, filename)
+            
+            # Handle duplicate filenames
+            counter = 1
+            original_failed_path = failed_path
+            while os.path.exists(failed_path):
+                name, ext = os.path.splitext(original_failed_path)
+                failed_path = f"{name}_{counter}{ext}"
+                counter += 1
+            
+            os.rename(file_path, failed_path)
+            logger.info(f"Moved {file_path} to {failed_path}")
+            
+            # Update database to reflect the move
+            with self.conn:
+                self.conn.execute("""
+                    UPDATE audio_features 
+                    SET file_path = ?, failed = 1 
+                    WHERE file_path = ?
+                """, (failed_path, file_path))
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error moving {file_path} to failed directory: {e}")
+            return False
 
 audio_analyzer = AudioAnalyzer()

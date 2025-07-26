@@ -105,9 +105,9 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
             finally:
                 # Cancel the alarm
                 signal.alarm(0)
-                # If result is None or metadata is missing/empty, mark as failed and return failure
+                # If result is None or database write failed, mark as failed and return failure
                 features, db_write_success, file_hash = (result if result is not None else (None, False, None))
-                if not features or not db_write_success or not features.get('metadata') or not any(features.get('metadata', {}).values()):
+                if not features or not db_write_success:
                     file_info = audio_analyzer._get_file_info(filepath)
                     audio_analyzer._mark_failed(file_info)
                     return None, filepath, False
