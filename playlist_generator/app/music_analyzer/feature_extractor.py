@@ -247,6 +247,49 @@ class AudioAnalyzer:
             logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
             return 0.0
 
+    def _extract_mfcc(self, audio, num_coeffs=13):
+        try:
+            mfcc = es.MFCC(numberCoefficients=num_coeffs)
+            _, mfcc_coeffs = mfcc(audio)
+            return np.mean(mfcc_coeffs, axis=0).tolist()  # global average
+        except Exception as e:
+            logger.warning(f"MFCC extraction failed: {str(e)}")
+            return [0.0] * num_coeffs
+
+    def _extract_chroma(self, audio):
+        try:
+            chromagram = es.Chromagram()
+            chroma = chromagram(audio)
+            return np.mean(chroma, axis=1).tolist()  # average per pitch class
+        except Exception as e:
+            logger.warning(f"Chroma extraction failed: {str(e)}")
+            return [0.0] * 12
+
+    def _extract_spectral_contrast(self, audio):
+        try:
+            spectral_contrast = es.SpectralContrast()
+            contrast = spectral_contrast(audio)
+            return np.mean(contrast, axis=1).tolist() if isinstance(contrast, np.ndarray) else [float(contrast)]
+        except Exception as e:
+            logger.warning(f"Spectral contrast extraction failed: {str(e)}")
+            return [0.0] * 6  # Essentia default: 6 bands
+
+    def _extract_spectral_flatness(self, audio):
+        try:
+            flatness = es.SpectralFlatness()(audio)
+            return float(np.mean(flatness)) if isinstance(flatness, (list, np.ndarray)) else float(flatness)
+        except Exception as e:
+            logger.warning(f"Spectral flatness extraction failed: {str(e)}")
+            return 0.0
+
+    def _extract_spectral_rolloff(self, audio):
+        try:
+            rolloff = es.SpectralRollOff()(audio)
+            return float(np.mean(rolloff)) if isinstance(rolloff, (list, np.ndarray)) else float(rolloff)
+        except Exception as e:
+            logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
+            return 0.0
+
     def _musicbrainz_lookup(self, artist, title):
         try:
             result = musicbrainzngs.search_recordings(artist=artist, recording=title, limit=1)
@@ -385,7 +428,12 @@ class AudioAnalyzer:
             'key': -1,
             'scale': 0,
             'onset_rate': 0.0,
-            'zcr': 0.0
+            'zcr': 0.0,
+            'mfcc': [0.0] * 13,
+            'chroma': [0.0] * 12,
+            'spectral_contrast': [0.0] * 6,
+            'spectral_flatness': 0.0,
+            'spectral_rolloff': 0.0
         }
         # --- Metadata extraction ---
         meta = {}
@@ -440,6 +488,11 @@ class AudioAnalyzer:
                 key, scale = self._extract_key(audio)
                 onset_rate = self._extract_onset_rate(audio)
                 zcr = self._extract_zcr(audio)
+                mfcc = self._extract_mfcc(audio)
+                chroma = self._extract_chroma(audio)
+                spectral_contrast = self._extract_spectral_contrast(audio)
+                spectral_flatness = self._extract_spectral_flatness(audio)
+                spectral_rolloff = self._extract_spectral_rolloff(audio)
 
                 # Update features
                 features.update({
@@ -451,7 +504,12 @@ class AudioAnalyzer:
                     'key': self._ensure_int(key),
                     'scale': self._ensure_int(scale),
                     'onset_rate': self._ensure_float(onset_rate),
-                    'zcr': self._ensure_float(zcr)
+                    'zcr': self._ensure_float(zcr),
+                    'mfcc': mfcc,
+                    'chroma': chroma,
+                    'spectral_contrast': spectral_contrast,
+                    'spectral_flatness': self._ensure_float(spectral_flatness),
+                    'spectral_rolloff': self._ensure_float(spectral_rolloff)
                 })
             except Exception as e:
                 logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
