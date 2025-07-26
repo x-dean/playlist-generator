@@ -274,7 +274,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "2.1.0"  # Version identifier for tracking updates
+    VERSION = "2.2.0"  # Version identifier for tracking updates - fixed MFCC, spectral features, and MusiCNN
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -671,7 +671,8 @@ class AudioAnalyzer:
             return {'zcr': 0.0}
 
     def _extract_mfcc(self, audio, num_coeffs=13):
-        logger.debug(f"Starting MFCC extraction with Essentia (coefficients: {num_coeffs})")
+        """Extract MFCC coefficients from audio."""
+        logger.debug("Starting MFCC extraction with Essentia")
         try:
             logger.debug("Initializing Essentia MFCC algorithm")
             mfcc_algo = es.MFCC(numberCoefficients=num_coeffs)
@@ -833,36 +834,123 @@ class AudioAnalyzer:
             return {'spectral_contrast': 0.0}
 
     def _extract_spectral_flatness(self, audio):
-        """Extract spectral flatness from audio."""
+        """Extract spectral flatness from audio using frame-by-frame processing."""
         logger.debug("Starting spectral flatness extraction with Essentia")
         try:
-            logger.debug("Initializing Essentia SpectralFlatness algorithm")
-            flatness_algo = es.SpectralFlatness()
-            logger.debug("Running spectral flatness analysis on audio")
-            flatness_values = flatness_algo(audio)
-            logger.debug(f"Spectral flatness raw values shape: {np.array(flatness_values).shape if hasattr(flatness_values, 'shape') else type(flatness_values)}")
+            # Use frame-by-frame processing for spectral flatness
+            frame_size = 2048
+            hop_size = 1024
+            logger.debug(f"Spectral flatness parameters: frame_size={frame_size}, hop_size={hop_size}")
             
-            flatness_mean = float(np.nanmean(flatness_values)) if isinstance(flatness_values, (list, np.ndarray)) else float(flatness_values)
-            logger.debug(f"Calculated mean spectral flatness: {flatness_mean:.3f}")
-            return {'spectral_flatness': flatness_mean}
+            logger.debug("Initializing Essentia algorithms for spectral flatness")
+            window = es.Windowing(type='hann')
+            spectrum = es.Spectrum()
+            
+            flatness_list = []
+            frame_count = 0
+            
+            logger.debug("Running spectral flatness analysis frame by frame")
+            # Process audio frame by frame
+            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                frame_count += 1
+                if frame_count % 100 == 0:
+                    logger.debug(f"Processed {frame_count} frames for spectral flatness")
+                
+                try:
+                    spec = spectrum(window(frame))
+                    # Calculate spectral flatness manually
+                    # Spectral flatness = geometric_mean / arithmetic_mean
+                    if len(spec) > 0 and np.any(spec > 0):
+                        # Avoid log(0) by adding small epsilon
+                        eps = 1e-10
+                        spec_safe = spec + eps
+                        geometric_mean = np.exp(np.mean(np.log(spec_safe)))
+                        arithmetic_mean = np.mean(spec_safe)
+                        flatness = geometric_mean / arithmetic_mean if arithmetic_mean > 0 else 0.0
+                        flatness_list.append(float(flatness))
+                        logger.debug(f"Frame {frame_count}: flatness={flatness:.3f}")
+                    else:
+                        logger.debug(f"Frame {frame_count}: no valid spectrum for flatness")
+                except Exception as frame_error:
+                    logger.debug(f"Frame {frame_count} processing error: {frame_error}")
+                    continue
+            
+            logger.debug(f"Processed {frame_count} frames, calculated flatness for {len(flatness_list)} frames")
+            # Return mean flatness across all frames
+            if flatness_list:
+                flatness_mean = float(np.mean(flatness_list))
+                logger.debug(f"Calculated mean spectral flatness: {flatness_mean:.3f}")
+                return {'spectral_flatness': flatness_mean}
+            else:
+                logger.debug("No valid flatness values calculated, returning 0.0")
+                return {'spectral_flatness': 0.0}
+                
         except Exception as e:
             logger.warning(f"Spectral flatness extraction failed: {str(e)}")
             logger.debug(f"Spectral flatness extraction error details: {type(e).__name__}")
             return {'spectral_flatness': 0.0}
 
     def _extract_spectral_rolloff(self, audio):
-        """Extract spectral rolloff from audio."""
+        """Extract spectral rolloff from audio using frame-by-frame processing."""
         logger.debug("Starting spectral rolloff extraction with Essentia")
         try:
-            logger.debug("Initializing Essentia SpectralRolloff algorithm")
-            rolloff_algo = es.SpectralRolloff()
-            logger.debug("Running spectral rolloff analysis on audio")
-            rolloff_values = rolloff_algo(audio)
-            logger.debug(f"Spectral rolloff raw values shape: {np.array(rolloff_values).shape if hasattr(rolloff_values, 'shape') else type(rolloff_values)}")
+            # Use frame-by-frame processing for spectral rolloff
+            frame_size = 2048
+            hop_size = 1024
+            logger.debug(f"Spectral rolloff parameters: frame_size={frame_size}, hop_size={hop_size}")
             
-            rolloff_mean = float(np.nanmean(rolloff_values)) if isinstance(rolloff_values, (list, np.ndarray)) else float(rolloff_values)
-            logger.debug(f"Calculated mean spectral rolloff: {rolloff_mean:.1f}")
-            return {'spectral_rolloff': rolloff_mean}
+            logger.debug("Initializing Essentia algorithms for spectral rolloff")
+            window = es.Windowing(type='hann')
+            spectrum = es.Spectrum()
+            
+            rolloff_list = []
+            frame_count = 0
+            
+            logger.debug("Running spectral rolloff analysis frame by frame")
+            # Process audio frame by frame
+            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                frame_count += 1
+                if frame_count % 100 == 0:
+                    logger.debug(f"Processed {frame_count} frames for spectral rolloff")
+                
+                try:
+                    spec = spectrum(window(frame))
+                    # Calculate spectral rolloff manually
+                    # Spectral rolloff is the frequency below which 85% of the energy is contained
+                    if len(spec) > 0 and np.any(spec > 0):
+                        # Calculate cumulative energy
+                        energy = spec ** 2
+                        total_energy = np.sum(energy)
+                        if total_energy > 0:
+                            cumulative_energy = np.cumsum(energy)
+                            # Find frequency below which 85% of energy is contained
+                            threshold = 0.85 * total_energy
+                            rolloff_idx = np.where(cumulative_energy >= threshold)[0]
+                            if len(rolloff_idx) > 0:
+                                # Convert to frequency (assuming 44.1kHz sample rate)
+                                rolloff_freq = (rolloff_idx[0] / len(spec)) * 22050  # Nyquist frequency
+                                rolloff_list.append(float(rolloff_freq))
+                                logger.debug(f"Frame {frame_count}: rolloff={rolloff_freq:.1f}Hz")
+                            else:
+                                logger.debug(f"Frame {frame_count}: no rolloff found")
+                        else:
+                            logger.debug(f"Frame {frame_count}: no energy for rolloff")
+                    else:
+                        logger.debug(f"Frame {frame_count}: no valid spectrum for rolloff")
+                except Exception as frame_error:
+                    logger.debug(f"Frame {frame_count} processing error: {frame_error}")
+                    continue
+            
+            logger.debug(f"Processed {frame_count} frames, calculated rolloff for {len(rolloff_list)} frames")
+            # Return mean rolloff across all frames
+            if rolloff_list:
+                rolloff_mean = float(np.mean(rolloff_list))
+                logger.debug(f"Calculated mean spectral rolloff: {rolloff_mean:.1f}Hz")
+                return {'spectral_rolloff': rolloff_mean}
+            else:
+                logger.debug("No valid rolloff values calculated, returning 0.0")
+                return {'spectral_rolloff': 0.0}
+                
         except Exception as e:
             logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
             logger.debug(f"Spectral rolloff extraction error details: {type(e).__name__}")
