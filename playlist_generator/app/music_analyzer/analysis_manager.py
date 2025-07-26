@@ -359,19 +359,6 @@ def _get_active_workers():
         logger.debug(f"Error getting active workers: {e}")
         return 1  # Fallback to 1 worker
 
-def _create_resource_panel(total_workers):
-    """Create a resource panel for Rich Live display."""
-    resources = _get_system_resources()
-    active_workers = _get_active_workers()
-    
-    # Create resource info string
-    cpu_info = f"CPU: {resources['cpu_percent']:.1f}%"
-    memory_info = f"RAM: {resources['memory_used_gb']:.1f}GB/{resources['memory_total_gb']:.1f}GB ({resources['memory_percent']:.1f}%)"
-    worker_info = f"Workers: {active_workers}/{total_workers}"
-    
-    resource_text = f"📊 {cpu_info} | {memory_info} | {worker_info}"
-    return Panel(resource_text, title="System Resources", border_style="blue")
-
 def _create_dynamic_resource_panel(workers):
     """Create a dynamic resource panel that updates in real-time."""
     cpu_percent = psutil.cpu_percent(interval=0.1)
@@ -392,20 +379,6 @@ def _create_dynamic_resource_panel(workers):
     
     content = f"📊 CPU: {cpu_percent:.1f}% | RAM: {memory_gb:.1f}GB/{memory_total_gb:.1f}GB ({memory_percent:.1f}%) | Workers: {active_workers}/{workers}"
     return Panel(content, title="System Resources", border_style="cyan")
-
-def _resource_monitor_thread(workers, stop_event, update_interval=2):
-    """Background thread to monitor and update resource usage."""
-    console = Console()
-    
-    while not stop_event.is_set():
-        try:
-            panel = _create_dynamic_resource_panel(workers)
-            # Move cursor up to overwrite the previous resource panel
-            console.print(f"\r{panel}", end="", flush=True)
-            time.sleep(update_interval)
-        except Exception as e:
-            logger.debug(f"Resource monitor error: {e}")
-            time.sleep(update_interval)
 
 # --- Main Orchestration ---
 def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextract=False):
@@ -454,14 +427,9 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         logger.info(f"Using {processor_type} processor with {workers} workers")
         logger.info(f"Starting to process {len(files_to_analyze)} files")
         
-        # Start resource monitoring in background thread
-        resource_stop_event = threading.Event()
-        resource_thread = threading.Thread(
-            target=_resource_monitor_thread, 
-            args=(workers, resource_stop_event),
-            daemon=True
-        )
-        resource_thread.start()
+        # Display initial resource panel
+        console = Console()
+        console.print(_create_dynamic_resource_panel(workers))
         
         # Pre-update progress bar with first file
         if files_to_analyze:
@@ -472,12 +440,20 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         file_paths_only = [item[0] if isinstance(item, tuple) else item for item in files_to_analyze]
         
         processed_count = 0
+        last_resource_update = time.time()
+        
         for features, filepath, db_write_success in processor.process(file_paths_only, workers, force_reextract=force_reextract):
             if stop_event and stop_event.is_set():
                 break
             
             processed_count += 1
             filename = os.path.basename(filepath)
+            
+            # Update resource panel every 5 seconds
+            current_time = time.time()
+            if current_time - last_resource_update >= 5:
+                console.print(_create_dynamic_resource_panel(workers))
+                last_resource_update = current_time
             
             # Get status dot for previous file result
             status_dot = _get_status_dot(features, db_write_success)
@@ -493,10 +469,6 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
                 logger.warning(f"Analysis failed for {filepath}")
             else:
                 logger.info(f"Analysis completed for {filepath}")
-        
-        # Stop resource monitoring
-        resource_stop_event.set()
-        resource_thread.join(timeout=1)
         
         logger.info(f"Processing loop completed. Processed {processed_count} files out of {len(files_to_analyze)}")
     
