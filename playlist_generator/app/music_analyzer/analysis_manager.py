@@ -19,6 +19,8 @@ import threading
 from typing import List, Tuple, Optional
 from utils.cli import CLIContextManager
 from rich.status import Status
+from rich.live import Live
+from rich.panel import Panel
 
 # Default logging level for workers
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
@@ -357,8 +359,8 @@ def _get_active_workers():
         logger.debug(f"Error getting active workers: {e}")
         return 1  # Fallback to 1 worker
 
-def _display_resource_usage(console, total_workers):
-    """Display current resource usage using Rich console."""
+def _create_resource_panel(total_workers):
+    """Create a resource panel for Rich Live display."""
     resources = _get_system_resources()
     active_workers = _get_active_workers()
     
@@ -367,9 +369,8 @@ def _display_resource_usage(console, total_workers):
     memory_info = f"RAM: {resources['memory_used_gb']:.1f}GB/{resources['memory_total_gb']:.1f}GB ({resources['memory_percent']:.1f}%)"
     worker_info = f"Workers: {active_workers}/{total_workers}"
     
-    # Display resource status using Rich
-    resource_status = f"📊 {cpu_info} | {memory_info} | {worker_info}"
-    console.print(resource_status, style="dim")
+    resource_text = f"📊 {cpu_info} | {memory_info} | {worker_info}"
+    return Panel(resource_text, title="System Resources", border_style="blue")
 
 # --- Main Orchestration ---
 def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextract=False):
@@ -422,8 +423,9 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
             _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze), 
                                "[cyan]", "", "", None, not args.force_sequential)
         
-        # Display initial resource usage once
-        _display_resource_usage(Console(), workers)
+        # Display initial resource usage in a separate line
+        console = Console()
+        console.print(_create_resource_panel(workers))
         
         # Prepare list of file paths only for processing
         file_paths_only = [item[0] if isinstance(item, tuple) else item for item in files_to_analyze]
