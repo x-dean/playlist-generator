@@ -1,7 +1,6 @@
 from tqdm import tqdm
 import logging
 from typing import List
-from .feature_extractor import audio_analyzer
 from utils.logging_setup import setup_colored_logging
 import os
 import logging
@@ -17,8 +16,9 @@ logger = logging.getLogger(__name__)
 class SequentialProcessor:
     """Sequential processor for audio analysis (single-threaded)."""
 
-    def __init__(self) -> None:
+    def __init__(self, audio_analyzer: AudioAnalyzer = None) -> None:
         self.failed_files: List[str] = []
+        self.audio_analyzer = audio_analyzer
 
     def process(self, file_list: List[str], workers: int = None, force_reextract: bool = False) -> iter:
         """Process a list of files sequentially.
@@ -54,9 +54,13 @@ class SequentialProcessor:
                     yield None, filepath, False
                     continue
 
-                # Use the global audio_analyzer instance instead of creating a new one
+                # Use the provided audio_analyzer or create a new one
                 logger.debug(f"SEQUENTIAL: Calling extract_features for: {filepath}")
-                features, db_write_success, file_hash = audio_analyzer.extract_features(
+                if self.audio_analyzer:
+                    analyzer = self.audio_analyzer
+                else:
+                    analyzer = AudioAnalyzer()
+                features, db_write_success, file_hash = analyzer.extract_features(
                     filepath, force_reextract=force_reextract)
                 logger.debug(f"SEQUENTIAL: extract_features result - features: {features is not None}, db_write: {db_write_success}")
                 

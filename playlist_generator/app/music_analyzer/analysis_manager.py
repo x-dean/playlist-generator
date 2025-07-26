@@ -337,7 +337,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
         # Step 1: Process big files sequentially
         if big_files:
             logger.info(f"Processing {len(big_files)} big files sequentially...")
-            sequential_processor = SequentialProcessor()
+            sequential_processor = SequentialProcessor(audio_analyzer=audio_db)
             workers = 1  # Sequential processing uses 1 worker
             
             for features, filepath, db_write_success in sequential_processor.process(big_files, workers, force_reextract=force_reextract):
