@@ -16,6 +16,16 @@ RUN pip install --prefix=/install/deps --no-cache-dir -r requirements.txt
 # --- Final stage ---
 FROM python:3.11-slim-bullseye
 
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libffi-dev \
+    libssl-dev \
+    libasound2-dev \
+    portaudio19-dev \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install runtime dependencies only
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -34,8 +44,23 @@ COPY --from=builder /install/deps /usr/local
 # Set working directory
 WORKDIR /app
 
-# Copy only the necessary application files
-COPY app /app
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Clean install of essentia-tensorflow and compatible TensorFlow
+RUN pip install --upgrade pip && \
+    pip uninstall -y essentia essentia-tensorflow tensorflow tensorflow-cpu tensorflow-gpu || true && \
+    pip install -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p /app/cache /app/logs /app/feature_extraction/models/musicnn
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV MODEL_DIR=/app/feature_extraction/models
 
 # Create __init__.py files to make directories importable
 RUN touch /app/database/__init__.py && \
@@ -56,4 +81,5 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     CACHE_DIR=/app/cache 
 
-CMD ["playlista"]
+# Default command
+CMD ["python", "playlista"]
