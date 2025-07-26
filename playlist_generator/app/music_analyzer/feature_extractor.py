@@ -362,16 +362,39 @@ class AudioAnalyzer:
             return [0.0] * num_coeffs
 
     def _extract_chroma(self, audio):
-        """Extract chroma features from audio."""
+        """Extract chroma features from audio using HPCP."""
         try:
-            # Use ChromaExtractor which is simpler and works with raw audio
-            chroma_extractor = es.ChromaExtractor()
-            chroma = chroma_extractor(audio)
-            # Return the mean of all chroma values as a single feature
-            return float(np.mean(chroma))
+            # Set up parameters
+            frame_size = 2048
+            hop_size = 1024
+            
+            # Initialize algorithms
+            window = es.Windowing(type='hann')
+            spectrum = es.Spectrum()
+            spectral_peaks = es.SpectralPeaks()
+            hpcp = es.HPCP()
+            
+            hpcp_list = []
+            
+            # Process audio frame by frame
+            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                spec = spectrum(window(frame))
+                freqs, mags = spectral_peaks(spec)
+                
+                if len(freqs) > 0:
+                    hpcp_frame = hpcp(freqs, mags)
+                    hpcp_list.append(hpcp_frame)
+            
+            # Aggregate results over time (mean)
+            if hpcp_list:
+                hpcp_mean = np.mean(hpcp_list, axis=0).tolist()
+                return hpcp_mean  # Return full 12-dimensional HPCP vector
+            else:
+                return [0.0] * 12  # Return 12 zeros if no frames processed
+                
         except Exception as e:
             logger.warning(f"Chroma extraction failed: {str(e)}")
-            return 0.0
+            return [0.0] * 12
 
     def _extract_spectral_contrast(self, audio):
         try:
@@ -547,7 +570,7 @@ class AudioAnalyzer:
             'onset_rate': 0.0,
             'zcr': 0.0,
             'mfcc': [0.0] * 13,
-            'chroma': [0.0] * 12,
+            'chroma': [0.0] * 12,  # 12-dimensional HPCP vector
             'spectral_contrast': [0.0] * 6,
             'spectral_flatness': 0.0,
             'spectral_rolloff': 0.0
