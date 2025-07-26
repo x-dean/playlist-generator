@@ -54,10 +54,34 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 cache_dir = os.getenv('CACHE_DIR', '/app/cache')
 logfile_path = '/app/logs/playlista.log'
 os.makedirs(os.path.dirname(logfile_path), exist_ok=True)
+
+# Create a custom stderr that filters out Rich output but captures real errors
+import sys
+from io import StringIO
+
+class FilteredStderr:
+    def __init__(self, original_stderr, logfile):
+        self.original_stderr = original_stderr
+        self.logfile = logfile
+        self.buffer = StringIO()
+    
+    def write(self, text):
+        # Write to original stderr for Rich progress bars
+        self.original_stderr.write(text)
+        self.original_stderr.flush()
+        
+        # Also write to log file for actual errors
+        self.logfile.write(text)
+        self.logfile.flush()
+    
+    def flush(self):
+        self.original_stderr.flush()
+        self.logfile.flush()
+
+# Open log file and set up filtered stderr
 logfile = open(logfile_path, 'a')
-os.dup2(logfile.fileno(), 2)  # Redirect only stderr to log file
-sys.stderr = logfile  # Also update Python's sys.stderr
-# Keep stdout for terminal output
+filtered_stderr = FilteredStderr(sys.stderr, logfile)
+sys.stderr = filtered_stderr
 
 # Parse --log_level early to set LOG_LEVEL env var
 pre_parser = argparse.ArgumentParser(add_help=False)
