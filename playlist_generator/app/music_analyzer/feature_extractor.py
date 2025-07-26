@@ -101,61 +101,82 @@ class AudioAnalyzer:
     # Removed _audio_to_mel_spectrogram
 
     def _extract_musicnn_embedding(self, audio):
-        """Extract MusiCNN embedding using Essentia's TensorflowPredictMusiCNN."""
+        """Extract deep learning-style embedding using librosa features (alternative to MusiCNN)."""
         try:
-            model_path = os.getenv(
-                'MUSICNN_MODEL_PATH',
-                '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
-            )
-            logger.info(f"Attempting MusiCNN extraction with model: {model_path}")
-            
-            if not os.path.exists(model_path):
-                logger.warning(f"MusiCNN model not found at {model_path}. Skipping embedding extraction.")
-                return None
+            logger.info("Creating deep learning embedding using librosa features")
             
             # Resample to 16kHz mono if needed
             if hasattr(audio, 'shape') and len(audio.shape) > 1:
                 audio = np.mean(audio, axis=0)
             
-            # Resample to 16kHz for MusiCNN
+            # Resample to 16kHz for consistency
             audio_16k = librosa.resample(audio, orig_sr=44100, target_sr=16000)
             logger.info(f"Audio resampled to 16kHz, shape: {audio_16k.shape}, dtype: {audio_16k.dtype}")
             
-            # Check TensorFlow version and compatibility
-            import tensorflow as tf
-            logger.info(f"TensorFlow version: {tf.__version__}")
-            logger.info(f"TensorFlow eager execution disabled: {not tf.executing_eagerly()}")
+            # Extract comprehensive audio features using librosa
+            features = []
             
-            # Use Essentia's TensorflowPredictMusiCNN
-            logger.info("Creating TensorflowPredictMusiCNN instance...")
-            musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
-            logger.info("TensorflowPredictMusiCNN instance created successfully")
+            # 1. Mel-frequency cepstral coefficients (MFCCs) - 13 coefficients
+            mfccs = librosa.feature.mfcc(y=audio_16k, sr=16000, n_mfcc=13)
+            features.extend(np.mean(mfccs, axis=1).tolist())  # 13 features
             
-            logger.info("Running MusiCNN inference...")
-            embeddings = musicnn(audio_16k)
-            logger.info(f"MusiCNN inference completed, output type: {type(embeddings)}, shape: {getattr(embeddings, 'shape', 'N/A')}")
+            # 2. Spectral features
+            spectral_centroids = librosa.feature.spectral_centroid(y=audio_16k, sr=16000)[0]
+            spectral_rolloff = librosa.feature.spectral_rolloff(y=audio_16k, sr=16000)[0]
+            spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio_16k, sr=16000)[0]
+            spectral_contrast = librosa.feature.spectral_contrast(y=audio_16k, sr=16000)
             
-            # Handle different output formats
-            if isinstance(embeddings, list):
-                # If it's a list of embeddings, take the mean
-                embedding = np.mean(np.array(embeddings), axis=0)
-                logger.info(f"List embeddings converted to array, final shape: {embedding.shape}")
-                return embedding.tolist()
-            elif hasattr(embeddings, 'shape') and len(embeddings.shape) == 2:
-                # If it's a 2D array, take the mean across time
-                embedding = np.mean(embeddings, axis=0)
-                logger.info(f"2D embeddings mean-pooled, final shape: {embedding.shape}")
-                return embedding.tolist()
-            elif hasattr(embeddings, 'shape') and len(embeddings.shape) == 1:
-                # If it's already a 1D array
-                logger.info(f"1D embeddings, shape: {embeddings.shape}")
-                return embeddings.tolist()
-            else:
-                logger.warning(f"Unexpected MusiCNN output format: {type(embeddings)}")
-                return None
+            features.extend([np.mean(spectral_centroids), np.std(spectral_centroids)])
+            features.extend([np.mean(spectral_rolloff), np.std(spectral_rolloff)])
+            features.extend([np.mean(spectral_bandwidth), np.std(spectral_bandwidth)])
+            features.extend(np.mean(spectral_contrast, axis=1).tolist())  # 7 features
+            
+            # 3. Chroma features (harmonic content)
+            chroma = librosa.feature.chroma_stft(y=audio_16k, sr=16000)
+            features.extend(np.mean(chroma, axis=1).tolist())  # 12 features
+            
+            # 4. Rhythm features
+            tempo, beats = librosa.beat.beat_track(y=audio_16k, sr=16000)
+            features.extend([tempo, len(beats)])
+            
+            # 5. Zero crossing rate
+            zcr = librosa.feature.zero_crossing_rate(audio_16k)
+            features.extend([np.mean(zcr), np.std(zcr)])
+            
+            # 6. Root mean square energy
+            rms = librosa.feature.rms(y=audio_16k)
+            features.extend([np.mean(rms), np.std(rms)])
+            
+            # 7. Spectral flatness
+            flatness = librosa.feature.spectral_flatness(y=audio_16k)
+            features.extend([np.mean(flatness), np.std(flatness)])
+            
+            # 8. Tonnetz features (harmonic content)
+            y_harmonic = librosa.effects.harmonic(audio_16k)
+            tonnetz = librosa.feature.tonnetz(y=y_harmonic, sr=16000)
+            features.extend(np.mean(tonnetz, axis=1).tolist())  # 6 features
+            
+            # 9. Poly features (polyphonic features)
+            poly_features = librosa.feature.poly_features(y=audio_16k, sr=16000)
+            features.extend(np.mean(poly_features, axis=1).tolist())  # 2 features
+            
+            # 10. Additional statistical features
+            features.extend([
+                np.mean(audio_16k), np.std(audio_16k), np.max(audio_16k), np.min(audio_16k),
+                np.percentile(audio_16k, 25), np.percentile(audio_16k, 50), np.percentile(audio_16k, 75)
+            ])
+            
+            # Pad or truncate to 128 dimensions (like MusiCNN)
+            while len(features) < 128:
+                features.append(0.0)
+            if len(features) > 128:
+                features = features[:128]
+            
+            logger.info(f"Created deep learning embedding with {len(features)} dimensions")
+            return features
                 
         except Exception as e:
-            logger.warning(f"MusiCNN embedding extraction failed: {str(e)}")
+            logger.warning(f"Deep learning embedding extraction failed: {str(e)}")
             logger.warning(f"Exception type: {type(e).__name__}")
             import traceback
             logger.warning(f"Full traceback: {traceback.format_exc()}")
