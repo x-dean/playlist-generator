@@ -2244,10 +2244,10 @@ class AudioAnalyzer:
         return False, None
 
     def get_files_needing_analysis(self, music_dir='/music'):
-        """Simplified file discovery and analysis selection"""
-        logger.info(f"DISCOVERY: Scanning for files needing analysis in {music_dir}")
+        """Phase 1: File Discovery - Update database with current file state"""
+        logger.info(f"DISCOVERY: Phase 1 - File Discovery in {music_dir}")
         
-        # Simple file discovery - scan directory for audio files
+        # Step 1: Scan filesystem for current audio files
         current_files = set()
         audio_extensions = {'.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac', '.wma'}
         
@@ -2263,32 +2263,82 @@ class AudioAnalyzer:
         
         logger.info(f"DISCOVERY: Found {len(current_files)} audio files in filesystem")
         
-        # Update file discovery state in database (for file sizes)
+        # Step 2: Update file discovery state (adds/removes/updates accordingly)
         self.update_file_discovery_state(list(current_files))
-        logger.debug(f"DISCOVERY: Updated file discovery state for {len(current_files)} files")
         
-        # Get files already in database
+        # Step 3: Get files that need analysis based on discovery state
+        files_needing_analysis = self._get_files_for_analysis_from_discovery()
+        
+        logger.info(f"DISCOVERY: Phase 1 complete - {len(files_needing_analysis)} files need analysis")
+        return files_needing_analysis
+
+    def _get_files_for_analysis_from_discovery(self):
+        """Phase 2: Analysis Selection - Check discovery state for files to process"""
+        logger.info(f"DISCOVERY: Phase 2 - Analysis Selection")
+        
+        # Get files that were added or changed in discovery phase
+        cursor = self.conn.execute("""
+            SELECT file_path, file_size, last_modified 
+            FROM file_discovery_state 
+            WHERE status = 'active'
+        """)
+        
+        discovery_files = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+        
+        # Get files already analyzed in audio_features table
         cursor = self.conn.execute("""
             SELECT file_path, last_modified 
             FROM audio_features 
             WHERE failed = 0
         """)
-        cached_files = {row[0]: row[1] for row in cursor.fetchall()}
+        analyzed_files = {row[0]: row[1] for row in cursor.fetchall()}
         
         # Determine which files need analysis
         files_needing_analysis = []
-        for file_path in current_files:
-            if file_path not in cached_files:
-                # New file
+        
+        for file_path, (file_size, discovery_mtime) in discovery_files.items():
+            if file_path not in analyzed_files:
+                # New file - needs analysis
                 files_needing_analysis.append((file_path, 'new'))
+                logger.debug(f"DISCOVERY: New file needs analysis: {file_path}")
             elif os.path.exists(file_path):
-                # Check if file was modified
+                # Check if file was modified since last analysis
                 current_mtime = os.path.getmtime(file_path)
-                if current_mtime > cached_files[file_path]:
+                if current_mtime > analyzed_files[file_path]:
                     files_needing_analysis.append((file_path, 'modified'))
+                    logger.debug(f"DISCOVERY: Modified file needs analysis: {file_path}")
+        
+        # Clean up removed files from audio_features table
+        removed_count = self._cleanup_removed_files_from_analysis(discovery_files.keys())
+        if removed_count > 0:
+            logger.info(f"DISCOVERY: Cleaned up {removed_count} removed files from analysis table")
         
         logger.info(f"DISCOVERY: Analysis needed for {len(files_needing_analysis)} files")
         return files_needing_analysis
+
+    def _cleanup_removed_files_from_analysis(self, current_files):
+        """Remove entries from audio_features table for files that no longer exist"""
+        try:
+            current_file_set = set(current_files)
+            
+            # Get all files in audio_features table
+            cursor = self.conn.execute("SELECT file_path FROM audio_features")
+            db_files = [row[0] for row in cursor.fetchall()]
+            
+            removed_count = 0
+            with self.conn:
+                for db_file in db_files:
+                    if db_file not in current_file_set:
+                        # File no longer exists - remove from analysis table
+                        self.conn.execute("DELETE FROM audio_features WHERE file_path = ?", (db_file,))
+                        removed_count += 1
+                        logger.debug(f"DISCOVERY: Removed from analysis table: {db_file}")
+            
+            return removed_count
+            
+        except Exception as e:
+            logger.error(f"DISCOVERY: Error cleaning up removed files: {e}")
+            return 0
 
     def validate_cached_features(self):
         """Quick validation of all cached files"""
@@ -2426,37 +2476,83 @@ class AudioAnalyzer:
             return False
 
     def update_file_discovery_state(self, file_paths: List[str]):
-        """Update file discovery state in database."""
+        """Update file discovery state in database - only changed files."""
         logger.debug(f"DISCOVERY: Starting file discovery state update for {len(file_paths)} files")
         try:
             with self.conn:
-                # Mark all files as not seen in this run
-                self.conn.execute("""
-                    UPDATE file_discovery_state 
-                    SET status = 'removed' 
+                # Get existing files from database
+                cursor = self.conn.execute("""
+                    SELECT file_path, file_hash, file_size, last_modified 
+                    FROM file_discovery_state 
                     WHERE status = 'active'
                 """)
-
-                # Add or update files that exist
+                existing_files = {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
+                
+                added_count = 0
                 updated_count = 0
+                unchanged_count = 0
+                
+                # Process current files
                 for file_path in file_paths:
                     if os.path.exists(file_path):
                         try:
                             stat = os.stat(file_path)
-                            file_hash = self._get_file_hash(file_path)
-
-                            self.conn.execute("""
-                                INSERT OR REPLACE INTO file_discovery_state 
-                                (file_path, file_hash, file_size, last_modified, last_seen_at, status)
-                                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'active')
-                            """, (file_path, file_hash, stat.st_size, stat.st_mtime))
-                            updated_count += 1
+                            current_hash = self._get_file_hash(file_path)
+                            current_size = stat.st_size
+                            current_mtime = stat.st_mtime
+                            
+                            if file_path in existing_files:
+                                # File exists in database - check if changed
+                                old_hash, old_size, old_mtime = existing_files[file_path]
+                                
+                                if (current_hash != old_hash or 
+                                    current_size != old_size or 
+                                    current_mtime != old_mtime):
+                                    # File changed - update it
+                                    self.conn.execute("""
+                                        UPDATE file_discovery_state 
+                                        SET file_hash = ?, file_size = ?, last_modified = ?, last_seen_at = CURRENT_TIMESTAMP
+                                        WHERE file_path = ?
+                                    """, (current_hash, current_size, current_mtime, file_path))
+                                    updated_count += 1
+                                    logger.debug(f"DISCOVERY: Updated {file_path}")
+                                else:
+                                    # File unchanged - just update last_seen_at
+                                    self.conn.execute("""
+                                        UPDATE file_discovery_state 
+                                        SET last_seen_at = CURRENT_TIMESTAMP
+                                        WHERE file_path = ?
+                                    """, (file_path,))
+                                    unchanged_count += 1
+                            else:
+                                # New file - insert it
+                                self.conn.execute("""
+                                    INSERT INTO file_discovery_state 
+                                    (file_path, file_hash, file_size, last_modified, last_seen_at, status)
+                                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'active')
+                                """, (file_path, current_hash, current_size, current_mtime))
+                                added_count += 1
+                                logger.debug(f"DISCOVERY: Added {file_path}")
+                                
                         except Exception as e:
                             logger.warning(
                                 f"DISCOVERY: Could not update state for {file_path}: {e}")
+                
+                # Mark files that no longer exist as removed
+                current_file_set = set(file_paths)
+                removed_count = 0
+                for existing_file in existing_files:
+                    if existing_file not in current_file_set:
+                        self.conn.execute("""
+                            UPDATE file_discovery_state 
+                            SET status = 'removed', last_seen_at = CURRENT_TIMESTAMP
+                            WHERE file_path = ?
+                        """, (existing_file,))
+                        removed_count += 1
+                        logger.debug(f"DISCOVERY: Removed {existing_file}")
 
             logger.info(
-                f"DISCOVERY: Updated file discovery state for {updated_count} files")
+                f"DISCOVERY: File discovery state updated - Added: {added_count}, Updated: {updated_count}, Unchanged: {unchanged_count}, Removed: {removed_count}")
             
             # Verify the update worked
             cursor = self.conn.execute("SELECT COUNT(*) FROM file_discovery_state WHERE status = 'active'")

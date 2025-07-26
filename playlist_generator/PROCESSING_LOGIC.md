@@ -2,14 +2,14 @@
 
 ## 🎯 **New Processing Logic**
 
-### **Rule: If file is over 200MB and not in failed then use sequential, then parallel**
+### **Rule: If file is over 50MB and not in failed then use sequential, then parallel**
 
 ## 📊 **How It Works**
 
 ### **1. File Classification**
 ```python
 # Files are classified by size from database
-BIG_FILE_SIZE_MB = 200  # 200MB threshold
+BIG_FILE_SIZE_MB = 50  # 50MB threshold
 
 # Get file sizes from database (stored during file discovery)
 file_sizes = audio_db.get_file_sizes_from_db(file_paths_only)
@@ -19,9 +19,9 @@ for file_path in files_to_analyze:
     file_size_mb = file_size_bytes / (1024 * 1024)
     
     if file_size_mb > BIG_FILE_SIZE_MB:
-        big_files.append(file_path)      # > 200MB
+        big_files.append(file_path)      # > 50MB
     else:
-        normal_files.append(file_path)   # ≤ 200MB
+        normal_files.append(file_path)   # ≤ 50MB
 ```
 
 ### **2. Processing Strategy**
@@ -53,13 +53,13 @@ if normal_files:
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   File List     │    │   Size Check    │    │   Processing    │
-│   (To Analyze)  │───▶│   (200MB)       │───▶│   Strategy      │
+│   (To Analyze)  │───▶│   (50MB)        │───▶│   Strategy      │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
                                 │                       │
                                 ▼                       ▼
                     ┌─────────────────┐    ┌─────────────────┐
                     │   Big Files     │    │   Normal Files  │
-                    │   (> 200MB)     │    │   (≤ 200MB)     │
+                    │   (> 50MB)      │    │   (≤ 50MB)      │
                     └─────────────────┘    └─────────────────┘
                                 │                       │
                                 ▼                       ▼
@@ -100,7 +100,7 @@ if normal_files:
 Files to process:
 - song1.mp3 (5MB)     → Normal file → Parallel
 - song2.mp3 (8MB)     → Normal file → Parallel  
-- album.flac (250MB)  → Big file   → Sequential
+- album.flac (80MB)   → Big file   → Sequential
 - song3.mp3 (3MB)     → Normal file → Parallel
 
 Processing order:
@@ -121,8 +121,8 @@ Processing: All files processed in parallel
 ### **Scenario 3: All Big Files**
 ```
 Files to process:
-- album1.flac (300MB) → Big file → Sequential
-- album2.flac (250MB) → Big file → Sequential
+- album1.flac (80MB)  → Big file → Sequential
+- album2.flac (75MB)  → Big file → Sequential
 
 Processing: All files processed sequentially (one at a time)
 ```
@@ -131,7 +131,7 @@ Processing: All files processed sequentially (one at a time)
 
 ### **Threshold Setting**
 ```python
-BIG_FILE_SIZE_MB = 200  # 200MB threshold
+BIG_FILE_SIZE_MB = 50  # 50MB threshold
 ```
 
 ### **Worker Configuration**
@@ -181,7 +181,7 @@ for file_path in file_paths_only:
 ## 📊 **Logging Output**
 
 ```
-File distribution: 15 normal files, 2 big files (>200MB)
+File distribution: 15 normal files, 2 big files (>50MB)
 Processing 2 big files sequentially...
 Processing 15 normal files in parallel...
 ```
@@ -189,8 +189,8 @@ Processing 15 normal files in parallel...
 ## ✅ **Verification**
 
 The new logic ensures:
-- ✅ Files > 200MB are processed sequentially
-- ✅ Files ≤ 200MB are processed in parallel
+- ✅ Files > 50MB are processed sequentially
+- ✅ Files ≤ 50MB are processed in parallel
 - ✅ Failed files are excluded from processing
 - ✅ Optimal resource usage for different file sizes
 - ✅ Clear logging of processing strategy

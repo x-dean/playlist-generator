@@ -27,7 +27,7 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 logging.getLogger().setLevel(getattr(logging, LOG_LEVEL.upper(), logging.DEBUG))
 
 logger = logging.getLogger(__name__)
-BIG_FILE_SIZE_MB = 200
+BIG_FILE_SIZE_MB = 50
 
 
 def _update_progress_bar(progress, task_id, files_list, current_index, total_count,
@@ -242,50 +242,8 @@ class SequentialWorkerManager:
         return processor.process(files, workers=workers, **kwargs)
 
 
-class BigFileWorkerManager:
-    def __init__(self, audio_db):
-        self.audio_db = audio_db
-        self.processes = []
-
-    def process(self, files):
-        results = []
-        for filepath in files:
-            queue = mp.Queue()
-
-            def analyze_in_subprocess(filepath, cache_file, library, music, queue):
-                try:
-                    analyzer = AudioAnalyzer(cache_file, library, music)
-                    result = analyzer.extract_features(filepath)
-                    queue.put(result)
-                except Exception as e:
-                    queue.put(None)
-            p = mp.Process(target=analyze_in_subprocess, args=(
-                filepath, self.audio_db.cache_file, self.audio_db.library, self.audio_db.music, queue))
-            p.start()
-            self.processes.append(p)
-            try:
-                result = queue.get(timeout=600)
-                p.join()
-            except Exception:
-                p.terminate()
-                p.join()
-                result = None
-                # Mark as failed if interrupted
-                try:
-                    analyzer = AudioAnalyzer(
-                        self.audio_db.cache_file, self.audio_db.library, self.audio_db.music)
-                    file_info = analyzer._get_file_info(filepath)
-                    analyzer._mark_failed(file_info)
-                except Exception as e:
-                    logger.error(
-                        f"Failed to mark interrupted file as failed: {filepath} ({e})")
-            results.append((filepath, result))
-        # Cleanup any still-alive processes
-        for p in self.processes:
-            if p.is_alive():
-                p.terminate()
-            p.join()
-        return results
+# BigFileWorkerManager removed - redundant with SequentialProcessor
+# SequentialProcessor already handles large files with proper timeout protection
 
 # --- Progress Bar ---
 
@@ -347,7 +305,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
     # Get file sizes from database for progress bar
     file_sizes = audio_db.get_file_sizes_from_db(files_to_analyze)
     
-    logger.info(f"DISCOVERY: File distribution: {len(normal_files)} normal files, {len(big_files)} big files (>200MB)")
+    logger.info(f"DISCOVERY: File distribution: {len(normal_files)} normal files, {len(big_files)} big files (>50MB)")
     
     # Run analysis on files that need it
     failed_files = []
