@@ -136,8 +136,13 @@ def setup_graceful_shutdown():
     def handle_stop_signal(signum, frame):
         stop_event.set()
         logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+        logger.debug(f"Stop event set: {stop_event.is_set()}")
+        # Force cleanup of child processes
+        cleanup_child_processes()
+    # Handle multiple signal types for Docker compatibility
     signal.signal(signal.SIGINT, handle_stop_signal)
     signal.signal(signal.SIGTERM, handle_stop_signal)
+    signal.signal(signal.SIGQUIT, handle_stop_signal)
     return stop_event
 
 def cleanup_child_processes():
