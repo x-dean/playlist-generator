@@ -274,7 +274,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "2.4.0"  # Version identifier for tracking updates - added verbose INFO logging
+    VERSION = "2.6.0"  # Version identifier for tracking updates - colored file logging
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -728,8 +728,6 @@ class AudioAnalyzer:
                             if hpcp_value is not None and len(hpcp_value) == 12:
                                 chroma_values.append(hpcp_value)
                                 logger.debug(f"Frame {frame_count}: valid HPCP value with {len(hpcp_value)} dimensions")
-                            else:
-                                logger.debug(f"Frame {frame_count}: invalid HPCP value")
                         else:
                             logger.debug(f"Frame {frame_count}: no valid frequencies/magnitudes")
                     else:
@@ -809,6 +807,7 @@ class AudioAnalyzer:
                             logger.debug(f"Frame {frame_count}: no valid magnitudes")
                     else:
                         logger.debug(f"Frame {frame_count}: no spectral peaks found")
+                        
                 except Exception as frame_error:
                     logger.debug(f"Frame {frame_count} processing error: {frame_error}")
                     continue
@@ -964,7 +963,7 @@ class AudioAnalyzer:
             if not result.get('recording-list') or len(result['recording-list']) == 0:
                 logger.debug(f"No MusicBrainz results found for {artist} - {title}")
                 return {}
-                
+            
             rec = result['recording-list'][0]
             mbid = rec['id']
             logger.debug(f"Found MusicBrainz recording: {mbid}")
@@ -1031,34 +1030,30 @@ class AudioAnalyzer:
             
             # Safe ISRC extraction
             try:
-                isrc_list = rec_full.get('isrc-list', [])
-                all_mb_data['isrc'] = isrc_list[0] if isrc_list else None
+                if 'isrcs' in rec_full and rec_full['isrcs'] and len(rec_full['isrcs']) > 0:
+                    all_mb_data['isrc'] = rec_full['isrcs'][0]
+                else:
+                    all_mb_data['isrc'] = None
             except (KeyError, IndexError) as e:
                 logger.debug(f"Error extracting ISRC: {e}")
                 all_mb_data['isrc'] = None
             
             # Safe genre extraction
             try:
-                all_mb_data['genre'] = [tag['name'] for tag in rec_full.get('tag-list', [])]
+                if 'tags' in rec_full and rec_full['tags'] and len(rec_full['tags']) > 0:
+                    all_mb_data['genre'] = [tag['name'] for tag in rec_full['tags']]
+                else:
+                    all_mb_data['genre'] = None
             except (KeyError, IndexError) as e:
                 logger.debug(f"Error extracting genres: {e}")
-                all_mb_data['genre'] = []
+                all_mb_data['genre'] = None
             
             # Safe work info extraction
             try:
                 if 'work-relation-list' in rec_full and rec_full['work-relation-list'] and len(rec_full['work-relation-list']) > 0:
                     work = rec_full['work-relation-list'][0]['work']
                     all_mb_data['work'] = work.get('title')
-                    
-                    # Safe composer extraction
-                    try:
-                        if 'artist-relation-list' in work and work['artist-relation-list'] and len(work['artist-relation-list']) > 0:
-                            all_mb_data['composer'] = work['artist-relation-list'][0]['artist']['name']
-                        else:
-                            all_mb_data['composer'] = None
-                    except (KeyError, IndexError) as e:
-                        logger.debug(f"Error extracting composer info: {e}")
-                        all_mb_data['composer'] = None
+                    all_mb_data['composer'] = work.get('composer')
                 else:
                     all_mb_data['work'] = None
                     all_mb_data['composer'] = None
@@ -1067,15 +1062,15 @@ class AudioAnalyzer:
                 all_mb_data['work'] = None
                 all_mb_data['composer'] = None
             
-            # Filter to only lean fields for database
-            tags = {k: v for k, v in all_mb_data.items() if k in LEAN_FIELDS and v is not None and v != ''}
-            logger.debug(f"Extracted {len(tags)} MusicBrainz fields for {artist} - {title}")
-            return tags
+            # Filter to lean fields only
+            filtered_data = filter_metadata(all_mb_data)
+            logger.debug(f"MusicBrainz lookup completed: {len(filtered_data)} fields")
+            return filtered_data
+            
         except Exception as e:
-            logger.warning(f"MusicBrainz lookup failed: {e}")
-            import traceback
-            logger.debug(f"MusicBrainz lookup error traceback: {traceback.format_exc()}")
-        return {}
+            logger.warning(f"MusicBrainz lookup failed: {str(e)}")
+            logger.debug(f"MusicBrainz lookup error details: {type(e).__name__}")
+            return {}
 
     def _lastfm_lookup(self, artist, title):
         api_key = os.getenv('LASTFM_API_KEY')
