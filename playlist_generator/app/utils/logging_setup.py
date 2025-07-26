@@ -18,7 +18,15 @@ def setup_colored_file_logging(logfile_path=None):
             os.makedirs(log_dir, exist_ok=True)
     
     # Create a direct file handler instead of queue-based
-    file_handler = logging.FileHandler(logfile_path, mode='a', encoding='utf-8')
+    if logfile_path:
+        file_handler = logging.FileHandler(logfile_path, mode='a', encoding='utf-8')
+    else:
+        # If no logfile_path provided, create a default one or use a null handler
+        log_dir = os.getenv('LOG_DIR', '/app/logs')
+        os.makedirs(log_dir, exist_ok=True)
+        date_str = time.strftime('%Y%m%d')
+        default_logfile = os.path.join(log_dir, f'playlista_{date_str}.log')
+        file_handler = logging.FileHandler(default_logfile, mode='a', encoding='utf-8')
     
     # Use colored formatter for file logging (colors will be preserved in file)
     color_formatter = ColoredFormatter(
@@ -56,7 +64,15 @@ def setup_file_only_logging(logfile_path=None):
             os.makedirs(log_dir, exist_ok=True)
     
     # Create a direct file handler instead of queue-based
-    file_handler = logging.FileHandler(logfile_path, mode='a', encoding='utf-8')
+    if logfile_path:
+        file_handler = logging.FileHandler(logfile_path, mode='a', encoding='utf-8')
+    else:
+        # If no logfile_path provided, create a default one
+        log_dir = os.getenv('LOG_DIR', '/app/logs')
+        os.makedirs(log_dir, exist_ok=True)
+        date_str = time.strftime('%Y%m%d')
+        default_logfile = os.path.join(log_dir, f'playlista_{date_str}.log')
+        file_handler = logging.FileHandler(default_logfile, mode='a', encoding='utf-8')
     
     # Use plain formatter for file logging (no colors)
     formatter = logging.Formatter(
