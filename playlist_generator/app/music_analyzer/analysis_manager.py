@@ -290,7 +290,15 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
 
     # Get files that need analysis using simplified selection
     normal_files, big_files, _, db_features = select_files_for_analysis(args, audio_db)
-    files_to_analyze = normal_files + big_files
+    
+    # If force_sequential is set, process all files sequentially
+    if hasattr(args, 'force_sequential') and args.force_sequential:
+        logger.info("DISCOVERY: Force sequential mode - processing all files sequentially")
+        files_to_analyze = normal_files + big_files
+        normal_files = []  # Move all files to big_files for sequential processing
+        big_files = files_to_analyze
+    else:
+        files_to_analyze = normal_files + big_files
     
     logger.debug(f"DISCOVERY: Files needing analysis: {len(files_to_analyze)}")
 
