@@ -294,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "2.9.0"  # Version identifier for tracking updates - enhanced rhythm extraction debugging
+    VERSION = "3.0.0"  # Version identifier for tracking updates - fixed numpy array handling
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -679,26 +679,48 @@ class AudioAnalyzer:
             logger.debug("Running danceability analysis on audio")
             dance_result = dance_algo(audio)
             logger.debug(f"Danceability result type: {type(dance_result)}")
+            logger.debug(f"Danceability result: {dance_result}")
             
             # Handle different return types from Essentia
             if isinstance(dance_result, tuple):
                 if len(dance_result) >= 1:
                     dance_values = dance_result[0]
+                    logger.debug(f"Extracted danceability from tuple[0]: {dance_values}")
                 else:
-                    logger.warning("Unexpected danceability result tuple length")
+                    logger.warning("Empty danceability result tuple")
                     dance_values = [0.0]
             else:
                 dance_values = dance_result
+                logger.debug(f"Extracted danceability from single value: {dance_values}")
             
-            logger.debug(f"Danceability values shape: {np.array(dance_values).shape if hasattr(dance_values, 'shape') else type(dance_values)}")
+            # Handle numpy arrays
+            if isinstance(dance_values, np.ndarray):
+                if dance_values.size == 1:
+                    dance_mean = float(dance_values.item())
+                    logger.debug(f"Converted single-element array to float: {dance_mean}")
+                else:
+                    dance_mean = float(np.nanmean(dance_values))
+                    logger.debug(f"Calculated mean from array: {dance_mean}")
+            elif isinstance(dance_values, (list, tuple)):
+                dance_mean = float(np.nanmean(dance_values))
+                logger.debug(f"Calculated mean from list/tuple: {dance_mean}")
+            else:
+                dance_mean = float(dance_values)
+                logger.debug(f"Converted to float: {dance_mean}")
             
-            dance_mean = float(np.nanmean(dance_values)) if isinstance(dance_values, (list, np.ndarray)) else float(dance_values)
-            logger.debug(f"Calculated mean danceability: {dance_mean:.3f}")
+            # Ensure danceability is a valid number
+            if not np.isfinite(dance_mean) or dance_mean < 0 or dance_mean > 1:
+                logger.warning(f"Invalid danceability value: {dance_mean}, using default")
+                dance_mean = 0.0
+            
+            logger.debug(f"Final danceability: {dance_mean}")
             logger.info(f"Danceability extraction completed: {dance_mean:.3f}")
             return {'danceability': dance_mean}
         except Exception as e:
             logger.warning(f"Danceability extraction failed: {str(e)}")
             logger.debug(f"Danceability extraction error details: {type(e).__name__}")
+            import traceback
+            logger.debug(f"Danceability extraction full traceback: {traceback.format_exc()}")
             return {'danceability': 0.0}
 
     def _extract_key(self, audio):
@@ -726,23 +748,46 @@ class AudioAnalyzer:
             logger.debug("Running onset rate analysis on audio")
             onset_result = onset_algo(audio)
             logger.debug(f"Onset rate result type: {type(onset_result)}")
+            logger.debug(f"Onset rate result: {onset_result}")
             
             # Handle different return types from Essentia
             if isinstance(onset_result, tuple):
                 if len(onset_result) >= 1:
                     onset_rate = onset_result[0]
+                    logger.debug(f"Extracted onset rate from tuple[0]: {onset_rate}")
                 else:
-                    logger.warning("Unexpected onset rate result tuple length")
+                    logger.warning("Empty onset rate result tuple")
                     onset_rate = 0.0
             else:
                 onset_rate = onset_result
+                logger.debug(f"Extracted onset rate from single value: {onset_rate}")
             
-            logger.debug(f"Extracted onset rate: {onset_rate}")
+            # Handle numpy arrays
+            if isinstance(onset_rate, np.ndarray):
+                if onset_rate.size == 1:
+                    onset_rate = float(onset_rate.item())
+                    logger.debug(f"Converted single-element array to float: {onset_rate}")
+                else:
+                    onset_rate = float(np.nanmean(onset_rate))
+                    logger.debug(f"Calculated mean from array: {onset_rate}")
+            else:
+                # Convert to float
+                onset_rate = float(onset_rate)
+                logger.debug(f"Converted to float: {onset_rate}")
+            
+            # Ensure onset rate is a valid number
+            if not np.isfinite(onset_rate) or onset_rate < 0:
+                logger.warning(f"Invalid onset rate value: {onset_rate}, using default")
+                onset_rate = 0.0
+            
+            logger.debug(f"Final onset rate: {onset_rate}")
             logger.info(f"Onset rate extraction completed: {onset_rate:.2f} onsets/sec")
             return {'onset_rate': float(onset_rate)}
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
             logger.debug(f"Onset rate extraction error details: {type(e).__name__}")
+            import traceback
+            logger.debug(f"Onset rate extraction full traceback: {traceback.format_exc()}")
             return {'onset_rate': 0.0}
 
     def _extract_zcr(self, audio):
