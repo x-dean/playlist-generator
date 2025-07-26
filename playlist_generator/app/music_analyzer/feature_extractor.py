@@ -60,6 +60,30 @@ def filter_metadata(meta):
     """Filter metadata to keep only lean fields relevant for playlisting."""
     return {k: v for k, v in meta.items() if k in LEAN_FIELDS and v is not None and v != ''}
 
+def safe_json_dumps(obj):
+    """Safely serialize object to JSON, handling NumPy types."""
+    if obj is None:
+        return None
+    try:
+        return json.dumps(obj)
+    except TypeError as e:
+        if "not JSON serializable" in str(e):
+            # Convert NumPy types to Python native types
+            import numpy as np
+            if isinstance(obj, dict):
+                return json.dumps({k: float(v) if isinstance(v, np.floating) else 
+                                       int(v) if isinstance(v, np.integer) else v 
+                                 for k, v in obj.items()})
+            elif isinstance(obj, list):
+                return json.dumps([float(v) if isinstance(v, np.floating) else 
+                                       int(v) if isinstance(v, np.integer) else v 
+                                 for v in obj])
+            else:
+                return json.dumps(float(obj) if isinstance(obj, np.floating) else 
+                                       int(obj) if isinstance(obj, np.integer) else obj)
+        else:
+            raise e
+
 class TimeoutException(Exception):
     pass
 
@@ -150,7 +174,8 @@ class AudioAnalyzer:
             musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
             activations = musicnn(audio)  # shape: [time, tags]
             tag_probs = activations.mean(axis=0)
-            tags = dict(zip(tag_names, tag_probs))
+            # Convert NumPy types to Python native types for JSON serialization
+            tags = dict(zip(tag_names, [float(prob) for prob in tag_probs]))
             
             # Run MusiCNN for embeddings (using correct output layer)
             musicnn_emb = es.TensorflowPredictMusiCNN(graphFilename=model_path, output=output_layer)
@@ -823,14 +848,14 @@ class AudioAnalyzer:
                 features.get('scale'),
                 features.get('onset_rate'),
                 features.get('zcr'),
-                json.dumps(features.get('mfcc', [])),
-                json.dumps(features.get('chroma', [])),
+                safe_json_dumps(features.get('mfcc', [])),
+                safe_json_dumps(features.get('chroma', [])),
                 features.get('spectral_contrast'),
                 features.get('spectral_flatness'),
                 features.get('spectral_rolloff'),
-                json.dumps(features.get('musicnn_embedding', None)),
+                safe_json_dumps(features.get('musicnn_embedding')),
                 file_info['last_modified'],
-                json.dumps(features.get('metadata', {})),
+                safe_json_dumps(features.get('metadata', {})),
                 failed
             )
             logger.debug(f"Values count: {len(values_tuple)}")
