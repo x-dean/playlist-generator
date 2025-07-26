@@ -113,6 +113,7 @@ class AudioAnalyzer:
             import essentia.standard as es
             import numpy as np
             import os
+            import json
             
             # First, try the real MusiCNN if available
             try:
@@ -120,7 +121,30 @@ class AudioAnalyzer:
                     'MUSICNN_MODEL_PATH',
                     '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
                 )
+                json_path = os.getenv(
+                    'MUSICNN_JSON_PATH',
+                    '/app/feature_extraction/models/musicnn/msd-musicnn-1.json'
+                )
+                
                 if os.path.exists(model_path):
+                    # Load metadata from separate JSON file if available
+                    output_layer = 'model/dense_1/BiasAdd'  # default
+                    if os.path.exists(json_path):
+                        try:
+                            with open(json_path, 'r') as json_file:
+                                metadata = json.load(json_file)
+                            # Get the correct output layer for embeddings from schema
+                            if 'schema' in metadata and 'outputs' in metadata['schema']:
+                                for output in metadata['schema']['outputs']:
+                                    if 'description' in output and output['description'] == 'embeddings':
+                                        output_layer = output['name']
+                                        logger.info(f"Using output layer '{output_layer}' from metadata")
+                                        break
+                        except Exception as json_error:
+                            logger.warning(f"Could not load JSON metadata from {json_path}: {str(json_error)}")
+                    else:
+                        logger.warning(f"JSON metadata file not found at {json_path}")
+                    
                     # Ensure audio is mono and at 16kHz (required for MusiCNN)
                     if hasattr(audio, 'shape') and len(audio.shape) > 1:
                         audio = np.mean(audio, axis=0)
@@ -134,10 +158,9 @@ class AudioAnalyzer:
                         audio = librosa.resample(audio, orig_sr=orig_sr, target_sr=16000)
                     
                     # Use TensorflowPredictMusiCNN with correct output layer for embeddings
-                    # According to the tutorial, 'model/dense_1/BiasAdd' is the recommended layer for embeddings
                     musicnn = es.TensorflowPredictMusiCNN(
                         graphFilename=model_path,
-                        output='model/dense_1/BiasAdd'  # Correct output layer for embeddings
+                        output=output_layer
                     )
                     
                     # Get embeddings (returns [time, features] matrix)
