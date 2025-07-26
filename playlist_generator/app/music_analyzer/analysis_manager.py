@@ -43,6 +43,7 @@ def select_files_for_analysis(args, audio_db):
     if args.force:
         files_to_analyze = [f for f in file_list if f not in failed_files_db]
         logger.debug(f"select_files_for_analysis: force=True, files_to_analyze={len(files_to_analyze)}")
+        logger.debug(f"select_files_for_analysis: force=True, first 5 files={files_to_analyze[:5]}")
     elif args.failed:
         # Directly query the DB for failed files
         import sqlite3
@@ -438,12 +439,15 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
             # Parallel for normal files (with force_reextract)
             par_manager = ParallelWorkerManager(stop_event)
             if normal_files:
+                logger.debug(f"Starting parallel processing of {len(normal_files)} normal files")
                 from music_analyzer.feature_extractor import AudioAnalyzer
                 analyzer = AudioAnalyzer(audio_db.cache_file)
                 for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count(), force_reextract=force_reextract, enforce_fail_limit=False):
                     if stop_event.is_set():
+                        logger.debug("Stop event set, breaking from processing loop")
                         break
                     processed_count += 1
+                    logger.debug(f"Processed file {processed_count}/{total_files}: {filepath}")
                     if filepath:
                         filename = os.path.basename(filepath)
                         max_len = 50
@@ -455,6 +459,13 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                             size_mb = os.path.getsize(filepath) / (1024 * 1024)
                         except Exception:
                             size_mb = 0
+                        progress.update(
+                            task_id,
+                            advance=1,
+                            description=f"Analyzing: {display_name} ({processed_count}/{total_files})",
+                            trackinfo=f"{size_mb:.1f} MB",
+                            refresh=True
+                        )
                     else:
                         filename = "Unknown"
                         size_mb = 0
@@ -466,6 +477,34 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         refresh=True
                     )
                     logger.debug(f"Features: {features}")
+                
+                # Sequential for big files (with force_reextract)
+                if big_files:
+                    logger.debug(f"Starting sequential processing of {len(big_files)} big files")
+                    seq_manager = SequentialWorkerManager(stop_event)
+                    for features, filepath in seq_manager.process(big_files, workers=1, force_reextract=force_reextract):
+                        if stop_event.is_set():
+                            logger.debug("Stop event set, breaking from sequential processing loop")
+                            break
+                        processed_count += 1
+                        logger.debug(f"Processed big file {processed_count}/{total_files}: {filepath}")
+                        filename = os.path.basename(filepath)
+                        max_len = 50
+                        if len(filename) > max_len:
+                            display_name = filename[:max_len-3] + "..."
+                        else:
+                            display_name = filename
+                        try:
+                            size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                        except Exception:
+                            size_mb = 0
+                        progress.update(
+                            task_id,
+                            advance=1,
+                            description=f"Analyzing: {display_name} ({processed_count}/{total_files})",
+                            trackinfo=f"{size_mb:.1f} MB",
+                            refresh=True
+                        )
                     # After processing, check if metadata is present
                     file_info = analyzer._get_file_info(filepath)
                     meta = None
