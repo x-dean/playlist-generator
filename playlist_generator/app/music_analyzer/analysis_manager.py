@@ -103,57 +103,53 @@ def _get_status_dot(features, db_write_success):
 
 
 def select_files_for_analysis(args, audio_db):
-    """Return (normal_files, big_files) to analyze based on args and DB state."""
-    from .file_discovery import FileDiscovery
-
-    # Initialize file discovery with audio_db
-    file_discovery = FileDiscovery(
-        music_dir='/music',
-        failed_dir='/music/failed_files',
-        cache_dir=os.getenv('CACHE_DIR', '/app/cache'),
-        audio_db=audio_db
-    )
-
+    """Simplified file selection based on args and DB state."""
+    logger.debug(f"DISCOVERY: select_files_for_analysis: force={args.force}, failed={args.failed}")
+    
     # Get database state
     db_features = audio_db.get_all_features(include_failed=True)
     db_files = set(f['filepath'] for f in db_features)
     failed_db_files = set(f['filepath'] for f in db_features if f['failed'])
-
-    # Get files for analysis using file discovery
-    files_to_analyze = file_discovery.get_files_for_analysis(
-        db_files=db_files,
-        failed_db_files=failed_db_files,
-        force=args.force,
-        failed_mode=args.failed
-    )
-
-    # Update file discovery state
-    file_discovery.update_state()
-
-    # Debug logging
-    logger.debug(
-        f"select_files_for_analysis: args.force={args.force}, args.failed={args.failed}")
-    logger.debug(
-        f"select_files_for_analysis: files_to_analyze={len(files_to_analyze)}")
-    logger.debug(f"select_files_for_analysis: files in db={len(db_files)}")
-    logger.debug(
-        f"select_files_for_analysis: failed files in db={len(failed_db_files)}")
-
+    
+    logger.debug(f"DISCOVERY: files in db={len(db_files)}, failed in db={len(failed_db_files)}")
+    
     if args.failed:
-        # All files to be processed sequentially in failed mode
-        return files_to_analyze, [], list(file_discovery.current_files), db_features
-
-    def is_big_file(filepath):
-        try:
-            return os.path.getsize(filepath) > BIG_FILE_SIZE_MB * 1024 * 1024
-        except Exception:
-            return False
-
-    big_files = [f for f in files_to_analyze if is_big_file(f)]
-    normal_files = [f for f in files_to_analyze if not is_big_file(f)]
-    logger.debug(
-        f"select_files_for_analysis: normal_files={len(normal_files)}, big_files={len(big_files)}")
-    return normal_files, big_files, list(file_discovery.current_files), db_features
+        # Failed mode: only process failed files that aren't in failed directory
+        files_to_analyze = []
+        for filepath in failed_db_files:
+            if '/failed_files' not in filepath:
+                files_to_analyze.append(filepath)
+        logger.info(f"DISCOVERY: Failed mode - {len(files_to_analyze)} files to retry")
+        return files_to_analyze, [], [], db_features
+    
+    elif args.force:
+        # Force mode: process all files except failed ones
+        files_to_analyze = audio_db.get_files_needing_analysis()
+        # Filter out failed files
+        files_to_analyze = [f[0] for f in files_to_analyze if f[0] not in failed_db_files]
+        logger.info(f"DISCOVERY: Force mode - {len(files_to_analyze)} files to process")
+    else:
+        # Normal mode: only new/modified files
+        files_to_analyze = audio_db.get_files_needing_analysis()
+        files_to_analyze = [f[0] for f in files_to_analyze]
+        logger.info(f"DISCOVERY: Normal mode - {len(files_to_analyze)} files to process")
+    
+    # Get file sizes from database for classification
+    file_sizes = audio_db.get_file_sizes_from_db(files_to_analyze)
+    
+    # Classify files by size
+    big_files = []
+    normal_files = []
+    for file_path in files_to_analyze:
+        file_size_bytes = file_sizes.get(file_path, 0)
+        file_size_mb = file_size_bytes / (1024 * 1024)
+        if file_size_mb > BIG_FILE_SIZE_MB:
+            big_files.append(file_path)
+        else:
+            normal_files.append(file_path)
+    
+    logger.debug(f"DISCOVERY: normal_files={len(normal_files)}, big_files={len(big_files)}")
+    return normal_files, big_files, [], db_features
 
 
 def move_failed_files(audio_db, failed_dir=None):
