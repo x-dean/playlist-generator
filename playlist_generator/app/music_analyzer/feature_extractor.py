@@ -639,17 +639,30 @@ class AudioAnalyzer:
             return hashlib.md5(library_path.encode()).hexdigest()
 
     def _normalize_to_library_path(self, path):
+        logger.debug(f"DISCOVERY: _normalize_to_library_path called with path: {path}")
+        logger.debug(f"DISCOVERY: self.library: {self.library}, self.music: {self.music}")
+        
         if self.library and self.music:
             path_converter = PathConverter(self.library, self.music)
             # If path looks like a host path (starts with library), convert to container
             if path.startswith(self.library):
-                return path_converter.host_to_container(path)
+                logger.debug(f"DISCOVERY: Path starts with library, converting host to container")
+                result = path_converter.host_to_container(path)
+                logger.debug(f"DISCOVERY: Converted {path} -> {result}")
+                return result
             # If path looks like a container path (starts with music), convert to host
             elif path.startswith(self.music):
-                return path_converter.container_to_host(path)
+                logger.debug(f"DISCOVERY: Path starts with music, converting container to host")
+                result = path_converter.container_to_host(path)
+                logger.debug(f"DISCOVERY: Converted {path} -> {result}")
+                return result
             # Otherwise, assume it's a host path and convert to container
             else:
-                return path_converter.host_to_container(path)
+                logger.debug(f"DISCOVERY: Path unclear, assuming host path and converting to container")
+                result = path_converter.host_to_container(path)
+                logger.debug(f"DISCOVERY: Converted {path} -> {result}")
+                return result
+        logger.debug(f"DISCOVERY: No library/music paths, returning normpath: {os.path.normpath(path)}")
         return os.path.normpath(path)
 
     def _safe_audio_load(self, audio_path):
