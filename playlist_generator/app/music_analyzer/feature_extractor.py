@@ -891,6 +891,12 @@ class AudioAnalyzer:
             mfcc_algo = es.MFCC(numberCoefficients=num_coeffs)
             logger.debug("Running MFCC analysis on audio")
 
+            # Check available memory before processing
+            import psutil
+            memory_info = psutil.virtual_memory()
+            logger.debug(f"Available memory before MFCC: {memory_info.available / (1024**3):.1f}GB")
+            logger.debug(f"Audio samples: {len(audio)}, estimated memory needed: {len(audio) * 8 / (1024**3):.1f}GB")
+
             # For very large files, use a timeout
             import signal
 
@@ -906,13 +912,31 @@ class AudioAnalyzer:
 
             try:
                 logger.debug(f"Starting MFCC computation for {len(audio)} samples")
+                
+                # Check if audio data is valid
+                if len(audio) == 0:
+                    logger.error("MFCC extraction failed: Audio data is empty")
+                    raise ValueError("Audio data is empty")
+                
+                # Check for NaN or infinite values
+                import numpy as np
+                if hasattr(audio, 'dtype') and np.issubdtype(audio.dtype, np.floating):
+                    if np.any(np.isnan(audio)) or np.any(np.isinf(audio)):
+                        logger.error("MFCC extraction failed: Audio contains NaN or infinite values")
+                        raise ValueError("Audio contains NaN or infinite values")
+                
                 _, mfcc_coeffs = mfcc_algo(audio)
                 logger.debug("MFCC computation completed successfully")
             except MemoryError as me:
                 logger.error(f"MFCC extraction failed due to memory error: {me}")
+                memory_info = psutil.virtual_memory()
+                logger.error(f"Memory after failure: {memory_info.available / (1024**3):.1f}GB available")
                 raise
             except Exception as e:
                 logger.error(f"MFCC extraction failed with error: {e}")
+                logger.error(f"Error type: {type(e).__name__}")
+                import traceback
+                logger.error(f"MFCC error traceback: {traceback.format_exc()}")
                 raise
             finally:
                 # Cancel timeout
@@ -1688,8 +1712,8 @@ class AudioAnalyzer:
             logger.warning(
                 f"Extremely large file detected ({len(audio)} samples), skipping some features")
         
-        # Check if file is too large for MFCC (>300M samples ~6.8 hours at 44kHz)
-        is_too_large_for_mfcc = len(audio) > 300000000
+        # Check if file is too large for MFCC (>100M samples ~2.3 hours at 44kHz)
+        is_too_large_for_mfcc = len(audio) > 100000000
         if is_too_large_for_mfcc:
             logger.warning(
                 f"File too large for MFCC extraction ({len(audio)} samples), skipping MFCC")
