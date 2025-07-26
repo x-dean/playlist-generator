@@ -1,5 +1,5 @@
 # --- Build stage ---
-FROM python:3.9-slim-bullseye AS builder
+FROM python:3.11-slim-bullseye AS builder
 
 # Install build dependencies
 RUN apt-get update && \
@@ -14,7 +14,7 @@ COPY requirements.txt .
 RUN pip install --prefix=/install/deps --no-cache-dir -r requirements.txt
 
 # --- Final stage ---
-FROM python:3.9-slim-bullseye
+FROM python:3.11-slim-bullseye
 
 # Install runtime dependencies only
 RUN apt-get update && \
