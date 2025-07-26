@@ -296,7 +296,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
     # Get files that need analysis using simplified selection
     normal_files, big_files, _, db_features = select_files_for_analysis(args, audio_db)
     
-    files_to_analyze = normal_files + big_files
+    # Create a combined list that matches the processing order (big files first, then normal files)
+    files_to_analyze = big_files + normal_files
     
     logger.debug(f"DISCOVERY: Files needing analysis: {len(files_to_analyze)}")
 
