@@ -86,7 +86,7 @@ from utils.cli import PlaylistGeneratorCLI, CLIContextManager
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.console import Console
 from rich.panel import Panel
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import multiprocessing
 import threading
 from rich.live import Live
@@ -193,14 +193,14 @@ logfile = open(logfile_path, 'a')
 os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
 sys.stderr = logfile  # Also update Python's sys.stderr
 
-def get_audio_files(music_dir: str) -> list[str]:
+def get_audio_files(music_dir: str) -> List[str]:
     """Recursively find all audio files in the given directory.
 
     Args:
         music_dir (str): Path to the music directory.
 
     Returns:
-        list[str]: List of audio file paths.
+        List[str]: List of audio file paths.
     """
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
@@ -214,16 +214,16 @@ def get_audio_files(music_dir: str) -> list[str]:
     logger.info(f"Found {len(file_list)} audio files in {music_dir}")
     return file_list
 
-def save_playlists(playlists: dict[str, dict], output_dir: str, library: str, music: str, failed_files: list[str], playlist_method: Optional[str] = None, host_library: str = None) -> None:
+def save_playlists(playlists: Dict[str, Dict[str, Any]], output_dir: str, library: str, music: str, failed_files: List[str], playlist_method: Optional[str] = None, host_library: str = None) -> None:
 
     """Saves generated playlists to disk.
 
     Args:
-        playlists (dict[str, dict]): Dictionary of playlist names to their data.
+        playlists (Dict[str, Dict[str, Any]]): Dictionary of playlist names to their data.
         output_dir (str): Root output directory.
         library (str): Path to the host's music directory.
         music (str): Path to the container's music directory.
-        failed_files (list[str]): List of failed file paths.
+        failed_files (List[str]): List of failed file paths.
         playlist_method (str | None): The method used to generate playlists (e.g., 'time', 'kmeans').
         host_library (str | None): Host library path for path conversion.
     """
