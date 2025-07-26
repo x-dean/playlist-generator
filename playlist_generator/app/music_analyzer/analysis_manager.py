@@ -32,8 +32,16 @@ def select_files_for_analysis(args, audio_db):
     failed_dir = os.path.join(os.getenv('CACHE_DIR', '/app/cache'), 'failed_files')
     failed_dir_abs = os.path.abspath(failed_dir)
     file_list = [f for f in file_list if not os.path.abspath(f).startswith(failed_dir_abs)]
+    
+    # Debug logging
+    logger.info(f"select_files_for_analysis: args.force={args.force}, args.failed={args.failed}")
+    logger.info(f"select_files_for_analysis: total files found={len(file_list)}")
+    logger.info(f"select_files_for_analysis: files in db={len(db_files)}")
+    logger.info(f"select_files_for_analysis: failed files in db={len(failed_files_db)}")
+    
     if args.force:
         files_to_analyze = [f for f in file_list if f not in failed_files_db]
+        logger.info(f"select_files_for_analysis: force=True, files_to_analyze={len(files_to_analyze)}")
     elif args.failed:
         # Directly query the DB for failed files
         import sqlite3
@@ -42,10 +50,13 @@ def select_files_for_analysis(args, audio_db):
         cur.execute("SELECT file_path FROM audio_features WHERE failed=1")
         files_to_analyze = [row[0] for row in cur.fetchall()]
         conn.close()
+        logger.info(f"select_files_for_analysis: failed=True, files_to_analyze={len(files_to_analyze)}")
         # All files to be processed sequentially
         return files_to_analyze, [], file_list, db_features
     else:
         files_to_analyze = [f for f in file_list if f not in db_files and f not in failed_files_db]
+        logger.info(f"select_files_for_analysis: default mode, files_to_analyze={len(files_to_analyze)}")
+    
     def is_big_file(filepath):
         try:
             return os.path.getsize(filepath) > BIG_FILE_SIZE_MB * 1024 * 1024
@@ -53,6 +64,7 @@ def select_files_for_analysis(args, audio_db):
             return False
     big_files = [f for f in files_to_analyze if is_big_file(f)]
     normal_files = [f for f in files_to_analyze if not is_big_file(f)]
+    logger.info(f"select_files_for_analysis: normal_files={len(normal_files)}, big_files={len(big_files)}")
     return normal_files, big_files, file_list, db_features
 
 def move_failed_files(audio_db, failed_dir=None):
@@ -565,7 +577,7 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     console.print("[dim]Enriching tags from MusicBrainz and Last.fm[/dim]")
     args.force = True
     args.failed = False
-    res2 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=False, pipeline_mode=True)
+    res2 = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=True, pipeline_mode=True)
     results.append(('Force', res2))
     console.print("[green]PIPELINE: Tags enriching complete (tags updated)[/green]")
     console.print("[dim]───────────────────────────────────────────────[/dim]\n")
