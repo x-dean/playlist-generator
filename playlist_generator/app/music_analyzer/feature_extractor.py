@@ -72,6 +72,9 @@ class AudioAnalyzer:
             model_dir = os.getenv('MODEL_DIR', os.path.join(os.path.dirname(__file__), '..', 'feature_extraction', 'models'))
             model_path = os.path.join(model_dir, 'vggish_model.h5')
             if not os.path.exists(model_path):
+                import sys
+                # Add the parent directory to sys.path to import download_models
+                sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
                 from download_models import download_vggish_model
                 download_vggish_model(model_dir)
             if os.path.exists(model_path):
