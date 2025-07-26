@@ -905,7 +905,15 @@ class AudioAnalyzer:
                     "Set 10-minute timeout for large file MFCC extraction")
 
             try:
+                logger.debug(f"Starting MFCC computation for {len(audio)} samples")
                 _, mfcc_coeffs = mfcc_algo(audio)
+                logger.debug("MFCC computation completed successfully")
+            except MemoryError as me:
+                logger.error(f"MFCC extraction failed due to memory error: {me}")
+                raise
+            except Exception as e:
+                logger.error(f"MFCC extraction failed with error: {e}")
+                raise
             finally:
                 # Cancel timeout
                 signal.alarm(0)
@@ -1679,6 +1687,12 @@ class AudioAnalyzer:
         if is_extremely_large:
             logger.warning(
                 f"Extremely large file detected ({len(audio)} samples), skipping some features")
+        
+        # Check if file is too large for MFCC (>300M samples ~6.8 hours at 44kHz)
+        is_too_large_for_mfcc = len(audio) > 300000000
+        if is_too_large_for_mfcc:
+            logger.warning(
+                f"File too large for MFCC extraction ({len(audio)} samples), skipping MFCC")
 
         # Duration calculation
         try:
@@ -1759,14 +1773,18 @@ class AudioAnalyzer:
             logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
             features['zcr'] = 0.0
 
-        # Extract MFCC
-        try:
-            mfcc_result = self._extract_mfcc(audio)
-            features['mfcc'] = mfcc_result['mfcc']
-            logger.info(f"MFCC: {len(features['mfcc'])} coefficients")
-        except Exception as e:
-            logger.warning(f"MFCC extraction failed: {str(e)}")
+        # Extract MFCC (skip for extremely large files to avoid memory issues)
+        if is_extremely_large or is_too_large_for_mfcc:
+            logger.info("Skipping MFCC extraction for extremely large file to avoid memory issues")
             features['mfcc'] = [0.0] * 13
+        else:
+            try:
+                mfcc_result = self._extract_mfcc(audio)
+                features['mfcc'] = mfcc_result['mfcc']
+                logger.info(f"MFCC: {len(features['mfcc'])} coefficients")
+            except Exception as e:
+                logger.warning(f"MFCC extraction failed: {str(e)}")
+                features['mfcc'] = [0.0] * 13
 
         # For extremely large files, skip some features to avoid timeouts
         if not is_extremely_large:
