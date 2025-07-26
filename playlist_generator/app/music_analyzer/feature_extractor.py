@@ -294,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "3.2.0"  # Version identifier for tracking updates - fixed logging setup
+    VERSION = "3.3.0"  # Version identifier for tracking updates - fixed failure detection logic
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -1407,8 +1407,15 @@ class AudioAnalyzer:
                 self._mark_failed(file_info)
                 return None, False, None
             features = self._extract_all_features(audio_path, audio)
+            # Only mark as failed if features is None (complete failure)
+            # If features is a dict, even with default values, it's a partial success
             if features is None:
                 logger.error(f"Feature extraction failed for {audio_path}")
+                self._mark_failed(file_info)
+                return None, False, None
+            # Validate that we have at least some basic features
+            if not isinstance(features, dict) or len(features) == 0:
+                logger.error(f"Feature extraction returned invalid result for {audio_path}")
                 self._mark_failed(file_info)
                 return None, False, None
             db_write_success = self._save_features_to_db(file_info, features, failed=0)
@@ -1416,6 +1423,8 @@ class AudioAnalyzer:
                 logger.info(f"DB WRITE: {file_info['file_path']}")
             else:
                 logger.error(f"DB WRITE FAILED: {file_info['file_path']}")
+                self._mark_failed(file_info)
+                return None, False, None
             return features, db_write_success, file_info['file_hash']
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
