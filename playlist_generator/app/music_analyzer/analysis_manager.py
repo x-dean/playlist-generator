@@ -32,7 +32,9 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
     if current_index >= len(files_list):
         return
     
-    current_filename = os.path.basename(files_list[current_index])
+    item = files_list[current_index]
+    file_path = item[0] if isinstance(item, tuple) else item
+    current_filename = os.path.basename(file_path)
     max_len = 30  # Shorter to make room for file size and mode
     if len(current_filename) > max_len:
         display_name = current_filename[:max_len-3] + "..."
@@ -41,9 +43,8 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
     
     # Get file size
     try:
-        size_mb = os.path.getsize(files_list[current_index]) / (1024 * 1024)
+        size_mb = os.path.getsize(file_path) / (1024 * 1024)
         file_size_info = f"{size_mb:.1f}MB"
-        
         # Determine processing mode based on file size and context
         if size_mb > BIG_FILE_SIZE_MB:
             processing_mode = "Sequential"  # Big files always use sequential
@@ -413,7 +414,7 @@ def run_force_mode(args, audio_db, cli, stop_event):
         # Pre-update progress bar with first file
         if invalid_files:
             _update_progress_bar(progress, task_id, invalid_files, 0, len(invalid_files), 
-                               "[yellow]", "", "", None, True)  # Force mode can use parallel for small files
+                               "[yellow]", "", "", None, True)  # Handles tuple or str
         
         processed_count = 0
         for file_path in invalid_files:
@@ -425,7 +426,7 @@ def run_force_mode(args, audio_db, cli, stop_event):
             
             # Update progress bar with current file
             _update_progress_bar(progress, task_id, invalid_files, processed_count, len(invalid_files), 
-                               "[yellow]", "", "", None, True)  # Force mode can use parallel for small files
+                               "[yellow]", "", "", None, True)  # Handles tuple or str
             
             logger.info(f"Retrying analysis for {file_path}")
             success, features = audio_db.retry_analysis_with_backoff(file_path, max_attempts=3)
@@ -479,7 +480,7 @@ def run_failed_mode(args, audio_db, cli, stop_event):
         # Pre-update progress bar with first file
         if failed_files:
             _update_progress_bar(progress, task_id, failed_files, 0, len(failed_files), 
-                               "[red]", "", "", None, False)  # Failed mode always uses sequential
+                               "[red]", "", "", None, False)  # Handles tuple or str
         
         processed_count = 0
         for file_path in failed_files:
@@ -491,7 +492,7 @@ def run_failed_mode(args, audio_db, cli, stop_event):
             
             # Update progress bar with current file
             _update_progress_bar(progress, task_id, failed_files, processed_count, len(failed_files), 
-                               "[red]", "", "", None, False)  # Failed mode always uses sequential
+                               "[red]", "", "", None, False)  # Handles tuple or str
             
             logger.info(f"Retrying failed file: {file_path}")
             success, features = audio_db.retry_analysis_with_backoff(file_path, max_attempts=3)
