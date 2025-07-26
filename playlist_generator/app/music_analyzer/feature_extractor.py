@@ -2240,6 +2240,10 @@ class AudioAnalyzer:
 
         logger.info(f"Found {len(current_files)} audio files in filesystem")
 
+        # Update file discovery state in database
+        file_discovery.update_state()
+        logger.debug(f"Updated file discovery state for {len(current_files)} files")
+
         # Get cached files with their modification times
         cached_files = {}
         cursor = self.conn.execute("""
