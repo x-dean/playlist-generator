@@ -466,7 +466,7 @@ class AudioAnalyzer:
                     mbid,
                     includes=[
                         'artists', 'releases', 'tags', 'isrcs', 'work-rels', 'artist-credits',
-                        'artist-rels', 'release-groups', 'labels', 'aliases', 'recording-rels'
+                        'artist-rels', 'labels', 'aliases', 'recording-rels'
                     ]
                 )['recording']
                 tags = {
