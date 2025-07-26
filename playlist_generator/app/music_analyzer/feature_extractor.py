@@ -2243,51 +2243,50 @@ class AudioAnalyzer:
         return False, None
 
     def get_files_needing_analysis(self, music_dir='/music'):
-        """Efficiently determine which files need analysis"""
-        logger.info(f"DISCOVERY: Starting get_files_needing_analysis in {music_dir}")
-        logger.info(f"Scanning for files needing analysis in {music_dir}")
-
-        # Use FileDiscovery to get all audio files
-        from .file_discovery import FileDiscovery
-        file_discovery = FileDiscovery(music_dir=music_dir, audio_db=self)
-        current_files = set(file_discovery.discover_files())
-
-        logger.info(f"Found {len(current_files)} audio files in filesystem")
-
-        # Update file discovery state in database
-        logger.debug(f"DISCOVERY: About to call file_discovery.update_state()")
-        file_discovery.update_state()
+        """Simplified file discovery and analysis selection"""
+        logger.info(f"DISCOVERY: Scanning for files needing analysis in {music_dir}")
+        
+        # Simple file discovery - scan directory for audio files
+        current_files = set()
+        audio_extensions = {'.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac', '.wma'}
+        
+        for root, dirs, files in os.walk(music_dir):
+            # Skip failed_files directory
+            if 'failed_files' in root:
+                continue
+                
+            for file in files:
+                if any(file.lower().endswith(ext) for ext in audio_extensions):
+                    file_path = os.path.join(root, file)
+                    current_files.add(file_path)
+        
+        logger.info(f"DISCOVERY: Found {len(current_files)} audio files in filesystem")
+        
+        # Update file discovery state in database (for file sizes)
+        self.update_file_discovery_state(list(current_files))
         logger.debug(f"DISCOVERY: Updated file discovery state for {len(current_files)} files")
-
-        # Get cached files with their modification times
-        cached_files = {}
+        
+        # Get files already in database
         cursor = self.conn.execute("""
-            SELECT file_path, last_modified, failed 
+            SELECT file_path, last_modified 
             FROM audio_features 
             WHERE failed = 0
         """)
-
+        cached_files = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        # Determine which files need analysis
         files_needing_analysis = []
-        for row in cursor.fetchall():
-            file_path, last_modified, failed = row
-            if os.path.exists(file_path):
-                current_mtime = os.path.getmtime(file_path)
-                if current_mtime > last_modified:
-                    # File modified since last analysis
-                    files_needing_analysis.append((file_path, 'modified'))
-                else:
-                    # File unchanged, skip
-                    cached_files[file_path] = True
-            else:
-                # File deleted, mark for cleanup
-                files_needing_analysis.append((file_path, 'deleted'))
-
-        # New files
         for file_path in current_files:
             if file_path not in cached_files:
+                # New file
                 files_needing_analysis.append((file_path, 'new'))
-
-        logger.info(f"Analysis needed for {len(files_needing_analysis)} files")
+            elif os.path.exists(file_path):
+                # Check if file was modified
+                current_mtime = os.path.getmtime(file_path)
+                if current_mtime > cached_files[file_path]:
+                    files_needing_analysis.append((file_path, 'modified'))
+        
+        logger.info(f"DISCOVERY: Analysis needed for {len(files_needing_analysis)} files")
         return files_needing_analysis
 
     def validate_cached_features(self):
