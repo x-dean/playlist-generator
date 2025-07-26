@@ -327,7 +327,7 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
     
     # Display totals with better visual formatting
     total_files = len(audio_db.get_all_audio_files())
-    total_in_db = len(audio_db.get_all_tracks())
+    total_in_db = audio_db.get_all_tracks()
     files_to_process = len(files_to_analyze)
     
     print(f"\n📊 Library Statistics:")
