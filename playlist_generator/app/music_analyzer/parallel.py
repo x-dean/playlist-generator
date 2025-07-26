@@ -82,26 +82,38 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
             if not os.path.exists(filepath):
                 notified["shown"] = True
                 logger.warning(f"File not found: {filepath}")
-                from .feature_extractor import AudioAnalyzer
-                audio_analyzer = AudioAnalyzer()
-                file_info = audio_analyzer._get_file_info(filepath)
-                audio_analyzer._mark_failed(file_info)
+                # Don't mark as failed if we're being interrupted
+                try:
+                    from .feature_extractor import AudioAnalyzer
+                    audio_analyzer = AudioAnalyzer()
+                    file_info = audio_analyzer._get_file_info(filepath)
+                    audio_analyzer._mark_failed(file_info)
+                except Exception:
+                    pass  # Ignore database errors during shutdown
                 return None, filepath, False
             if os.path.getsize(filepath) < 1024:
                 notified["shown"] = True
                 logger.warning(f"Skipping small file: {filepath}")
-                from .feature_extractor import AudioAnalyzer
-                audio_analyzer = AudioAnalyzer()
-                file_info = audio_analyzer._get_file_info(filepath)
-                audio_analyzer._mark_failed(file_info)
+                # Don't mark as failed if we're being interrupted
+                try:
+                    from .feature_extractor import AudioAnalyzer
+                    audio_analyzer = AudioAnalyzer()
+                    file_info = audio_analyzer._get_file_info(filepath)
+                    audio_analyzer._mark_failed(file_info)
+                except Exception:
+                    pass  # Ignore database errors during shutdown
                 return None, filepath, False
             if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
                 notified["shown"] = True
                 logger.warning(f"Unsupported extension, skipping: {filepath}")
-                from .feature_extractor import AudioAnalyzer
-                audio_analyzer = AudioAnalyzer()
-                file_info = audio_analyzer._get_file_info(filepath)
-                audio_analyzer._mark_failed(file_info)
+                # Don't mark as failed if we're being interrupted
+                try:
+                    from .feature_extractor import AudioAnalyzer
+                    audio_analyzer = AudioAnalyzer()
+                    file_info = audio_analyzer._get_file_info(filepath)
+                    audio_analyzer._mark_failed(file_info)
+                except Exception:
+                    pass  # Ignore database errors during shutdown
                 return None, filepath, False
             result = None
             try:
@@ -118,8 +130,12 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 features, db_write_success, file_hash = (
                     result if result is not None else (None, False, None))
                 if not features or not db_write_success:
-                    file_info = audio_analyzer._get_file_info(filepath)
-                    audio_analyzer._mark_failed(file_info)
+                    # Don't mark as failed if we're being interrupted
+                    try:
+                        file_info = audio_analyzer._get_file_info(filepath)
+                        audio_analyzer._mark_failed(file_info)
+                    except Exception:
+                        pass  # Ignore database errors during shutdown
                     return None, filepath, False
             if result and result[0] is not None:
                 features, db_write_success, _ = result
@@ -193,11 +209,19 @@ class ParallelProcessor:
                         logger.info("Stop event detected - stopping new file processing")
                         break
                     with ctx.Pool(processes=self.workers) as pool:
+                        # Check stop_event again after pool creation to handle interruption during processing
+                        if stop_event and stop_event.is_set():
+                            logger.info("Stop event detected - letting workers finish current files")
+                            # Don't terminate pool - let workers finish their current files
+                            break
                         try:
                             from functools import partial
                             worker_func = partial(
                                 process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
+                            # Process results from the batch
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
+                                # Don't check stop_event here - let workers complete their current file
+                                # The stop_event is only used to prevent feeding new files
                                 if self.enforce_fail_limit:
                                     # Use in-memory retry counter
                                     count = self.retry_counter.get(filepath, 0)
