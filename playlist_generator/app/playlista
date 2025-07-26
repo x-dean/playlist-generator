@@ -40,6 +40,20 @@ from datetime import datetime
 # Add the app directory to the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Suppress TensorFlow warnings early
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU warnings
+
+# Setup logging immediately to capture all output
+cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+logfile_path = '/app/logs/playlista.log'
+os.makedirs(os.path.dirname(logfile_path), exist_ok=True)
+logfile = open(logfile_path, 'a')
+os.dup2(logfile.fileno(), 1)  # Redirect fd 1 (stdout) at the OS level
+os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
+sys.stdout = logfile  # Also update Python's sys.stdout
+sys.stderr = logfile  # Also update Python's sys.stderr
+
 # Parse --log_level early to set LOG_LEVEL env var
 pre_parser = argparse.ArgumentParser(add_help=False)
 pre_parser.add_argument('--log_level', default='INFO',
@@ -169,12 +183,6 @@ cli = PlaylistGeneratorCLI()
 
 os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
 os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
-
-cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-logfile_path = '/app/logs/playlista.log'
-logfile = open(logfile_path, 'a')
-os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
-sys.stderr = logfile  # Also update Python's sys.stderr
 
 
 def get_audio_files(music_dir: str) -> List[str]:
@@ -398,7 +406,9 @@ Examples:
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     logfile_path = '/app/logs/playlista.log'
     logfile = open(logfile_path, 'a')
+    os.dup2(logfile.fileno(), 1)  # Redirect fd 1 (stdout) at the OS level
     os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
+    sys.stdout = logfile  # Also update Python's sys.stdout
     sys.stderr = logfile  # Also update Python's sys.stderr
 
     # Show configuration
