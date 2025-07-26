@@ -628,40 +628,50 @@ class AudioAnalyzer:
 
     def _get_file_hash(self, filepath):
         """Get file hash for file discovery tracking."""
-        library_path = self._normalize_to_library_path(filepath)
+        logger.debug(f"DISCOVERY: _get_file_hash called with filepath: {filepath}")
+        # For container paths, use directly; for host paths, convert to container
+        if filepath.startswith('/music'):
+            # Already a container path
+            container_path = filepath
+        else:
+            # Host path - convert to container
+            container_path = self._normalize_to_library_path(filepath)
+        
+        logger.debug(f"DISCOVERY: _get_file_hash using container path: {container_path}")
         try:
-            stat = os.stat(library_path)
-            return f"{os.path.basename(library_path)}_{stat.st_size}_{stat.st_mtime}"
+            stat = os.stat(container_path)
+            logger.debug(f"DISCOVERY: _get_file_hash successful stat for: {container_path}")
+            return f"{os.path.basename(container_path)}_{stat.st_size}_{stat.st_mtime}"
         except Exception as e:
             logger.warning(
-                f"Couldn't get file hash for {library_path}: {str(e)}")
+                f"Couldn't get file hash for {container_path}: {str(e)}")
             import hashlib
-            return hashlib.md5(library_path.encode()).hexdigest()
+            return hashlib.md5(container_path.encode()).hexdigest()
 
     def _normalize_to_library_path(self, path):
+        """Convert any path to container path for file operations."""
         logger.debug(f"DISCOVERY: _normalize_to_library_path called with path: {path}")
         logger.debug(f"DISCOVERY: self.library: {self.library}, self.music: {self.music}")
         
+        # If already a container path, return as is
+        if path.startswith('/music'):
+            logger.debug(f"DISCOVERY: Path is already container path: {path}")
+            return path
+        
+        # Convert host path to container path
         if self.library and self.music:
             path_converter = PathConverter(self.library, self.music)
-            # If path looks like a host path (starts with library), convert to container
             if path.startswith(self.library):
-                logger.debug(f"DISCOVERY: Path starts with library, converting host to container")
+                logger.debug(f"DISCOVERY: Converting host path to container")
                 result = path_converter.host_to_container(path)
                 logger.debug(f"DISCOVERY: Converted {path} -> {result}")
                 return result
-            # If path looks like a container path (starts with music), convert to host
-            elif path.startswith(self.music):
-                logger.debug(f"DISCOVERY: Path starts with music, converting container to host")
-                result = path_converter.container_to_host(path)
-                logger.debug(f"DISCOVERY: Converted {path} -> {result}")
-                return result
-            # Otherwise, assume it's a host path and convert to container
             else:
                 logger.debug(f"DISCOVERY: Path unclear, assuming host path and converting to container")
                 result = path_converter.host_to_container(path)
                 logger.debug(f"DISCOVERY: Converted {path} -> {result}")
                 return result
+        
         logger.debug(f"DISCOVERY: No library/music paths, returning normpath: {os.path.normpath(path)}")
         return os.path.normpath(path)
 
@@ -1918,7 +1928,7 @@ class AudioAnalyzer:
         return features
 
     def _mark_failed(self, file_info):
-        # Ensure file_path is host path
+        # Ensure file_path is container path
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_library_path(
             file_info['file_path'])
@@ -1932,7 +1942,7 @@ class AudioAnalyzer:
             )
 
     def _save_features_to_db(self, file_info, features, failed=0):
-        # Ensure file_path is host path
+        # Ensure file_path is container path
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_library_path(
             file_info['file_path'])
