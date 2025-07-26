@@ -2244,6 +2244,7 @@ class AudioAnalyzer:
 
     def get_files_needing_analysis(self, music_dir='/music'):
         """Efficiently determine which files need analysis"""
+        logger.info(f"DISCOVERY: Starting get_files_needing_analysis in {music_dir}")
         logger.info(f"Scanning for files needing analysis in {music_dir}")
 
         # Use FileDiscovery to get all audio files
@@ -2254,6 +2255,7 @@ class AudioAnalyzer:
         logger.info(f"Found {len(current_files)} audio files in filesystem")
 
         # Update file discovery state in database
+        logger.debug(f"DISCOVERY: About to call file_discovery.update_state()")
         file_discovery.update_state()
         logger.debug(f"DISCOVERY: Updated file discovery state for {len(current_files)} files")
 
