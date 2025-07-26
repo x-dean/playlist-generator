@@ -41,18 +41,23 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Suppress TensorFlow warnings early
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow warnings
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU warnings
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
 
-# Setup logging immediately to capture all output
+# Suppress TensorFlow warnings at Python level
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+# Setup logging immediately to capture error output
 cache_dir = os.getenv('CACHE_DIR', '/app/cache')
 logfile_path = '/app/logs/playlista.log'
 os.makedirs(os.path.dirname(logfile_path), exist_ok=True)
 logfile = open(logfile_path, 'a')
-os.dup2(logfile.fileno(), 1)  # Redirect fd 1 (stdout) at the OS level
-os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
-sys.stdout = logfile  # Also update Python's sys.stdout
+os.dup2(logfile.fileno(), 2)  # Redirect only stderr to log file
 sys.stderr = logfile  # Also update Python's sys.stderr
+# Keep stdout for terminal output
 
 # Parse --log_level early to set LOG_LEVEL env var
 pre_parser = argparse.ArgumentParser(add_help=False)
