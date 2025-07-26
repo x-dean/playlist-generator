@@ -37,8 +37,13 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
     if current_index >= len(files_list):
         return
 
-    item = files_list[current_index]
-    file_path = item[0] if isinstance(item, tuple) else item
+    # Use the actual filepath being processed if provided, otherwise fall back to list lookup
+    if current_filepath:
+        file_path = current_filepath
+    else:
+        item = files_list[current_index]
+        file_path = item[0] if isinstance(item, tuple) else item
+    
     current_filename = os.path.basename(file_path)
     max_len = 70  # Increased to make better use of available space
     if len(current_filename) > max_len:
@@ -341,9 +346,9 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 # Get status dot for result
                 status_dot = _get_status_dot(features, db_write_success)
                 
-                # Update progress bar
-                _update_progress_bar(progress, task_id, files_to_analyze, processed_count, len(files_to_analyze),
-                                     "[cyan]", "", status_dot, None, True, file_sizes)
+                # Update progress bar with the file that was just processed
+                _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
+                                     "[cyan]", "", status_dot, filepath, True, file_sizes)
                 
                 logger.debug(f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
                 
@@ -368,9 +373,9 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 # Get status dot for result
                 status_dot = _get_status_dot(features, db_write_success)
                 
-                # Update progress bar
-                _update_progress_bar(progress, task_id, files_to_analyze, processed_count, len(files_to_analyze),
-                                     "[cyan]", "", status_dot, None, True, file_sizes)
+                # Update progress bar with the file that was just processed
+                _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
+                                     "[cyan]", "", status_dot, filepath, True, file_sizes)
                 
                 logger.debug(f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
                 
