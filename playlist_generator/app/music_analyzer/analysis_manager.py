@@ -315,29 +315,27 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
         return run_analyze_mode(args, audio_db, cli, stop_event, force_reextract)
 
 def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
-    """ANALYZE mode: Smart cache comparison and incremental analysis."""
+    """ANALYZE mode: Smart cache comparison and analysis."""
     logger.info("Starting ANALYZE mode - smart cache comparison")
     
     # Get files that need analysis
-    files_needing_analysis = audio_db.get_files_needing_analysis()
-    files_to_analyze = [file_path for file_path, reason in files_needing_analysis]
+    files_to_analyze = audio_db.get_files_needing_analysis()
     
     if not files_to_analyze:
-        logger.info("No files need analysis - all up to date")
+        logger.info("No files need analysis - all files are up to date")
         return []
     
-    logger.info(f"Found {len(files_to_analyze)} files needing analysis")
+    # Display totals with better visual formatting
+    total_files = len(audio_db.get_all_audio_files())
+    total_in_db = len(audio_db.get_all_tracks())
+    files_to_process = len(files_to_analyze)
     
-    # Log the reasons for analysis
-    for file_path, reason in files_needing_analysis:
-        logger.debug(f"File needs analysis: {file_path} (reason: {reason})")
-    
-    # Log a summary of reasons
-    reason_counts = {}
-    for _, reason in files_needing_analysis:
-        reason_counts[reason] = reason_counts.get(reason, 0) + 1
-    
-    logger.info(f"Analysis reasons: {reason_counts}")
+    print(f"\n📊 Library Statistics:")
+    print(f"   📁 Total music files: {total_files:,}")
+    print(f"   💾 Tracks in database: {total_in_db:,}")
+    print(f"   🔄 Files to process: {files_to_process:,}")
+    print(f"   📈 Progress: {total_in_db}/{total_files} ({total_in_db/total_files*100:.1f}% complete)")
+    print()  # Add spacing before progress bar
     
     # Run analysis on files that need it
     failed_files = []
@@ -385,16 +383,26 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
 
 def run_force_mode(args, audio_db, cli, stop_event):
     """FORCE mode: Fast validation and retry of cached files."""
-    logger.info("Starting FORCE mode - validating cached features")
+    logger.info("Starting FORCE mode - fast validation and retry")
     
-    # Quick validation of all cached files
-    invalid_files = audio_db.validate_cached_features()
+    # Get invalid files that need retry
+    invalid_files = audio_db.get_invalid_files_from_db()
     
     if not invalid_files:
-        logger.info("All cached features are valid - no retry needed")
+        logger.info("No invalid files found in database")
         return []
     
-    logger.info(f"Found {len(invalid_files)} files with invalid cached features")
+    # Display totals with better visual formatting
+    total_files = len(audio_db.get_all_audio_files())
+    total_in_db = len(audio_db.get_all_tracks())
+    files_to_retry = len(invalid_files)
+    
+    print(f"\n📊 Force Mode Statistics:")
+    print(f"   📁 Total music files: {total_files:,}")
+    print(f"   💾 Tracks in database: {total_in_db:,}")
+    print(f"   🔄 Files to retry: {files_to_retry:,}")
+    print(f"   📈 Database health: {total_in_db}/{total_files} ({total_in_db/total_files*100:.1f}% valid)")
+    print()  # Add spacing before progress bar
     
     # Retry analysis for invalid files
     failed_files = []
@@ -450,7 +458,17 @@ def run_failed_mode(args, audio_db, cli, stop_event):
         logger.info("No failed files found in database")
         return []
     
-    logger.info(f"Found {len(failed_files)} failed files to retry")
+    # Display totals with better visual formatting
+    total_files = len(audio_db.get_all_audio_files())
+    total_in_db = len(audio_db.get_all_tracks())
+    files_to_recover = len(failed_files)
+    
+    print(f"\n📊 Recovery Mode Statistics:")
+    print(f"   📁 Total music files: {total_files:,}")
+    print(f"   💾 Tracks in database: {total_in_db:,}")
+    print(f"   🔄 Files to recover: {files_to_recover:,}")
+    print(f"   📈 Success rate: {total_in_db}/{total_files} ({total_in_db/total_files*100:.1f}% successful)")
+    print()  # Add spacing before progress bar
     
     # Retry each failed file up to 3 times
     still_failed = []
