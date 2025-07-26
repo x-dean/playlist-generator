@@ -2243,7 +2243,7 @@ class AudioAnalyzer:
 
         # Update file discovery state in database
         file_discovery.update_state()
-        logger.debug(f"Updated file discovery state for {len(current_files)} files")
+        logger.debug(f"DISCOVERY: Updated file discovery state for {len(current_files)} files")
 
         # Get cached files with their modification times
         cached_files = {}
@@ -2413,6 +2413,7 @@ class AudioAnalyzer:
 
     def update_file_discovery_state(self, file_paths: List[str]):
         """Update file discovery state in database."""
+        logger.debug(f"DISCOVERY: Starting file discovery state update for {len(file_paths)} files")
         try:
             with self.conn:
                 # Mark all files as not seen in this run
@@ -2423,6 +2424,7 @@ class AudioAnalyzer:
                 """)
 
                 # Add or update files that exist
+                updated_count = 0
                 for file_path in file_paths:
                     if os.path.exists(file_path):
                         try:
@@ -2434,14 +2436,23 @@ class AudioAnalyzer:
                                 (file_path, file_hash, file_size, last_modified, last_seen_at, status)
                                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'active')
                             """, (file_path, file_hash, stat.st_size, stat.st_mtime))
+                            updated_count += 1
                         except Exception as e:
                             logger.warning(
-                                f"Could not update state for {file_path}: {e}")
+                                f"DISCOVERY: Could not update state for {file_path}: {e}")
 
             logger.info(
-                f"Updated file discovery state for {len(file_paths)} files")
+                f"DISCOVERY: Updated file discovery state for {updated_count} files")
+            
+            # Verify the update worked
+            cursor = self.conn.execute("SELECT COUNT(*) FROM file_discovery_state WHERE status = 'active'")
+            active_count = cursor.fetchone()[0]
+            logger.debug(f"DISCOVERY: Active files in discovery state: {active_count}")
+            
         except Exception as e:
-            logger.error(f"Error updating file discovery state: {e}")
+            logger.error(f"DISCOVERY: Error updating file discovery state: {e}")
+            import traceback
+            logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
 
     def get_file_discovery_changes(self) -> Tuple[List[str], List[str], List[str]]:
         """Get added, removed, and unchanged files from database."""
@@ -2473,11 +2484,11 @@ class AudioAnalyzer:
             added_files = [f for f in active_files if f not in unchanged_files]
 
             logger.info(
-                f"File discovery changes: Added={len(added_files)}, Removed={len(removed_files)}, Unchanged={len(unchanged_files)}")
+                f"DISCOVERY: File discovery changes: Added={len(added_files)}, Removed={len(removed_files)}, Unchanged={len(unchanged_files)}")
             return added_files, removed_files, unchanged_files
 
         except Exception as e:
-            logger.error(f"Error getting file discovery changes: {e}")
+            logger.error(f"DISCOVERY: Error getting file discovery changes: {e}")
             return [], [], []
 
     def cleanup_file_discovery_state(self):
@@ -2497,14 +2508,24 @@ class AudioAnalyzer:
 
             if removed_count > 0:
                 logger.info(
-                    f"Cleaned up {removed_count} non-existent files from discovery state")
+                    f"DISCOVERY: Cleaned up {removed_count} non-existent files from discovery state")
 
         except Exception as e:
-            logger.error(f"Error cleaning up file discovery state: {e}")
+            logger.error(f"DISCOVERY: Error cleaning up file discovery state: {e}")
 
     def get_file_sizes_from_db(self, file_paths: List[str]) -> Dict[str, int]:
         """Get file sizes from database for the given file paths."""
+        logger.debug(f"DISCOVERY: Requesting file sizes for {len(file_paths)} files from database")
         try:
+            # First check if there's any data in the table
+            cursor = self.conn.execute("SELECT COUNT(*) FROM file_discovery_state")
+            total_count = cursor.fetchone()[0]
+            logger.debug(f"DISCOVERY: Total records in file_discovery_state: {total_count}")
+            
+            if total_count == 0:
+                logger.warning("DISCOVERY: No data in file_discovery_state table")
+                return {}
+            
             cursor = self.conn.execute("""
                 SELECT file_path, file_size 
                 FROM file_discovery_state 
@@ -2516,11 +2537,13 @@ class AudioAnalyzer:
                 file_path, file_size = row
                 file_sizes[file_path] = file_size
             
-            logger.debug(f"Retrieved file sizes for {len(file_sizes)} files from database")
+            logger.debug(f"DISCOVERY: Retrieved file sizes for {len(file_sizes)} files from database")
             return file_sizes
             
         except Exception as e:
-            logger.error(f"Error getting file sizes from database: {e}")
+            logger.error(f"DISCOVERY: Error getting file sizes from database: {e}")
+            import traceback
+            logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
             return {}
 
 
