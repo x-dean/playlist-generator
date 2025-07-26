@@ -273,6 +273,9 @@ def safe_essentia_call(func, *args, **kwargs):
 
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
+    
+    VERSION = "2.1.0"  # Version identifier for tracking updates
+    
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
 
@@ -281,6 +284,7 @@ class AudioAnalyzer:
             library (str, optional): Music library directory for path normalization.
             music (str, optional): Container music directory for path normalization.
         """
+        logger.info(f"Initializing AudioAnalyzer version {self.VERSION}")
         self.timeout_seconds = 120
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = cache_file or os.path.join(cache_dir, 'audio_analysis.db')
@@ -1206,6 +1210,15 @@ class AudioAnalyzer:
         
         logger.debug(f"Starting feature extraction for {os.path.basename(audio_path)}")
         
+        # Validate audio input
+        if audio is None:
+            logger.error("Audio is None, cannot extract features")
+            return None
+        
+        if not hasattr(audio, '__len__'):
+            logger.error("Audio does not have length attribute, cannot extract features")
+            return None
+        
         try:
             # Extract basic metadata first
             logger.debug("Extracting basic metadata")
@@ -1229,9 +1242,10 @@ class AudioAnalyzer:
             try:
                 # Calculate duration from audio array length and sample rate
                 sample_rate = 44100  # Default sample rate
-                duration = len(audio) / sample_rate
+                audio_length = len(audio)
+                duration = audio_length / sample_rate
                 features['duration'] = float(duration)
-                logger.debug(f"Duration: {features['duration']:.2f}s (calculated from {len(audio)} samples at {sample_rate}Hz)")
+                logger.debug(f"Duration: {features['duration']:.2f}s (calculated from {audio_length} samples at {sample_rate}Hz)")
             except Exception as e:
                 logger.warning(f"Duration calculation failed: {str(e)}")
                 features['duration'] = 0.0
