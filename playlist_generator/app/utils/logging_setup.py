@@ -54,7 +54,7 @@ def setup_colored_file_logging(logfile_path=None):
     # Set the log level from environment variable
     log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
     root_logger.setLevel(getattr(logging, log_level, logging.INFO))
-    
+
     # Also clear handlers for all other loggers and set their level
     for name in logging.root.manager.loggerDict:
         logger = logging.getLogger(name)

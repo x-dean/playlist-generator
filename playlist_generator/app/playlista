@@ -184,11 +184,11 @@ def get_audio_files(music_dir: str) -> List[str]:
         List[str]: List of audio file paths.
     """
     from music_analyzer.file_discovery import FileDiscovery
-    
+
     # Use FileDiscovery to get all valid audio files
     file_discovery = FileDiscovery(music_dir=music_dir)
     file_list = file_discovery.discover_files()
-    
+
     logger.info(f"Found {len(file_list)} audio files in {music_dir}")
     return file_list
 
@@ -350,7 +350,8 @@ Examples:
                         help='Run full pipeline: analyze, force, then failed')
 
     args = parser.parse_args()
-    logger.info(f"Parsed arguments: analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}, failed={args.failed}, force={args.force}, playlist_method={args.playlist_method}, workers={args.workers}")
+    logger.info(
+        f"Parsed arguments: analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}, failed={args.failed}, force={args.force}, playlist_method={args.playlist_method}, workers={args.workers}")
 
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')

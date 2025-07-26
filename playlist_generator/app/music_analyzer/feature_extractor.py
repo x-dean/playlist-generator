@@ -499,10 +499,6 @@ class AudioAnalyzer:
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
-
-
-
-
     def _ensure_float(self, value):
         """Convert value to float safely"""
         try:
@@ -540,8 +536,9 @@ class AudioAnalyzer:
         """Get file hash for file discovery tracking."""
         import hashlib
         import traceback
-        
-        logger.debug(f"DISCOVERY: _get_file_hash called with filepath: {filepath}")
+
+        logger.debug(
+            f"DISCOVERY: _get_file_hash called with filepath: {filepath}")
         # For container paths, use directly; for host paths, convert to container
         if filepath.startswith('/music'):
             # Already a container path
@@ -549,11 +546,13 @@ class AudioAnalyzer:
         else:
             # Host path - convert to container
             container_path = self._normalize_to_library_path(filepath)
-        
-        logger.debug(f"DISCOVERY: _get_file_hash using container path: {container_path}")
+
+        logger.debug(
+            f"DISCOVERY: _get_file_hash using container path: {container_path}")
         try:
             stat = os.stat(container_path)
-            logger.debug(f"DISCOVERY: _get_file_hash successful stat for: {container_path}")
+            logger.debug(
+                f"DISCOVERY: _get_file_hash successful stat for: {container_path}")
             return f"{os.path.basename(container_path)}_{stat.st_size}_{stat.st_mtime}"
         except Exception as e:
             logger.warning(
@@ -562,14 +561,16 @@ class AudioAnalyzer:
 
     def _normalize_to_library_path(self, path):
         """Convert any path to container path for file operations."""
-        logger.debug(f"DISCOVERY: _normalize_to_library_path called with path: {path}")
-        logger.debug(f"DISCOVERY: self.library: {self.library}, self.music: {self.music}")
-        
+        logger.debug(
+            f"DISCOVERY: _normalize_to_library_path called with path: {path}")
+        logger.debug(
+            f"DISCOVERY: self.library: {self.library}, self.music: {self.music}")
+
         # If already a container path, return as is
         if path.startswith('/music'):
             logger.debug(f"DISCOVERY: Path is already container path: {path}")
             return path
-        
+
         # Convert host path to container path
         if self.library and self.music:
             path_converter = PathConverter(self.library, self.music)
@@ -579,12 +580,14 @@ class AudioAnalyzer:
                 logger.debug(f"DISCOVERY: Converted {path} -> {result}")
                 return result
             else:
-                logger.debug(f"DISCOVERY: Path unclear, assuming host path and converting to container")
+                logger.debug(
+                    f"DISCOVERY: Path unclear, assuming host path and converting to container")
                 result = path_converter.host_to_container(path)
                 logger.debug(f"DISCOVERY: Converted {path} -> {result}")
                 return result
-        
-        logger.debug(f"DISCOVERY: No library/music paths, returning normpath: {os.path.normpath(path)}")
+
+        logger.debug(
+            f"DISCOVERY: No library/music paths, returning normpath: {os.path.normpath(path)}")
         return os.path.normpath(path)
 
     def _safe_audio_load(self, audio_path):
@@ -887,7 +890,25 @@ class AudioAnalyzer:
             logger.debug("Initializing Essentia MFCC algorithm")
             mfcc_algo = es.MFCC(numberCoefficients=num_coeffs)
             logger.debug("Running MFCC analysis on audio")
-            _, mfcc_coeffs = mfcc_algo(audio)
+
+            # For very large files, use a timeout
+            import signal
+
+            def timeout_handler(signum, frame):
+                raise TimeoutException("MFCC extraction timed out")
+
+            # Set timeout for large files (10 minutes for very large files)
+            if len(audio) > 100000000:  # More than 100M samples (~2 hours at 44kHz)
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(600)  # 10 minutes
+                logger.debug(
+                    "Set 10-minute timeout for large file MFCC extraction")
+
+            try:
+                _, mfcc_coeffs = mfcc_algo(audio)
+            finally:
+                # Cancel timeout
+                signal.alarm(0)
             logger.debug(f"MFCC coefficients type: {type(mfcc_coeffs)}")
             logger.debug(
                 f"MFCC coefficients shape: {np.array(mfcc_coeffs).shape if hasattr(mfcc_coeffs, 'shape') else 'no shape'}")
@@ -1537,7 +1558,7 @@ class AudioAnalyzer:
 
         try:
             file_info = self._get_file_info(audio_path)
-            
+
             # Dynamic timeout based on file size
             try:
                 file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
@@ -1547,7 +1568,8 @@ class AudioAnalyzer:
                     self.timeout_seconds = 300  # 5 minutes
                 else:
                     self.timeout_seconds = 180  # 3 minutes for normal files
-                logger.debug(f"Set timeout to {self.timeout_seconds}s for {file_size_mb:.1f}MB file")
+                logger.debug(
+                    f"Set timeout to {self.timeout_seconds}s for {file_size_mb:.1f}MB file")
             except:
                 self.timeout_seconds = 180  # Fallback timeout
             if not force_reextract:
@@ -1652,6 +1674,12 @@ class AudioAnalyzer:
 
         logger.info(f"Audio loaded: {len(audio)} samples")
 
+        # Check if this is an extremely large file (>200M samples ~4.5 hours at 44kHz)
+        is_extremely_large = len(audio) > 200000000
+        if is_extremely_large:
+            logger.warning(
+                f"Extremely large file detected ({len(audio)} samples), skipping some features")
+
         # Duration calculation
         try:
             sample_rate = 44100  # Default sample rate
@@ -1740,43 +1768,55 @@ class AudioAnalyzer:
             logger.warning(f"MFCC extraction failed: {str(e)}")
             features['mfcc'] = [0.0] * 13
 
-        # Extract chroma
-        try:
-            chroma_result = self._extract_chroma(audio)
-            features['chroma'] = chroma_result['chroma']
-            logger.info(f"Chroma: {len(features['chroma'])} features")
-        except Exception as e:
-            logger.warning(f"Chroma extraction failed: {str(e)}")
+        # For extremely large files, skip some features to avoid timeouts
+        if not is_extremely_large:
+            # Extract chroma
+            try:
+                chroma_result = self._extract_chroma(audio)
+                features['chroma'] = chroma_result['chroma']
+                logger.info(f"Chroma: {len(features['chroma'])} features")
+            except Exception as e:
+                logger.warning(f"Chroma extraction failed: {str(e)}")
+                features['chroma'] = [0.0] * 12
+
+            # Extract spectral contrast
+            try:
+                contrast_result = self._extract_spectral_contrast(audio)
+                features['spectral_contrast'] = contrast_result['spectral_contrast']
+                logger.info(
+                    f"Spectral contrast: {features['spectral_contrast']:.3f}")
+            except Exception as e:
+                logger.warning(
+                    f"Spectral contrast extraction failed: {str(e)}")
+                features['spectral_contrast'] = 0.0
+
+            # Extract spectral flatness
+            try:
+                flatness_result = self._extract_spectral_flatness(audio)
+                features['spectral_flatness'] = flatness_result['spectral_flatness']
+                logger.info(
+                    f"Spectral flatness: {features['spectral_flatness']:.3f}")
+            except Exception as e:
+                logger.warning(
+                    f"Spectral flatness extraction failed: {str(e)}")
+                features['spectral_flatness'] = 0.0
+
+            # Extract spectral rolloff
+            try:
+                rolloff_result = self._extract_spectral_rolloff(audio)
+                features['spectral_rolloff'] = rolloff_result['spectral_rolloff']
+                logger.info(
+                    f"Spectral rolloff: {features['spectral_rolloff']:.1f}Hz")
+            except Exception as e:
+                logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
+                features['spectral_rolloff'] = 0.0
+        else:
+            # For extremely large files, use default values for skipped features
+            logger.info(
+                "Skipping chroma, spectral contrast, flatness, and rolloff for extremely large file")
             features['chroma'] = [0.0] * 12
-
-        # Extract spectral contrast
-        try:
-            contrast_result = self._extract_spectral_contrast(audio)
-            features['spectral_contrast'] = contrast_result['spectral_contrast']
-            logger.info(
-                f"Spectral contrast: {features['spectral_contrast']:.3f}")
-        except Exception as e:
-            logger.warning(f"Spectral contrast extraction failed: {str(e)}")
             features['spectral_contrast'] = 0.0
-
-        # Extract spectral flatness
-        try:
-            flatness_result = self._extract_spectral_flatness(audio)
-            features['spectral_flatness'] = flatness_result['spectral_flatness']
-            logger.info(
-                f"Spectral flatness: {features['spectral_flatness']:.3f}")
-        except Exception as e:
-            logger.warning(f"Spectral flatness extraction failed: {str(e)}")
             features['spectral_flatness'] = 0.0
-
-        # Extract spectral rolloff
-        try:
-            rolloff_result = self._extract_spectral_rolloff(audio)
-            features['spectral_rolloff'] = rolloff_result['spectral_rolloff']
-            logger.info(
-                f"Spectral rolloff: {features['spectral_rolloff']:.1f}Hz")
-        except Exception as e:
-            logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
             features['spectral_rolloff'] = 0.0
 
         # Extract MusiCNN embedding (if available)
@@ -1870,7 +1910,7 @@ class AudioAnalyzer:
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_library_path(
             file_info['file_path'])
-        
+
         try:
             # Validate and convert all features to proper Python types
             features = validate_and_convert_features(features)
@@ -1976,7 +2016,7 @@ class AudioAnalyzer:
     def get_all_audio_files(self, music_dir='/music'):
         """Get all audio files from the filesystem using FileDiscovery."""
         from .file_discovery import FileDiscovery
-        
+
         file_discovery = FileDiscovery(music_dir=music_dir, audio_db=self)
         return file_discovery.discover_files()
 
@@ -2201,45 +2241,49 @@ class AudioAnalyzer:
     def get_files_needing_analysis(self, music_dir='/music'):
         """Phase 1: File Discovery - Update database with current file state"""
         logger.info(f"DISCOVERY: Phase 1 - File Discovery in {music_dir}")
-        
+
         # Step 1: Scan filesystem for current audio files
         current_files = set()
-        audio_extensions = {'.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac', '.wma'}
-        
+        audio_extensions = {'.mp3', '.flac',
+                            '.wav', '.ogg', '.m4a', '.aac', '.wma'}
+
         for root, dirs, files in os.walk(music_dir):
             # Skip failed_files directory
             if 'failed_files' in root:
                 continue
-                
+
             for file in files:
                 if any(file.lower().endswith(ext) for ext in audio_extensions):
                     file_path = os.path.join(root, file)
                     current_files.add(file_path)
-        
-        logger.info(f"DISCOVERY: Found {len(current_files)} audio files in filesystem")
-        
+
+        logger.info(
+            f"DISCOVERY: Found {len(current_files)} audio files in filesystem")
+
         # Step 2: Update file discovery state (adds/removes/updates accordingly)
         self.update_file_discovery_state(list(current_files))
-        
+
         # Step 3: Get files that need analysis based on discovery state
         files_needing_analysis = self._get_files_for_analysis_from_discovery()
-        
-        logger.info(f"DISCOVERY: Phase 1 complete - {len(files_needing_analysis)} files need analysis")
+
+        logger.info(
+            f"DISCOVERY: Phase 1 complete - {len(files_needing_analysis)} files need analysis")
         return files_needing_analysis
 
     def _get_files_for_analysis_from_discovery(self):
         """Phase 2: Analysis Selection - Check discovery state for files to process"""
         logger.info(f"DISCOVERY: Phase 2 - Analysis Selection")
-        
+
         # Get files that were added or changed in discovery phase
         cursor = self.conn.execute("""
             SELECT file_path, file_size, last_modified 
             FROM file_discovery_state 
             WHERE status = 'active'
         """)
-        
-        discovery_files = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
-        
+
+        discovery_files = {row[0]: (row[1], row[2])
+                           for row in cursor.fetchall()}
+
         # Get files already analyzed in audio_features table
         cursor = self.conn.execute("""
             SELECT file_path, last_modified 
@@ -2247,58 +2291,68 @@ class AudioAnalyzer:
             WHERE failed = 0
         """)
         analyzed_files = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        logger.debug(f"DISCOVERY: Found {len(analyzed_files)} files in audio_features table")
+
+        logger.debug(
+            f"DISCOVERY: Found {len(analyzed_files)} files in audio_features table")
         if analyzed_files:
             sample_paths = list(analyzed_files.keys())[:3]
-            logger.debug(f"DISCOVERY: Sample paths from audio_features: {sample_paths}")
-        
+            logger.debug(
+                f"DISCOVERY: Sample paths from audio_features: {sample_paths}")
+
         # Determine which files need analysis
         files_needing_analysis = []
-        
-        logger.debug(f"DISCOVERY: Comparing {len(discovery_files)} discovery files with {len(analyzed_files)} analyzed files")
-        
+
+        logger.debug(
+            f"DISCOVERY: Comparing {len(discovery_files)} discovery files with {len(analyzed_files)} analyzed files")
+
         for file_path, (file_size, discovery_mtime) in discovery_files.items():
             logger.debug(f"DISCOVERY: Checking file: {file_path}")
             if file_path not in analyzed_files:
                 # New file - needs analysis
                 files_needing_analysis.append((file_path, 'new'))
-                logger.debug(f"DISCOVERY: New file needs analysis: {file_path}")
+                logger.debug(
+                    f"DISCOVERY: New file needs analysis: {file_path}")
             elif os.path.exists(file_path):
                 # Check if file was modified since last analysis
                 current_mtime = os.path.getmtime(file_path)
                 if current_mtime > analyzed_files[file_path]:
                     files_needing_analysis.append((file_path, 'modified'))
-                    logger.debug(f"DISCOVERY: Modified file needs analysis: {file_path}")
-        
+                    logger.debug(
+                        f"DISCOVERY: Modified file needs analysis: {file_path}")
+
         # Clean up removed files from audio_features table
-        removed_count = self._cleanup_removed_files_from_analysis(discovery_files.keys())
+        removed_count = self._cleanup_removed_files_from_analysis(
+            discovery_files.keys())
         if removed_count > 0:
-            logger.info(f"DISCOVERY: Cleaned up {removed_count} removed files from analysis table")
-        
-        logger.info(f"DISCOVERY: Analysis needed for {len(files_needing_analysis)} files")
+            logger.info(
+                f"DISCOVERY: Cleaned up {removed_count} removed files from analysis table")
+
+        logger.info(
+            f"DISCOVERY: Analysis needed for {len(files_needing_analysis)} files")
         return files_needing_analysis
 
     def _cleanup_removed_files_from_analysis(self, current_files):
         """Remove entries from audio_features table for files that no longer exist"""
         try:
             current_file_set = set(current_files)
-            
+
             # Get all files in audio_features table
             cursor = self.conn.execute("SELECT file_path FROM audio_features")
             db_files = [row[0] for row in cursor.fetchall()]
-            
+
             removed_count = 0
             with self.conn:
                 for db_file in db_files:
                     if db_file not in current_file_set:
                         # File no longer exists - remove from analysis table
-                        self.conn.execute("DELETE FROM audio_features WHERE file_path = ?", (db_file,))
+                        self.conn.execute(
+                            "DELETE FROM audio_features WHERE file_path = ?", (db_file,))
                         removed_count += 1
-                        logger.debug(f"DISCOVERY: Removed from analysis table: {db_file}")
-            
+                        logger.debug(
+                            f"DISCOVERY: Removed from analysis table: {db_file}")
+
             return removed_count
-            
+
         except Exception as e:
             logger.error(f"DISCOVERY: Error cleaning up removed files: {e}")
             return 0
@@ -2440,7 +2494,8 @@ class AudioAnalyzer:
 
     def update_file_discovery_state(self, file_paths: List[str]):
         """Update file discovery state in database - only changed files."""
-        logger.debug(f"DISCOVERY: Starting file discovery state update for {len(file_paths)} files")
+        logger.debug(
+            f"DISCOVERY: Starting file discovery state update for {len(file_paths)} files")
         try:
             with self.conn:
                 # Get existing files from database
@@ -2449,12 +2504,13 @@ class AudioAnalyzer:
                     FROM file_discovery_state 
                     WHERE status = 'active'
                 """)
-                existing_files = {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
-                
+                existing_files = {row[0]: (row[1], row[2], row[3])
+                                  for row in cursor.fetchall()}
+
                 added_count = 0
                 updated_count = 0
                 unchanged_count = 0
-                
+
                 # Process current files
                 for file_path in file_paths:
                     if os.path.exists(file_path):
@@ -2463,14 +2519,14 @@ class AudioAnalyzer:
                             current_hash = self._get_file_hash(file_path)
                             current_size = stat.st_size
                             current_mtime = stat.st_mtime
-                            
+
                             if file_path in existing_files:
                                 # File exists in database - check if changed
                                 old_hash, old_size, old_mtime = existing_files[file_path]
-                                
-                                if (current_hash != old_hash or 
-                                    current_size != old_size or 
-                                    current_mtime != old_mtime):
+
+                                if (current_hash != old_hash or
+                                    current_size != old_size or
+                                        current_mtime != old_mtime):
                                     # File changed - update it
                                     self.conn.execute("""
                                         UPDATE file_discovery_state 
@@ -2478,7 +2534,8 @@ class AudioAnalyzer:
                                         WHERE file_path = ?
                                     """, (current_hash, current_size, current_mtime, file_path))
                                     updated_count += 1
-                                    logger.debug(f"DISCOVERY: Updated {file_path}")
+                                    logger.debug(
+                                        f"DISCOVERY: Updated {file_path}")
                                 else:
                                     # File unchanged - just update last_seen_at
                                     self.conn.execute("""
@@ -2496,11 +2553,11 @@ class AudioAnalyzer:
                                 """, (file_path, current_hash, current_size, current_mtime))
                                 added_count += 1
                                 logger.debug(f"DISCOVERY: Added {file_path}")
-                                
+
                         except Exception as e:
                             logger.warning(
                                 f"DISCOVERY: Could not update state for {file_path}: {e}")
-                
+
                 # Mark files that no longer exist as removed
                 current_file_set = set(file_paths)
                 removed_count = 0
@@ -2516,14 +2573,17 @@ class AudioAnalyzer:
 
             logger.info(
                 f"DISCOVERY: File discovery state updated - Added: {added_count}, Updated: {updated_count}, Unchanged: {unchanged_count}, Removed: {removed_count}")
-            
+
             # Verify the update worked
-            cursor = self.conn.execute("SELECT COUNT(*) FROM file_discovery_state WHERE status = 'active'")
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) FROM file_discovery_state WHERE status = 'active'")
             active_count = cursor.fetchone()[0]
-            logger.debug(f"DISCOVERY: Active files in discovery state: {active_count}")
-            
+            logger.debug(
+                f"DISCOVERY: Active files in discovery state: {active_count}")
+
         except Exception as e:
-            logger.error(f"DISCOVERY: Error updating file discovery state: {e}")
+            logger.error(
+                f"DISCOVERY: Error updating file discovery state: {e}")
             import traceback
             logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
 
@@ -2561,7 +2621,8 @@ class AudioAnalyzer:
             return added_files, removed_files, unchanged_files
 
         except Exception as e:
-            logger.error(f"DISCOVERY: Error getting file discovery changes: {e}")
+            logger.error(
+                f"DISCOVERY: Error getting file discovery changes: {e}")
             return [], [], []
 
     def cleanup_file_discovery_state(self):
@@ -2584,37 +2645,44 @@ class AudioAnalyzer:
                     f"DISCOVERY: Cleaned up {removed_count} non-existent files from discovery state")
 
         except Exception as e:
-            logger.error(f"DISCOVERY: Error cleaning up file discovery state: {e}")
+            logger.error(
+                f"DISCOVERY: Error cleaning up file discovery state: {e}")
 
     def get_file_sizes_from_db(self, file_paths: List[str]) -> Dict[str, int]:
         """Get file sizes from database for the given file paths."""
-        logger.debug(f"DISCOVERY: Requesting file sizes for {len(file_paths)} files from database")
+        logger.debug(
+            f"DISCOVERY: Requesting file sizes for {len(file_paths)} files from database")
         try:
             # First check if there's any data in the table
-            cursor = self.conn.execute("SELECT COUNT(*) FROM file_discovery_state")
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) FROM file_discovery_state")
             total_count = cursor.fetchone()[0]
-            logger.debug(f"DISCOVERY: Total records in file_discovery_state: {total_count}")
-            
+            logger.debug(
+                f"DISCOVERY: Total records in file_discovery_state: {total_count}")
+
             if total_count == 0:
-                logger.warning("DISCOVERY: No data in file_discovery_state table")
+                logger.warning(
+                    "DISCOVERY: No data in file_discovery_state table")
                 return {}
-            
+
             cursor = self.conn.execute("""
                 SELECT file_path, file_size 
                 FROM file_discovery_state 
                 WHERE file_path IN ({})
             """.format(','.join(['?' for _ in file_paths])), file_paths)
-            
+
             file_sizes = {}
             for row in cursor.fetchall():
                 file_path, file_size = row
                 file_sizes[file_path] = file_size
-            
-            logger.debug(f"DISCOVERY: Retrieved file sizes for {len(file_sizes)} files from database")
+
+            logger.debug(
+                f"DISCOVERY: Retrieved file sizes for {len(file_sizes)} files from database")
             return file_sizes
-            
+
         except Exception as e:
-            logger.error(f"DISCOVERY: Error getting file sizes from database: {e}")
+            logger.error(
+                f"DISCOVERY: Error getting file sizes from database: {e}")
             import traceback
             logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
             return {}

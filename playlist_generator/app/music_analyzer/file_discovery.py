@@ -139,7 +139,8 @@ class FileDiscovery:
 
     def update_state(self):
         """Update the file discovery state in database."""
-        logger.debug(f"DISCOVERY: FileDiscovery.update_state() called with {len(self.current_files)} files")
+        logger.debug(
+            f"DISCOVERY: FileDiscovery.update_state() called with {len(self.current_files)} files")
         self.audio_db.update_file_discovery_state(list(self.current_files))
         logger.debug("DISCOVERY: File discovery state updated in database")
 

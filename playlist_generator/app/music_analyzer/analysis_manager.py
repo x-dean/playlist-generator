@@ -43,7 +43,7 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
     else:
         item = files_list[current_index]
         file_path = item[0] if isinstance(item, tuple) else item
-    
+
     current_filename = os.path.basename(file_path)
     max_len = 70  # Increased to make better use of available space
     if len(current_filename) > max_len:
@@ -109,48 +109,56 @@ def _get_status_dot(features, db_write_success):
 
 def select_files_for_analysis(args, audio_db):
     """Simplified file selection based on args and DB state."""
-    logger.debug(f"DISCOVERY: select_files_for_analysis: force={args.force}, failed={args.failed}")
-    
+    logger.debug(
+        f"DISCOVERY: select_files_for_analysis: force={args.force}, failed={args.failed}")
+
     # Get database state
     db_features = audio_db.get_all_features(include_failed=True)
     db_files = set(f['filepath'] for f in db_features)
     failed_db_files = set(f['filepath'] for f in db_features if f['failed'])
-    
-    logger.debug(f"DISCOVERY: files in db={len(db_files)}, failed in db={len(failed_db_files)}")
+
+    logger.debug(
+        f"DISCOVERY: files in db={len(db_files)}, failed in db={len(failed_db_files)}")
     if db_files:
         sample_db_files = list(db_files)[:3]
         logger.debug(f"DISCOVERY: Sample files from db: {sample_db_files}")
-    
+
     if args.failed:
         # Failed mode: only process failed files that aren't in failed directory
         files_to_analyze = []
         for filepath in failed_db_files:
             if '/failed_files' not in filepath:
                 files_to_analyze.append(filepath)
-        logger.info(f"DISCOVERY: Failed mode - {len(files_to_analyze)} files to retry")
+        logger.info(
+            f"DISCOVERY: Failed mode - {len(files_to_analyze)} files to retry")
         return files_to_analyze, [], [], db_features
-    
+
     elif args.force:
         # Force mode: process all files except failed ones
         files_to_analyze = audio_db.get_files_needing_analysis()
         # Filter out failed files
-        files_to_analyze = [f[0] for f in files_to_analyze if f[0] not in failed_db_files]
-        logger.info(f"DISCOVERY: Force mode - {len(files_to_analyze)} files to process")
+        files_to_analyze = [f[0]
+                            for f in files_to_analyze if f[0] not in failed_db_files]
+        logger.info(
+            f"DISCOVERY: Force mode - {len(files_to_analyze)} files to process")
         if files_to_analyze:
             sample_files = files_to_analyze[:3]
-            logger.debug(f"DISCOVERY: Sample files to analyze (force): {sample_files}")
+            logger.debug(
+                f"DISCOVERY: Sample files to analyze (force): {sample_files}")
     else:
         # Normal mode: only new/modified files
         files_to_analyze = audio_db.get_files_needing_analysis()
         files_to_analyze = [f[0] for f in files_to_analyze]
-        logger.info(f"DISCOVERY: Normal mode - {len(files_to_analyze)} files to process")
+        logger.info(
+            f"DISCOVERY: Normal mode - {len(files_to_analyze)} files to process")
         if files_to_analyze:
             sample_files = files_to_analyze[:3]
-            logger.debug(f"DISCOVERY: Sample files to analyze (normal): {sample_files}")
-    
+            logger.debug(
+                f"DISCOVERY: Sample files to analyze (normal): {sample_files}")
+
     # Get file sizes from database for classification
     file_sizes = audio_db.get_file_sizes_from_db(files_to_analyze)
-    
+
     # Classify files by size
     big_files = []
     normal_files = []
@@ -161,8 +169,9 @@ def select_files_for_analysis(args, audio_db):
             big_files.append(file_path)
         else:
             normal_files.append(file_path)
-    
-    logger.debug(f"DISCOVERY: normal_files={len(normal_files)}, big_files={len(big_files)}")
+
+    logger.debug(
+        f"DISCOVERY: normal_files={len(normal_files)}, big_files={len(big_files)}")
     return normal_files, big_files, [], db_features
 
 
@@ -294,11 +303,12 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
     logger.info("Starting ANALYZE mode")
 
     # Get files that need analysis using simplified selection
-    normal_files, big_files, _, db_features = select_files_for_analysis(args, audio_db)
-    
+    normal_files, big_files, _, db_features = select_files_for_analysis(
+        args, audio_db)
+
     # Create a combined list that matches the processing order (big files first, then normal files)
     files_to_analyze = big_files + normal_files
-    
+
     logger.debug(f"DISCOVERY: Files needing analysis: {len(files_to_analyze)}")
 
     if not files_to_analyze:
@@ -320,9 +330,10 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
 
     # Get file sizes from database for progress bar
     file_sizes = audio_db.get_file_sizes_from_db(files_to_analyze)
-    
-    logger.info(f"DISCOVERY: File distribution: {len(normal_files)} normal files, {len(big_files)} big files (>50MB)")
-    
+
+    logger.info(
+        f"DISCOVERY: File distribution: {len(normal_files)} normal files, {len(big_files)} big files (>50MB)")
+
     # Run analysis on files that need it
     failed_files = []
 
@@ -336,57 +347,62 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
 
         # Step 1: Process big files sequentially
         if big_files:
-            logger.info(f"Processing {len(big_files)} big files sequentially...")
+            logger.info(
+                f"Processing {len(big_files)} big files sequentially...")
             sequential_processor = SequentialProcessor(audio_analyzer=audio_db)
             workers = 1  # Sequential processing uses 1 worker
-            
+
             for features, filepath, db_write_success in sequential_processor.process(big_files, workers, force_reextract=force_reextract):
                 processed_count += 1
                 filename = os.path.basename(filepath)
-                
+
                 # Get status dot for result
                 status_dot = _get_status_dot(features, db_write_success)
-                
+
                 # Update progress bar with the file that was just processed
                 _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
                                      "[cyan]", "", status_dot, filepath, True, file_sizes)
-                
-                logger.debug(f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
-                
-                if not features or not db_write_success:
-                    failed_files.append(filepath)
-                    logger.warning(f"Analysis failed for {filepath}")
-                else:
-                    logger.info(f"Analysis completed for {filepath}")
-        
-        # Step 2: Process normal files in parallel
-        if normal_files:
-            logger.info(f"Processing {len(normal_files)} normal files in parallel...")
-            parallel_processor = ParallelProcessor()
-            workers = args.workers or max(1, mp.cpu_count())
-        else:
-            logger.debug("DISCOVERY: No normal files to process in parallel")
-            
-            for features, filepath, db_write_success in parallel_processor.process(normal_files, workers, force_reextract=force_reextract):
-                processed_count += 1
-                filename = os.path.basename(filepath)
-                
-                # Get status dot for result
-                status_dot = _get_status_dot(features, db_write_success)
-                
-                # Update progress bar with the file that was just processed
-                _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
-                                     "[cyan]", "", status_dot, filepath, True, file_sizes)
-                
-                logger.debug(f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
-                
+
+                logger.debug(
+                    f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
+
                 if not features or not db_write_success:
                     failed_files.append(filepath)
                     logger.warning(f"Analysis failed for {filepath}")
                 else:
                     logger.info(f"Analysis completed for {filepath}")
 
-        logger.info(f"Processing completed. Processed {processed_count} files out of {len(files_to_analyze)}")
+        # Step 2: Process normal files in parallel
+        if normal_files:
+            logger.info(
+                f"Processing {len(normal_files)} normal files in parallel...")
+            parallel_processor = ParallelProcessor()
+            workers = args.workers or max(1, mp.cpu_count())
+        else:
+            logger.debug("DISCOVERY: No normal files to process in parallel")
+
+            for features, filepath, db_write_success in parallel_processor.process(normal_files, workers, force_reextract=force_reextract):
+                processed_count += 1
+                filename = os.path.basename(filepath)
+
+                # Get status dot for result
+                status_dot = _get_status_dot(features, db_write_success)
+
+                # Update progress bar with the file that was just processed
+                _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
+                                     "[cyan]", "", status_dot, filepath, True, file_sizes)
+
+                logger.debug(
+                    f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
+
+                if not features or not db_write_success:
+                    failed_files.append(filepath)
+                    logger.warning(f"Analysis failed for {filepath}")
+                else:
+                    logger.info(f"Analysis completed for {filepath}")
+
+        logger.info(
+            f"Processing completed. Processed {processed_count} files out of {len(files_to_analyze)}")
 
     logger.info(
         f"ANALYZE mode completed with {len(failed_files)} failed files")
@@ -399,7 +415,8 @@ def run_force_mode(args, audio_db, cli):
 
     # Get invalid files that need retry
     invalid_files = audio_db.get_invalid_files_from_db()
-    logger.debug(f"Invalid files found: {len(invalid_files) if invalid_files else 0}")
+    logger.debug(
+        f"Invalid files found: {len(invalid_files) if invalid_files else 0}")
 
     if not invalid_files:
         logger.info("No invalid files found in database")
@@ -475,7 +492,8 @@ def run_failed_mode(args, audio_db, cli):
 
     # Get all failed files from database
     failed_files = audio_db.get_failed_files_from_db()
-    logger.debug(f"Failed files found: {len(failed_files) if failed_files else 0}")
+    logger.debug(
+        f"Failed files found: {len(failed_files) if failed_files else 0}")
 
     if not failed_files:
         logger.info("No failed files found in database")
@@ -553,26 +571,33 @@ def run_pipeline(args, audio_db, playlist_db, cli):
     from rich.console import Console
     results = []
     console = Console()
-    
+
     logger.info("Starting pipeline execution")
-    logger.debug(f"Pipeline args: force={args.force}, failed={args.failed}, workers={args.workers}")
-    
+    logger.debug(
+        f"Pipeline args: force={args.force}, failed={args.failed}, workers={args.workers}")
+
     # Debug: Check initial state
-    logger.debug(f"DISCOVERY: Pipeline starting - total files in db: {len(audio_db.get_all_features())}")
-    logger.debug(f"DISCOVERY: Pipeline starting - files needing analysis: {len(audio_db.get_files_needing_analysis())}")
-    
+    logger.debug(
+        f"DISCOVERY: Pipeline starting - total files in db: {len(audio_db.get_all_features())}")
+    logger.debug(
+        f"DISCOVERY: Pipeline starting - files needing analysis: {len(audio_db.get_files_needing_analysis())}")
+
     console.print(
         "\n[bold cyan]PIPELINE: Starting default analysis[/bold cyan]")
     console.print("[dim]Analyze new files[/dim]")
     args.force = False
     args.failed = False
     logger.info("Pipeline Stage 1: Running default analysis (new files only)")
-    logger.debug(f"DISCOVERY: Stage 1 - before run_analysis: force={args.force}, failed={args.failed}")
+    logger.debug(
+        f"DISCOVERY: Stage 1 - before run_analysis: force={args.force}, failed={args.failed}")
     res1 = run_analysis(args, audio_db, playlist_db, cli,
                         force_reextract=False, pipeline_mode=True)
-    logger.info(f"Pipeline Stage 1 result: {len(res1) if res1 else 0} files processed")
-    logger.debug(f"DISCOVERY: Stage 1 - after run_analysis: returned {len(res1) if res1 else 0} files")
-    results.append(('Default', {'processed_this_run': len(res1) if res1 else 0, 'failed_this_run': len(res1) if res1 else 0}))
+    logger.info(
+        f"Pipeline Stage 1 result: {len(res1) if res1 else 0} files processed")
+    logger.debug(
+        f"DISCOVERY: Stage 1 - after run_analysis: returned {len(res1) if res1 else 0} files")
+    results.append(('Default', {'processed_this_run': len(
+        res1) if res1 else 0, 'failed_this_run': len(res1) if res1 else 0}))
     console.print(
         "[green]PIPELINE: Default analysis complete (new files analyzed)[/green]")
     console.print(
@@ -584,12 +609,16 @@ def run_pipeline(args, audio_db, playlist_db, cli):
     args.force = True
     args.failed = False
     logger.info("Pipeline Stage 2: Running force analysis (re-enrich all files)")
-    logger.debug(f"DISCOVERY: Stage 2 - before run_analysis: force={args.force}, failed={args.failed}")
+    logger.debug(
+        f"DISCOVERY: Stage 2 - before run_analysis: force={args.force}, failed={args.failed}")
     res2 = run_analysis(args, audio_db, playlist_db, cli,
                         force_reextract=True, pipeline_mode=True)
-    logger.info(f"Pipeline Stage 2 result: {len(res2) if res2 else 0} files processed")
-    logger.debug(f"DISCOVERY: Stage 2 - after run_analysis: returned {len(res2) if res2 else 0} files")
-    results.append(('Force', {'processed_this_run': len(res2) if res2 else 0, 'failed_this_run': len(res2) if res2 else 0}))
+    logger.info(
+        f"Pipeline Stage 2 result: {len(res2) if res2 else 0} files processed")
+    logger.debug(
+        f"DISCOVERY: Stage 2 - after run_analysis: returned {len(res2) if res2 else 0} files")
+    results.append(('Force', {'processed_this_run': len(
+        res2) if res2 else 0, 'failed_this_run': len(res2) if res2 else 0}))
     console.print(
         "[green]PIPELINE: Tags enriching complete (tags updated)[/green]")
     console.print(
@@ -600,11 +629,14 @@ def run_pipeline(args, audio_db, playlist_db, cli):
     args.force = False
     args.failed = True
     logger.info("Pipeline Stage 3: Running failed analysis (retry failed files)")
-    logger.debug(f"DISCOVERY: Stage 3 - before run_analysis: force={args.force}, failed={args.failed}")
+    logger.debug(
+        f"DISCOVERY: Stage 3 - before run_analysis: force={args.force}, failed={args.failed}")
     res3 = run_analysis(args, audio_db, playlist_db, cli,
                         force_reextract=True, pipeline_mode=True)
-    logger.info(f"Pipeline Stage 3 result: {len(res3) if res3 else 0} files processed")
-    logger.debug(f"DISCOVERY: Stage 3 - after run_analysis: returned {len(res3) if res3 else 0} files")
+    logger.info(
+        f"Pipeline Stage 3 result: {len(res3) if res3 else 0} files processed")
+    logger.debug(
+        f"DISCOVERY: Stage 3 - after run_analysis: returned {len(res3) if res3 else 0} files")
     # Count files in /music/failed_files after failed step
     import os
     failed_dir = '/music/failed_files'
@@ -613,7 +645,8 @@ def run_pipeline(args, audio_db, playlist_db, cli):
             failed_dir) if os.path.isfile(os.path.join(failed_dir, f))])
     except Exception:
         moved_failed = 0
-    results.append(('Failed', {'processed_this_run': len(res3) if res3 else 0, 'failed_this_run': moved_failed}))
+    results.append(('Failed', {'processed_this_run': len(
+        res3) if res3 else 0, 'failed_this_run': moved_failed}))
     console.print(
         "[green]PIPELINE: Failed files retry complete (failures handled)[/green]")
     console.print(

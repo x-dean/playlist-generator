@@ -418,10 +418,13 @@ class PlaylistManager:
                     continue
 
                 # Calculate basic stats with None handling
-                bpm_values = [f.get('bpm', 0) for f in track_features if f.get('bpm') is not None]
-                danceability_values = [min(1.0, max(0.0, f.get('danceability', 0))) for f in track_features if f.get('danceability') is not None]
-                duration_values = [f.get('duration', 0) for f in track_features if f.get('duration') is not None]
-                
+                bpm_values = [f.get('bpm', 0)
+                              for f in track_features if f.get('bpm') is not None]
+                danceability_values = [min(1.0, max(0.0, f.get(
+                    'danceability', 0))) for f in track_features if f.get('danceability') is not None]
+                duration_values = [
+                    f.get('duration', 0) for f in track_features if f.get('duration') is not None]
+
                 stats = {
                     'track_count': len(track_features),
                     'total_duration': sum(duration_values) if duration_values else 0,
