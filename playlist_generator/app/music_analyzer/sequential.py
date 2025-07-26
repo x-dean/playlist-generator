@@ -47,10 +47,11 @@ class SequentialProcessor:
                 from .file_discovery import FileDiscovery
                 file_discovery = FileDiscovery()
                 if file_discovery._is_in_excluded_directory(filepath):
-                    logger.warning(f"Skipping file in excluded directory: {filepath}")
+                    logger.warning(
+                        f"Skipping file in excluded directory: {filepath}")
                     yield None, filepath, False
                     continue
-                    
+
                 from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
                 features, db_write_success, file_hash = audio_analyzer.extract_features(

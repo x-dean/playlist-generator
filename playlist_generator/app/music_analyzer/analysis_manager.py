@@ -94,7 +94,7 @@ def _get_status_dot(features, db_write_success):
 def select_files_for_analysis(args, audio_db):
     """Return (normal_files, big_files) to analyze based on args and DB state."""
     from .file_discovery import FileDiscovery
-    
+
     # Initialize file discovery with audio_db
     file_discovery = FileDiscovery(
         music_dir='/music',
@@ -102,12 +102,12 @@ def select_files_for_analysis(args, audio_db):
         cache_dir=os.getenv('CACHE_DIR', '/app/cache'),
         audio_db=audio_db
     )
-    
+
     # Get database state
     db_features = audio_db.get_all_features(include_failed=True)
     db_files = set(f['filepath'] for f in db_features)
     failed_db_files = set(f['filepath'] for f in db_features if f['failed'])
-    
+
     # Get files for analysis using file discovery
     files_to_analyze = file_discovery.get_files_for_analysis(
         db_files=db_files,
@@ -115,10 +115,10 @@ def select_files_for_analysis(args, audio_db):
         force=args.force,
         failed_mode=args.failed
     )
-    
+
     # Update file discovery state
     file_discovery.update_state()
-    
+
     # Debug logging
     logger.debug(
         f"select_files_for_analysis: args.force={args.force}, args.failed={args.failed}")
@@ -137,7 +137,7 @@ def select_files_for_analysis(args, audio_db):
             return os.path.getsize(filepath) > BIG_FILE_SIZE_MB * 1024 * 1024
         except Exception:
             return False
-    
+
     big_files = [f for f in files_to_analyze if is_big_file(f)]
     normal_files = [f for f in files_to_analyze if not is_big_file(f)]
     logger.debug(

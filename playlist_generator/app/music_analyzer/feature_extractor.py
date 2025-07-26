@@ -481,7 +481,7 @@ class AudioAnalyzer:
                 failed INTEGER DEFAULT 0
             )
             """)
-            
+
             # Create file discovery state table
             self.conn.execute("""
             CREATE TABLE IF NOT EXISTS file_discovery_state (
@@ -1575,9 +1575,10 @@ class AudioAnalyzer:
         from .file_discovery import FileDiscovery
         file_discovery = FileDiscovery()
         if file_discovery._is_in_excluded_directory(audio_path):
-            logger.warning(f"Skipping file in excluded directory: {audio_path}")
+            logger.warning(
+                f"Skipping file in excluded directory: {audio_path}")
             return None, False, None
-            
+
         try:
             file_info = self._get_file_info(audio_path)
             self.timeout_seconds = 180
@@ -2338,7 +2339,7 @@ class AudioAnalyzer:
     def get_failed_files_from_db(self):
         """Get all failed files from database"""
         from .file_discovery import FileDiscovery
-        
+
         cursor = self.conn.execute("""
             SELECT file_path, last_analyzed 
             FROM audio_features 
@@ -2347,7 +2348,7 @@ class AudioAnalyzer:
 
         failed_files = []
         file_discovery = FileDiscovery(audio_db=self)
-        
+
         for row in cursor.fetchall():
             file_path, last_analyzed = row
             if os.path.exists(file_path):
@@ -2355,7 +2356,8 @@ class AudioAnalyzer:
                 if not file_discovery._is_in_excluded_directory(file_path):
                     failed_files.append(file_path)
                 else:
-                    logger.debug(f"Skipping file already in failed directory: {file_path}")
+                    logger.debug(
+                        f"Skipping file already in failed directory: {file_path}")
             else:
                 logger.warning(f"Failed file no longer exists: {file_path}")
 
@@ -2420,23 +2422,25 @@ class AudioAnalyzer:
                     SET status = 'removed' 
                     WHERE status = 'active'
                 """)
-                
+
                 # Add or update files that exist
                 for file_path in file_paths:
                     if os.path.exists(file_path):
                         try:
                             stat = os.stat(file_path)
                             file_hash = self._get_file_hash(file_path)
-                            
+
                             self.conn.execute("""
                                 INSERT OR REPLACE INTO file_discovery_state 
                                 (file_path, file_hash, file_size, last_modified, last_seen_at, status)
                                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'active')
                             """, (file_path, file_hash, stat.st_size, stat.st_mtime))
                         except Exception as e:
-                            logger.warning(f"Could not update state for {file_path}: {e}")
-                            
-            logger.info(f"Updated file discovery state for {len(file_paths)} files")
+                            logger.warning(
+                                f"Could not update state for {file_path}: {e}")
+
+            logger.info(
+                f"Updated file discovery state for {len(file_paths)} files")
         except Exception as e:
             logger.error(f"Error updating file discovery state: {e}")
 
@@ -2448,30 +2452,31 @@ class AudioAnalyzer:
                 FROM file_discovery_state 
                 WHERE status IN ('active', 'removed')
             """)
-            
+
             active_files = []
             removed_files = []
-            
+
             for row in cursor.fetchall():
                 file_path, status = row
                 if status == 'active':
                     active_files.append(file_path)
                 elif status == 'removed':
                     removed_files.append(file_path)
-            
+
             # Get unchanged files (active files that still exist on disk)
             unchanged_files = []
             for file_path in active_files:
                 if os.path.exists(file_path):
                     unchanged_files.append(file_path)
-            
+
             # Added files are active files that weren't in the previous run
             # This is a simplified approach - in practice, you'd track this more precisely
             added_files = [f for f in active_files if f not in unchanged_files]
-            
-            logger.info(f"File discovery changes: Added={len(added_files)}, Removed={len(removed_files)}, Unchanged={len(unchanged_files)}")
+
+            logger.info(
+                f"File discovery changes: Added={len(added_files)}, Removed={len(removed_files)}, Unchanged={len(unchanged_files)}")
             return added_files, removed_files, unchanged_files
-            
+
         except Exception as e:
             logger.error(f"Error getting file discovery changes: {e}")
             return [], [], []
@@ -2479,19 +2484,22 @@ class AudioAnalyzer:
     def cleanup_file_discovery_state(self):
         """Remove entries for files that no longer exist."""
         try:
-            cursor = self.conn.execute("SELECT file_path FROM file_discovery_state")
+            cursor = self.conn.execute(
+                "SELECT file_path FROM file_discovery_state")
             files_to_check = [row[0] for row in cursor.fetchall()]
-            
+
             removed_count = 0
             with self.conn:
                 for file_path in files_to_check:
                     if not os.path.exists(file_path):
-                        self.conn.execute("DELETE FROM file_discovery_state WHERE file_path = ?", (file_path,))
+                        self.conn.execute(
+                            "DELETE FROM file_discovery_state WHERE file_path = ?", (file_path,))
                         removed_count += 1
-            
+
             if removed_count > 0:
-                logger.info(f"Cleaned up {removed_count} non-existent files from discovery state")
-                
+                logger.info(
+                    f"Cleaned up {removed_count} non-existent files from discovery state")
+
         except Exception as e:
             logger.error(f"Error cleaning up file discovery state: {e}")
 

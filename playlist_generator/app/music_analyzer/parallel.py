@@ -48,7 +48,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     log_level = os.getenv('LOG_LEVEL', 'INFO')
     logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
     audio_analyzer = AudioAnalyzer()
-    
+
     max_retries = 2
     retry_count = 0
     backoff_time = 1  # Initial backoff time in seconds
@@ -79,9 +79,10 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
             file_discovery = FileDiscovery()
             if file_discovery._is_in_excluded_directory(filepath):
                 notified["shown"] = True
-                logger.warning(f"Skipping file in excluded directory: {filepath}")
+                logger.warning(
+                    f"Skipping file in excluded directory: {filepath}")
                 return None, filepath, False
-                
+
             if not os.path.exists(filepath):
                 notified["shown"] = True
                 logger.warning(f"File not found: {filepath}")
@@ -211,7 +212,7 @@ class ParallelProcessor:
                             from functools import partial
                             worker_func = partial(
                                 process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
-                            
+
                             # Process results from the batch
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
                                 if self.enforce_fail_limit:
@@ -230,7 +231,7 @@ class ParallelProcessor:
                                         logger.warning(
                                             f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
                                         continue
-                                
+
                                 import sqlite3
                                 conn = sqlite3.connect(
                                     os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
@@ -267,7 +268,7 @@ class ParallelProcessor:
                                         conn.commit()
                                         conn.close()
                                         yield None, filepath, False
-                                    
+
                         except KeyboardInterrupt:
                             logger.debug(
                                 "KeyboardInterrupt received, terminating pool and exiting cleanly...")
@@ -283,7 +284,7 @@ class ParallelProcessor:
                             # Always terminate and join the pool
                             pool.terminate()
                             pool.join()
-                            
+
                 if enrich_later:
                     from music_analyzer.feature_extractor import AudioAnalyzer
                     analyzer = AudioAnalyzer(
