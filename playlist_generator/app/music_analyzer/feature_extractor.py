@@ -701,46 +701,126 @@ class AudioAnalyzer:
         try:
             # Step 1: Search for the recording
             result = musicbrainzngs.search_recordings(artist=artist, recording=title, limit=1)
-            if result['recording-list']:
-                rec = result['recording-list'][0]
-                mbid = rec['id']
-                # Step 2: Lookup by MBID for full info - get everything available
-                rec_full = musicbrainzngs.get_recording_by_id(
-                    mbid,
-                    includes=[
-                        'artists', 'releases', 'tags', 'isrcs', 'work-rels', 'artist-credits',
-                        'artist-rels', 'aliases', 'recording-rels'
-                    ]
-                )['recording']
+            if not result.get('recording-list') or len(result['recording-list']) == 0:
+                logger.debug(f"No MusicBrainz results found for {artist} - {title}")
+                return {}
                 
-                # Extract all available data, then filter to lean fields
-                all_mb_data = {
-                    'artist': rec_full['artist-credit'][0]['artist']['name'] if 'artist-credit' in rec_full and rec_full['artist-credit'] else None,
-                    'title': rec_full['title'],
-                    'album': rec_full['releases'][0]['title'] if 'releases' in rec_full and rec_full['releases'] else None,
-                    'release_date': rec_full['releases'][0].get('date') if 'releases' in rec_full and rec_full['releases'] and 'date' in rec_full['releases'][0] else None,
-                    'country': rec_full['releases'][0].get('country') if 'releases' in rec_full and rec_full['releases'] and 'country' in rec_full['releases'][0] else None,
-                    'label': rec_full['releases'][0]['label-info-list'][0]['label']['name'] if 'releases' in rec_full and rec_full['releases'] and 'label-info-list' in rec_full['releases'][0] and rec_full['releases'][0]['label-info-list'] else None,
-                    'genre': [tag['name'] for tag in rec_full.get('tag-list', [])],
-                    'musicbrainz_id': rec_full['id'],
-                    'isrc': rec_full.get('isrc-list', [None])[0],
-                    'mb_artist_id': rec_full['artist-credit'][0]['artist']['id'] if 'artist-credit' in rec_full and rec_full['artist-credit'] else None,
-                    'mb_album_id': rec_full['releases'][0]['id'] if 'releases' in rec_full and rec_full['releases'] else None,
-                    'work': rec_full['work-relation-list'][0]['work']['title'] if 'work-relation-list' in rec_full and rec_full['work-relation-list'] else None,
-                    'composer': rec_full['work-relation-list'][0]['work']['artist-relation-list'][0]['artist']['name'] if 'work-relation-list' in rec_full and rec_full['work-relation-list'] and 'artist-relation-list' in rec_full['work-relation-list'][0]['work'] and rec_full['work-relation-list'][0]['work']['artist-relation-list'] else None,
-                }
-                
-                # Filter to only lean fields for database
-                tags = {k: v for k, v in all_mb_data.items() if k in LEAN_FIELDS and v is not None and v != ''}
-                return tags
+            rec = result['recording-list'][0]
+            mbid = rec['id']
+            logger.debug(f"Found MusicBrainz recording: {mbid}")
+            
+            # Step 2: Lookup by MBID for full info - get everything available
+            rec_full = musicbrainzngs.get_recording_by_id(
+                mbid,
+                includes=[
+                    'artists', 'releases', 'tags', 'isrcs', 'work-rels', 'artist-credits',
+                    'artist-rels', 'aliases', 'recording-rels'
+                ]
+            )['recording']
+            
+            # Extract all available data, then filter to lean fields
+            all_mb_data = {}
+            
+            # Safe extraction with bounds checking
+            try:
+                if 'artist-credit' in rec_full and rec_full['artist-credit'] and len(rec_full['artist-credit']) > 0:
+                    all_mb_data['artist'] = rec_full['artist-credit'][0]['artist']['name']
+                    all_mb_data['mb_artist_id'] = rec_full['artist-credit'][0]['artist']['id']
+                else:
+                    all_mb_data['artist'] = None
+                    all_mb_data['mb_artist_id'] = None
+            except (KeyError, IndexError) as e:
+                logger.debug(f"Error extracting artist info: {e}")
+                all_mb_data['artist'] = None
+                all_mb_data['mb_artist_id'] = None
+            
+            all_mb_data['title'] = rec_full.get('title', '')
+            all_mb_data['musicbrainz_id'] = rec_full.get('id', '')
+            
+            # Safe release info extraction
+            try:
+                if 'releases' in rec_full and rec_full['releases'] and len(rec_full['releases']) > 0:
+                    release = rec_full['releases'][0]
+                    all_mb_data['album'] = release.get('title')
+                    all_mb_data['release_date'] = release.get('date')
+                    all_mb_data['country'] = release.get('country')
+                    all_mb_data['mb_album_id'] = release.get('id')
+                    
+                    # Safe label info extraction
+                    try:
+                        if 'label-info-list' in release and release['label-info-list'] and len(release['label-info-list']) > 0:
+                            all_mb_data['label'] = release['label-info-list'][0]['label']['name']
+                        else:
+                            all_mb_data['label'] = None
+                    except (KeyError, IndexError) as e:
+                        logger.debug(f"Error extracting label info: {e}")
+                        all_mb_data['label'] = None
+                else:
+                    all_mb_data['album'] = None
+                    all_mb_data['release_date'] = None
+                    all_mb_data['country'] = None
+                    all_mb_data['mb_album_id'] = None
+                    all_mb_data['label'] = None
+            except (KeyError, IndexError) as e:
+                logger.debug(f"Error extracting release info: {e}")
+                all_mb_data['album'] = None
+                all_mb_data['release_date'] = None
+                all_mb_data['country'] = None
+                all_mb_data['mb_album_id'] = None
+                all_mb_data['label'] = None
+            
+            # Safe ISRC extraction
+            try:
+                isrc_list = rec_full.get('isrc-list', [])
+                all_mb_data['isrc'] = isrc_list[0] if isrc_list else None
+            except (KeyError, IndexError) as e:
+                logger.debug(f"Error extracting ISRC: {e}")
+                all_mb_data['isrc'] = None
+            
+            # Safe genre extraction
+            try:
+                all_mb_data['genre'] = [tag['name'] for tag in rec_full.get('tag-list', [])]
+            except (KeyError, IndexError) as e:
+                logger.debug(f"Error extracting genres: {e}")
+                all_mb_data['genre'] = []
+            
+            # Safe work info extraction
+            try:
+                if 'work-relation-list' in rec_full and rec_full['work-relation-list'] and len(rec_full['work-relation-list']) > 0:
+                    work = rec_full['work-relation-list'][0]['work']
+                    all_mb_data['work'] = work.get('title')
+                    
+                    # Safe composer extraction
+                    try:
+                        if 'artist-relation-list' in work and work['artist-relation-list'] and len(work['artist-relation-list']) > 0:
+                            all_mb_data['composer'] = work['artist-relation-list'][0]['artist']['name']
+                        else:
+                            all_mb_data['composer'] = None
+                    except (KeyError, IndexError) as e:
+                        logger.debug(f"Error extracting composer info: {e}")
+                        all_mb_data['composer'] = None
+                else:
+                    all_mb_data['work'] = None
+                    all_mb_data['composer'] = None
+            except (KeyError, IndexError) as e:
+                logger.debug(f"Error extracting work info: {e}")
+                all_mb_data['work'] = None
+                all_mb_data['composer'] = None
+            
+            # Filter to only lean fields for database
+            tags = {k: v for k, v in all_mb_data.items() if k in LEAN_FIELDS and v is not None and v != ''}
+            logger.debug(f"Extracted {len(tags)} MusicBrainz fields for {artist} - {title}")
+            return tags
         except Exception as e:
             logger.warning(f"MusicBrainz lookup failed: {e}")
+            import traceback
+            logger.debug(f"MusicBrainz lookup error traceback: {traceback.format_exc()}")
         return {}
 
     def _lastfm_lookup(self, artist, title):
         api_key = os.getenv('LASTFM_API_KEY')
         if not api_key:
-            logger.warning("LASTFM_API_KEY not set; skipping Last.fm enrichment.")
+            logger.debug("LASTFM_API_KEY not set; skipping Last.fm enrichment.")
             return {}
         url = "http://ws.audioscrobbler.com/2.0/"
         params = {
@@ -751,37 +831,108 @@ class AudioAnalyzer:
             'format': 'json'
         }
         try:
+            logger.debug(f"Making Last.fm API request for: {artist} - {title}")
             resp = requests.get(url, params=params, timeout=10)
+            logger.debug(f"Last.fm API returned status {resp.status_code} for {artist} - {title}")
             resp.raise_for_status()
             data = resp.json()
             track = data.get('track', {})
             
-            # Extract all available Last.fm data
-            all_lastfm_data = {
-                'genre_lastfm': [t['name'] for t in track.get('toptags', {}).get('tag', [])] if track.get('toptags', {}).get('tag') else None,
-                'album_lastfm': track.get('album', {}).get('title') if 'album' in track else None,
-                'listeners': track.get('listeners'),
-                'playcount': track.get('playcount'),
-                'wiki': track.get('wiki', {}).get('summary') if 'wiki' in track else None,
-                'album_mbid': track.get('album', {}).get('mbid') if 'album' in track else None,
-                'artist_mbid': track.get('artist', {}).get('mbid') if isinstance(track.get('artist'), dict) else None,
-                # Additional Last.fm fields that might be useful
-                'duration': track.get('duration'),
-                'url': track.get('url'),
-                'mbid': track.get('mbid'),
-                'streamable': track.get('streamable'),
-                'rank': track.get('@attr', {}).get('rank') if '@attr' in track else None,
-                'userplaycount': track.get('userplaycount'),
-                'userloved': track.get('userloved'),
-                'album_artist': track.get('album', {}).get('artist') if 'album' in track else None,
-                'album_url': track.get('album', {}).get('url') if 'album' in track else None,
-                'album_image': track.get('album', {}).get('image') if 'album' in track else None,
-            }
+            # Extract all available Last.fm data with safe indexing
+            all_lastfm_data = {}
+            
+            # Safe genre extraction
+            try:
+                toptags = track.get('toptags', {})
+                tag_list = toptags.get('tag', [])
+                if tag_list and isinstance(tag_list, list):
+                    all_lastfm_data['genre_lastfm'] = [t['name'] for t in tag_list if isinstance(t, dict) and 'name' in t]
+                else:
+                    all_lastfm_data['genre_lastfm'] = None
+            except (KeyError, IndexError, TypeError) as e:
+                logger.debug(f"Error extracting Last.fm genres: {e}")
+                all_lastfm_data['genre_lastfm'] = None
+            
+            # Safe album extraction
+            try:
+                album_info = track.get('album', {})
+                if album_info and isinstance(album_info, dict):
+                    all_lastfm_data['album_lastfm'] = album_info.get('title')
+                    all_lastfm_data['album_mbid'] = album_info.get('mbid')
+                    all_lastfm_data['album_artist'] = album_info.get('artist')
+                    all_lastfm_data['album_url'] = album_info.get('url')
+                    all_lastfm_data['album_image'] = album_info.get('image')
+                else:
+                    all_lastfm_data['album_lastfm'] = None
+                    all_lastfm_data['album_mbid'] = None
+                    all_lastfm_data['album_artist'] = None
+                    all_lastfm_data['album_url'] = None
+                    all_lastfm_data['album_image'] = None
+            except (KeyError, IndexError, TypeError) as e:
+                logger.debug(f"Error extracting Last.fm album info: {e}")
+                all_lastfm_data['album_lastfm'] = None
+                all_lastfm_data['album_mbid'] = None
+                all_lastfm_data['album_artist'] = None
+                all_lastfm_data['album_url'] = None
+                all_lastfm_data['album_image'] = None
+            
+            # Safe artist extraction
+            try:
+                artist_info = track.get('artist', {})
+                if artist_info and isinstance(artist_info, dict):
+                    all_lastfm_data['artist_mbid'] = artist_info.get('mbid')
+                else:
+                    all_lastfm_data['artist_mbid'] = None
+            except (KeyError, IndexError, TypeError) as e:
+                logger.debug(f"Error extracting Last.fm artist info: {e}")
+                all_lastfm_data['artist_mbid'] = None
+            
+            # Safe wiki extraction
+            try:
+                wiki_info = track.get('wiki', {})
+                if wiki_info and isinstance(wiki_info, dict):
+                    all_lastfm_data['wiki'] = wiki_info.get('summary')
+                else:
+                    all_lastfm_data['wiki'] = None
+            except (KeyError, IndexError, TypeError) as e:
+                logger.debug(f"Error extracting Last.fm wiki info: {e}")
+                all_lastfm_data['wiki'] = None
+            
+            # Safe @attr extraction
+            try:
+                attr_info = track.get('@attr', {})
+                if attr_info and isinstance(attr_info, dict):
+                    all_lastfm_data['rank'] = attr_info.get('rank')
+                else:
+                    all_lastfm_data['rank'] = None
+            except (KeyError, IndexError, TypeError) as e:
+                logger.debug(f"Error extracting Last.fm @attr info: {e}")
+                all_lastfm_data['rank'] = None
+            
+            # Simple field extractions
+            all_lastfm_data['listeners'] = track.get('listeners')
+            all_lastfm_data['playcount'] = track.get('playcount')
+            all_lastfm_data['duration'] = track.get('duration')
+            all_lastfm_data['url'] = track.get('url')
+            all_lastfm_data['mbid'] = track.get('mbid')
+            all_lastfm_data['streamable'] = track.get('streamable')
+            all_lastfm_data['userplaycount'] = track.get('userplaycount')
+            all_lastfm_data['userloved'] = track.get('userloved')
+            
+            logger.debug(f"Extracted {len(all_lastfm_data)} Last.fm fields for {artist} - {title}")
             
             # Filter to only lean fields for database
             return {k: v for k, v in all_lastfm_data.items() if k in LEAN_FIELDS and v is not None and v != ''}
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Last.fm API request failed for {artist} - {title}: {e}")
+            return {}
+        except (KeyError, IndexError, TypeError) as e:
+            logger.warning(f"Last.fm data parsing failed for {artist} - {title}: {e}")
+            return {}
         except Exception as e:
             logger.warning(f"Last.fm lookup failed for {artist} - {title}: {e}")
+            import traceback
+            logger.debug(f"Last.fm lookup error traceback: {traceback.format_exc()}")
             return {}
 
     def extract_features(self, audio_path: str, force_reextract: bool = False) -> Optional[tuple]:
