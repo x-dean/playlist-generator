@@ -40,7 +40,7 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
     item = files_list[current_index]
     file_path = item[0] if isinstance(item, tuple) else item
     current_filename = os.path.basename(file_path)
-    max_len = 50  # Increased to make better use of available space
+    max_len = 70  # Increased to make better use of available space
     if len(current_filename) > max_len:
         display_name = current_filename[:max_len-3] + "..."
     else:
@@ -409,6 +409,11 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
     
     # Run analysis on files that need it
     failed_files = []
+    
+    # Display resource panel first
+    console = Console()
+    console.print(_create_resource_panel(workers))
+    
     with CLIContextManager(cli, len(files_to_analyze), f"[cyan]Analyzing {len(files_to_analyze)} files...") as (progress, task_id):
         processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
         workers = args.workers or max(1, mp.cpu_count())
@@ -422,10 +427,6 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         if files_to_analyze:
             _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze), 
                                "[cyan]", "", "", None, not args.force_sequential)
-        
-        # Display initial resource usage in a separate line
-        console = Console()
-        console.print(_create_resource_panel(workers))
         
         # Prepare list of file paths only for processing
         file_paths_only = [item[0] if isinstance(item, tuple) else item for item in files_to_analyze]
