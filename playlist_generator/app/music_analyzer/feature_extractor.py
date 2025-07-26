@@ -18,6 +18,8 @@ from functools import wraps
 from utils.path_utils import convert_to_host_path
 from utils.path_converter import PathConverter
 import requests
+import tensorflow as tf
+import librosa
 
 logger = logging.getLogger()
 
@@ -61,6 +63,67 @@ class AudioAnalyzer:
         musicbrainzngs.set_useragent("PlaylistGenerator", "1.0", "noreply@example.com")
         self.library = library
         self.music = music
+        # Load TensorFlow models
+        self.vggish_model = self._load_vggish_model()
+
+    def _load_vggish_model(self):
+        """Load VGGish model for audio embeddings. Downloads if missing."""
+        try:
+            model_dir = os.getenv('MODEL_DIR', os.path.join(os.path.dirname(__file__), '..', 'feature_extraction', 'models'))
+            model_path = os.path.join(model_dir, 'vggish_model.h5')
+            if not os.path.exists(model_path):
+                from download_models import download_vggish_model
+                download_vggish_model(model_dir)
+            if os.path.exists(model_path):
+                model = tf.keras.models.load_model(model_path)
+                logger.info(f"Loaded VGGish model from {model_path}")
+                return model
+            else:
+                logger.warning(f"VGGish model not found at {model_path}. Please download the model.")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to load VGGish model: {e}")
+            return None
+
+    def _audio_to_mel_spectrogram(self, audio, sr=44100):
+        """Convert audio to mel-spectrogram for VGGish input."""
+        try:
+            # VGGish expects 96 mel bands, 64 time frames
+            mel_spec = librosa.feature.melspectrogram(
+                y=audio, 
+                sr=sr, 
+                n_mels=96, 
+                hop_length=512,
+                n_fft=2048
+            )
+            # Convert to log scale
+            mel_spec = librosa.power_to_db(mel_spec, ref=np.max)
+            # Pad or truncate to 64 time frames
+            if mel_spec.shape[1] < 64:
+                mel_spec = np.pad(mel_spec, ((0, 0), (0, 64 - mel_spec.shape[1])))
+            else:
+                mel_spec = mel_spec[:, :64]
+            return mel_spec
+        except Exception as e:
+            logger.warning(f"Mel-spectrogram conversion failed: {str(e)}")
+            return None
+
+    def _extract_vggish_embedding(self, audio):
+        """Extract VGGish embeddings from audio."""
+        if not self.vggish_model:
+            return None
+        try:
+            mel_spec = self._audio_to_mel_spectrogram(audio)
+            if mel_spec is None:
+                return None
+            # Reshape for model input (batch_size, height, width, channels)
+            mel_spec = mel_spec.reshape(1, 96, 64, 1)
+            # Get embeddings
+            embeddings = self.vggish_model.predict(mel_spec, verbose=0)
+            return embeddings[0].tolist()  # Return as list
+        except Exception as e:
+            logger.warning(f"VGGish embedding extraction failed: {str(e)}")
+            return None
 
     def _init_db(self):
         self.conn = sqlite3.connect(self.cache_file, timeout=600)
@@ -89,13 +152,16 @@ class AudioAnalyzer:
                 last_modified REAL,
                 last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 metadata JSON,
-                failed INTEGER DEFAULT 0
+                failed INTEGER DEFAULT 0,
+                vggish_embedding JSON
             )
             """)
             # Migration: add 'failed' column if missing
             columns = [row[1] for row in self.conn.execute("PRAGMA table_info(audio_features)")]
             if 'failed' not in columns:
                 self.conn.execute("ALTER TABLE audio_features ADD COLUMN failed INTEGER DEFAULT 0")
+            if 'vggish_embedding' not in columns:
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN vggish_embedding JSON")
             self._verify_db_schema()
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
@@ -401,7 +467,7 @@ class AudioAnalyzer:
         cursor.execute("""
         SELECT duration, bpm, beat_confidence, centroid,
                loudness, danceability, key, scale, onset_rate, zcr,
-               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, metadata
+               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, metadata, vggish_embedding
         FROM audio_features
         WHERE file_hash = ? AND last_modified >= ?
         """, (file_info['file_hash'], file_info['last_modified']))
@@ -425,6 +491,7 @@ class AudioAnalyzer:
                 'spectral_flatness': row[13],
                 'spectral_rolloff': row[14],
                 'metadata': json.loads(row[15]) if row[15] else {},
+                'vggish_embedding': json.loads(row[16]) if row[16] else None,
                 'filepath': file_info['file_path'],
                 'filename': os.path.basename(file_info['file_path'])
             }
@@ -449,7 +516,8 @@ class AudioAnalyzer:
             'chroma': [0.0] * 12,
             'spectral_contrast': [0.0] * 6,
             'spectral_flatness': 0.0,
-            'spectral_rolloff': 0.0
+            'spectral_rolloff': 0.0,
+            'vggish_embedding': None
         }
         # --- Metadata extraction ---
         meta = {}
@@ -509,6 +577,7 @@ class AudioAnalyzer:
                 spectral_contrast = self._extract_spectral_contrast(audio)
                 spectral_flatness = self._extract_spectral_flatness(audio)
                 spectral_rolloff = self._extract_spectral_rolloff(audio)
+                vggish_embedding = self._extract_vggish_embedding(audio)
 
                 # Update features
                 features.update({
@@ -525,7 +594,8 @@ class AudioAnalyzer:
                     'chroma': chroma,
                     'spectral_contrast': spectral_contrast,
                     'spectral_flatness': self._ensure_float(spectral_flatness),
-                    'spectral_rolloff': self._ensure_float(spectral_rolloff)
+                    'spectral_rolloff': self._ensure_float(spectral_rolloff),
+                    'vggish_embedding': vggish_embedding
                 })
             except Exception as e:
                 logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
@@ -553,8 +623,8 @@ class AudioAnalyzer:
                     INSERT OR REPLACE INTO audio_features (
                         file_hash, file_path, duration, bpm, beat_confidence, centroid, loudness, danceability, key, scale, onset_rate, zcr,
                         mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff,
-                        last_modified, metadata, failed
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        last_modified, metadata, failed, vggish_embedding
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         file_info['file_hash'],
@@ -576,7 +646,8 @@ class AudioAnalyzer:
                         features.get('spectral_rolloff'),
                         file_info['last_modified'],
                         json.dumps(features.get('metadata', {})),
-                        failed
+                        failed,
+                        json.dumps(features.get('vggish_embedding', None))
                     )
                 )
             return True

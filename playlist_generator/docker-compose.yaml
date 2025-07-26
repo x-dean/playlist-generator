@@ -9,10 +9,12 @@ services:
       - /root/music/playlista/cache:/app/cache
       - /root/music/playlista/logs/:/app/logs/
       - /tmp/failed_files:/app/failed_files
+      - /root/music/playlista/models:/app/feature_extraction/models  # Model directory mapping
     environment:
       - PLAYLIST_METHOD=${PLAYLIST_METHOD:-all}
       - MIN_TRACKS_PER_GENRE=${MIN_TRACKS_PER_GENRE:-10}
       - LASTFM_API_KEY=9fd1f789ebdf1297e6aa1590a13d85e0
+      - MODEL_DIR=/app/feature_extraction/models
     working_dir: /app
     tty: true
     # NOTE: The host directory /tmp/failed_files will store failed files and is excluded from the music scan.
