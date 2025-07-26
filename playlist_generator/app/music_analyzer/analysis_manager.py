@@ -257,16 +257,18 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
     logger.info("Starting ANALYZE mode - smart cache comparison")
     
     # Get files that need analysis
-    files_to_analyze = []
-    for file_path, reason in audio_db.get_files_needing_analysis():
-        files_to_analyze.append(file_path)
-        logger.debug(f"File needs analysis: {file_path} (reason: {reason})")
+    files_needing_analysis = audio_db.get_files_needing_analysis()
+    files_to_analyze = [file_path for file_path, reason in files_needing_analysis]
     
     if not files_to_analyze:
         logger.info("No files need analysis - all up to date")
         return []
     
     logger.info(f"Found {len(files_to_analyze)} files needing analysis")
+    
+    # Log the reasons for analysis
+    for file_path, reason in files_needing_analysis:
+        logger.debug(f"File needs analysis: {file_path} (reason: {reason})")
     
     # Run analysis on files that need it
     failed_files = []

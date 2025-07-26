@@ -294,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "4.1.0"  # Version identifier for tracking updates - final implementation of improved analysis modes
+    VERSION = "4.2.0"  # Version identifier for tracking updates - fixed infinite loop in file scanning
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -1981,7 +1981,7 @@ class AudioAnalyzer:
         """Efficiently determine which files need analysis"""
         logger.info(f"Scanning for files needing analysis in {music_dir}")
         
-        # Get all audio files from filesystem
+        # Get all audio files from filesystem (only once)
         current_files = set()
         for root, dirs, files in os.walk(music_dir):
             for file in files:
@@ -1999,26 +1999,28 @@ class AudioAnalyzer:
             WHERE failed = 0
         """)
         
+        files_needing_analysis = []
         for row in cursor.fetchall():
             file_path, last_modified, failed = row
             if os.path.exists(file_path):
                 current_mtime = os.path.getmtime(file_path)
                 if current_mtime > last_modified:
                     # File modified since last analysis
-                    yield file_path, 'modified'
+                    files_needing_analysis.append((file_path, 'modified'))
                 else:
                     # File unchanged, skip
                     cached_files[file_path] = True
             else:
                 # File deleted, mark for cleanup
-                yield file_path, 'deleted'
+                files_needing_analysis.append((file_path, 'deleted'))
         
         # New files
         for file_path in current_files:
             if file_path not in cached_files:
-                yield file_path, 'new'
+                files_needing_analysis.append((file_path, 'new'))
         
-        logger.info(f"Analysis needed for {len([f for f, _ in self.get_files_needing_analysis()])} files")
+        logger.info(f"Analysis needed for {len(files_needing_analysis)} files")
+        return files_needing_analysis
 
     def validate_cached_features(self):
         """Quick validation of all cached files"""
