@@ -124,7 +124,7 @@ class FeatureGroupPlaylistGenerator:
                 mood_group = get_mood_group(centroid)
                 key_group = ''
 
-                if key is not None and 0 <= key <= 11:
+                if key is not None and isinstance(key, (int, float)) and 0 <= int(key) <= 11:
                     key_group = f"{keys[int(key)]}_{'Major' if scale == 1 else 'Minor'}"
                     logger.debug(
                         f"Track {file_path}: key={key_group}, bpm={bpm}, energy={energy_group}, mood={mood_group}")

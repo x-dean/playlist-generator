@@ -417,12 +417,16 @@ class PlaylistManager:
                 if not track_features:
                     continue
 
-                # Calculate basic stats
+                # Calculate basic stats with None handling
+                bpm_values = [f.get('bpm', 0) for f in track_features if f.get('bpm') is not None]
+                danceability_values = [min(1.0, max(0.0, f.get('danceability', 0))) for f in track_features if f.get('danceability') is not None]
+                duration_values = [f.get('duration', 0) for f in track_features if f.get('duration') is not None]
+                
                 stats = {
                     'track_count': len(track_features),
-                    'total_duration': sum(f.get('duration', 0) for f in track_features),
-                    'avg_bpm': np.mean([f.get('bpm', 0) for f in track_features]),
-                    'avg_danceability': np.mean([min(1.0, max(0.0, f.get('danceability', 0))) for f in track_features]),
+                    'total_duration': sum(duration_values) if duration_values else 0,
+                    'avg_bpm': np.mean(bpm_values) if bpm_values else 0,
+                    'avg_danceability': np.mean(danceability_values) if danceability_values else 0,
                     'key_distribution': self._get_key_distribution(track_features)
                 }
 

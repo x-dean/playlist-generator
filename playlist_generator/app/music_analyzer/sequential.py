@@ -43,6 +43,8 @@ class SequentialProcessor:
 
         for i, filepath in enumerate(file_list):
             try:
+                logger.debug(f"SEQUENTIAL: Processing file {i+1}/{len(file_list)}: {filepath}")
+                
                 # Use file discovery to check if file should be excluded
                 from .file_discovery import FileDiscovery
                 file_discovery = FileDiscovery()
@@ -54,11 +56,16 @@ class SequentialProcessor:
 
                 from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
+                logger.debug(f"SEQUENTIAL: Calling extract_features for: {filepath}")
                 features, db_write_success, file_hash = audio_analyzer.extract_features(
                     filepath, force_reextract=force_reextract)
+                logger.debug(f"SEQUENTIAL: extract_features result - features: {features is not None}, db_write: {db_write_success}")
+                
                 if features and db_write_success:
+                    logger.debug(f"SEQUENTIAL: Success for {filepath}")
                     yield features, filepath, db_write_success
                 else:
+                    logger.warning(f"SEQUENTIAL: Failed for {filepath} - features: {features is not None}, db_write: {db_write_success}")
                     self.failed_files.append(filepath)
                     yield None, filepath, False
 

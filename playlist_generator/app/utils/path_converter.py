@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Optional
+from typing import Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -273,3 +273,27 @@ class PathConverter:
             logger.debug(
                 f"Get path info error traceback: {traceback.format_exc()}")
             return {}
+
+    def convert_playlist_tracks(self, container_tracks: List[str]) -> List[str]:
+        """Convert container paths in playlist tracks to host paths."""
+        logger.debug(f"Converting {len(container_tracks)} playlist tracks from container to host")
+        
+        host_tracks = []
+        for track in container_tracks:
+            try:
+                if track.startswith('/music'):
+                    # Convert container path to host path
+                    host_path = self.container_to_host(track)
+                    host_tracks.append(host_path)
+                    logger.debug(f"Converted {track} -> {host_path}")
+                else:
+                    # Already a host path or relative path
+                    host_tracks.append(track)
+                    logger.debug(f"Track already in host format: {track}")
+            except Exception as e:
+                logger.warning(f"Error converting track {track}: {e}")
+                # Keep original path if conversion fails
+                host_tracks.append(track)
+        
+        logger.debug(f"Converted {len(host_tracks)} tracks to host paths")
+        return host_tracks

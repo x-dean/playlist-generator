@@ -628,6 +628,9 @@ class AudioAnalyzer:
 
     def _get_file_hash(self, filepath):
         """Get file hash for file discovery tracking."""
+        import hashlib
+        import traceback
+        
         logger.debug(f"DISCOVERY: _get_file_hash called with filepath: {filepath}")
         # For container paths, use directly; for host paths, convert to container
         if filepath.startswith('/music'):
@@ -645,7 +648,6 @@ class AudioAnalyzer:
         except Exception as e:
             logger.warning(
                 f"Couldn't get file hash for {container_path}: {str(e)}")
-            import hashlib
             return hashlib.md5(container_path.encode()).hexdigest()
 
     def _normalize_to_library_path(self, path):
@@ -2324,10 +2326,18 @@ class AudioAnalyzer:
         """)
         analyzed_files = {row[0]: row[1] for row in cursor.fetchall()}
         
+        logger.debug(f"DISCOVERY: Found {len(analyzed_files)} files in audio_features table")
+        if analyzed_files:
+            sample_paths = list(analyzed_files.keys())[:3]
+            logger.debug(f"DISCOVERY: Sample paths from audio_features: {sample_paths}")
+        
         # Determine which files need analysis
         files_needing_analysis = []
         
+        logger.debug(f"DISCOVERY: Comparing {len(discovery_files)} discovery files with {len(analyzed_files)} analyzed files")
+        
         for file_path, (file_size, discovery_mtime) in discovery_files.items():
+            logger.debug(f"DISCOVERY: Checking file: {file_path}")
             if file_path not in analyzed_files:
                 # New file - needs analysis
                 files_needing_analysis.append((file_path, 'new'))
