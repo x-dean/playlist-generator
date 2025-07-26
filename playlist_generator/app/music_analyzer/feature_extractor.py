@@ -81,6 +81,11 @@ class AudioAnalyzer:
                 scale INTEGER,
                 onset_rate REAL,
                 zcr REAL,
+                mfcc JSON,
+                chroma JSON,
+                spectral_contrast JSON,
+                spectral_flatness REAL,
+                spectral_rolloff REAL,
                 last_modified REAL,
                 last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 metadata JSON,
@@ -107,7 +112,12 @@ class AudioAnalyzer:
             'scale': 'INTEGER DEFAULT 0',
             'onset_rate': 'REAL DEFAULT 0',
             'zcr': 'REAL DEFAULT 0',
-            'metadata': 'JSON'
+            'metadata': 'JSON',
+            'mfcc': 'JSON',
+            'chroma': 'JSON',
+            'spectral_contrast': 'JSON',
+            'spectral_flatness': 'REAL DEFAULT 0',
+            'spectral_rolloff': 'REAL DEFAULT 0'
         }
 
         for col, col_type in required_columns.items():
