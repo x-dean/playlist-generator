@@ -402,9 +402,12 @@ Examples:
         print("\n🛑 Process termination requested - stopping gracefully...")
         stop_event.set()
         
+        # Set environment variable to signal workers
+        os.environ['SHUTDOWN_REQUESTED'] = '1'
+        
         # Give workers time to finish current tasks
         import time
-        timeout = 60  # Reduced from 120 to 60 seconds
+        timeout = 30  # Reduced from 60 to 30 seconds
         start_wait = time.time()
         
         print("⏳ Waiting for workers to finish current tasks...")
@@ -436,6 +439,13 @@ Examples:
                 remaining_time = timeout - (time.time() - start_wait)
                 print(
                     f"⏳ {active_workers} workers still active, {remaining_time:.0f}s remaining...")
+                
+                # If workers are still active after 10 seconds, force termination
+                if (time.time() - start_wait) > 10 and active_workers > 0:
+                    print(f"⚠️  {active_workers} workers still active after 10s - forcing termination...")
+                    from music_analyzer.analysis_manager import cleanup_child_processes
+                    cleanup_child_processes()
+                    break
                 
                 # If we're getting close to timeout and workers are still active, be more aggressive
                 if remaining_time < 10 and active_workers > 0:

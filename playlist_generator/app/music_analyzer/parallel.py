@@ -72,7 +72,10 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
             
     def should_stop():
         """Check if we should stop processing"""
-        # Check stop_event first (most reliable)
+        # Check environment variable first (most immediate)
+        if os.getenv('SHUTDOWN_REQUESTED') == '1':
+            return True
+        # Check stop_event (most reliable)
         if stop_event and stop_event.is_set():
             return True
         # Fallback to parent process check
@@ -155,8 +158,15 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                     logger.info(f"Worker interrupted before feature extraction - stopping {filepath}")
                     return None, filepath, False
                     
+                # Check stop event more frequently during feature extraction
                 result = audio_analyzer.extract_features(
                     filepath, force_reextract=force_reextract)
+                    
+                # Check again after feature extraction
+                if should_stop():
+                    logger.info(f"Worker interrupted after feature extraction - stopping {filepath}")
+                    return None, filepath, False
+                    
             except Exception as e:
                 logger.debug(
                     f"ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
@@ -208,7 +218,7 @@ class ParallelProcessor:
 
     def __init__(self, enforce_fail_limit: bool = False, retry_counter=None) -> None:
         self.failed_files = []
-        self.batch_size = int(os.getenv('BATCH_SIZE', '50'))
+        self.batch_size = None  # Will be set dynamically based on worker count
         self.max_retries = int(os.getenv('MAX_RETRIES', '3'))
         self.min_workers = 2
         self.max_workers = int(os.getenv('MAX_WORKERS', str(mp.cpu_count())))
@@ -228,7 +238,9 @@ class ParallelProcessor:
             return
         self.workers = max(self.min_workers, min(
             workers or self.max_workers, self.max_workers))
-        self.batch_size = min(self.batch_size, len(file_list))
+        # Set batch size equal to number of workers for optimal control
+        self.batch_size = self.workers
+        logger.info(f"Using {self.workers} workers with batch size {self.batch_size}")
         yield from self._process_parallel(file_list, status_queue, stop_event=stop_event, force_reextract=force_reextract)
 
     def _process_parallel(self, file_list, status_queue, stop_event=None, force_reextract: bool = False):
@@ -358,7 +370,7 @@ class ParallelProcessor:
                         logger.info(
                             "Stop event detected after batch completion - stopping gracefully")
                         break
-
+                        
                 if enrich_later:
                     from music_analyzer.feature_extractor import AudioAnalyzer
                     analyzer = AudioAnalyzer(
