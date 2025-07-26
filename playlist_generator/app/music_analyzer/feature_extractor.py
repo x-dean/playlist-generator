@@ -495,103 +495,11 @@ class AudioAnalyzer:
                 status TEXT DEFAULT 'active'
             )
             """)
-            # Migration: add missing columns if they don't exist
-            columns = [row[1] for row in self.conn.execute(
-                "PRAGMA table_info(audio_features)")]
-            if 'failed' not in columns:
-                self.conn.execute(
-                    "ALTER TABLE audio_features ADD COLUMN failed INTEGER DEFAULT 0")
-            if 'musicnn_embedding' not in columns:
-                self.conn.execute(
-                    "ALTER TABLE audio_features ADD COLUMN musicnn_embedding JSON")
-            if 'musicnn_tags' not in columns:
-                self.conn.execute(
-                    "ALTER TABLE audio_features ADD COLUMN musicnn_tags JSON")
-            if 'key_strength' not in columns:
-                self.conn.execute(
-                    "ALTER TABLE audio_features ADD COLUMN key_strength REAL DEFAULT 0")
-            # Update key and scale columns to TEXT if they exist as INTEGER
-            if 'key' in columns:
-                cursor = self.conn.execute("PRAGMA table_info(audio_features)")
-                for row in cursor.fetchall():
-                    if row[1] == 'key' and row[2] == 'INTEGER':
-                        logger.info(
-                            "Converting key column from INTEGER to TEXT")
-                        self.conn.execute(
-                            "ALTER TABLE audio_features RENAME TO audio_features_old")
-                        self.conn.execute("""
-                        CREATE TABLE audio_features (
-                            file_hash TEXT PRIMARY KEY,
-                            file_path TEXT NOT NULL,
-                            duration REAL,
-                            bpm REAL,
-                            beat_confidence REAL,
-                            centroid REAL,
-                            loudness REAL,
-                            danceability REAL,
-                            key TEXT,
-                            scale TEXT,
-                            key_strength REAL,
-                            onset_rate REAL,
-                            zcr REAL,
-                            mfcc JSON,
-                            chroma JSON,
-                            spectral_contrast REAL,
-                            spectral_flatness REAL,
-                            spectral_rolloff REAL,
-                            musicnn_embedding JSON,
-                            musicnn_tags JSON,
-                            last_modified REAL,
-                            last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            metadata JSON,
-                            failed INTEGER DEFAULT 0
-                        )
-                        """)
-                        self.conn.execute("""
-                        INSERT INTO audio_features SELECT 
-                            file_hash, file_path, duration, bpm, beat_confidence, centroid, 
-                            loudness, danceability, 
-                            CASE WHEN key = -1 THEN '' ELSE CAST(key AS TEXT) END as key,
-                            CASE WHEN scale = 0 THEN 'major' WHEN scale = 1 THEN 'minor' ELSE 'major' END as scale,
-                            0 as key_strength,
-                            onset_rate, zcr, mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff,
-                            musicnn_embedding, '{}' as musicnn_tags, last_modified, last_analyzed, metadata, failed
-                        FROM audio_features_old
-                        """)
-                        self.conn.execute("DROP TABLE audio_features_old")
-                        break
-            self._verify_db_schema()
+
             self.conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
-    def _verify_db_schema(self):
-        """Ensure all required columns exist with correct types"""
-        cursor = self.conn.cursor()
-        cursor.execute("PRAGMA table_info(audio_features)")
-        existing_columns = {row[1]: row[2] for row in cursor.fetchall()}
 
-        required_columns = {
-            'loudness': 'REAL DEFAULT 0',
-            'danceability': 'REAL DEFAULT 0',
-            'key': 'TEXT DEFAULT ""',
-            'scale': 'TEXT DEFAULT "major"',
-            'key_strength': 'REAL DEFAULT 0',
-            'onset_rate': 'REAL DEFAULT 0',
-            'zcr': 'REAL DEFAULT 0',
-            'metadata': 'JSON',
-            'mfcc': 'JSON',
-            'chroma': 'JSON',
-            'spectral_contrast': 'REAL',
-            'spectral_flatness': 'REAL DEFAULT 0',
-            'spectral_rolloff': 'REAL DEFAULT 0',
-            'musicnn_tags': 'JSON'
-        }
-
-        for col, col_type in required_columns.items():
-            if col not in existing_columns:
-                logger.info(f"Adding missing column {col} to database")
-                self.conn.execute(
-                    f"ALTER TABLE audio_features ADD COLUMN {col} {col_type}")
 
 
 
