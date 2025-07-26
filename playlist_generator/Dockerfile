@@ -1,20 +1,4 @@
-# --- Build stage ---
-FROM python:3.11-slim-bullseye AS builder
-
-# Install build dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    libfftw3-dev \
-    libtag1-dev
-
-# Install Python dependencies in a virtualenv (for clean copy)
-WORKDIR /install
-COPY requirements.txt .
-RUN pip install --prefix=/install/deps --no-cache-dir -r requirements.txt
-
-# --- Final stage ---
-FROM python:3.11-slim-bullseye
+FROM python:3.7-slim-bullseye
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -39,7 +23,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy only the installed Python packages from builder
-COPY --from=builder /install/deps /usr/local
+# COPY --from=builder /install/deps /usr/local # This line is removed as per the new_code
 
 # Set working directory
 WORKDIR /app
@@ -63,17 +47,17 @@ ENV PYTHONPATH=/app
 ENV MODEL_DIR=/app/feature_extraction/models
 
 # Create __init__.py files to make directories importable
-RUN touch /app/database/__init__.py && \
-    touch /app/music_analyzer/__init__.py && \
-    touch /app/playlist_generator/__init__.py
+# RUN touch /app/database/__init__.py && \ # This line is removed as per the new_code
+#     touch /app/music_analyzer/__init__.py && \ # This line is removed as per the new_code
+#     touch /app/playlist_generator/__init__.py # This line is removed as per the new_code
 
 # Create directories with proper permissions
-RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \
-    chmod -R 777 /app/playlists /app/cache
+# RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \ # This line is removed as per the new_code
+#     chmod -R 777 /app/playlists /app/cache # This line is removed as per the new_code
 
 # Make playlista executable and add to PATH
-RUN chmod +x /app/playlista
-ENV PATH="${PATH}:/app"
+# RUN chmod +x /app/playlista # This line is removed as per the new_code
+# ENV PATH="${PATH}:/app" # This line is removed as per the new_code
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -82,4 +66,4 @@ ENV PYTHONUNBUFFERED=1 \
     CACHE_DIR=/app/cache 
 
 # Default command
-CMD ["python", "playlista"]
+CMD ["playlista"]

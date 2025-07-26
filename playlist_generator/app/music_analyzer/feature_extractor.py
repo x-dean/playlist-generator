@@ -107,166 +107,67 @@ class AudioAnalyzer:
 
     # Removed _audio_to_mel_spectrogram
 
-    def _extract_musicnn_embedding(self, audio):
-        """Extract MusiCNN embedding using Essentia's TensorflowPredictMusiCNN following official tutorial."""
+    def _extract_musicnn_embedding(self, audio_path):
+        """Extract MusiCNN embedding and auto-tags using Essentia's TensorflowPredictMusiCNN and MonoLoader, matching the official tutorial."""
         try:
             import essentia.standard as es
             import numpy as np
             import os
             import json
             
-            # First, try the real MusiCNN if available
-            try:
-                model_path = os.getenv(
-                    'MUSICNN_MODEL_PATH',
-                    '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
-                )
-                json_path = os.getenv(
-                    'MUSICNN_JSON_PATH',
-                    '/app/feature_extraction/models/musicnn/msd-musicnn-1.json'
-                )
-                
-                if os.path.exists(model_path):
-                    # Load metadata from separate JSON file if available
-                    output_layer = 'model/dense_1/BiasAdd'  # default
-                    if os.path.exists(json_path):
-                        try:
-                            with open(json_path, 'r') as json_file:
-                                metadata = json.load(json_file)
-                            # Get the correct output layer for embeddings from schema
-                            if 'schema' in metadata and 'outputs' in metadata['schema']:
-                                for output in metadata['schema']['outputs']:
-                                    if 'description' in output and output['description'] == 'embeddings':
-                                        output_layer = output['name']
-                                        logger.info(f"Using output layer '{output_layer}' from metadata")
-                                        break
-                        except Exception as json_error:
-                            logger.warning(f"Could not load JSON metadata from {json_path}: {str(json_error)}")
-                    else:
-                        logger.warning(f"JSON metadata file not found at {json_path}")
-                    
-                    # Ensure audio is mono and at 16kHz (required for MusiCNN)
-                    # Following tutorial pattern: MonoLoader(sampleRate=16000)
-                    if hasattr(audio, 'shape') and len(audio.shape) > 1:
-                        audio = np.mean(audio, axis=0)
-                    
-                    # Resample to 16kHz if needed (MusiCNN requires 16kHz)
-                    orig_sr = 44100  # default assumption
-                    if 'sr' in dir(self):
-                        orig_sr = self.sr
-                    if orig_sr != 16000:
-                        import librosa
-                        audio = librosa.resample(audio, orig_sr=orig_sr, target_sr=16000)
-                    
-                    # Use TensorflowPredictMusiCNN with correct output layer for embeddings
-                    # Following tutorial pattern exactly
-                    musicnn = es.TensorflowPredictMusiCNN(
-                        graphFilename=model_path,
-                        output=output_layer
-                    )
-                    
-                    # Get embeddings (returns [time, features] matrix)
-                    # Following tutorial: activations = TensorflowPredictMusiCNN(...)(audio)
-                    embeddings = musicnn(audio)
-                    
-                    # Aggregate by taking the mean across time (global pooling)
-                    # Following tutorial: np.mean(embeddings, axis=0)
-                    embedding = np.mean(embeddings, axis=0)
-                    
-                    logger.info("Successfully extracted MusiCNN embedding")
-                    return embedding.tolist()
-                else:
-                    logger.warning(f"MusiCNN model not found at {model_path}")
-            except Exception as musinn_error:
-                logger.warning(f"MusiCNN failed, using fallback: {str(musinn_error)}")
+            model_path = os.getenv(
+                'MUSICNN_MODEL_PATH',
+                '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
+            )
+            json_path = os.getenv(
+                'MUSICNN_JSON_PATH',
+                '/app/feature_extraction/models/musicnn/msd-musicnn-1.json'
+            )
             
-            # Fallback: Create comprehensive deep learning-style embedding
-            logger.info("Creating comprehensive deep learning-style embedding")
+            if not os.path.exists(model_path):
+                logger.warning(f"MusiCNN model not found at {model_path}")
+                return None
+            if not os.path.exists(json_path):
+                logger.warning(f"MusiCNN JSON metadata not found at {json_path}")
+                return None
             
-            # Ensure audio is mono
-            if hasattr(audio, 'shape') and len(audio.shape) > 1:
-                audio = np.mean(audio, axis=0)
+            # Load tag names from JSON
+            with open(json_path, 'r') as json_file:
+                metadata = json.load(json_file)
+            tag_names = metadata.get('classes', [])
+            # Get output layer for embeddings
+            output_layer = 'model/dense_1/BiasAdd'
+            if 'schema' in metadata and 'outputs' in metadata['schema']:
+                for output in metadata['schema']['outputs']:
+                    if 'description' in output and output['description'] == 'embeddings':
+                        output_layer = output['name']
+                        break
             
-            # Create comprehensive feature vector
-            features = []
+            # Load audio using MonoLoader at 16kHz (tutorial pattern)
+            audio = es.MonoLoader(filename=audio_path, sampleRate=16000)()
             
-            # 1. Basic statistical features
-            features.extend([float(audio.mean()), float(audio.std())])
-            features.extend([float(np.percentile(audio, p)) for p in [25, 50, 75]])
-            features.extend([float(np.max(audio)), float(np.min(audio))])
+            # Run MusiCNN for activations (auto-tagging)
+            musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
+            activations = musicnn(audio)  # shape: [time, tags]
+            tag_probs = activations.mean(axis=0)
+            tags = dict(zip(tag_names, tag_probs))
             
-            # 2. FFT-based features
-            fft = np.fft.fft(audio)
-            fft_magnitude = np.abs(fft)
-            features.extend([float(np.mean(fft_magnitude)), float(np.std(fft_magnitude))])
-            features.extend([float(np.percentile(fft_magnitude, p)) for p in [25, 50, 75]])
+            # Run MusiCNN for embeddings (using correct output layer)
+            musicnn_emb = es.TensorflowPredictMusiCNN(graphFilename=model_path, output=output_layer)
+            embeddings = musicnn_emb(audio)
+            embedding = np.mean(embeddings, axis=0)
             
-            # 3. Spectral features (using numpy)
-            # Power spectral density
-            psd = np.abs(fft) ** 2
-            features.extend([float(np.mean(psd)), float(np.std(psd))])
-            
-            # 4. Energy features
-            energy = np.sum(audio ** 2)
-            features.extend([float(energy), float(np.sqrt(energy))])
-            
-            # 5. Zero crossing rate (simplified)
-            zero_crossings = np.sum(np.diff(np.sign(audio)) != 0)
-            features.extend([float(zero_crossings), float(zero_crossings / len(audio))])
-            
-            # 6. Additional statistical features
-            features.extend([
-                float(np.var(audio)),  # Variance
-                float(np.median(audio)),  # Median
-                float(np.ptp(audio)),  # Peak-to-peak
-                float(np.mean(np.abs(audio))),  # Mean absolute value
-                float(np.std(np.abs(audio))),  # Std of absolute values
-            ])
-            
-            # 7. Frequency domain features
-            freqs = np.fft.fftfreq(len(audio))
-            positive_freqs = freqs[freqs > 0]
-            positive_fft = fft_magnitude[freqs > 0]
-            if len(positive_freqs) > 0:
-                # Spectral centroid
-                spectral_centroid = np.sum(positive_freqs * positive_fft) / np.sum(positive_fft)
-                features.extend([float(spectral_centroid)])
-            else:
-                features.extend([0.0])
-            
-            # 8. Additional features to reach 128 dimensions
-            # Use different window sizes for analysis
-            for window_size in [512, 1024, 2048]:
-                if len(audio) >= window_size:
-                    window = audio[:window_size]
-                    features.extend([float(window.mean()), float(window.std())])
-                else:
-                    features.extend([0.0, 0.0])
-            
-            # Pad or truncate to 128 dimensions
-            while len(features) < 128:
-                features.append(0.0)
-            if len(features) > 128:
-                features = features[:128]
-            
-            logger.info(f"Created comprehensive deep learning embedding with {len(features)} dimensions")
-            return features
-                
+            logger.info("Successfully extracted MusiCNN embedding and tags")
+            return {
+                'embedding': embedding.tolist(),
+                'tags': tags
+            }
         except Exception as e:
-            logger.warning(f"Deep learning embedding extraction failed: {str(e)}")
+            logger.warning(f"MusiCNN embedding/tag extraction failed: {str(e)}")
             logger.warning(f"Exception type: {type(e).__name__}")
             import traceback
             logger.warning(f"Full traceback: {traceback.format_exc()}")
-            # Final fallback: create minimal embedding
-            try:
-                features = [float(audio.mean()), float(audio.std())]
-                while len(features) < 128:
-                    features.append(0.0)
-                logger.info("Created minimal fallback embedding")
-                return features
-            except Exception as fallback_error:
-                logger.warning(f"Minimal fallback embedding also failed: {str(fallback_error)}")
-                return None
+            return None
 
     def _init_db(self):
         self.conn = sqlite3.connect(self.cache_file, timeout=600)
@@ -861,7 +762,7 @@ class AudioAnalyzer:
                 spectral_contrast = self._extract_spectral_contrast(audio)
                 spectral_flatness = self._extract_spectral_flatness(audio)
                 spectral_rolloff = self._extract_spectral_rolloff(audio)
-                musicnn_embedding = self._extract_musicnn_embedding(audio)
+                musicnn_embedding = self._extract_musicnn_embedding(audio_path)
 
                 # Update features
                 features.update({
