@@ -456,28 +456,33 @@ class AudioAnalyzer:
 
     def _musicbrainz_lookup(self, artist, title):
         try:
-            # Request more fields for playlisting
-            result = musicbrainzngs.search_recordings(
-                artist=artist, recording=title, limit=1, includes=[
-                    'artists', 'releases', 'tags', 'isrcs', 'work-rels', 'artist-credits', 'artist-rels', 'release-groups', 'labels', 'aliases', 'recording-rels'
-                ]
-            )
+            # Step 1: Search for the recording
+            result = musicbrainzngs.search_recordings(artist=artist, recording=title, limit=1)
             if result['recording-list']:
                 rec = result['recording-list'][0]
+                mbid = rec['id']
+                # Step 2: Lookup by MBID for full info
+                rec_full = musicbrainzngs.get_recording_by_id(
+                    mbid,
+                    includes=[
+                        'artists', 'releases', 'tags', 'isrcs', 'work-rels', 'artist-credits',
+                        'artist-rels', 'release-groups', 'labels', 'aliases', 'recording-rels'
+                    ]
+                )['recording']
                 tags = {
-                    'artist': rec['artist-credit'][0]['artist']['name'] if 'artist-credit' in rec and rec['artist-credit'] else None,
-                    'title': rec['title'],
-                    'album': rec['release-list'][0]['title'] if 'release-list' in rec and rec['release-list'] else None,
-                    'release_date': rec['release-list'][0].get('date') if 'release-list' in rec and rec['release-list'] and 'date' in rec['release-list'][0] else None,
-                    'country': rec['release-list'][0].get('country') if 'release-list' in rec and rec['release-list'] and 'country' in rec['release-list'][0] else None,
-                    'label': rec['release-list'][0]['label-info-list'][0]['label']['name'] if 'release-list' in rec and rec['release-list'] and 'label-info-list' in rec['release-list'][0] and rec['release-list'][0]['label-info-list'] else None,
-                    'genre': [tag['name'] for tag in rec.get('tag-list', [])],
-                    'musicbrainz_id': rec['id'],
-                    'isrc': rec.get('isrc-list', [None])[0],
-                    'mb_artist_id': rec['artist-credit'][0]['artist']['id'] if 'artist-credit' in rec and rec['artist-credit'] else None,
-                    'mb_album_id': rec['release-list'][0]['id'] if 'release-list' in rec and rec['release-list'] else None,
-                    'work': rec['work-relation-list'][0]['work']['title'] if 'work-relation-list' in rec and rec['work-relation-list'] else None,
-                    'composer': rec['work-relation-list'][0]['work']['artist-relation-list'][0]['artist']['name'] if 'work-relation-list' in rec and rec['work-relation-list'] and 'artist-relation-list' in rec['work-relation-list'][0]['work'] and rec['work-relation-list'][0]['work']['artist-relation-list'] else None,
+                    'artist': rec_full['artist-credit'][0]['artist']['name'] if 'artist-credit' in rec_full and rec_full['artist-credit'] else None,
+                    'title': rec_full['title'],
+                    'album': rec_full['releases'][0]['title'] if 'releases' in rec_full and rec_full['releases'] else None,
+                    'release_date': rec_full['releases'][0].get('date') if 'releases' in rec_full and rec_full['releases'] and 'date' in rec_full['releases'][0] else None,
+                    'country': rec_full['releases'][0].get('country') if 'releases' in rec_full and rec_full['releases'] and 'country' in rec_full['releases'][0] else None,
+                    'label': rec_full['releases'][0]['label-info-list'][0]['label']['name'] if 'releases' in rec_full and rec_full['releases'] and 'label-info-list' in rec_full['releases'][0] and rec_full['releases'][0]['label-info-list'] else None,
+                    'genre': [tag['name'] for tag in rec_full.get('tag-list', [])],
+                    'musicbrainz_id': rec_full['id'],
+                    'isrc': rec_full.get('isrc-list', [None])[0],
+                    'mb_artist_id': rec_full['artist-credit'][0]['artist']['id'] if 'artist-credit' in rec_full and rec_full['artist-credit'] else None,
+                    'mb_album_id': rec_full['releases'][0]['id'] if 'releases' in rec_full and rec_full['releases'] else None,
+                    'work': rec_full['work-relation-list'][0]['work']['title'] if 'work-relation-list' in rec_full and rec_full['work-relation-list'] else None,
+                    'composer': rec_full['work-relation-list'][0]['work']['artist-relation-list'][0]['artist']['name'] if 'work-relation-list' in rec_full and rec_full['work-relation-list'] and 'artist-relation-list' in rec_full['work-relation-list'][0]['work'] and rec_full['work-relation-list'][0]['work']['artist-relation-list'] else None,
                 }
                 return tags
         except Exception as e:
@@ -485,7 +490,6 @@ class AudioAnalyzer:
         return {}
 
     def _lastfm_lookup(self, artist, title):
-        """Query Last.fm for track info if MusicBrainz is missing fields."""
         api_key = os.getenv('LASTFM_API_KEY')
         if not api_key:
             logger.warning("LASTFM_API_KEY not set; skipping Last.fm enrichment.")
@@ -505,11 +509,11 @@ class AudioAnalyzer:
             track = data.get('track', {})
             tags = track.get('toptags', {}).get('tag', [])
             genre = [t['name'] for t in tags] if tags else None
-            album = track.get('album', {}).get('title')
-            listeners = track.get('listeners')
-            playcount = track.get('playcount')
-            wiki = track.get('wiki', {}).get('summary')
-            album_mbid = track.get('album', {}).get('mbid')
+            album = track.get('album', {}).get('title') if 'album' in track else None
+            listeners = track.get('listeners') if 'listeners' in track else None
+            playcount = track.get('playcount') if 'playcount' in track else None
+            wiki = track.get('wiki', {}).get('summary') if 'wiki' in track else None
+            album_mbid = track.get('album', {}).get('mbid') if 'album' in track else None
             artist_mbid = track.get('artist', {}).get('mbid') if isinstance(track.get('artist'), dict) else None
             return {
                 'genre_lastfm': genre,
