@@ -335,28 +335,21 @@ def _get_active_workers():
         active_workers = 0
         
         # Count child processes that are likely workers
-        for proc in psutil.process_iter(['pid', 'ppid', 'name', 'cmdline']):
+        for proc in psutil.process_iter(['pid', 'ppid', 'name']):
             try:
                 proc_info = proc.info
-                # Check if it's a child of our process and looks like a worker
+                # Check if it's a child of our process
                 if (proc_info['ppid'] == current_pid and 
                     proc_info['name'] and 
                     'python' in proc_info['name'].lower()):
-                    # Additional check for worker processes
-                    if proc_info['cmdline'] and any('worker' in arg.lower() or 'process' in arg.lower() for arg in proc_info['cmdline']):
-                        active_workers += 1
+                    active_workers += 1
             except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                 continue
         
-        # If we can't detect workers properly, return a reasonable estimate
+        # If we can't detect workers properly, use a simple estimate
         if active_workers == 0:
-            # Try to estimate based on CPU cores being used
-            cpu_count = psutil.cpu_count()
-            cpu_percent = psutil.cpu_percent(interval=0.1)
-            if cpu_percent > 50:  # If CPU usage is high, assume workers are active
-                active_workers = min(cpu_count, 4)  # Reasonable estimate
-            else:
-                active_workers = 1  # At least one worker
+            # Simple fallback - assume 1 worker if we can't detect
+            active_workers = 1
         
         return active_workers
     except Exception as e:
@@ -364,7 +357,7 @@ def _get_active_workers():
         return 1  # Fallback to 1 worker
 
 def _display_resource_usage(total_workers):
-    """Display current resource usage under progress bar."""
+    """Display current resource usage in a fixed position."""
     resources = _get_system_resources()
     active_workers = _get_active_workers()
     
@@ -373,7 +366,7 @@ def _display_resource_usage(total_workers):
     memory_info = f"RAM: {resources['memory_used_gb']:.1f}GB/{resources['memory_total_gb']:.1f}GB ({resources['memory_percent']:.1f}%)"
     worker_info = f"Workers: {active_workers}/{total_workers}"
     
-    # Print resource usage with carriage return to update in place
+    # Print resource usage in a fixed position (overwrites the same line)
     print(f"\r[dim]📊 {cpu_info} | {memory_info} | {worker_info}[/dim]", end="", flush=True)
 
 # --- Main Orchestration ---
@@ -430,7 +423,7 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         # Start dynamic resource monitoring thread
         resource_stop_event = threading.Event()
         def resource_monitor():
-            refresh_rate = 3.0  # Update every 3 seconds (less frequent)
+            refresh_rate = 2.0  # Update every 2 seconds
             while not resource_stop_event.is_set():
                 _display_resource_usage(workers)
                 time.sleep(refresh_rate)
@@ -468,9 +461,8 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         resource_stop_event.set()
         monitor_thread.join(timeout=1.0)
         
-        # Final resource usage display
-        _display_resource_usage(workers)
-        print()  # New line after resource display
+        # Final newline to clear the resource display
+        print()
         
         logger.info(f"Processing loop completed. Processed {processed_count} files out of {len(files_to_analyze)}")
     
