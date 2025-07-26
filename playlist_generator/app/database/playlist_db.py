@@ -149,7 +149,8 @@ class PlaylistDatabase:
                 cursor.execute("""
                 SELECT stats FROM playlists WHERE name = ?
                 """, (name,))
-                if result := cursor.fetchone():
+                result = cursor.fetchone()
+                if result:
                     return json.loads(result['stats']) if result['stats'] else {}
                 return {}
             

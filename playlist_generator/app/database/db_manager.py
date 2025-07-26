@@ -180,7 +180,8 @@ class DatabaseManager:
             FROM playlists WHERE name = ?
             """, (name,))
             
-            if playlist := cursor.fetchone():
+            playlist = cursor.fetchone()
+            if playlist:
                 result = dict(playlist)
                 
                 # Get tracks with features
@@ -224,7 +225,8 @@ class DatabaseManager:
             "SELECT file_hash FROM audio_features WHERE file_path = ?",
             (file_path,)
         )
-        if result := cursor.fetchone():
+        result = cursor.fetchone()
+        if result:
             return result[0]
         return None
 
@@ -261,7 +263,8 @@ class DatabaseManager:
             WHERE key = ? AND (expires IS NULL OR expires > datetime(?))
             """, (key, datetime.now().timestamp()))
             
-            if result := cursor.fetchone():
+            result = cursor.fetchone()
+            if result:
                 value = json.loads(result['value'])
                 metadata = json.loads(result['metadata']) if result['metadata'] else None
                 return {'value': value, 'metadata': metadata}

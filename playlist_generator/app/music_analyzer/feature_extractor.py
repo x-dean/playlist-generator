@@ -890,7 +890,7 @@ class AudioAnalyzer:
         """Remove entries for files that no longer exist.
 
         Returns:
-            list[str]: List of file paths that were removed from the database.
+            List[str]: List of file paths that were removed from the database.
         """
         try:
             cursor = self.conn.cursor()
