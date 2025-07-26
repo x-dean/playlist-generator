@@ -171,10 +171,7 @@ os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
 os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
 cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-logfile_path = '/app/logs/playlista.log'
-logfile = open(logfile_path, 'a')
-os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
-sys.stderr = logfile  # Also update Python's sys.stderr
+# Logging is handled by logging_setup.py - no need for duplicate setup
 
 
 def get_audio_files(music_dir: str) -> List[str]:
