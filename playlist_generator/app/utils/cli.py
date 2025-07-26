@@ -1,3 +1,4 @@
+from typing import Tuple, Dict, Any, List, Optional
 import argparse
 import logging
 import threading
@@ -14,17 +15,17 @@ from datetime import datetime
 import os
 # Default logging level
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
-import logging
 logging.getLogger().setLevel(getattr(logging, LOG_LEVEL.upper(), logging.DEBUG))
 
 logger = logging.getLogger(__name__)
 
-from typing import Tuple, Dict, Any, List, Optional
 
 # Remove queue-based log handler and consumer thread setup from this file
 
+
 class PlaylistGeneratorCLI:
     """Rich CLI for the Playlist Generator application."""
+
     def __init__(self) -> None:
         """Initialize the CLI interface."""
         self.console = Console()
@@ -80,7 +81,8 @@ class PlaylistGeneratorCLI:
 
         # Stats table
         table = Table(show_header=True, header_style="bold magenta")
-        table.add_column("Playlist", style="cyan", max_width=28, overflow="fold")
+        table.add_column("Playlist", style="cyan",
+                         max_width=28, overflow="fold")
         table.add_column("Tracks", justify="right", style="green")
         table.add_column("Duration", justify="right", style="green")
         table.add_column("Avg BPM", justify="right", style="yellow")
@@ -97,7 +99,8 @@ class PlaylistGeneratorCLI:
                     f"{playlist_stats.get('avg_danceability', 0):.2f}"
                 )
             except (TypeError, KeyError, AttributeError) as e:
-                logger.warning(f"Error adding stats for playlist {name}: {str(e)}")
+                logger.warning(
+                    f"Error adding stats for playlist {name}: {str(e)}")
                 table.add_row(name, "Error", "Error", "Error", "Error")
 
         layout["stats"].update(table)
@@ -131,12 +134,14 @@ class PlaylistGeneratorCLI:
 
                 key_tables.append(key_table)
             except Exception as e:
-                logger.warning(f"Error creating key distribution table for {name}: {str(e)}")
+                logger.warning(
+                    f"Error creating key distribution table for {name}: {str(e)}")
 
         if key_tables:
             # Only show up to 3 key tables at once for readability
             keys_layout = Layout()
-            keys_layout.split_column(*[Layout(table) for table in key_tables[:3]])
+            keys_layout.split_column(*[Layout(table)
+                                     for table in key_tables[:3]])
             layout["keys"].update(keys_layout)
             if len(key_tables) > 3:
                 self.console.print(Panel(
@@ -156,7 +161,7 @@ class PlaylistGeneratorCLI:
         text = f"[bold red]Error:[/bold red] {error}"
         if details:
             text += f"\n\n[dim]{details}[/dim]"
-        
+
         self.console.print(Panel(
             text,
             title="❌ Error",
@@ -176,7 +181,8 @@ class PlaylistGeneratorCLI:
         if not failed_files:
             return
 
-        table = Table(title="Failed Files", show_header=True, header_style="bold red")
+        table = Table(title="Failed Files", show_header=True,
+                      header_style="bold red")
         table.add_column("File", style="red")
         table.add_column("Status", style="yellow")
 
@@ -188,7 +194,7 @@ class PlaylistGeneratorCLI:
     def show_session_summary(self, stats: Dict[str, Any]):
         """Display session summary"""
         duration = time.time() - self.start_time
-        
+
         panel = Panel(
             f"""[bold green]Session Complete[/bold green]
 
@@ -200,7 +206,7 @@ Failed Files: {stats.get('failed_files', 0)}
             title="📊 Session Summary",
             border_style="blue"
         )
-        
+
         self.console.print(panel)
 
     def prompt_continue(self, message: str) -> bool:
@@ -215,7 +221,8 @@ Failed Files: {stats.get('failed_files', 0)}
         """Display library/database statistics in a rich table (no outer panel). Also show genre breakdown tables."""
         from rich.table import Table
         # Main stats table (match show_config style)
-        table = Table(title="Status", show_header=True, header_style="bold magenta")
+        table = Table(title="Status", show_header=True,
+                      header_style="bold magenta")
         table.add_column("Stat", style="cyan")
         table.add_column("Value", style="green")
         # Playlist Stats section
@@ -226,65 +233,87 @@ Failed Files: {stats.get('failed_files', 0)}
             for mode, count in playlists_per_mode.items():
                 table.add_row(f"  Playlists ({mode})", str(count))
         if 'avg_playlist_size' in stats:
-            table.add_row("  Avg Playlist Size", f"{stats['avg_playlist_size']:.2f}")
+            table.add_row("  Avg Playlist Size",
+                          f"{stats['avg_playlist_size']:.2f}")
         if 'largest_playlist_size' in stats:
-            table.add_row("  Largest Playlist Size", str(stats['largest_playlist_size']))
+            table.add_row("  Largest Playlist Size", str(
+                stats['largest_playlist_size']))
         if 'smallest_playlist_size' in stats:
-            table.add_row("  Smallest Playlist Size", str(stats['smallest_playlist_size']))
+            table.add_row("  Smallest Playlist Size", str(
+                stats['smallest_playlist_size']))
         if 'playlists_with_0_tracks' in stats:
-            table.add_row("  Playlists with 0 Tracks", str(stats['playlists_with_0_tracks']))
+            table.add_row("  Playlists with 0 Tracks", str(
+                stats['playlists_with_0_tracks']))
         # Track Stats section
         table.add_row("─" * 30, "─" * 30)
         table.add_row(Text("Track Stats", style="bold magenta"), "")
         table.add_row("  Total Tracks", str(stats.get('total_tracks', 0)))
-        table.add_row("  Tracks with Tags", str(stats.get('tracks_with_tags', 0)))
-        table.add_row("  Tracks with Year", str(stats.get('tracks_with_year', 0)))
+        table.add_row("  Tracks with Tags", str(
+            stats.get('tracks_with_tags', 0)))
+        table.add_row("  Tracks with Year", str(
+            stats.get('tracks_with_year', 0)))
         # Use deduplicated count for Tracks with Genre
-        table.add_row("  Tracks with Genre", str(stats.get('tracks_with_real_genre', 0)))
+        table.add_row("  Tracks with Genre", str(
+            stats.get('tracks_with_real_genre', 0)))
         if 'skipped_failed' in stats:
-            table.add_row("  Skipped (Failed) Files", str(stats['skipped_failed']))
+            table.add_row("  Skipped (Failed) Files",
+                          str(stats['skipped_failed']))
         if 'tracks_not_in_any_playlist' in stats:
-            table.add_row("  Tracks Not in Any Playlist", str(stats['tracks_not_in_any_playlist']))
+            table.add_row("  Tracks Not in Any Playlist", str(
+                stats['tracks_not_in_any_playlist']))
         if 'tracks_in_multiple_playlists' in stats:
-            table.add_row("  Tracks in Multiple Playlists", str(stats['tracks_in_multiple_playlists']))
+            table.add_row("  Tracks in Multiple Playlists", str(
+                stats['tracks_in_multiple_playlists']))
         if 'tracks_with_multiple_genres' in stats:
-            table.add_row("  Tracks with Multiple Genres", str(stats['tracks_with_multiple_genres']))
+            table.add_row("  Tracks with Multiple Genres", str(
+                stats['tracks_with_multiple_genres']))
         # Genre Stats section
         table.add_row("─" * 30, "─" * 30)
         table.add_row(Text("Genre Stats", style="bold magenta"), "")
         genre_counts = stats.get('genre_counts', {})
         if 'tracks_with_real_genre' in stats:
-            table.add_row("  Track with genres", str(stats['tracks_with_real_genre']))
+            table.add_row("  Track with genres", str(
+                stats['tracks_with_real_genre']))
         if 'tracks_with_no_real_genre' in stats:
-            table.add_row("  Others (no genres)", str(stats['tracks_with_no_real_genre']))
-            unique_genres = len([g for g in genre_counts if g not in ("Other", "UnknownGenre", "", None)])
+            table.add_row("  Others (no genres)", str(
+                stats['tracks_with_no_real_genre']))
+            unique_genres = len(
+                [g for g in genre_counts if g not in ("Other", "UnknownGenre", "", None)])
             table.add_row("  Unique Genres", str(unique_genres))
             if unique_genres > 0:
-                most_common = max(((g, c) for g, c in genre_counts.items() if g not in ("Other", "UnknownGenre", "", None)), key=lambda x: x[1])
-                table.add_row("  Most Common Genre", f"{most_common[0]} ({most_common[1]})")
+                most_common = max(((g, c) for g, c in genre_counts.items() if g not in (
+                    "Other", "UnknownGenre", "", None)), key=lambda x: x[1])
+                table.add_row("  Most Common Genre",
+                              f"{most_common[0]} ({most_common[1]})")
             if 'top_5_genres' in stats and stats['top_5_genres']:
-                top_genres = ", ".join([f"{g} ({c})" for g, c in stats['top_5_genres']])
+                top_genres = ", ".join(
+                    [f"{g} ({c})" for g, c in stats['top_5_genres']])
                 table.add_row("  Top 5 Genres", top_genres)
         # File Stats section
         table.add_row("─" * 30, "─" * 30)
         table.add_row(Text("File Stats", style="bold magenta"), "")
         if 'unique_file_extensions' in stats:
-            table.add_row("  Unique File Extensions", ", ".join(stats['unique_file_extensions']))
+            table.add_row("  Unique File Extensions", ", ".join(
+                stats['unique_file_extensions']))
         if 'tracks_per_extension' in stats:
-            ext_counts = ", ".join([f"{ext}: {count}" for ext, count in stats['tracks_per_extension'].items()])
+            ext_counts = ", ".join(
+                [f"{ext}: {count}" for ext, count in stats['tracks_per_extension'].items()])
             table.add_row("  Tracks per Extension", ext_counts)
         # Dates section
         table.add_row("─" * 30, "─" * 30)
         table.add_row(Text("Dates", style="bold magenta"), "")
         if 'last_analysis_date' in stats:
-            table.add_row("  Last Analysis Date", str(stats['last_analysis_date']))
+            table.add_row("  Last Analysis Date", str(
+                stats['last_analysis_date']))
         if 'last_playlist_update_date' in stats:
-            table.add_row("  Last Playlist Update Date", str(stats['last_playlist_update_date']))
+            table.add_row("  Last Playlist Update Date", str(
+                stats['last_playlist_update_date']))
         self.console.print(table)
         # Playlist membership histogram (if present)
         hist = stats.get('track_playlist_membership', {})
         if hist:
-            hist_table = Table(title="Track Playlist Membership", show_header=True, header_style="bold magenta")
+            hist_table = Table(title="Track Playlist Membership",
+                               show_header=True, header_style="bold magenta")
             hist_table.add_column("# Playlists", justify="right", style="cyan")
             hist_table.add_column("# Tracks", justify="right", style="green")
             for n in sorted(hist):
@@ -296,18 +325,22 @@ Failed Files: {stats.get('failed_files', 0)}
 
     def show_analysis_summary(self, stats: dict, processed_this_run: int, failed_this_run: int, total_found: int, total_in_db: int, total_failed: int):
         from rich.table import Table
-        summary_table = Table(title="Summary after analysis", show_header=True, header_style="bold magenta")
+        summary_table = Table(title="Summary after analysis",
+                              show_header=True, header_style="bold magenta")
         summary_table.add_column("Stat", style="cyan")
         summary_table.add_column("Value", style="green")
-        summary_table.add_row("Total tracks found in directory", str(total_found))
+        summary_table.add_row(
+            "Total tracks found in directory", str(total_found))
         summary_table.add_row("Total tracks in database", str(total_in_db))
         summary_table.add_row("Total failed tracks (in db)", str(total_failed))
         summary_table.add_row("Processed this run", str(processed_this_run))
         summary_table.add_row("Failed this run", str(failed_this_run))
         self.console.print(summary_table)
 
+
 class CLIContextManager:
     """Context manager for CLI progress tracking"""
+
     def __init__(self, cli: PlaylistGeneratorCLI, total: int, description: str):
         self.cli = cli
         self.total = total
@@ -316,97 +349,112 @@ class CLIContextManager:
         self.task_id = None
 
     def __enter__(self) -> Tuple[Progress, int]:
-        self.progress, self.task_id = self.cli.create_progress(self.description, self.total)
+        self.progress, self.task_id = self.cli.create_progress(
+            self.description, self.total)
         return self.progress, self.task_id
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.progress:
-            self.progress.stop() 
+            self.progress.stop()
+
 
 class CLI:
     """Command-line interface utilities."""
-    
+
     def __init__(self):
         self.console = Console()
         logger.debug("Initialized CLI with Rich console")
-    
-    def show_analysis_summary(self, stats: Dict[str, Any], processed_this_run: int = 0, 
-                            failed_this_run: int = 0, total_found: int = 0, 
-                            total_in_db: int = 0, total_failed: int = 0):
+
+    def show_analysis_summary(self, stats: Dict[str, Any], processed_this_run: int = 0,
+                              failed_this_run: int = 0, total_found: int = 0,
+                              total_in_db: int = 0, total_failed: int = 0):
         """Display analysis summary with statistics."""
         logger.debug("Displaying analysis summary")
-        logger.debug(f"Summary stats: processed={processed_this_run}, failed={failed_this_run}, total_found={total_found}, total_in_db={total_in_db}, total_failed={total_failed}")
-        
+        logger.debug(
+            f"Summary stats: processed={processed_this_run}, failed={failed_this_run}, total_found={total_found}, total_in_db={total_in_db}, total_failed={total_failed}")
+
         try:
             # Create summary table
-            table = Table(title="Analysis Summary", show_header=True, header_style="bold magenta")
+            table = Table(title="Analysis Summary",
+                          show_header=True, header_style="bold magenta")
             table.add_column("Metric", style="cyan", no_wrap=True)
             table.add_column("Value", style="green")
-            
+
             table.add_row("Files Processed This Run", str(processed_this_run))
             table.add_row("Files Failed This Run", str(failed_this_run))
             table.add_row("Total Files Found", str(total_found))
             table.add_row("Total Files in Database", str(total_in_db))
             table.add_row("Total Failed Files", str(total_failed))
-            
+
             if stats:
-                table.add_row("Total Tracks", str(stats.get('total_tracks', 0)))
-                table.add_row("Unique Tracks", str(stats.get('unique_tracks', 0)))
-                table.add_row("Total Playlists", str(stats.get('total_playlists', 0)))
-            
+                table.add_row("Total Tracks", str(
+                    stats.get('total_tracks', 0)))
+                table.add_row("Unique Tracks", str(
+                    stats.get('unique_tracks', 0)))
+                table.add_row("Total Playlists", str(
+                    stats.get('total_playlists', 0)))
+
             self.console.print(table)
             logger.info("Analysis summary displayed successfully")
-            
+
         except Exception as e:
             logger.error(f"Error displaying analysis summary: {str(e)}")
             import traceback
-            logger.error(f"Analysis summary error traceback: {traceback.format_exc()}")
-    
+            logger.error(
+                f"Analysis summary error traceback: {traceback.format_exc()}")
+
     def show_playlist_summary(self, playlists: Dict[str, Dict[str, Any]]):
         """Display playlist generation summary."""
-        logger.debug(f"Displaying playlist summary for {len(playlists)} playlists")
-        
+        logger.debug(
+            f"Displaying playlist summary for {len(playlists)} playlists")
+
         try:
             if not playlists:
-                self.console.print(Panel("No playlists generated", style="yellow"))
+                self.console.print(
+                    Panel("No playlists generated", style="yellow"))
                 logger.warning("No playlists to display")
                 return
-            
+
             # Create playlist table
-            table = Table(title="Generated Playlists", show_header=True, header_style="bold magenta")
+            table = Table(title="Generated Playlists",
+                          show_header=True, header_style="bold magenta")
             table.add_column("Playlist Name", style="cyan", no_wrap=True)
             table.add_column("Track Count", style="green", justify="right")
             table.add_column("Type", style="blue")
-            
+
             for name, data in playlists.items():
                 track_count = len(data.get('tracks', []))
                 playlist_type = data.get('features', {}).get('type', 'unknown')
                 table.add_row(name, str(track_count), playlist_type)
-            
+
             self.console.print(table)
-            logger.info(f"Playlist summary displayed for {len(playlists)} playlists")
-            
+            logger.info(
+                f"Playlist summary displayed for {len(playlists)} playlists")
+
         except Exception as e:
             logger.error(f"Error displaying playlist summary: {str(e)}")
             import traceback
-            logger.error(f"Playlist summary error traceback: {traceback.format_exc()}")
-    
+            logger.error(
+                f"Playlist summary error traceback: {traceback.format_exc()}")
+
     def show_library_stats(self, stats: Dict[str, Any]):
         """Display library statistics."""
         logger.debug("Displaying library statistics")
         logger.debug(f"Library stats: {stats}")
-        
+
         try:
             if not stats:
-                self.console.print(Panel("No library statistics available", style="yellow"))
+                self.console.print(
+                    Panel("No library statistics available", style="yellow"))
                 logger.warning("No library statistics to display")
                 return
-            
+
             # Create stats table
-            table = Table(title="Library Statistics", show_header=True, header_style="bold magenta")
+            table = Table(title="Library Statistics",
+                          show_header=True, header_style="bold magenta")
             table.add_column("Metric", style="cyan", no_wrap=True)
             table.add_column("Value", style="green")
-            
+
             for key, value in stats.items():
                 if isinstance(value, dict):
                     # Handle nested dictionaries
@@ -414,127 +462,137 @@ class CLI:
                         table.add_row(f"{key}.{sub_key}", str(sub_value))
                 else:
                     table.add_row(key, str(value))
-            
+
             self.console.print(table)
             logger.info("Library statistics displayed successfully")
-            
+
         except Exception as e:
             logger.error(f"Error displaying library statistics: {str(e)}")
             import traceback
-            logger.error(f"Library stats error traceback: {traceback.format_exc()}")
-    
+            logger.error(
+                f"Library stats error traceback: {traceback.format_exc()}")
+
     def show_error(self, message: str, details: str = None):
         """Display error message."""
         logger.error(f"CLI Error: {message}")
         if details:
             logger.error(f"Error details: {details}")
-        
+
         try:
             error_text = Text(message, style="red")
             if details:
                 error_text.append(f"\n\nDetails: {details}", style="dim")
-            
-            self.console.print(Panel(error_text, title="Error", border_style="red"))
-            
+
+            self.console.print(
+                Panel(error_text, title="Error", border_style="red"))
+
         except Exception as e:
             logger.error(f"Error displaying error message: {str(e)}")
-    
+
     def show_success(self, message: str):
         """Display success message."""
         logger.info(f"CLI Success: {message}")
-        
+
         try:
-            self.console.print(Panel(message, title="Success", border_style="green"))
-            
+            self.console.print(
+                Panel(message, title="Success", border_style="green"))
+
         except Exception as e:
             logger.error(f"Error displaying success message: {str(e)}")
-    
+
     def show_warning(self, message: str):
         """Display warning message."""
         logger.warning(f"CLI Warning: {message}")
-        
+
         try:
-            self.console.print(Panel(message, title="Warning", border_style="yellow"))
-            
+            self.console.print(
+                Panel(message, title="Warning", border_style="yellow"))
+
         except Exception as e:
             logger.error(f"Error displaying warning message: {str(e)}")
-    
+
     def show_info(self, message: str):
         """Display info message."""
         logger.info(f"CLI Info: {message}")
-        
+
         try:
-            self.console.print(Panel(message, title="Info", border_style="blue"))
-            
+            self.console.print(
+                Panel(message, title="Info", border_style="blue"))
+
         except Exception as e:
             logger.error(f"Error displaying info message: {str(e)}")
-    
+
     def add_playlist_stats(self, name: str, stats: Dict[str, Any]):
         """Add playlist statistics to display."""
         logger.debug(f"Adding playlist stats for '{name}': {stats}")
-        
+
         try:
             # Create stats table for the playlist
-            table = Table(title=f"Playlist Statistics: {name}", show_header=True, header_style="bold magenta")
+            table = Table(
+                title=f"Playlist Statistics: {name}", show_header=True, header_style="bold magenta")
             table.add_column("Metric", style="cyan", no_wrap=True)
             table.add_column("Value", style="green")
-            
+
             for key, value in stats.items():
                 table.add_row(key, str(value))
-            
+
             self.console.print(table)
             logger.debug(f"Playlist stats displayed for '{name}'")
-            
+
         except Exception as e:
             logger.error(f"Error adding stats for playlist {name}: {str(e)}")
             import traceback
-            logger.error(f"Add playlist stats error traceback: {traceback.format_exc()}")
-    
+            logger.error(
+                f"Add playlist stats error traceback: {traceback.format_exc()}")
+
     def create_key_distribution_table(self, name: str, key_data: Dict[str, int]):
         """Create and display key distribution table."""
         logger.debug(f"Creating key distribution table for '{name}'")
         logger.debug(f"Key data: {key_data}")
-        
+
         try:
             if not key_data:
                 logger.warning(f"No key data available for playlist '{name}'")
                 return
-            
+
             # Create key distribution table
-            table = Table(title=f"Key Distribution: {name}", show_header=True, header_style="bold magenta")
+            table = Table(
+                title=f"Key Distribution: {name}", show_header=True, header_style="bold magenta")
             table.add_column("Key", style="cyan", no_wrap=True)
             table.add_column("Count", style="green", justify="right")
             table.add_column("Percentage", style="blue", justify="right")
-            
+
             total = sum(key_data.values())
             for key, count in sorted(key_data.items(), key=lambda x: x[1], reverse=True):
                 percentage = (count / total * 100) if total > 0 else 0
                 table.add_row(key, str(count), f"{percentage:.1f}%")
-            
+
             self.console.print(table)
             logger.debug(f"Key distribution table displayed for '{name}'")
-            
+
         except Exception as e:
-            logger.error(f"Error creating key distribution table for {name}: {str(e)}")
+            logger.error(
+                f"Error creating key distribution table for {name}: {str(e)}")
             import traceback
-            logger.error(f"Key distribution table error traceback: {traceback.format_exc()}")
-    
+            logger.error(
+                f"Key distribution table error traceback: {traceback.format_exc()}")
+
     def show_progress(self, current: int, total: int, description: str = "Processing"):
         """Show progress bar."""
         logger.debug(f"Progress: {current}/{total} - {description}")
-        
+
         try:
             percentage = (current / total * 100) if total > 0 else 0
             progress_text = f"{description}: {current}/{total} ({percentage:.1f}%)"
             self.console.print(f"[cyan]{progress_text}[/cyan]")
-            
+
         except Exception as e:
             logger.error(f"Error showing progress: {str(e)}")
-    
+
     def show_help(self):
         """Display help information."""
         logger.debug("Displaying help information")
-        
+
         try:
             help_text = """
             [bold]Playlist Generator CLI[/bold]
@@ -556,11 +614,13 @@ class CLI:
             • audiolyzer --playlist --method kmeans
             • audiolyzer --stats
             """
-            
-            self.console.print(Panel(help_text, title="Help", border_style="blue"))
+
+            self.console.print(
+                Panel(help_text, title="Help", border_style="blue"))
             logger.info("Help information displayed successfully")
-            
+
         except Exception as e:
             logger.error(f"Error displaying help: {str(e)}")
             import traceback
-            logger.error(f"Help display error traceback: {traceback.format_exc()}") 
+            logger.error(
+                f"Help display error traceback: {traceback.format_exc()}")

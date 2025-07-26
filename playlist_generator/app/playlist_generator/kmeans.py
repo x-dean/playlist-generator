@@ -12,8 +12,10 @@ logger = logging.getLogger(__name__)
 
 # In kmeans.py:
 
+
 class KMeansPlaylistGenerator:
     """Generate playlists using KMeans clustering on audio features."""
+
     def __init__(self, cache_file: str = None) -> None:
         """Initialize the KMeans playlist generator.
 
@@ -46,7 +48,8 @@ class KMeansPlaylistGenerator:
             for col, col_type in required_columns.items():
                 if col not in existing_columns:
                     logger.info(f"Adding missing column {col} to database")
-                    conn.execute(f"ALTER TABLE audio_features ADD COLUMN {col} {col_type}")
+                    conn.execute(
+                        f"ALTER TABLE audio_features ADD COLUMN {col} {col_type}")
             conn.commit()
         except Exception as e:
             logger.error(f"Schema verification failed: {str(e)}")
@@ -100,16 +103,18 @@ class KMeansPlaylistGenerator:
         Returns:
             Dict[str, Dict]: Dictionary of playlist names to playlist data.
         """
-        logger.info(f"Starting K-means playlist generation with {len(features_list)} tracks, target playlists: {num_playlists}")
+        logger.info(
+            f"Starting K-means playlist generation with {len(features_list)} tracks, target playlists: {num_playlists}")
         playlists = {}
-        
+
         try:
             # Process in chunks to avoid memory issues
             for chunk_start in range(0, len(features_list), chunk_size):
                 chunk_end = min(chunk_start + chunk_size, len(features_list))
                 chunk = features_list[chunk_start:chunk_end]
-                logger.debug(f"Processing chunk {chunk_start//chunk_size + 1}: tracks {chunk_start}-{chunk_end}")
-                
+                logger.debug(
+                    f"Processing chunk {chunk_start//chunk_size + 1}: tracks {chunk_start}-{chunk_end}")
+
                 data = []
                 for f in chunk:
                     try:
@@ -127,7 +132,8 @@ class KMeansPlaylistGenerator:
                         # Normalize features
                         track_data = self._normalize_features(track_data)
                         data.append(track_data)
-                        logger.debug(f"Added track {os.path.basename(f['filepath'])} with features: BPM={track_data['bpm']:.1f}, Danceability={track_data['danceability']:.2f}")
+                        logger.debug(
+                            f"Added track {os.path.basename(f['filepath'])} with features: BPM={track_data['bpm']:.1f}, Danceability={track_data['danceability']:.2f}")
                     except Exception as e:
                         logger.debug(f"Skipping track: {str(e)}")
                         continue
@@ -136,10 +142,11 @@ class KMeansPlaylistGenerator:
                     logger.warning("No valid tracks after filtering")
                     return playlists
 
-                logger.info(f"Processing {len(data)} valid tracks for clustering")
+                logger.info(
+                    f"Processing {len(data)} valid tracks for clustering")
                 df = pd.DataFrame(data)
                 cluster_features = [
-                    'bpm', 'centroid', 'danceability', 
+                    'bpm', 'centroid', 'danceability',
                     'loudness', 'onset_rate', 'zcr'
                 ]
                 weights = {
@@ -152,15 +159,18 @@ class KMeansPlaylistGenerator:
                 }
                 logger.debug(f"Using cluster features: {cluster_features}")
                 logger.debug(f"Feature weights: {weights}")
-                
+
                 scaler = MinMaxScaler()
                 scaled_features = scaler.fit_transform(df[cluster_features])
-                weighted_features = scaled_features * np.array([weights[f] for f in cluster_features])
-                logger.debug(f"Scaled and weighted features shape: {weighted_features.shape}")
-                
+                weighted_features = scaled_features * \
+                    np.array([weights[f] for f in cluster_features])
+                logger.debug(
+                    f"Scaled and weighted features shape: {weighted_features.shape}")
+
                 max_clusters = min(num_playlists * 3, len(df))
-                logger.info(f"Creating K-means model with {max_clusters} clusters from {len(df)} tracks")
-                
+                logger.info(
+                    f"Creating K-means model with {max_clusters} clusters from {len(df)} tracks")
+
                 kmeans = MiniBatchKMeans(
                     n_clusters=max_clusters,
                     random_state=42,
@@ -170,15 +180,17 @@ class KMeansPlaylistGenerator:
                     n_init=10
                 )
                 df['cluster'] = kmeans.fit_predict(weighted_features)
-                logger.info(f"K-means clustering completed. Created {df['cluster'].nunique()} clusters")
-                
+                logger.info(
+                    f"K-means clustering completed. Created {df['cluster'].nunique()} clusters")
+
                 temp_playlists = {}
                 for cluster, group in df.groupby('cluster'):
                     logger.debug(f"Cluster {cluster} size: {len(group)}")
                     if len(group) < 3:
-                        logger.debug(f"Cluster {cluster} too small, will be merged into fallback.")
+                        logger.debug(
+                            f"Cluster {cluster} too small, will be merged into fallback.")
                         continue
-                    
+
                     centroid = {
                         'bpm': group['bpm'].median(),
                         'centroid': group['centroid'].median(),
@@ -187,8 +199,9 @@ class KMeansPlaylistGenerator:
                         'onset_rate': group['onset_rate'].median(),
                         'zcr': group['zcr'].median()
                     }
-                    logger.debug(f"Cluster {cluster} centroid: BPM={centroid['bpm']:.1f}, Danceability={centroid['danceability']:.2f}")
-                    
+                    logger.debug(
+                        f"Cluster {cluster} centroid: BPM={centroid['bpm']:.1f}, Danceability={centroid['danceability']:.2f}")
+
                     name = self._generate_descriptive_name(centroid)
                     file_name = self._sanitize_file_name(name)
                     if name in temp_playlists:
@@ -198,40 +211,45 @@ class KMeansPlaylistGenerator:
                             name = f"{base_name}_Variation{counter}"
                             counter += 1
                         file_name = self._sanitize_file_name(name)
-                        logger.debug(f"Renamed duplicate playlist '{base_name}' to '{name}'")
-                    
+                        logger.debug(
+                            f"Renamed duplicate playlist '{base_name}' to '{name}'")
+
                     temp_playlists[name] = {
                         'tracks': group['filepath'].tolist(),
                         'features': centroid,
-                        'description': self._generate_description(centroid)
-                        , 'file_name': file_name
+                        'description': self._generate_description(centroid), 'file_name': file_name
                     }
-                    logger.debug(f"Created playlist '{name}' with {len(group)} tracks")
-                
+                    logger.debug(
+                        f"Created playlist '{name}' with {len(group)} tracks")
+
                 # Fallback: merge all small/leftover tracks into Mixed_Collection
                 assigned = set()
                 for p in temp_playlists.values():
                     assigned.update(p['tracks'])
-                leftovers = [f['filepath'] for f in data if f['filepath'] not in assigned]
+                leftovers = [f['filepath']
+                             for f in data if f['filepath'] not in assigned]
                 if leftovers:
-                    logger.info(f"Merging {len(leftovers)} leftover/small-cluster tracks into Mixed_Collection.")
+                    logger.info(
+                        f"Merging {len(leftovers)} leftover/small-cluster tracks into Mixed_Collection.")
                     temp_playlists['Mixed_Collection'] = {
                         'tracks': leftovers,
                         'features': {'type': 'mixed'},
                         'description': 'Tracks from small or leftover clusters.'
                     }
-                
+
                 if not temp_playlists:
-                    logger.warning("No clusters large enough, all tracks go to Mixed_Collection.")
+                    logger.warning(
+                        "No clusters large enough, all tracks go to Mixed_Collection.")
                     temp_playlists['Mixed_Collection'] = {
                         'tracks': [f['filepath'] for f in data],
                         'features': {'type': 'mixed'},
                         'description': 'All tracks (no valid clusters)'
                     }
-                
-                logger.info(f"Generated {len(temp_playlists)} playlists from {len(df)} tracks (kmeans)")
+
+                logger.info(
+                    f"Generated {len(temp_playlists)} playlists from {len(df)} tracks (kmeans)")
                 playlists.update(temp_playlists)
-                
+
         except Exception as e:
             logger.error(f"Clustering failed: {str(e)}")
             logger.error(traceback.format_exc())
@@ -255,7 +273,7 @@ class KMeansPlaylistGenerator:
             features['loudness'] * 0.3 +
             features['onset_rate'] * 0.3
         )
-        
+
         if energy_score < 0.3:
             energy = "Ambient"
         elif energy_score < 0.5:
@@ -270,7 +288,7 @@ class KMeansPlaylistGenerator:
             features['centroid'] * 0.6 +
             features['zcr'] * 0.4
         )
-        
+
         if mood_score < 0.3:
             mood = "Dark"
         elif mood_score < 0.5:
@@ -285,7 +303,7 @@ class KMeansPlaylistGenerator:
     def _generate_description(self, features):
         """Generate a human-readable description of the playlist"""
         desc_parts = []
-        
+
         # Tempo description
         if features['bpm'] < 70:
             desc_parts.append("Relaxing, slow-paced tracks")
@@ -297,7 +315,8 @@ class KMeansPlaylistGenerator:
             desc_parts.append("High-energy, fast-paced tracks")
 
         # Energy/Mood description
-        energy_level = features['danceability'] * 0.5 + features['loudness'] * 0.5
+        energy_level = features['danceability'] * \
+            0.5 + features['loudness'] * 0.5
         if energy_level < 0.3:
             desc_parts.append("perfect for relaxation and meditation")
         elif energy_level < 0.5:
@@ -329,7 +348,8 @@ class KMeansPlaylistGenerator:
                 })
 
             # Sort by size first
-            size_sorted = sorted(playlist_features, key=lambda x: x['size'], reverse=True)
+            size_sorted = sorted(
+                playlist_features, key=lambda x: x['size'], reverse=True)
 
             # Take top 50% by size
             size_candidates = size_sorted[:int(len(size_sorted) * 0.5)]
@@ -347,7 +367,8 @@ class KMeansPlaylistGenerator:
                         continue
 
                     # Calculate diversity score
-                    score = self._calculate_diversity_score(candidate, selected)
+                    score = self._calculate_diversity_score(
+                        candidate, selected)
                     if score > best_score:
                         best_score = score
                         best_candidate = candidate
@@ -383,10 +404,11 @@ class KMeansPlaylistGenerator:
         bpm_diff = abs(p1['bpm'] - p2['bpm']) / max(p1['bpm'], p2['bpm'])
         energy_diff = abs(p1['energy'] - p2['energy'])
         complexity_diff = abs(p1['complexity'] - p2['complexity'])
-        brightness_diff = abs(p1['brightness'] - p2['brightness']) / max(p1['brightness'], p2['brightness'])
+        brightness_diff = abs(
+            p1['brightness'] - p2['brightness']) / max(p1['brightness'], p2['brightness'])
 
         # Weighted similarity (lower is more different)
-        return (bpm_diff * 0.3 + energy_diff * 0.3 + 
+        return (bpm_diff * 0.3 + energy_diff * 0.3 +
                 complexity_diff * 0.2 + brightness_diff * 0.2)
 
     def _calculate_diversity_score(self, candidate, selected):
@@ -395,7 +417,8 @@ class KMeansPlaylistGenerator:
             return 1.0  # First playlist gets maximum score
 
         # Calculate average similarity to existing playlists
-        similarities = [self._playlist_similarity(candidate, sel) for sel in selected]
+        similarities = [self._playlist_similarity(
+            candidate, sel) for sel in selected]
         avg_similarity = sum(similarities) / len(similarities)
 
         # Size bonus (0.0 to 0.2)

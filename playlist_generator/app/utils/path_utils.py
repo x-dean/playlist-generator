@@ -1,5 +1,6 @@
 import os
 
+
 def convert_to_host_path(container_path: str, library: str, music: str) -> str:
     """Converts a path from the container to the library directory.
 
@@ -16,4 +17,4 @@ def convert_to_host_path(container_path: str, library: str, music: str) -> str:
     if not container_path.startswith(music):
         return container_path
     rel_path = os.path.relpath(container_path, music)
-    return os.path.join(library, rel_path) 
+    return os.path.join(library, rel_path)

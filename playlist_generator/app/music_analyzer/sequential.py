@@ -13,11 +13,13 @@ from utils.path_converter import PathConverter
 
 logger = logging.getLogger(__name__)
 
+
 class SequentialProcessor:
     """Sequential processor for audio analysis (single-threaded)."""
+
     def __init__(self) -> None:
         self.failed_files: List[str] = []
-    
+
     def process(self, file_list: List[str], workers: int = None, stop_event=None, force_reextract: bool = False) -> iter:
         """Process a list of files sequentially.
 
@@ -45,7 +47,8 @@ class SequentialProcessor:
             try:
                 from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
-                features, db_write_success, file_hash = audio_analyzer.extract_features(filepath, force_reextract=force_reextract)
+                features, db_write_success, file_hash = audio_analyzer.extract_features(
+                    filepath, force_reextract=force_reextract)
                 if features and db_write_success:
                     yield features, filepath, db_write_success
                 else:
