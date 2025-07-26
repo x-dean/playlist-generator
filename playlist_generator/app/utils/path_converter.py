@@ -297,3 +297,27 @@ class PathConverter:
         
         logger.debug(f"Converted {len(host_tracks)} tracks to host paths")
         return host_tracks
+
+    def convert_failed_files(self, container_failed_files: List[str]) -> List[str]:
+        """Convert container paths in failed files list to host paths."""
+        logger.debug(f"Converting {len(container_failed_files)} failed files from container to host")
+        
+        host_failed_files = []
+        for failed_file in container_failed_files:
+            try:
+                if failed_file.startswith('/music'):
+                    # Convert container path to host path
+                    host_path = self.container_to_host(failed_file)
+                    host_failed_files.append(host_path)
+                    logger.debug(f"Converted failed file {failed_file} -> {host_path}")
+                else:
+                    # Already a host path or relative path
+                    host_failed_files.append(failed_file)
+                    logger.debug(f"Failed file already in host format: {failed_file}")
+            except Exception as e:
+                logger.warning(f"Error converting failed file {failed_file}: {e}")
+                # Keep original path if conversion fails
+                host_failed_files.append(failed_file)
+        
+        logger.debug(f"Converted {len(host_failed_files)} failed files to host paths")
+        return host_failed_files
