@@ -678,7 +678,7 @@ def get_audio_files(music: str) -> List[str]:
     import os
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
-    failed_dir = os.path.abspath('/app/failed_files')
+    failed_dir = os.path.abspath('/music/failed_files')
     for root, _, files in os.walk(music):
         abs_root = os.path.abspath(root)
         # Skip failed_files directory

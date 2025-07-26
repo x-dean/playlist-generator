@@ -54,6 +54,15 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     log_level = os.getenv('LOG_LEVEL', 'INFO')
     logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
     audio_analyzer = AudioAnalyzer()
+    
+    def is_interrupted():
+        """Check if the parent process is still running (indicates interruption)"""
+        try:
+            import psutil
+            parent_pid = os.getppid()
+            return not psutil.pid_exists(parent_pid)
+        except:
+            return False
     max_retries = 2
     retry_count = 0
     backoff_time = 1  # Initial backoff time in seconds
@@ -83,37 +92,40 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 notified["shown"] = True
                 logger.warning(f"File not found: {filepath}")
                 # Don't mark as failed if we're being interrupted
-                try:
-                    from .feature_extractor import AudioAnalyzer
-                    audio_analyzer = AudioAnalyzer()
-                    file_info = audio_analyzer._get_file_info(filepath)
-                    audio_analyzer._mark_failed(file_info)
-                except Exception:
-                    pass  # Ignore database errors during shutdown
+                if not is_interrupted():
+                    try:
+                        from .feature_extractor import AudioAnalyzer
+                        audio_analyzer = AudioAnalyzer()
+                        file_info = audio_analyzer._get_file_info(filepath)
+                        audio_analyzer._mark_failed(file_info)
+                    except Exception:
+                        pass  # Ignore database errors during shutdown
                 return None, filepath, False
             if os.path.getsize(filepath) < 1024:
                 notified["shown"] = True
                 logger.warning(f"Skipping small file: {filepath}")
                 # Don't mark as failed if we're being interrupted
-                try:
-                    from .feature_extractor import AudioAnalyzer
-                    audio_analyzer = AudioAnalyzer()
-                    file_info = audio_analyzer._get_file_info(filepath)
-                    audio_analyzer._mark_failed(file_info)
-                except Exception:
-                    pass  # Ignore database errors during shutdown
+                if not is_interrupted():
+                    try:
+                        from .feature_extractor import AudioAnalyzer
+                        audio_analyzer = AudioAnalyzer()
+                        file_info = audio_analyzer._get_file_info(filepath)
+                        audio_analyzer._mark_failed(file_info)
+                    except Exception:
+                        pass  # Ignore database errors during shutdown
                 return None, filepath, False
             if not filepath.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
                 notified["shown"] = True
                 logger.warning(f"Unsupported extension, skipping: {filepath}")
                 # Don't mark as failed if we're being interrupted
-                try:
-                    from .feature_extractor import AudioAnalyzer
-                    audio_analyzer = AudioAnalyzer()
-                    file_info = audio_analyzer._get_file_info(filepath)
-                    audio_analyzer._mark_failed(file_info)
-                except Exception:
-                    pass  # Ignore database errors during shutdown
+                if not is_interrupted():
+                    try:
+                        from .feature_extractor import AudioAnalyzer
+                        audio_analyzer = AudioAnalyzer()
+                        file_info = audio_analyzer._get_file_info(filepath)
+                        audio_analyzer._mark_failed(file_info)
+                    except Exception:
+                        pass  # Ignore database errors during shutdown
                 return None, filepath, False
             result = None
             try:
@@ -131,11 +143,12 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                     result if result is not None else (None, False, None))
                 if not features or not db_write_success:
                     # Don't mark as failed if we're being interrupted
-                    try:
-                        file_info = audio_analyzer._get_file_info(filepath)
-                        audio_analyzer._mark_failed(file_info)
-                    except Exception:
-                        pass  # Ignore database errors during shutdown
+                    if not is_interrupted():
+                        try:
+                            file_info = audio_analyzer._get_file_info(filepath)
+                            audio_analyzer._mark_failed(file_info)
+                        except Exception:
+                            pass  # Ignore database errors during shutdown
                     return None, filepath, False
             if result and result[0] is not None:
                 features, db_write_success, _ = result
