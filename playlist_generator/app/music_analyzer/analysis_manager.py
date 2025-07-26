@@ -279,7 +279,7 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
     # Run analysis on files that need it
     failed_files = []
     with CLIContextManager(cli, len(files_to_analyze), "[cyan]Analyzing audio files...") as (progress, task_id):
-        processor = ParallelProcessor() if not args.sequential else SequentialProcessor()
+        processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
         workers = args.workers or max(1, mp.cpu_count())
         
         for features, filepath, db_write_success in processor.process(files_to_analyze, workers, force_reextract=force_reextract):
