@@ -25,6 +25,52 @@ logging.getLogger().setLevel(getattr(logging, LOG_LEVEL.upper(), logging.DEBUG))
 logger = logging.getLogger(__name__)
 BIG_FILE_SIZE_MB = 200
 
+def _update_progress_bar(progress, task_id, files_list, current_index, total_count, 
+                        mode_color="[cyan]", mode_text="Processing", status_dot="", 
+                        current_filepath=None):
+    """Update progress bar with current file info and next file preview."""
+    if current_index >= len(files_list):
+        return
+    
+    current_filename = os.path.basename(files_list[current_index])
+    max_len = 40
+    if len(current_filename) > max_len:
+        display_name = current_filename[:max_len-3] + "..."
+    else:
+        display_name = current_filename
+    
+    # Get file size
+    try:
+        size_mb = os.path.getsize(files_list[current_index]) / (1024 * 1024)
+        trackinfo = f"{size_mb:.1f} MB"
+    except:
+        trackinfo = "Unknown size"
+    
+    # Update progress bar
+    if current_index < len(files_list) - 1:
+        # Show next file being processed
+        progress.update(
+            task_id, 
+            advance=1 if current_index > 0 else 0,
+            description=f"{mode_color}{mode_text}: {display_name} ({current_index}/{total_count}) {status_dot}",
+            trackinfo=trackinfo
+        )
+    else:
+        # Last file completed
+        progress.update(
+            task_id, 
+            advance=1,
+            description=f"{mode_color}Completed: {display_name} ({current_index}/{total_count}) {status_dot}",
+            trackinfo=trackinfo
+        )
+
+def _get_status_dot(features, db_write_success):
+    """Get status dot based on processing result."""
+    if features and db_write_success:
+        return "🟢"  # Green dot for success
+    else:
+        return "🔴"  # Red dot for failure
+
 # --- File Selection ---
 def select_files_for_analysis(args, audio_db):
     """Return (normal_files, big_files) to analyze based on args and DB state."""
@@ -276,6 +322,13 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
     for file_path, reason in files_needing_analysis:
         logger.debug(f"File needs analysis: {file_path} (reason: {reason})")
     
+    # Log a summary of reasons
+    reason_counts = {}
+    for _, reason in files_needing_analysis:
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    
+    logger.info(f"Analysis reasons: {reason_counts}")
+    
     # Run analysis on files that need it
     failed_files = []
     with CLIContextManager(cli, len(files_to_analyze), "[cyan]Analyzing audio files...") as (progress, task_id):
@@ -285,6 +338,12 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         # Log which processor is being used
         processor_type = "Sequential" if args.force_sequential else "Parallel"
         logger.info(f"Using {processor_type} processor with {workers} workers")
+        logger.info(f"Starting to process {len(files_to_analyze)} files")
+        
+        # Pre-update progress bar with first file
+        if files_to_analyze:
+            _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze), 
+                               "[cyan]", "Processing", "")
         
         processed_count = 0
         for features, filepath, db_write_success in processor.process(files_to_analyze, workers, force_reextract=force_reextract):
@@ -293,24 +352,23 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
             
             processed_count += 1
             filename = os.path.basename(filepath)
-            max_len = 40
-            if len(filename) > max_len:
-                display_name = filename[:max_len-3] + "..."
-            else:
-                display_name = filename
             
-            # Update progress bar with current file and count
-            progress.update(
-                task_id, 
-                advance=1,
-                description=f"[cyan]Analyzing: {display_name} ({processed_count}/{len(files_to_analyze)})"
-            )
+            # Get status dot for previous file result
+            status_dot = _get_status_dot(features, db_write_success)
+            
+            # Update progress bar with next file
+            _update_progress_bar(progress, task_id, files_to_analyze, processed_count, len(files_to_analyze), 
+                               "[cyan]", "Processing", status_dot)
+            
+            logger.debug(f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
             
             if not features or not db_write_success:
                 failed_files.append(filepath)
                 logger.warning(f"Analysis failed for {filepath}")
             else:
                 logger.info(f"Analysis completed for {filepath}")
+        
+        logger.info(f"Processing loop completed. Processed {processed_count} files out of {len(files_to_analyze)}")
     
     logger.info(f"ANALYZE mode completed with {len(failed_files)} failed files")
     return failed_files
@@ -334,6 +392,11 @@ def run_force_mode(args, audio_db, cli, stop_event):
         # Log processor type for force mode (always sequential for retries)
         logger.info("Using Sequential processor for force mode retries")
         
+        # Pre-update progress bar with first file
+        if invalid_files:
+            _update_progress_bar(progress, task_id, invalid_files, 0, len(invalid_files), 
+                               "[yellow]", "Processing", "")
+        
         processed_count = 0
         for file_path in invalid_files:
             if stop_event and stop_event.is_set():
@@ -341,21 +404,16 @@ def run_force_mode(args, audio_db, cli, stop_event):
             
             processed_count += 1
             filename = os.path.basename(file_path)
-            max_len = 40
-            if len(filename) > max_len:
-                display_name = filename[:max_len-3] + "..."
-            else:
-                display_name = filename
             
-            # Update progress bar with current file and count
-            progress.update(
-                task_id, 
-                advance=1,
-                description=f"[yellow]Retrying: {display_name} ({processed_count}/{len(invalid_files)})"
-            )
+            # Update progress bar with current file
+            _update_progress_bar(progress, task_id, invalid_files, processed_count, len(invalid_files), 
+                               "[yellow]", "Processing", "")
             
             logger.info(f"Retrying analysis for {file_path}")
             success, features = audio_db.retry_analysis_with_backoff(file_path, max_attempts=3)
+            
+            # Get status dot for result
+            status_dot = _get_status_dot(features, success)
             
             if success:
                 logger.info(f"Retry successful for {file_path}")
@@ -365,6 +423,8 @@ def run_force_mode(args, audio_db, cli, stop_event):
                 file_info = audio_db._get_file_info(file_path)
                 audio_db._mark_failed(file_info)
                 failed_files.append(file_path)
+            
+            logger.debug(f"Retry result for {filename}: {status_dot}")
     
     logger.info(f"FORCE mode completed with {len(failed_files)} failed files")
     return failed_files
@@ -388,6 +448,11 @@ def run_failed_mode(args, audio_db, cli, stop_event):
         # Log processor type for failed mode (always sequential for retries)
         logger.info("Using Sequential processor for failed mode retries")
         
+        # Pre-update progress bar with first file
+        if failed_files:
+            _update_progress_bar(progress, task_id, failed_files, 0, len(failed_files), 
+                               "[red]", "Processing", "")
+        
         processed_count = 0
         for file_path in failed_files:
             if stop_event and stop_event.is_set():
@@ -395,21 +460,16 @@ def run_failed_mode(args, audio_db, cli, stop_event):
             
             processed_count += 1
             filename = os.path.basename(file_path)
-            max_len = 40
-            if len(filename) > max_len:
-                display_name = filename[:max_len-3] + "..."
-            else:
-                display_name = filename
             
-            # Update progress bar with current file and count
-            progress.update(
-                task_id, 
-                advance=1,
-                description=f"[red]Recovering: {display_name} ({processed_count}/{len(failed_files)})"
-            )
+            # Update progress bar with current file
+            _update_progress_bar(progress, task_id, failed_files, processed_count, len(failed_files), 
+                               "[red]", "Processing", "")
             
             logger.info(f"Retrying failed file: {file_path}")
             success, features = audio_db.retry_analysis_with_backoff(file_path, max_attempts=3)
+            
+            # Get status dot for result
+            status_dot = _get_status_dot(features, success)
             
             if success:
                 logger.info(f"Recovery successful for {file_path}")
@@ -420,6 +480,8 @@ def run_failed_mode(args, audio_db, cli, stop_event):
                     still_failed.append(file_path)
                 else:
                     logger.error(f"Failed to move {file_path} to failed directory")
+            
+            logger.debug(f"Recovery result for {filename}: {status_dot}")
     
     logger.info(f"FAILED mode completed with {len(still_failed)} still failed files")
     return still_failed
