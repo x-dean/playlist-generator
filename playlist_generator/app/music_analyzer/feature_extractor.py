@@ -146,6 +146,7 @@ class AudioAnalyzer:
                         logger.warning(f"JSON metadata file not found at {json_path}")
                     
                     # Ensure audio is mono and at 16kHz (required for MusiCNN)
+                    # Following tutorial pattern: MonoLoader(sampleRate=16000)
                     if hasattr(audio, 'shape') and len(audio.shape) > 1:
                         audio = np.mean(audio, axis=0)
                     
@@ -158,15 +159,18 @@ class AudioAnalyzer:
                         audio = librosa.resample(audio, orig_sr=orig_sr, target_sr=16000)
                     
                     # Use TensorflowPredictMusiCNN with correct output layer for embeddings
+                    # Following tutorial pattern exactly
                     musicnn = es.TensorflowPredictMusiCNN(
                         graphFilename=model_path,
                         output=output_layer
                     )
                     
                     # Get embeddings (returns [time, features] matrix)
+                    # Following tutorial: activations = TensorflowPredictMusiCNN(...)(audio)
                     embeddings = musicnn(audio)
                     
                     # Aggregate by taking the mean across time (global pooling)
+                    # Following tutorial: np.mean(embeddings, axis=0)
                     embedding = np.mean(embeddings, axis=0)
                     
                     logger.info("Successfully extracted MusiCNN embedding")

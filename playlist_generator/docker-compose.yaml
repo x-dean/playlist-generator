@@ -15,6 +15,8 @@ services:
       - MIN_TRACKS_PER_GENRE=${MIN_TRACKS_PER_GENRE:-10}
       - LASTFM_API_KEY=9fd1f789ebdf1297e6aa1590a13d85e0
       - MODEL_DIR=/app/feature_extraction/models
+      - MUSICNN_MODEL_PATH=/app/feature_extraction/models/musicnn/msd-musicnn-1.pb
+      - MUSICNN_JSON_PATH=/app/feature_extraction/models/musicnn/msd-musicnn-1.json
     working_dir: /app
     tty: true
     # NOTE: The host directory /tmp/failed_files will store failed files and is excluded from the music scan.
