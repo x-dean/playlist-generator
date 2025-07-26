@@ -294,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "2.7.0"  # Version identifier for tracking updates - fixed database schema and validation
+    VERSION = "2.8.0"  # Version identifier for tracking updates - fixed Essentia tuple handling
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -593,7 +593,21 @@ class AudioAnalyzer:
             logger.debug("Initializing Essentia RhythmExtractor algorithm")
             rhythm_algo = es.RhythmExtractor2013()
             logger.debug("Running rhythm analysis on audio")
-            bpm, _, _, _ = rhythm_algo(audio)
+            rhythm_result = rhythm_algo(audio)
+            logger.debug(f"Rhythm result type: {type(rhythm_result)}")
+            
+            # Handle different return types from Essentia
+            if isinstance(rhythm_result, tuple):
+                if len(rhythm_result) >= 4:
+                    bpm, _, _, _ = rhythm_result
+                elif len(rhythm_result) >= 1:
+                    bpm = rhythm_result[0]
+                else:
+                    logger.warning("Unexpected rhythm result tuple length")
+                    bpm = 120.0
+            else:
+                bpm = rhythm_result
+            
             logger.debug(f"Extracted BPM: {bpm}")
             logger.info(f"Rhythm extraction completed: BPM = {bpm:.1f}")
             return {'bpm': float(bpm)}
@@ -647,7 +661,19 @@ class AudioAnalyzer:
             logger.debug("Initializing Essentia Danceability algorithm")
             dance_algo = es.Danceability()
             logger.debug("Running danceability analysis on audio")
-            dance_values = dance_algo(audio)
+            dance_result = dance_algo(audio)
+            logger.debug(f"Danceability result type: {type(dance_result)}")
+            
+            # Handle different return types from Essentia
+            if isinstance(dance_result, tuple):
+                if len(dance_result) >= 1:
+                    dance_values = dance_result[0]
+                else:
+                    logger.warning("Unexpected danceability result tuple length")
+                    dance_values = [0.0]
+            else:
+                dance_values = dance_result
+            
             logger.debug(f"Danceability values shape: {np.array(dance_values).shape if hasattr(dance_values, 'shape') else type(dance_values)}")
             
             dance_mean = float(np.nanmean(dance_values)) if isinstance(dance_values, (list, np.ndarray)) else float(dance_values)
@@ -682,7 +708,19 @@ class AudioAnalyzer:
             logger.debug("Initializing Essentia OnsetRate algorithm")
             onset_algo = es.OnsetRate()
             logger.debug("Running onset rate analysis on audio")
-            onset_rate = onset_algo(audio)
+            onset_result = onset_algo(audio)
+            logger.debug(f"Onset rate result type: {type(onset_result)}")
+            
+            # Handle different return types from Essentia
+            if isinstance(onset_result, tuple):
+                if len(onset_result) >= 1:
+                    onset_rate = onset_result[0]
+                else:
+                    logger.warning("Unexpected onset rate result tuple length")
+                    onset_rate = 0.0
+            else:
+                onset_rate = onset_result
+            
             logger.debug(f"Extracted onset rate: {onset_rate}")
             logger.info(f"Onset rate extraction completed: {onset_rate:.2f} onsets/sec")
             return {'onset_rate': float(onset_rate)}
