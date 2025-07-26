@@ -468,15 +468,18 @@ class AudioAnalyzer:
             if result['recording-list']:
                 rec = result['recording-list'][0]
                 mbid = rec['id']
-                # Step 2: Lookup by MBID for full info
+                # Step 2: Lookup by MBID for full info - get everything available
                 rec_full = musicbrainzngs.get_recording_by_id(
                     mbid,
                     includes=[
                         'artists', 'releases', 'tags', 'isrcs', 'work-rels', 'artist-credits',
-                        'artist-rels', 'labels', 'aliases', 'recording-rels'
+                        'artist-rels', 'aliases', 'recording-rels', 'labels', 'release-groups',
+                        'media', 'discs', 'tracks', 'ratings', 'user-tags', 'user-ratings'
                     ]
                 )['recording']
-                tags = {
+                
+                # Extract all available data, then filter to lean fields
+                all_mb_data = {
                     'artist': rec_full['artist-credit'][0]['artist']['name'] if 'artist-credit' in rec_full and rec_full['artist-credit'] else None,
                     'title': rec_full['title'],
                     'album': rec_full['releases'][0]['title'] if 'releases' in rec_full and rec_full['releases'] else None,
@@ -491,6 +494,9 @@ class AudioAnalyzer:
                     'work': rec_full['work-relation-list'][0]['work']['title'] if 'work-relation-list' in rec_full and rec_full['work-relation-list'] else None,
                     'composer': rec_full['work-relation-list'][0]['work']['artist-relation-list'][0]['artist']['name'] if 'work-relation-list' in rec_full and rec_full['work-relation-list'] and 'artist-relation-list' in rec_full['work-relation-list'][0]['work'] and rec_full['work-relation-list'][0]['work']['artist-relation-list'] else None,
                 }
+                
+                # Filter to only lean fields for database
+                tags = {k: v for k, v in all_mb_data.items() if k in LEAN_FIELDS and v is not None and v != ''}
                 return tags
         except Exception as e:
             logger.warning(f"MusicBrainz lookup failed: {e}")
@@ -514,23 +520,31 @@ class AudioAnalyzer:
             resp.raise_for_status()
             data = resp.json()
             track = data.get('track', {})
-            tags = track.get('toptags', {}).get('tag', [])
-            genre = [t['name'] for t in tags] if tags else None
-            album = track.get('album', {}).get('title') if 'album' in track else None
-            listeners = track.get('listeners') if 'listeners' in track else None
-            playcount = track.get('playcount') if 'playcount' in track else None
-            wiki = track.get('wiki', {}).get('summary') if 'wiki' in track else None
-            album_mbid = track.get('album', {}).get('mbid') if 'album' in track else None
-            artist_mbid = track.get('artist', {}).get('mbid') if isinstance(track.get('artist'), dict) else None
-            return {
-                'genre_lastfm': genre,
-                'album_lastfm': album,
-                'listeners': listeners,
-                'playcount': playcount,
-                'wiki': wiki,
-                'album_mbid': album_mbid,
-                'artist_mbid': artist_mbid
+            
+            # Extract all available Last.fm data
+            all_lastfm_data = {
+                'genre_lastfm': [t['name'] for t in track.get('toptags', {}).get('tag', [])] if track.get('toptags', {}).get('tag') else None,
+                'album_lastfm': track.get('album', {}).get('title') if 'album' in track else None,
+                'listeners': track.get('listeners'),
+                'playcount': track.get('playcount'),
+                'wiki': track.get('wiki', {}).get('summary') if 'wiki' in track else None,
+                'album_mbid': track.get('album', {}).get('mbid') if 'album' in track else None,
+                'artist_mbid': track.get('artist', {}).get('mbid') if isinstance(track.get('artist'), dict) else None,
+                # Additional Last.fm fields that might be useful
+                'duration': track.get('duration'),
+                'url': track.get('url'),
+                'mbid': track.get('mbid'),
+                'streamable': track.get('streamable'),
+                'rank': track.get('@attr', {}).get('rank') if '@attr' in track else None,
+                'userplaycount': track.get('userplaycount'),
+                'userloved': track.get('userloved'),
+                'album_artist': track.get('album', {}).get('artist') if 'album' in track else None,
+                'album_url': track.get('album', {}).get('url') if 'album' in track else None,
+                'album_image': track.get('album', {}).get('image') if 'album' in track else None,
             }
+            
+            # Filter to only lean fields for database
+            return {k: v for k, v in all_lastfm_data.items() if k in LEAN_FIELDS and v is not None and v != ''}
         except Exception as e:
             logger.warning(f"Last.fm lookup failed for {artist} - {title}: {e}")
             return {}
