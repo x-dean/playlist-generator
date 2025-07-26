@@ -28,7 +28,8 @@ class PlaylistGeneratorCLI:
 
     def __init__(self) -> None:
         """Initialize the CLI interface."""
-        self.console = Console()
+        import sys
+        self.console = Console(file=sys.stdout, force_terminal=True)
         self.progress = None
         self.start_time = None
 
@@ -362,7 +363,8 @@ class CLI:
     """Command-line interface utilities."""
 
     def __init__(self):
-        self.console = Console()
+        import sys
+        self.console = Console(file=sys.stdout, force_terminal=True)
         logger.debug("Initialized CLI with Rich console")
 
     def show_analysis_summary(self, stats: Dict[str, Any], processed_this_run: int = 0,

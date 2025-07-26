@@ -297,7 +297,7 @@ def create_progress_bar(total_files):
         TimeElapsedColumn(),
         TimeRemainingColumn(),
         TextColumn("{task.fields[trackinfo]}", justify="right"),
-        console=Console()
+        console=Console(file=sys.stdout, force_terminal=True)
     )
 
 
@@ -547,7 +547,8 @@ def run_pipeline(args, audio_db, playlist_db, cli):
     from rich.table import Table
     from rich.console import Console
     results = []
-    console = Console()
+    import sys
+    console = Console(file=sys.stdout, force_terminal=True)
     console.print(
         "\n[bold cyan]PIPELINE: Starting default analysis[/bold cyan]")
     console.print("[dim]Analyze new files[/dim]")
