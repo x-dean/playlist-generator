@@ -6,6 +6,7 @@ import logging
 import traceback
 import sqlite3
 import re
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -89,111 +90,148 @@ class KMeansPlaylistGenerator:
         return features
 
     def generate(self, features_list, num_playlists=5, chunk_size=1000):
+        """Generate playlists using K-means clustering.
+
+        Args:
+            features_list (List[Dict]): List of feature dictionaries.
+            num_playlists (int): Number of playlists to generate.
+            chunk_size (int): Size of chunks to process.
+
+        Returns:
+            Dict[str, Dict]: Dictionary of playlist names to playlist data.
+        """
+        logger.info(f"Starting K-means playlist generation with {len(features_list)} tracks, target playlists: {num_playlists}")
         playlists = {}
+        
         try:
-            data = []
-            for f in features_list:
-                if not f or 'filepath' not in f:
-                    continue
-                try:
-                    track_data = {
-                        'filepath': str(f['filepath']),
-                        'bpm': float(f.get('bpm', 0)),
-                        'centroid': float(f.get('centroid', 0)),
-                        'danceability': float(f.get('danceability', 0)),
-                        'loudness': float(f.get('loudness', -30)),
-                        'onset_rate': float(f.get('onset_rate', 0)),
-                        'zcr': float(f.get('zcr', 0)),
-                        'key': int(f.get('key', -1)),
-                        'scale': int(f.get('scale', 0))
+            # Process in chunks to avoid memory issues
+            for chunk_start in range(0, len(features_list), chunk_size):
+                chunk_end = min(chunk_start + chunk_size, len(features_list))
+                chunk = features_list[chunk_start:chunk_end]
+                logger.debug(f"Processing chunk {chunk_start//chunk_size + 1}: tracks {chunk_start}-{chunk_end}")
+                
+                data = []
+                for f in chunk:
+                    try:
+                        track_data = {
+                            'filepath': str(f['filepath']),
+                            'bpm': float(f.get('bpm', 0)),
+                            'centroid': float(f.get('centroid', 0)),
+                            'danceability': float(f.get('danceability', 0)),
+                            'loudness': float(f.get('loudness', -30)),
+                            'onset_rate': float(f.get('onset_rate', 0)),
+                            'zcr': float(f.get('zcr', 0)),
+                            'key': int(f.get('key', -1)),
+                            'scale': int(f.get('scale', 0))
+                        }
+                        # Normalize features
+                        track_data = self._normalize_features(track_data)
+                        data.append(track_data)
+                        logger.debug(f"Added track {os.path.basename(f['filepath'])} with features: BPM={track_data['bpm']:.1f}, Danceability={track_data['danceability']:.2f}")
+                    except Exception as e:
+                        logger.debug(f"Skipping track: {str(e)}")
+                        continue
+
+                if not data:
+                    logger.warning("No valid tracks after filtering")
+                    return playlists
+
+                logger.info(f"Processing {len(data)} valid tracks for clustering")
+                df = pd.DataFrame(data)
+                cluster_features = [
+                    'bpm', 'centroid', 'danceability', 
+                    'loudness', 'onset_rate', 'zcr'
+                ]
+                weights = {
+                    'bpm': 0.3,
+                    'danceability': 0.2,
+                    'centroid': 0.2,
+                    'loudness': 0.1,
+                    'onset_rate': 0.1,
+                    'zcr': 0.1
+                }
+                logger.debug(f"Using cluster features: {cluster_features}")
+                logger.debug(f"Feature weights: {weights}")
+                
+                scaler = MinMaxScaler()
+                scaled_features = scaler.fit_transform(df[cluster_features])
+                weighted_features = scaled_features * np.array([weights[f] for f in cluster_features])
+                logger.debug(f"Scaled and weighted features shape: {weighted_features.shape}")
+                
+                max_clusters = min(num_playlists * 3, len(df))
+                logger.info(f"Creating K-means model with {max_clusters} clusters from {len(df)} tracks")
+                
+                kmeans = MiniBatchKMeans(
+                    n_clusters=max_clusters,
+                    random_state=42,
+                    batch_size=min(1000, len(df)),
+                    init='k-means++',
+                    max_iter=300,
+                    n_init=10
+                )
+                df['cluster'] = kmeans.fit_predict(weighted_features)
+                logger.info(f"K-means clustering completed. Created {df['cluster'].nunique()} clusters")
+                
+                temp_playlists = {}
+                for cluster, group in df.groupby('cluster'):
+                    logger.debug(f"Cluster {cluster} size: {len(group)}")
+                    if len(group) < 3:
+                        logger.debug(f"Cluster {cluster} too small, will be merged into fallback.")
+                        continue
+                    
+                    centroid = {
+                        'bpm': group['bpm'].median(),
+                        'centroid': group['centroid'].median(),
+                        'danceability': group['danceability'].median(),
+                        'loudness': group['loudness'].median(),
+                        'onset_rate': group['onset_rate'].median(),
+                        'zcr': group['zcr'].median()
                     }
-                    # Normalize features
-                    track_data = self._normalize_features(track_data)
-                    data.append(track_data)
-                except Exception as e:
-                    logger.debug(f"Skipping track: {str(e)}")
-                    continue
-
-            if not data:
-                logger.warning("No valid tracks after filtering")
-                return playlists
-
-            df = pd.DataFrame(data)
-            cluster_features = [
-                'bpm', 'centroid', 'danceability', 
-                'loudness', 'onset_rate', 'zcr'
-            ]
-            weights = {
-                'bpm': 0.3,
-                'danceability': 0.2,
-                'centroid': 0.2,
-                'loudness': 0.1,
-                'onset_rate': 0.1,
-                'zcr': 0.1
-            }
-            scaler = MinMaxScaler()
-            scaled_features = scaler.fit_transform(df[cluster_features])
-            weighted_features = scaled_features * np.array([weights[f] for f in cluster_features])
-            max_clusters = min(num_playlists * 3, len(df))
-            kmeans = MiniBatchKMeans(
-                n_clusters=max_clusters,
-                random_state=42,
-                batch_size=min(1000, len(df)),
-                init='k-means++',
-                max_iter=300,
-                n_init=10
-            )
-            df['cluster'] = kmeans.fit_predict(weighted_features)
-            temp_playlists = {}
-            for cluster, group in df.groupby('cluster'):
-                logger.debug(f"Cluster {cluster} size: {len(group)}")
-                if len(group) < 3:
-                    logger.debug(f"Cluster {cluster} too small, will be merged into fallback.")
-                    continue
-                centroid = {
-                    'bpm': group['bpm'].median(),
-                    'centroid': group['centroid'].median(),
-                    'danceability': group['danceability'].median(),
-                    'loudness': group['loudness'].median(),
-                    'onset_rate': group['onset_rate'].median(),
-                    'zcr': group['zcr'].median()
-                }
-                name = self._generate_descriptive_name(centroid)
-                file_name = self._sanitize_file_name(name)
-                if name in temp_playlists:
-                    base_name = name
-                    counter = 1
-                    while name in temp_playlists:
-                        name = f"{base_name}_Variation{counter}"
-                        counter += 1
+                    logger.debug(f"Cluster {cluster} centroid: BPM={centroid['bpm']:.1f}, Danceability={centroid['danceability']:.2f}")
+                    
+                    name = self._generate_descriptive_name(centroid)
                     file_name = self._sanitize_file_name(name)
-                temp_playlists[name] = {
-                    'tracks': group['filepath'].tolist(),
-                    'features': centroid,
-                    'description': self._generate_description(centroid)
-                    , 'file_name': file_name
-                }
-            # Fallback: merge all small/leftover tracks into Mixed_Collection
-            assigned = set()
-            for p in temp_playlists.values():
-                assigned.update(p['tracks'])
-            leftovers = [f['filepath'] for f in data if f['filepath'] not in assigned]
-            if leftovers:
-                logger.info(f"Merging {len(leftovers)} leftover/small-cluster tracks into Mixed_Collection.")
-                temp_playlists['Mixed_Collection'] = {
-                    'tracks': leftovers,
-                    'features': {'type': 'mixed'},
-                    'description': 'Tracks from small or leftover clusters.'
-                }
-            if not temp_playlists:
-                logger.warning("No clusters large enough, all tracks go to Mixed_Collection.")
-                temp_playlists['Mixed_Collection'] = {
-                    'tracks': [f['filepath'] for f in data],
-                    'features': {'type': 'mixed'},
-                    'description': 'All tracks (no valid clusters)'
-                }
-            logger.info(f"Generated {len(temp_playlists)} playlists from {len(df)} tracks (kmeans)")
-            return temp_playlists
+                    if name in temp_playlists:
+                        base_name = name
+                        counter = 1
+                        while name in temp_playlists:
+                            name = f"{base_name}_Variation{counter}"
+                            counter += 1
+                        file_name = self._sanitize_file_name(name)
+                        logger.debug(f"Renamed duplicate playlist '{base_name}' to '{name}'")
+                    
+                    temp_playlists[name] = {
+                        'tracks': group['filepath'].tolist(),
+                        'features': centroid,
+                        'description': self._generate_description(centroid)
+                        , 'file_name': file_name
+                    }
+                    logger.debug(f"Created playlist '{name}' with {len(group)} tracks")
+                
+                # Fallback: merge all small/leftover tracks into Mixed_Collection
+                assigned = set()
+                for p in temp_playlists.values():
+                    assigned.update(p['tracks'])
+                leftovers = [f['filepath'] for f in data if f['filepath'] not in assigned]
+                if leftovers:
+                    logger.info(f"Merging {len(leftovers)} leftover/small-cluster tracks into Mixed_Collection.")
+                    temp_playlists['Mixed_Collection'] = {
+                        'tracks': leftovers,
+                        'features': {'type': 'mixed'},
+                        'description': 'Tracks from small or leftover clusters.'
+                    }
+                
+                if not temp_playlists:
+                    logger.warning("No clusters large enough, all tracks go to Mixed_Collection.")
+                    temp_playlists['Mixed_Collection'] = {
+                        'tracks': [f['filepath'] for f in data],
+                        'features': {'type': 'mixed'},
+                        'description': 'All tracks (no valid clusters)'
+                    }
+                
+                logger.info(f"Generated {len(temp_playlists)} playlists from {len(df)} tracks (kmeans)")
+                playlists.update(temp_playlists)
+                
         except Exception as e:
             logger.error(f"Clustering failed: {str(e)}")
             logger.error(traceback.format_exc())

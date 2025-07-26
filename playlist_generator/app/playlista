@@ -10,7 +10,7 @@ os.environ["GLOG_stderrthreshold"] = "3"
 
 # Parse --log_level early to set LOG_LEVEL env var
 pre_parser = argparse.ArgumentParser(add_help=False)
-pre_parser.add_argument('--log_level', default='WARNING', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
+pre_parser.add_argument('--log_level', default='DEBUG', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
 pre_args, _ = pre_parser.parse_known_args(sys.argv[1:])
 os.environ['LOG_LEVEL'] = pre_args.log_level
 
@@ -278,6 +278,8 @@ import signal
 
 def main() -> None:
     """Main entry point for the Playlista CLI application."""
+    logger.info("Starting Playlista application")
+    
     # Clear the terminal screen only if running interactively
     import sys
     if sys.stdout.isatty():
@@ -358,30 +360,41 @@ Examples:
     parser.add_argument('--pipeline', action='store_true', help='Run full pipeline: analyze, force, then failed')
 
     args = parser.parse_args()
+    logger.info(f"Parsed arguments: analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}, failed={args.failed}, force={args.force}, playlist_method={args.playlist_method}, workers={args.workers}, force_sequential={args.force_sequential}")
 
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
+    logger.debug(f"Using cache file: {cache_file}")
 
     console = Console()
     console.print(f"[bold magenta]{banner}[/bold magenta]")
+    
+    logger.info("Scanning music library for audio files")
     total_files = len(get_audio_files('/music'))
+    logger.info(f"Found {total_files} audio files in library")
     
     # Initialize playlist_db and audio_db early for all modes
+    logger.debug("Initializing database connections")
     playlist_db = PlaylistDatabase(cache_file)
     # AudioAnalyzer needs host library path for database storage, container music path for conversion
     audio_db = AudioAnalyzer(cache_file, library=args.library, music='/music')
+    logger.debug("Database connections initialized")
     
     total_in_db = len(audio_db.get_all_features())
+    logger.info(f"Database contains {total_in_db} analyzed tracks")
     console.print(f"[cyan]Total music files found in library:[/cyan] [bold]{total_files}[/bold]")
     console.print(f"[cyan]Total tracks in database:[/cyan] [bold]{total_in_db}[/bold]")
 
     if args.pipeline:
+        logger.info("Starting pipeline mode")
         from music_analyzer.analysis_manager import run_pipeline
         run_pipeline(args, audio_db, playlist_db, cli)
+        logger.info("Pipeline mode completed")
         sys.exit(0)
 
     stop_event = multiprocessing.Event()
     def handle_sigint(signum, frame):
+        logger.info("Received SIGINT (Ctrl+C), stopping gracefully...")
         print("\nReceived SIGINT (Ctrl+C), stopping gracefully...")
         stop_event.set()
     signal.signal(signal.SIGINT, handle_sigint)
@@ -389,22 +402,27 @@ Examples:
     # Set logging level from CLI
     logger.setLevel(getattr(pylogging, args.log_level.upper(), pylogging.WARNING))
     os.environ['LOG_LEVEL'] = args.log_level.upper()
+    logger.debug(f"Logging level set to: {args.log_level.upper()}")
 
     # If --status is set, show statistics and exit
     if getattr(args, 'status', False):
+        logger.info("Status mode: displaying library statistics")
         stats = playlist_db.get_library_statistics()
         # Add failed/skipped files count
         skipped_count = len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
         stats['skipped_failed'] = skipped_count
         cli.show_library_statistics(stats)
+        logger.info("Status display completed")
         sys.exit(0)
 
     # If no mutually exclusive mode is set, default to analyze_only
     if not (args.analyze or args.failed or args.update or args.generate_only):
         args.analyze = True
+        logger.info("No execution mode specified, defaulting to analyze mode")
 
     # Robust mode selection
     sequential_mode = args.force_sequential or (args.workers is not None and int(args.workers) == 1)
+    logger.info(f"Processing mode: {'sequential' if sequential_mode else 'parallel'}")
 
     # If sequential mode is forced, always use 1 worker and warn if user set more
     if args.force_sequential:
@@ -417,9 +435,11 @@ Examples:
     
     # Initialize playlist manager
     # Pass min_tracks_per_genre to PlaylistManager if using tags method
+    logger.info(f"Initializing playlist manager with method: {args.playlist_method}")
     if args.playlist_method == 'tags':
         playlist_manager = PlaylistManager(
             cache_file, args.playlist_method, min_tracks_per_genre=args.min_tracks_per_genre)
+        logger.debug(f"Using tag-based playlist generation with min_tracks_per_genre: {args.min_tracks_per_genre}")
     else:
         playlist_manager = PlaylistManager(cache_file, args.playlist_method)
     
@@ -429,20 +449,25 @@ Examples:
 
     # Check if the container music directory exists (not the host path)
     if not os.path.exists('/music'):
+        logger.error("Music directory not found: /music")
         cli.show_error(f"Music directory not found: /music")
         sys.exit(1)
 
     start_time = time.time()
     try:
         # Clean up database
+        logger.info("Cleaning up database - removing missing files")
         missing_in_db = audio_db.cleanup_database()
         if missing_in_db:
+            logger.info(f"Removed {len(missing_in_db)} missing files from database")
             cli.show_warning(f"Removed {len(missing_in_db)} missing files from database")
             failed_files.extend(missing_in_db)
 
         # If --pipeline is set, run the full pipeline and exit
         if getattr(args, 'pipeline', False):
+            logger.info("Running full pipeline mode")
             run_pipeline(args, audio_db, playlist_db, cli, stop_event=stop_event)
+            logger.info("Pipeline mode completed")
             sys.exit(0)
 
         # Create a multiprocessing manager queue for long-running file notifications
@@ -472,35 +497,51 @@ Examples:
         listener_thread.start()
 
         if args.update:
+            logger.info("Starting UPDATE mode - regenerating all playlists from database")
             cli.update_status("Running in UPDATE mode")
             features_from_db = audio_db.get_all_features()
+            logger.info(f"Retrieved {len(features_from_db)} tracks from database for playlist generation")
+            
             with CLIContextManager(cli, 3, "[green]Generating playlists...") as (progress, task_id):
+                logger.debug("Generating playlists from database features")
                 all_playlists = playlist_manager.generate_playlists(features_from_db, args.num_playlists)
                 progress.update(task_id, advance=3)
+                logger.info(f"Generated {len(all_playlists)} playlists")
+            
             # Show playlist statistics
+            logger.debug("Calculating and displaying playlist statistics")
             cli.show_playlist_stats(playlist_manager.get_playlist_stats())
+            
             # Save playlists to DB and to disk
+            logger.info("Saving playlists to database")
             playlist_db.save_playlists(all_playlists)
             if args.playlist_method == 'tags':
                 method_dir = os.path.join(args.output_dir, 'tags')
             else:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
+            logger.info(f"Saving playlists to disk: {method_dir}")
             save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method, host_library=args.library)
+            logger.info("UPDATE mode completed successfully")
 
         elif args.analyze or args.failed or args.force:
+            logger.info(f"Starting ANALYSIS mode: analyze={args.analyze}, failed={args.failed}, force={args.force}")
             failed_files = run_analysis(args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=args.no_cache)
+            logger.info(f"Analysis completed with {len(failed_files)} failed files")
 
         elif args.generate_only:
+            logger.info("Starting GENERATE_ONLY mode - creating playlists from existing analysis")
             cli.update_status("Generating playlists from database")
             features_from_db = audio_db.get_all_features()
-            
-
+            logger.info(f"Retrieved {len(features_from_db)} tracks from database for playlist generation")
             
             with CLIContextManager(cli, 3, "[green]Generating playlists...") as (progress, task_id):
+                logger.debug("Generating playlists from database features")
                 all_playlists = playlist_manager.generate_playlists(features_from_db, args.num_playlists)
                 progress.update(task_id, advance=3)
+                logger.info(f"Generated {len(all_playlists)} playlists")
             
             # Show playlist statistics
+            logger.debug("Calculating and displaying playlist statistics")
             cli.show_playlist_stats(playlist_manager.get_playlist_stats())
             
             # Save playlists
@@ -508,17 +549,23 @@ Examples:
                 method_dir = os.path.join(args.output_dir, 'tags')
             else:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
+            logger.info(f"Saving playlists to disk: {method_dir}")
             save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method, host_library=args.library)
+            logger.info("GENERATE_ONLY mode completed successfully")
 
         else:
+            logger.info("Starting FULL PIPELINE mode - analysis and playlist generation")
             cli.update_status("Running full processing pipeline")
             file_list = get_audio_files('/music')
             file_list = [convert_to_host_path(f, library, music) for f in file_list]
+            logger.info(f"Processing {len(file_list)} audio files")
             
             # Analysis phase
+            logger.info("Starting analysis phase")
             with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
                 processor = ParallelProcessor() if not sequential_mode else SequentialProcessor()
                 workers = args.workers or max(1, mp.cpu_count())
+                logger.debug(f"Using {workers} workers for analysis")
                 
                 for i, features in enumerate(processor.process(file_list, workers)):
                     # Show only the filename in the progress bar
@@ -531,22 +578,30 @@ Examples:
                     filename = os.path.basename(filepath)
                     progress.update(task_id, advance=1, description=f"Analyzing: {filename} ({i+1}/{len(file_list)})")
                     if stop_event.is_set():
+                        logger.info("Analysis interrupted by user")
                         print("\nInterrupted by user. Exiting...")
                         sys.exit(130)
                 
                 failed_files.extend(processor.failed_files)
+                logger.info(f"Analysis phase completed. Processed {len(file_list)} files, {len(failed_files)} failed")
             
             # Generation phase
+            logger.info("Starting playlist generation phase")
             features_from_db = audio_db.get_all_features()
+            logger.info(f"Retrieved {len(features_from_db)} tracks from database for playlist generation")
             
             with CLIContextManager(cli, 3, "[green]Generating playlists...") as (progress, task_id):
+                logger.debug("Generating playlists from database features")
                 all_playlists = playlist_manager.generate_playlists(features_from_db, args.num_playlists)
                 progress.update(task_id, advance=3)
+                logger.info(f"Generated {len(all_playlists)} playlists")
                 if stop_event.is_set():
+                    logger.info("Playlist generation interrupted by user")
                     print("\nInterrupted by user. Exiting...")
                     sys.exit(130)
             
             # Show playlist statistics
+            logger.debug("Calculating and displaying playlist statistics")
             cli.show_playlist_stats(playlist_manager.get_playlist_stats())
             
             # Save playlists
@@ -554,16 +609,22 @@ Examples:
                 method_dir = os.path.join(args.output_dir, 'tags')
             else:
                 method_dir = os.path.join(args.output_dir, args.playlist_method)
+            logger.info(f"Saving playlists to disk: {method_dir}")
             save_playlists(all_playlists, method_dir, library, music, failed_files, playlist_method=args.playlist_method, host_library=args.library)
+            logger.info("FULL PIPELINE mode completed successfully")
 
         # Show failed files if any
         if failed_files:
+            logger.warning(f"Showing {len(failed_files)} failed files")
             cli.show_file_errors(failed_files)
 
     except Exception as e:
+        logger.error(f"Application error: {str(e)}")
+        logger.error(f"Error traceback: {traceback.format_exc()}")
         cli.show_error(str(e), details=traceback.format_exc())
         sys.exit(1)
     except KeyboardInterrupt:
+        logger.info("Application interrupted by user")
         print("\nInterrupted by user. Exiting...")
         stop_event.set()
         sys.exit(130)
@@ -571,6 +632,7 @@ Examples:
         # Only print summary for generate/update modes (not analyze_only)
         if not args.analyze:
             try:
+                logger.debug("Calculating final summary statistics")
                 features_from_db = audio_db.get_all_features()
                 total_files = len(features_from_db)
                 failed_count = len(failed_files)
@@ -582,14 +644,18 @@ Examples:
                         mb_count += 1
                     else:
                         no_mb_count += 1
+                
                 runtime = time.time() - start_time
+                logger.info(f"Final summary: Processed={total_files}, Failed={failed_count}, With MusicBrainz={mb_count}, Without MusicBrainz={no_mb_count}, Runtime={runtime:.1f}s")
+                
                 logger.debug(f"Processed Files: {total_files}")
                 logger.debug(f"Failed Files: {failed_count}")
                 logger.debug(f"With MusicBrainz Info: {mb_count}")
                 logger.debug(f"Without MusicBrainz Info: {no_mb_count}")
                 logger.debug(f"Runtime: {runtime:.1f} seconds")
+                
             except Exception as e:
-                logger.debug(f"Error generating summary: {e}")
+                logger.error(f"Error generating summary: {e}")
 
 if __name__ == "__main__":
     main()

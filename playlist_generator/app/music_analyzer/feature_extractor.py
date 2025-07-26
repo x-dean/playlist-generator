@@ -712,105 +712,209 @@ class AudioAnalyzer:
     def _extract_all_features(self, audio_path, audio):
         # Initialize with default values
         features = {
-            'duration': float(len(audio) / 44100.0),
-            'filepath': str(audio_path),
-            'filename': str(os.path.basename(audio_path)),
+            'duration': 0.0,
             'bpm': 0.0,
             'beat_confidence': 0.0,
             'centroid': 0.0,
-            'loudness': 0.0,
+            'loudness': -30.0,
             'danceability': 0.0,
             'key': -1,
             'scale': 0,
             'onset_rate': 0.0,
             'zcr': 0.0,
             'mfcc': [0.0] * 13,
-            'chroma': [0.0] * 12,  # 12-dimensional HPCP vector
-            'spectral_contrast': 0.0,  # Single float value
+            'chroma': [0.0] * 12,
+            'spectral_contrast': [0.0] * 7,
             'spectral_flatness': 0.0,
             'spectral_rolloff': 0.0,
-            'musicnn_embedding': None
+            'musicnn_embedding': None,
+            'metadata': {}
         }
-        # --- Metadata extraction ---
-        meta = {}
+        
+        logger.debug(f"Starting feature extraction for {os.path.basename(audio_path)}")
+        
         try:
-            audiofile = MutagenFile(audio_path, easy=True)
-            if audiofile:
-                meta = {k: (v[0] if isinstance(v, list) and v else v) for k, v in audiofile.items()}
-        except Exception as e:
-            logger.warning(f"Mutagen tag extraction failed: {e}")
-        # If artist/title found, try MusicBrainz
-        artist = meta.get('artist')
-        title = meta.get('title')
-        mb_tags = {}
-        if artist and title:
-            logger.info(f"Attempting MusicBrainz lookup for: {artist} - {title}")
-            mb_tags = self._musicbrainz_lookup(artist, title)
-            updated_fields_mb = [k for k, v in mb_tags.items() if v and (k not in meta or meta[k] != v)]
-            meta.update({k: v for k, v in mb_tags.items() if v})
-            logger.info(f"MusicBrainz enrichment: {artist} - {title} (fields updated: {updated_fields_mb})")
-        # Last.fm enrichment
-        genre = meta.get('genre')
-        missing_fields = [field for field in ['genre', 'year', 'album'] if not meta.get(field)]
-        if genre is None or (isinstance(genre, str) and genre.strip() in {None, '', 'Other', 'UnknownGenre', 'Unknown', 'Misc', 'Various', 'VA', 'General', 'Soundtrack', 'OST', 'N/A', 'Not Available', 'No Genre', 'Unclassified', 'Unsorted', 'Undefined', 'Genre', 'Genres', 'Music', 'Song', 'Songs', 'Audio', 'MP3', 'Instrumental', 'Vocal', 'Various Artists', 'VA', 'Compilation', 'Compilations', 'Album', 'Albums', 'CD', 'CDs', 'Record', 'Records', 'Single', 'Singles', 'EP', 'EPs', 'LP', 'LPs', 'Demo', 'Demos', 'Test', 'Tests', 'Sample', 'Samples', 'Example', 'Examples', 'Untitled', 'Unknown Artist', 'Unknown Album', 'Unknown Title', 'No Title', 'No Album', 'No Artist'}):
-            if 'genre' not in missing_fields:
-                missing_fields.append('genre')
-        if missing_fields and artist and title:
-            logger.debug(f"Last.fm enrichment triggered for {artist} - {title}, missing fields: {missing_fields}")
-            lastfm_tags = self._lastfm_lookup(artist, title)
-            logger.debug(f"Last.fm response for {artist} - {title}: {lastfm_tags}")
-            updated_fields_lastfm = []
-            for field in missing_fields:
-                if lastfm_tags.get(field):
-                    meta[field] = lastfm_tags[field]
-                    updated_fields_lastfm.append(field)
-            logger.info(f"Last.fm enrichment: {artist} - {title} (fields updated: {updated_fields_lastfm})")
-        # Filter metadata to keep only lean fields
-        features['metadata'] = filter_metadata(meta)
-
-        # Print/log MusicBrainz info if present
-        # (Removed per user request)
-        if mb_tags:
-            logger.debug(f"MusicBrainz info for '{artist} - {title}': {mb_tags}")
-
-        if len(audio) >= 44100:  # At least 1 second
+            # Extract basic metadata first
+            logger.debug("Extracting basic metadata")
             try:
-                # Extract features
-                bpm, confidence = self._extract_rhythm_features(audio)
-                centroid = self._extract_spectral_features(audio)
-                loudness = self._extract_loudness(audio)
-                danceability = self._extract_danceability(audio)
-                key, scale = self._extract_key(audio)
-                onset_rate = self._extract_onset_rate(audio)
-                zcr = self._extract_zcr(audio)
-                mfcc = self._extract_mfcc(audio)
-                chroma = self._extract_chroma(audio)
-                spectral_contrast = self._extract_spectral_contrast(audio)
-                spectral_flatness = self._extract_spectral_flatness(audio)
-                spectral_rolloff = self._extract_spectral_rolloff(audio)
-                musicnn_embedding = self._extract_musicnn_embedding(audio_path)
-
-                # Update features
-                features.update({
-                    'bpm': self._ensure_float(bpm),
-                    'beat_confidence': self._ensure_float(confidence),
-                    'centroid': self._ensure_float(centroid),
-                    'loudness': self._ensure_float(loudness),
-                    'danceability': self._ensure_float(danceability),
-                    'key': self._ensure_int(key),
-                    'scale': self._ensure_int(scale),
-                    'onset_rate': self._ensure_float(onset_rate),
-                    'zcr': self._ensure_float(zcr),
-                    'mfcc': mfcc,
-                    'chroma': chroma,
-                    'spectral_contrast': spectral_contrast,
-                    'spectral_flatness': self._ensure_float(spectral_flatness),
-                    'spectral_rolloff': self._ensure_float(spectral_rolloff),
-                    'musicnn_embedding': musicnn_embedding
-                })
+                import mutagen
+                audio_file = mutagen.File(audio_path)
+                if audio_file:
+                    metadata = {}
+                    for key, value in audio_file.tags.items() if hasattr(audio_file, 'tags') and audio_file.tags else []:
+                        if isinstance(value, list) and len(value) > 0:
+                            metadata[key] = str(value[0])
+                        else:
+                            metadata[key] = str(value)
+                    features['metadata'] = metadata
+                    logger.debug(f"Extracted {len(metadata)} metadata fields")
             except Exception as e:
-                logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
-        return features
+                logger.warning(f"Mutagen tag extraction failed: {e}")
+                features['metadata'] = {}
+
+            # Extract duration
+            features['duration'] = float(audio['duration'])
+            logger.debug(f"Duration: {features['duration']:.2f}s")
+
+            # Extract rhythm features
+            logger.debug("Extracting rhythm features (BPM, beat confidence)")
+            try:
+                rhythm_features = self._extract_rhythm_features(audio)
+                features['bpm'] = rhythm_features['bpm']
+                features['beat_confidence'] = rhythm_features['beat_confidence']
+                logger.debug(f"Rhythm features: BPM={features['bpm']:.1f}, confidence={features['beat_confidence']:.2f}")
+            except Exception as e:
+                logger.warning(f"Rhythm extraction failed: {str(e)}")
+
+            # Extract spectral features
+            logger.debug("Extracting spectral features (centroid)")
+            try:
+                spectral_features = self._extract_spectral_features(audio)
+                features['centroid'] = spectral_features['centroid']
+                logger.debug(f"Spectral centroid: {features['centroid']:.1f}")
+            except Exception as e:
+                logger.warning(f"Spectral extraction failed: {str(e)}")
+
+            # Extract loudness
+            logger.debug("Extracting loudness")
+            try:
+                features['loudness'] = self._extract_loudness(audio)
+                logger.debug(f"Loudness: {features['loudness']:.1f} dB")
+            except Exception as e:
+                logger.warning(f"Loudness extraction failed: {str(e)}")
+
+            # Extract danceability
+            logger.debug("Extracting danceability")
+            try:
+                features['danceability'] = self._extract_danceability(audio)
+                logger.debug(f"Danceability: {features['danceability']:.2f}")
+            except Exception as e:
+                logger.warning(f"Danceability extraction failed: {str(e)}")
+
+            # Extract key and scale
+            logger.debug("Extracting key and scale")
+            try:
+                key_features = self._extract_key(audio)
+                features['key'] = key_features['key']
+                features['scale'] = key_features['scale']
+                logger.debug(f"Key: {features['key']}, Scale: {features['scale']}")
+            except Exception as e:
+                logger.warning(f"Key extraction failed: {str(e)}")
+
+            # Extract onset rate
+            logger.debug("Extracting onset rate")
+            try:
+                features['onset_rate'] = self._extract_onset_rate(audio)
+                logger.debug(f"Onset rate: {features['onset_rate']:.2f}")
+            except Exception as e:
+                logger.warning(f"Onset rate extraction failed: {str(e)}")
+
+            # Extract zero crossing rate
+            logger.debug("Extracting zero crossing rate")
+            try:
+                features['zcr'] = self._extract_zcr(audio)
+                logger.debug(f"Zero crossing rate: {features['zcr']:.2f}")
+            except Exception as e:
+                logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
+
+            # Extract MFCC
+            logger.debug("Extracting MFCC coefficients")
+            try:
+                features['mfcc'] = self._extract_mfcc(audio)
+                logger.debug(f"MFCC: {len(features['mfcc'])} coefficients")
+            except Exception as e:
+                logger.warning(f"MFCC extraction failed: {str(e)}")
+
+            # Extract chroma
+            logger.debug("Extracting chroma features")
+            try:
+                features['chroma'] = self._extract_chroma(audio)
+                logger.debug(f"Chroma: {len(features['chroma'])} features")
+            except Exception as e:
+                logger.warning(f"Chroma extraction failed: {str(e)}")
+
+            # Extract spectral contrast
+            logger.debug("Extracting spectral contrast")
+            try:
+                features['spectral_contrast'] = self._extract_spectral_contrast(audio)
+                logger.debug(f"Spectral contrast: {len(features['spectral_contrast'])} features")
+            except Exception as e:
+                logger.warning(f"Spectral contrast extraction failed: {str(e)}")
+
+            # Extract spectral flatness
+            logger.debug("Extracting spectral flatness")
+            try:
+                features['spectral_flatness'] = self._extract_spectral_flatness(audio)
+                logger.debug(f"Spectral flatness: {features['spectral_flatness']:.3f}")
+            except Exception as e:
+                logger.warning(f"Spectral flatness extraction failed: {str(e)}")
+
+            # Extract spectral rolloff
+            logger.debug("Extracting spectral rolloff")
+            try:
+                features['spectral_rolloff'] = self._extract_spectral_rolloff(audio)
+                logger.debug(f"Spectral rolloff: {features['spectral_rolloff']:.1f}")
+            except Exception as e:
+                logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
+
+            # Extract MusiCNN embedding if available
+            logger.debug("Extracting MusiCNN embedding")
+            try:
+                musicnn_embedding = self._extract_musicnn_embedding(audio_path)
+                if musicnn_embedding is not None:
+                    features['musicnn_embedding'] = musicnn_embedding
+                    logger.debug("MusiCNN embedding extracted successfully")
+                else:
+                    logger.debug("MusiCNN embedding not available")
+            except Exception as e:
+                logger.warning(f"MusiCNN embedding extraction failed: {str(e)}")
+
+            # Enrich metadata with MusicBrainz and Last.fm
+            logger.debug("Enriching metadata with external sources")
+            try:
+                metadata = features.get('metadata', {})
+                artist = metadata.get('artist', '')
+                title = metadata.get('title', '')
+                
+                if artist and title:
+                    logger.debug(f"Attempting MusicBrainz lookup for: {artist} - {title}")
+                    mb_data = self._musicbrainz_lookup(artist, title)
+                    if mb_data:
+                        updated_fields_mb = 0
+                        for key, value in mb_data.items():
+                            if value and key not in metadata:
+                                metadata[key] = value
+                                updated_fields_mb += 1
+                        if updated_fields_mb > 0:
+                            logger.info(f"MusicBrainz enrichment: {artist} - {title} (fields updated: {updated_fields_mb})")
+                        features['metadata'] = metadata
+                    
+                    # Last.fm enrichment for missing fields
+                    missing_fields = ['genre', 'album', 'year']
+                    if any(field not in metadata or not metadata.get(field) for field in missing_fields):
+                        logger.debug(f"Last.fm enrichment triggered for {artist} - {title}, missing fields: {missing_fields}")
+                        lastfm_tags = self._lastfm_lookup(artist, title)
+                        if lastfm_tags:
+                            updated_fields_lastfm = 0
+                            for key, value in lastfm_tags.items():
+                                if value and key not in metadata:
+                                    metadata[key] = value
+                                    updated_fields_lastfm += 1
+                            if updated_fields_lastfm > 0:
+                                logger.info(f"Last.fm enrichment: {artist} - {title} (fields updated: {updated_fields_lastfm})")
+                            features['metadata'] = metadata
+                
+                logger.debug(f"Final metadata: {len(metadata)} fields")
+                
+            except Exception as e:
+                logger.warning(f"Metadata enrichment failed: {str(e)}")
+
+            logger.info(f"Feature extraction completed for {os.path.basename(audio_path)}")
+            return features
+
+        except Exception as e:
+            logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
+            return features
 
     def _mark_failed(self, file_info):
         # Ensure file_path is host path
