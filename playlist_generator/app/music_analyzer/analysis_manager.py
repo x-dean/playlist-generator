@@ -321,9 +321,11 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
     """Run analysis mode - analyze files that need processing."""
     logger.info("Starting ANALYZE mode")
 
-    # Get files that need analysis
-    files_to_analyze = audio_db.get_files_needing_analysis()
-    logger.debug(f"Files needing analysis: {len(files_to_analyze) if files_to_analyze else 0}")
+    # Get files that need analysis using simplified selection
+    normal_files, big_files, _, db_features = select_files_for_analysis(args, audio_db)
+    files_to_analyze = normal_files + big_files
+    
+    logger.debug(f"DISCOVERY: Files needing analysis: {len(files_to_analyze)}")
 
     if not files_to_analyze:
         logger.info("No files need analysis. All files are up to date.")
@@ -342,36 +344,16 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
         f"   📈 Progress: {total_in_db}/{total_files} ({total_in_db/total_files*100:.1f}% complete)")
     print()  # Add spacing before progress bar
 
+    # Get file sizes from database for progress bar
+    file_sizes = audio_db.get_file_sizes_from_db(files_to_analyze)
+    
+    logger.info(f"DISCOVERY: File distribution: {len(normal_files)} normal files, {len(big_files)} big files (>200MB)")
+    
     # Run analysis on files that need it
     failed_files = []
 
     with CLIContextManager(cli, len(files_to_analyze), f"[cyan]Analyzing {len(files_to_analyze)} files...") as (progress, task_id):
-        # Prepare list of file paths only for processing
-        file_paths_only = [item[0] if isinstance(
-            item, tuple) else item for item in files_to_analyze]
-        
-        # Separate files by size for different processing strategies
-        big_files = []
-        normal_files = []
-        
-        # Get file sizes from database instead of filesystem
-        file_sizes = audio_db.get_file_sizes_from_db(file_paths_only)
-        
-        for file_path in file_paths_only:
-            file_size_bytes = file_sizes.get(file_path, 0)
-            file_size_mb = file_size_bytes / (1024 * 1024)
-            
-            if file_size_mb > BIG_FILE_SIZE_MB:
-                big_files.append(file_path)
-            else:
-                normal_files.append(file_path)
-        
-        logger.info(f"File distribution: {len(normal_files)} normal files, {len(big_files)} big files (>200MB)")
-        logger.debug(f"Big files: {[os.path.basename(f) for f in big_files]}")
-        
-        # Process big files first (sequentially), then normal files (parallel)
         processed_count = 0
-        failed_files = []
 
         # Pre-update progress bar with first file
         if files_to_analyze:
