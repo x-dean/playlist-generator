@@ -20,7 +20,7 @@ from utils.path_converter import PathConverter
 import requests
 import tensorflow as tf
 import librosa
-import keras_vggish
+import vggish_keras as vgk
 
 logger = logging.getLogger()
 
@@ -68,13 +68,14 @@ class AudioAnalyzer:
         self.vggish_model = self._load_vggish_model()
 
     def _load_vggish_model(self):
-        """Load VGGish model for audio embeddings using keras-vggish (auto-downloads weights)."""
+        """Load VGGish model for audio embeddings using vggish-keras (auto-downloads weights)."""
         try:
-            model = keras_vggish.get_vggish_keras()
-            logger.info("Loaded VGGish model using keras-vggish.")
-            return model
+            # Get the embedding function which handles model loading and preprocessing
+            self.vggish_compute = vgk.get_embedding_function(hop_duration=0.25)
+            logger.info("Loaded VGGish model using vggish-keras.")
+            return self.vggish_compute
         except Exception as e:
-            logger.error(f"Failed to load VGGish model with keras-vggish: {e}")
+            logger.error(f"Failed to load VGGish model with vggish-keras: {e}")
             return None
 
     def _audio_to_mel_spectrogram(self, audio, sr=44100):
@@ -101,18 +102,17 @@ class AudioAnalyzer:
             return None
 
     def _extract_vggish_embedding(self, audio):
-        """Extract VGGish embeddings from audio."""
-        if not self.vggish_model:
+        """Extract VGGish embeddings from audio using vggish-keras."""
+        if not hasattr(self, 'vggish_compute') or self.vggish_compute is None:
             return None
         try:
-            mel_spec = self._audio_to_mel_spectrogram(audio)
-            if mel_spec is None:
-                return None
-            # Reshape for model input (batch_size, height, width, channels)
-            mel_spec = mel_spec.reshape(1, 96, 64, 1)
-            # Get embeddings
-            embeddings = self.vggish_model.predict(mel_spec, verbose=0)
-            return embeddings[0].tolist()  # Return as list
+            # vggish-keras expects audio as numpy array with sample rate
+            # We need to convert the audio to the right format
+            sr = 44100  # Standard sample rate
+            # Get embeddings using the compute function
+            embeddings, timestamps = self.vggish_compute(y=audio, sr=sr)
+            # Return the mean embedding across time (global representation)
+            return np.mean(embeddings, axis=0).tolist()
         except Exception as e:
             logger.warning(f"VGGish embedding extraction failed: {str(e)}")
             return None
