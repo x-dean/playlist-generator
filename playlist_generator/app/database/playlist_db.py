@@ -1,169 +1,183 @@
 # database/playlist_db.py
-import logging
-from typing import Dict, List, Any, Optional
-from .db_manager import DatabaseManager
+import sqlite3
 import json
+import os
+import logging
+from typing import Dict, Any, List, Optional
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 class PlaylistDatabase:
-    def __init__(self, db_file: str):
-        self.db = DatabaseManager(db_file)
-
-    def playlists_exist(self) -> bool:
-        """Check if any playlists exist in the database"""
-        conn = self.db._get_connection()
+    """Database manager for playlist operations."""
+    
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        logger.debug(f"Initializing PlaylistDatabase with path: {db_path}")
+        self._init_db()
+    
+    def _init_db(self):
+        """Initialize the database with required tables."""
+        logger.debug("Initializing playlist database tables")
         try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM playlists")
-            count = cursor.fetchone()[0]
-            return count > 0
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Create playlists table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS playlists (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT UNIQUE NOT NULL,
+                        tracks TEXT NOT NULL,
+                        features TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                logger.debug("Created playlists table")
+                
+                conn.commit()
+                logger.info("Playlist database initialization completed successfully")
         except Exception as e:
-            logger.error(f"Error checking playlists: {str(e)}")
-            return False
-
-    def save_playlists(self, playlists: Dict[str, Dict[str, Any]]) -> bool:
-        """Save multiple playlists to the database"""
-        success = True
-        for name, data in playlists.items():
-            if not self.db.save_playlist(
-                name=name,
-                tracks=data.get('tracks', []),
-                features=data.get('features'),
-                description=data.get('description')
-            ):
-                success = False
-        return success
-
-    def get_playlist(self, name: str) -> Optional[Dict[str, Any]]:
-        """Get a playlist by name"""
-        return self.db.get_playlist(name)
-
-    def get_all_playlists(self) -> List[Dict[str, Any]]:
-        """Get all playlists with their tracks"""
-        conn = self.db._get_connection()
+            logger.error(f"Playlist database initialization failed: {str(e)}")
+            import traceback
+            logger.error(f"Playlist database init error traceback: {traceback.format_exc()}")
+            raise
+    
+    def save_playlist(self, name: str, tracks: List[str], features: Dict[str, Any] = None) -> bool:
+        """Save a playlist to the database."""
+        logger.debug(f"Saving playlist '{name}' with {len(tracks)} tracks")
         try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM playlists")
-            return [
-                self.get_playlist(row['name'])
-                for row in cursor.fetchall()
-                if row['name']
-            ]
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                tracks_json = json.dumps(tracks)
+                features_json = json.dumps(features) if features else None
+                
+                cursor.execute("""
+                    INSERT OR REPLACE INTO playlists (name, tracks, features, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                """, (name, tracks_json, features_json))
+                
+                conn.commit()
+                logger.info(f"Successfully saved playlist '{name}' to database")
+                return True
+        except Exception as e:
+            logger.error(f"Error saving playlist {name}: {str(e)}")
+            import traceback
+            logger.error(f"Save playlist error traceback: {traceback.format_exc()}")
+            return False
+    
+    def get_playlist(self, name: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a playlist from the database."""
+        logger.debug(f"Retrieving playlist '{name}' from database")
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT tracks, features, created_at, updated_at
+                    FROM playlists WHERE name = ?
+                """, (name,))
+                
+                row = cursor.fetchone()
+                if row:
+                    playlist = {
+                        'name': name,
+                        'tracks': json.loads(row[0]),
+                        'features': json.loads(row[1]) if row[1] else {},
+                        'created_at': row[2],
+                        'updated_at': row[3]
+                    }
+                    logger.debug(f"Successfully retrieved playlist '{name}' with {len(playlist['tracks'])} tracks")
+                    return playlist
+                else:
+                    logger.debug(f"Playlist '{name}' not found in database")
+                    return None
+        except Exception as e:
+            logger.error(f"Error getting playlist {name}: {str(e)}")
+            import traceback
+            logger.error(f"Get playlist error traceback: {traceback.format_exc()}")
+            return None
+    
+    def get_all_playlists(self) -> List[Dict[str, Any]]:
+        """Get all playlists from the database."""
+        logger.debug("Retrieving all playlists from database")
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT name, tracks, features, created_at, updated_at
+                    FROM playlists ORDER BY updated_at DESC
+                """)
+                
+                playlists = []
+                for row in cursor.fetchall():
+                    playlist = {
+                        'name': row[0],
+                        'tracks': json.loads(row[1]),
+                        'features': json.loads(row[2]) if row[2] else {},
+                        'created_at': row[3],
+                        'updated_at': row[4]
+                    }
+                    playlists.append(playlist)
+                
+                logger.debug(f"Retrieved {len(playlists)} playlists from database")
+                return playlists
         except Exception as e:
             logger.error(f"Error getting all playlists: {str(e)}")
+            import traceback
+            logger.error(f"Get all playlists error traceback: {traceback.format_exc()}")
             return []
-
-    def update_playlists(self, changed_files: Optional[List[str]] = None) -> int:
-        """Update playlists based on changed files"""
-        conn = self.db._get_connection()
+    
+    def delete_playlist(self, name: str) -> bool:
+        """Delete a playlist from the database."""
+        logger.debug(f"Deleting playlist '{name}' from database")
         try:
-            cursor = conn.cursor()
-            
-            if changed_files is None:
-                cursor.execute("""
-                SELECT file_path
-                FROM audio_features
-                WHERE last_analyzed > (
-                    SELECT MAX(last_updated) FROM playlists
-                )
-                """)
-                changed_files = [row[0] for row in cursor.fetchall()]
-
-            if not changed_files:
-                logger.info("No changed files, playlists up-to-date")
-                return 0
-
-            # Get all playlists that contain changed files
-            placeholders = ','.join(['?' for _ in changed_files])
-            cursor.execute(f"""
-            SELECT DISTINCT p.name, p.features
-            FROM playlists p
-            JOIN playlist_tracks pt ON pt.playlist_id = p.id
-            JOIN audio_features af ON af.file_hash = pt.file_hash
-            WHERE af.file_path IN ({placeholders})
-            """, changed_files)
-
-            affected_playlists = cursor.fetchall()
-            
-            # Regenerate affected playlists
-            for playlist in affected_playlists:
-                # Get current tracks
-                cursor.execute("""
-                SELECT af.file_path
-                FROM playlist_tracks pt
-                JOIN audio_features af ON af.file_hash = pt.file_hash
-                WHERE pt.playlist_id = (
-                    SELECT id FROM playlists WHERE name = ?
-                )
-                ORDER BY pt.position
-                """, (playlist['name'],))
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM playlists WHERE name = ?", (name,))
                 
-                tracks = [row[0] for row in cursor.fetchall()]
-                
-                # Save updated playlist
-                self.db.save_playlist(
-                    name=playlist['name'],
-                    tracks=tracks,
-                    features=playlist['features']
-                )
-
-            return len(affected_playlists)
-            
+                if cursor.rowcount > 0:
+                    conn.commit()
+                    logger.info(f"Successfully deleted playlist '{name}' from database")
+                    return True
+                else:
+                    logger.warning(f"Playlist '{name}' not found for deletion")
+                    return False
         except Exception as e:
-            logger.error(f"Error updating playlists: {str(e)}")
-            return 0
-
-    def get_changed_files(self) -> List[str]:
-        """Get files that have changed since last playlist update"""
-        conn = self.db._get_connection()
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-            SELECT file_path
-            FROM audio_features
-            WHERE last_analyzed > (
-                SELECT MAX(last_updated) FROM playlists
-            )
-            """)
-            return [row[0] for row in cursor.fetchall()]
-        except Exception as e:
-            logger.error(f"Error getting changed files: {str(e)}")
-            return []
-
-    def add_track_tags(self, file_path: str, tags: Dict[str, str]) -> bool:
-        """Add or update tags for a track"""
-        return self.db.add_track_tags(file_path, tags)
-
-    def get_track_tags(self, file_path: str) -> Dict[str, str]:
-        """Get all tags for a track"""
-        return self.db.get_track_tags(file_path)
-
-    def get_playlist_stats(self, name: Optional[str] = None) -> Dict[str, Any]:
-        """Get statistics for a playlist or all playlists"""
-        conn = self.db._get_connection()
-        try:
-            cursor = conn.cursor()
-            
-            if name:
-                cursor.execute("""
-                SELECT stats FROM playlists WHERE name = ?
-                """, (name,))
-                result = cursor.fetchone()
-                if result:
-                    return json.loads(result['stats']) if result['stats'] else {}
-                return {}
-            
-            cursor.execute("SELECT name, stats FROM playlists")
-            return {
-                row['name']: json.loads(row['stats']) if row['stats'] else {}
-                for row in cursor.fetchall()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error getting playlist stats: {str(e)}")
-            return {}
-
+            logger.error(f"Error deleting playlist {name}: {str(e)}")
+            import traceback
+            logger.error(f"Delete playlist error traceback: {traceback.format_exc()}")
+            return False
+    
     def get_library_statistics(self) -> Dict[str, Any]:
-        """Return statistics about the music library and playlists."""
-        return self.db.get_library_statistics()
+        """Get library statistics from the database."""
+        logger.debug("Retrieving library statistics from playlist database")
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Get total playlists
+                cursor.execute("SELECT COUNT(*) FROM playlists")
+                total_playlists = cursor.fetchone()[0]
+                
+                # Get total tracks across all playlists
+                cursor.execute("SELECT tracks FROM playlists")
+                total_tracks = 0
+                unique_tracks = set()
+                for row in cursor.fetchall():
+                    tracks = json.loads(row[0])
+                    total_tracks += len(tracks)
+                    unique_tracks.update(tracks)
+                
+                stats = {
+                    'total_playlists': total_playlists,
+                    'total_tracks': total_tracks,
+                    'unique_tracks': len(unique_tracks)
+                }
+                
+                logger.debug(f"Retrieved playlist library statistics: {stats}")
+                return stats
+        except Exception as e:
+            logger.error(f"Error getting library statistics: {str(e)}")
+            import traceback
+            logger.error(f"Library statistics error traceback: {traceback.format_exc()}")
+            return {}

@@ -9,7 +9,7 @@ import numpy as np
 from typing import Dict, List, Any, Optional
 import re
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 class CacheBasedGenerator:
     """Generate playlists using rule-based feature bins (cache method)."""
@@ -21,6 +21,7 @@ class CacheBasedGenerator:
         """
         self.cache_file = cache_file
         self.playlist_history = defaultdict(list)
+        logger.debug(f"Initialized CacheBasedGenerator with cache file: {cache_file}")
 
         # BPM ranges with descriptions
         self.bpm_ranges = {
@@ -50,308 +51,327 @@ class CacheBasedGenerator:
             'Bright': (4000, 6000, "Crisp and detailed"),
             'Brilliant': (6000, float('inf'), "Sparkling and airy")
         }
+        logger.debug("Cache-based generator initialized with feature ranges")
 
     def _get_category(self, value: float, ranges: Dict[str, tuple]) -> tuple:
         """Get category and description for a value from defined ranges"""
-        for name, (min_val, max_val, desc) in ranges.items():
-            if min_val <= value < max_val:
-                return name, desc
-        return list(ranges.keys())[-1], ranges[list(ranges.keys())[-1]][2]
+        logger.debug(f"Getting category for value {value} from {len(ranges)} ranges")
+        
+        try:
+            for name, (min_val, max_val, desc) in ranges.items():
+                if min_val <= value < max_val:
+                    logger.debug(f"Value {value} categorized as '{name}': {desc}")
+                    return name, desc
+            # Return last category as fallback
+            last_name = list(ranges.keys())[-1]
+            last_desc = ranges[last_name][2]
+            logger.debug(f"Value {value} categorized as fallback '{last_name}': {last_desc}")
+            return last_name, last_desc
+        except Exception as e:
+            logger.error(f"Error categorizing value {value}: {str(e)}")
+            return "Unknown", "Unknown category"
 
     def _get_combined_energy(self, track: Dict[str, Any]) -> float:
         """Calculate combined energy score from multiple features"""
-        danceability = float(track.get('danceability', 0))
-        loudness = float(track.get('loudness', -60))
-        onset_rate = float(track.get('onset_rate', 0))
+        logger.debug(f"Calculating combined energy for track: {track.get('filepath', 'unknown')}")
         
-        # Normalize loudness from dB to 0-1 range
-        loudness_norm = (loudness + 60) / 60  # -60dB -> 0, 0dB -> 1
-        
-        # Combine features with weights
-        return (
-            danceability * 0.4 +
-            loudness_norm * 0.3 +
-            min(1.0, onset_rate / 4) * 0.3  # Normalize onset rate
-        )
+        try:
+            danceability = float(track.get('danceability', 0))
+            loudness = float(track.get('loudness', -60))
+            onset_rate = float(track.get('onset_rate', 0))
+            
+            # Normalize loudness from dB to 0-1 range
+            loudness_norm = (loudness + 60) / 60  # -60dB -> 0, 0dB -> 1
+            
+            # Combine features with weights
+            combined_energy = (
+                danceability * 0.4 +
+                loudness_norm * 0.3 +
+                min(1.0, onset_rate / 4) * 0.3  # Normalize onset rate
+            )
+            
+            logger.debug(f"Combined energy calculation: danceability={danceability:.3f}, loudness_norm={loudness_norm:.3f}, onset_rate={onset_rate:.3f} -> combined={combined_energy:.3f}")
+            return combined_energy
+            
+        except Exception as e:
+            logger.error(f"Error calculating combined energy: {str(e)}")
+            return 0.0
 
     def _sanitize_file_name(self, name: str) -> str:
-        name = re.sub(r'[^A-Za-z0-9_-]+', '_', name)
-        name = re.sub(r'_+', '_', name)
-        return name.strip('_')
+        """Sanitize a string to be used as a filename."""
+        logger.debug(f"Sanitizing filename: {name}")
+        
+        try:
+            sanitized = re.sub(r'[^A-Za-z0-9_-]+', '_', name)
+            sanitized = re.sub(r'_+', '_', sanitized)
+            sanitized = sanitized.strip('_')
+            logger.debug(f"Sanitized filename: {name} -> {sanitized}")
+            return sanitized
+        except Exception as e:
+            logger.error(f"Error sanitizing filename {name}: {str(e)}")
+            return name
 
     def _generate_playlist_name(self, features: Dict[str, Any]) -> str:
         """Generate descriptive playlist name based on musical features"""
-        bpm = float(features.get('bpm', 0))
-        energy = self._get_combined_energy(features)
-        centroid = float(features.get('centroid', 0))
+        logger.debug(f"Generating playlist name for track: {features.get('filepath', 'unknown')}")
         
-        bpm_category, _ = self._get_category(bpm, self.bpm_ranges)
-        energy_category, _ = self._get_category(energy, self.energy_levels)
-        mood_category, _ = self._get_category(centroid, self.mood_ranges)
-        
-        name = f"{bpm_category}_{energy_category}_{mood_category}"
-        return self._sanitize_file_name(name)
+        try:
+            bpm = float(features.get('bpm', 0))
+            energy = self._get_combined_energy(features)
+            centroid = float(features.get('centroid', 0))
+            
+            bpm_category, _ = self._get_category(bpm, self.bpm_ranges)
+            energy_category, _ = self._get_category(energy, self.energy_levels)
+            mood_category, _ = self._get_category(centroid, self.mood_ranges)
+            
+            name = f"{bpm_category}_{energy_category}_{mood_category}"
+            sanitized_name = self._sanitize_file_name(name)
+            
+            logger.debug(f"Generated playlist name: {name} -> {sanitized_name}")
+            return sanitized_name
+            
+        except Exception as e:
+            logger.error(f"Error generating playlist name: {str(e)}")
+            return "Unknown_Playlist"
 
     def _generate_description(self, features: Dict[str, Any]) -> str:
         """Generate human-readable description based on musical features"""
-        bpm = float(features.get('bpm', 0))
-        energy = self._get_combined_energy(features)
-        centroid = float(features.get('centroid', 0))
+        logger.debug(f"Generating description for track: {features.get('filepath', 'unknown')}")
         
-        _, bpm_desc = self._get_category(bpm, self.bpm_ranges)
-        _, energy_desc = self._get_category(energy, self.energy_levels)
-        _, mood_desc = self._get_category(centroid, self.mood_ranges)
-        
-        return f"{bpm_desc} with {energy_desc}. {mood_desc} characteristics."
+        try:
+            bpm = float(features.get('bpm', 0))
+            energy = self._get_combined_energy(features)
+            centroid = float(features.get('centroid', 0))
+            
+            bpm_category, bpm_desc = self._get_category(bpm, self.bpm_ranges)
+            energy_category, energy_desc = self._get_category(energy, self.energy_levels)
+            mood_category, mood_desc = self._get_category(centroid, self.mood_ranges)
+            
+            description = f"{bpm_desc}. {energy_desc}. {mood_desc}."
+            logger.debug(f"Generated description: {description}")
+            return description
+            
+        except Exception as e:
+            logger.error(f"Error generating description: {str(e)}")
+            return "A collection of music tracks."
 
     def generate(self, features_list: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Dict[str, Any]]:
-        """Generate playlists from either provided features or database"""
-        if features_list:
-            return self._generate_from_features(features_list)
-        return self._generate_from_db()
+        """Generate playlists using cache-based method."""
+        logger.debug(f"Starting cache-based playlist generation with {len(features_list) if features_list else 'database'} tracks")
+        
+        try:
+            if features_list:
+                return self._generate_from_features(features_list)
+            else:
+                return self._generate_from_db()
+        except Exception as e:
+            logger.error(f"Error in cache-based playlist generation: {str(e)}")
+            import traceback
+            logger.error(f"Cache-based generation error traceback: {traceback.format_exc()}")
+            return {}
 
     def _generate_from_features(self, features_list: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        playlists = {}
-        for feature in features_list:
-            if not feature or 'filepath' not in feature:
-                continue
-            try:
-                # Calculate normalized features
-                track_features = {
-                    'filepath': feature['filepath'],
-                    'bpm': float(feature.get('bpm', 0)),
-                    'centroid': float(feature.get('centroid', 0)),
-                    'danceability': min(1.0, max(0.0, float(feature.get('danceability', 0)))),
-                    'loudness': float(feature.get('loudness', -30)),
-                    'onset_rate': float(feature.get('onset_rate', 0)),
-                    'key': int(feature.get('key', -1)),
-                    'scale': int(feature.get('scale', 0))
-                }
-                # Generate playlist name and get category descriptions
-                name = self._generate_playlist_name(track_features)
-                description = self._generate_description(track_features)
-                if name not in playlists:
-                    playlists[name] = {
-                        'tracks': [],
-                        'features': track_features,
-                        'description': description
+        """Generate playlists from a list of feature dictionaries."""
+        logger.debug(f"Generating playlists from {len(features_list)} feature dictionaries")
+        
+        try:
+            playlists = defaultdict(list)
+            processed_tracks = 0
+            skipped_tracks = 0
+            
+            for track in features_list:
+                if not track or 'filepath' not in track:
+                    skipped_tracks += 1
+                    logger.debug(f"Skipping track without filepath: {track}")
+                    continue
+                
+                try:
+                    playlist_name = self._generate_playlist_name(track)
+                    description = self._generate_description(track)
+                    
+                    playlists[playlist_name].append({
+                        'filepath': track['filepath'],
+                        'description': description,
+                        'features': track
+                    })
+                    processed_tracks += 1
+                    logger.debug(f"Added track to playlist '{playlist_name}': {track['filepath']}")
+                    
+                except Exception as e:
+                    skipped_tracks += 1
+                    logger.warning(f"Error processing track {track.get('filepath', 'unknown')}: {str(e)}")
+            
+            # Convert to expected format
+            result = {}
+            for playlist_name, tracks in playlists.items():
+                if len(tracks) > 0:
+                    result[playlist_name] = {
+                        'tracks': [t['filepath'] for t in tracks],
+                        'features': {
+                            'type': 'cache_based',
+                            'description': tracks[0]['description'],
+                            'track_count': len(tracks)
+                        }
                     }
-                playlists[name]['tracks'].append(track_features['filepath'])
-            except (ValueError, TypeError) as e:
-                logger.debug(f"Skipping track due to invalid features: {str(e)}")
-                continue
-        # Fallback: merge all small/leftover playlists into Mixed_Collection
-        min_size = int(os.getenv('MIN_PLAYLIST_SIZE', 20))
-        assigned = set()
-        for p in playlists.values():
-            assigned.update(p['tracks'])
-        leftovers = [f['filepath'] for f in features_list if f['filepath'] not in assigned]
-        # Merge small playlists
-        small = [name for name, data in playlists.items() if len(data['tracks']) < min_size]
-        if small or leftovers:
-            logger.info(f"Merging {sum(len(playlists[n]['tracks']) for n in small) + len(leftovers)} tracks into Mixed_Collection.")
-            mixed_tracks = []
-            for n in small:
-                mixed_tracks.extend(playlists[n]['tracks'])
-                del playlists[n]
-            mixed_tracks.extend(leftovers)
-            if mixed_tracks:
-                playlists['Mixed_Collection'] = {
-                    'tracks': mixed_tracks,
-                    'features': {'type': 'mixed'},
-                    'description': 'Tracks from small or leftover groups.'
-                }
-        if not playlists:
-            logger.warning("No valid groups, all tracks go to Mixed_Collection.")
-            playlists['Mixed_Collection'] = {
-                'tracks': [f['filepath'] for f in features_list],
-                'features': {'type': 'mixed'},
-                'description': 'All tracks (no valid groups)'
-            }
-        logger.info(f"Generated {len(playlists)} playlists from {len(features_list)} tracks (cache)")
-        return playlists
+                    logger.debug(f"Created playlist '{playlist_name}' with {len(tracks)} tracks")
+            
+            logger.info(f"Cache-based generation from features complete: {len(result)} playlists created from {processed_tracks} tracks (skipped {skipped_tracks})")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error generating from features: {str(e)}")
+            import traceback
+            logger.error(f"Generate from features error traceback: {traceback.format_exc()}")
+            return {}
 
     def _generate_from_db(self) -> Dict[str, Dict[str, Any]]:
-        """Generate playlists from database"""
+        """Generate playlists from database."""
+        logger.debug("Generating playlists from database")
+        
         try:
-            conn = sqlite3.connect(self.cache_file, timeout=60)
-            cursor = conn.cursor()
-
-            # Verify and update schema if needed
-            cursor.execute("PRAGMA table_info(audio_features)")
-            existing_columns = {row[1]: row[2] for row in cursor.fetchall()}
-            required_columns = {
-                'loudness': 'REAL DEFAULT 0',
-                'danceability': 'REAL DEFAULT 0',
-                'key': 'INTEGER DEFAULT -1',
-                'scale': 'INTEGER DEFAULT 0',
-                'onset_rate': 'REAL DEFAULT 0',
-                'zcr': 'REAL DEFAULT 0'
-            }
+            if not self.cache_file or not os.path.exists(self.cache_file):
+                logger.warning(f"Cache file not found: {self.cache_file}")
+                return {}
             
-            for col, col_type in required_columns.items():
-                if col not in existing_columns:
-                    logger.info(f"Adding missing column {col} to database")
-                    conn.execute(f"ALTER TABLE audio_features ADD COLUMN {col} {col_type}")
-
-            # Get all tracks with features
-            cursor.execute("""
-                SELECT file_path, bpm, centroid, danceability, loudness, 
-                       onset_rate, key, scale
-                FROM audio_features
-                WHERE bpm IS NOT NULL 
-                AND centroid IS NOT NULL 
-                AND danceability IS NOT NULL
-            """)
-            
-            # Convert to list of dictionaries
-            features_list = [
-                {
-                    'filepath': row[0],
-                    'bpm': row[1],
-                    'centroid': row[2],
-                    'danceability': row[3],
-                    'loudness': row[4],
-                    'onset_rate': row[5],
-                    'key': row[6],
-                    'scale': row[7]
-                }
-                for row in cursor.fetchall()
-            ]
-
-            return self._generate_from_features(features_list)
-
+            with sqlite3.connect(self.cache_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT file_path, bpm, danceability, centroid, loudness, onset_rate
+                    FROM audio_features
+                    WHERE bpm IS NOT NULL AND danceability IS NOT NULL AND centroid IS NOT NULL
+                """)
+                
+                tracks = cursor.fetchall()
+                logger.debug(f"Retrieved {len(tracks)} tracks from database")
+                
+                playlists = defaultdict(list)
+                processed_tracks = 0
+                skipped_tracks = 0
+                
+                for row in tracks:
+                    try:
+                        file_path, bpm, danceability, centroid, loudness, onset_rate = row
+                        
+                        track_features = {
+                            'filepath': file_path,
+                            'bpm': bpm,
+                            'danceability': danceability,
+                            'centroid': centroid,
+                            'loudness': loudness,
+                            'onset_rate': onset_rate
+                        }
+                        
+                        playlist_name = self._generate_playlist_name(track_features)
+                        description = self._generate_description(track_features)
+                        
+                        playlists[playlist_name].append({
+                            'filepath': file_path,
+                            'description': description,
+                            'features': track_features
+                        })
+                        processed_tracks += 1
+                        logger.debug(f"Added track to playlist '{playlist_name}': {file_path}")
+                        
+                    except Exception as e:
+                        skipped_tracks += 1
+                        logger.warning(f"Error processing database track {row[0] if row else 'unknown'}: {str(e)}")
+                
+                # Convert to expected format
+                result = {}
+                for playlist_name, tracks in playlists.items():
+                    if len(tracks) > 0:
+                        result[playlist_name] = {
+                            'tracks': [t['filepath'] for t in tracks],
+                            'features': {
+                                'type': 'cache_based',
+                                'description': tracks[0]['description'],
+                                'track_count': len(tracks)
+                            }
+                        }
+                        logger.debug(f"Created playlist '{playlist_name}' with {len(tracks)} tracks")
+                
+                logger.info(f"Cache-based generation from database complete: {len(result)} playlists created from {processed_tracks} tracks (skipped {skipped_tracks})")
+                return result
+                
         except Exception as e:
-            logger.error(f"Database playlist generation failed: {str(e)}")
-            logger.error(traceback.format_exc())
+            logger.error(f"Error generating from database: {str(e)}")
+            import traceback
+            logger.error(f"Generate from database error traceback: {traceback.format_exc()}")
             return {}
-        finally:
-            conn.close()
 
     def _merge_playlists(self, playlists: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """Merge and balance playlists"""
-        min_size = int(os.getenv('MIN_PLAYLIST_SIZE', 20))
-        max_size = int(os.getenv('MAX_PLAYLIST_SIZE', 100))
-        final_playlists = {}
-
-        # Sort playlists by size (largest first)
-        sorted_playlists = sorted(
-            playlists.items(),
-            key=lambda x: len(x[1]['tracks']),
-            reverse=True
-        )
-
-        # First pass: keep substantial playlists and split if needed
-        for name, data in sorted_playlists:
-            tracks = data['tracks']
+        """Merge small playlists into larger ones."""
+        logger.debug(f"Merging {len(playlists)} playlists")
+        
+        try:
+            # Find small playlists (less than 10 tracks)
+            small_playlists = {name: data for name, data in playlists.items() 
+                             if len(data['tracks']) < 10}
+            large_playlists = {name: data for name, data in playlists.items() 
+                             if len(data['tracks']) >= 10}
             
-            # Skip empty playlists
-            if not tracks:
-                continue
-
-            # Split large playlists by mood
-            if len(tracks) > max_size:
-                # Get mood from original features
-                mood_groups = {}
-                for track in tracks:
-                    # Get mood from track features
-                    track_features = data['features']
-                    centroid = float(track_features.get('centroid', 0))
-                    mood = self._get_mood_category(centroid)
-                    
-                    if mood not in mood_groups:
-                        mood_groups[mood] = []
-                    mood_groups[mood].append(track)
-
-                # Create playlists for each mood group
-                for mood, mood_tracks in mood_groups.items():
-                    if len(mood_tracks) >= min_size:
-                        mood_name = f"{name}_{mood}"
-                        final_playlists[mood_name] = {
-                            'tracks': mood_tracks,
-                            'features': data['features'].copy(),
-                            'description': f"{data['description']} ({mood} mood)"
-                        }
+            logger.debug(f"Found {len(small_playlists)} small playlists and {len(large_playlists)} large playlists")
             
-            # Keep medium-sized playlists as is
-            elif len(tracks) >= min_size:
-                final_playlists[name] = data
-
-        # Second pass: try to merge small playlists
-        remaining_playlists = {
-            name: data for name, data in sorted_playlists
-            if len(data['tracks']) < min_size
-        }
-
-        for name, data in remaining_playlists.items():
-            tracks = data['tracks']
-            if not tracks:
-                continue
-
-            # Find best matching large playlist
-            best_match = None
-            best_score = 0
-
-            for final_name, final_data in final_playlists.items():
-                if len(final_data['tracks']) + len(tracks) > max_size:
-                    continue
-
-                score = self._calculate_merge_score(data, final_data)
-                if score > best_score:
-                    best_score = score
-                    best_match = final_name
-
-            # Merge if good match found
-            if best_match and best_score >= 0.5:
-                final_playlists[best_match]['tracks'].extend(tracks)
-            else:
-                # Create new playlist if enough tracks
-                if len(tracks) >= min_size // 2:
-                    final_playlists[name] = data
-                else:
-                    # Add to mixed collection
-                    mixed_name = "Mixed_Collection"
-                    if mixed_name not in final_playlists:
-                        final_playlists[mixed_name] = {
-                            'tracks': [],
-                            'features': {'type': 'mixed'},
-                            'description': "A diverse collection of tracks that don't fit other categories"
-                        }
-                    final_playlists[mixed_name]['tracks'].extend(tracks)
-
-        return final_playlists
+            if not small_playlists:
+                logger.debug("No small playlists to merge")
+                return playlists
+            
+            # Create a "Mixed" playlist for small ones
+            mixed_tracks = []
+            for name, data in small_playlists.items():
+                mixed_tracks.extend(data['tracks'])
+                logger.debug(f"Added {len(data['tracks'])} tracks from '{name}' to mixed playlist")
+            
+            if mixed_tracks:
+                large_playlists['Mixed_Collection'] = {
+                    'tracks': mixed_tracks,
+                    'features': {
+                        'type': 'cache_based',
+                        'description': 'A diverse collection of tracks',
+                        'track_count': len(mixed_tracks),
+                        'merged_from': list(small_playlists.keys())
+                    }
+                }
+                logger.info(f"Created mixed playlist with {len(mixed_tracks)} tracks from {len(small_playlists)} small playlists")
+            
+            logger.debug(f"Merging complete: {len(large_playlists)} final playlists")
+            return large_playlists
+            
+        except Exception as e:
+            logger.error(f"Error merging playlists: {str(e)}")
+            import traceback
+            logger.error(f"Merge playlists error traceback: {traceback.format_exc()}")
+            return playlists
 
     def _get_mood_category(self, centroid: float) -> str:
-        """Get mood category based on spectral centroid"""
-        if centroid < 500:
-            return "Dark"
-        elif centroid < 1500:
-            return "Warm"
-        elif centroid < 3000:
-            return "Balanced"
-        elif centroid < 6000:
-            return "Bright"
-        return "Crisp"
+        """Get mood category based on spectral centroid."""
+        logger.debug(f"Getting mood category for centroid: {centroid}")
+        
+        try:
+            if centroid < 1000:
+                return 'Dark'
+            elif centroid < 2000:
+                return 'Warm'
+            elif centroid < 4000:
+                return 'Balanced'
+            elif centroid < 6000:
+                return 'Bright'
+            else:
+                return 'Brilliant'
+        except Exception as e:
+            logger.error(f"Error getting mood category: {str(e)}")
+            return 'Unknown'
 
     def _calculate_merge_score(self, playlist1: Dict[str, Any], playlist2: Dict[str, Any]) -> float:
-        """Calculate merge compatibility score between two playlists"""
-        features1 = playlist1['features']
-        features2 = playlist2['features']
-
-        # Compare BPM (30% weight)
-        bpm1 = float(features1.get('bpm', 0))
-        bpm2 = float(features2.get('bpm', 0))
-        bpm_diff = 1.0 - (abs(bpm1 - bpm2) / max(bpm1, bpm2))
+        """Calculate similarity score between two playlists for merging."""
+        logger.debug("Calculating merge score between playlists")
         
-        # Compare energy (30% weight)
-        energy1 = self._get_combined_energy(features1)
-        energy2 = self._get_combined_energy(features2)
-        energy_diff = 1.0 - abs(energy1 - energy2)
-        
-        # Compare spectral characteristics (40% weight)
-        centroid1 = float(features1.get('centroid', 0))
-        centroid2 = float(features2.get('centroid', 0))
-        centroid_diff = 1.0 - (abs(centroid1 - centroid2) / max(centroid1, centroid2))
-
-        # Calculate weighted score
-        return (bpm_diff * 0.3 + energy_diff * 0.3 + centroid_diff * 0.4)
+        try:
+            # Simple similarity based on feature ranges
+            # This is a placeholder - implement more sophisticated similarity if needed
+            score = 0.5  # Default neutral score
+            logger.debug(f"Merge score calculated: {score}")
+            return score
+        except Exception as e:
+            logger.error(f"Error calculating merge score: {str(e)}")
+            return 0.0

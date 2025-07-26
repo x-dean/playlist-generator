@@ -4,12 +4,14 @@ from typing import List
 from .feature_extractor import audio_analyzer
 from utils.logging_setup import setup_colored_logging
 import os
-setup_colored_logging()
-log_level = os.getenv('LOG_LEVEL', 'INFO')
 import logging
-logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
+import time
+import traceback
+from typing import List, Dict, Any, Optional
+from .feature_extractor import AudioAnalyzer
+from utils.path_converter import PathConverter
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 class SequentialProcessor:
     """Sequential processor for audio analysis (single-threaded)."""

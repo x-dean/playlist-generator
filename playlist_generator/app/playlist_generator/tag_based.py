@@ -4,7 +4,7 @@ import musicbrainzngs
 import os
 import requests
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 class TagBasedPlaylistGenerator:
     def __init__(self, min_tracks_per_genre=10, min_subgroup_size=10, large_group_threshold=40, db_file=None):
@@ -12,45 +12,64 @@ class TagBasedPlaylistGenerator:
         self.min_subgroup_size = min_subgroup_size
         self.large_group_threshold = large_group_threshold
         self.db_file = db_file
+        logger.debug(f"Initialized TagBasedPlaylistGenerator: min_tracks_per_genre={min_tracks_per_genre}, min_subgroup_size={min_subgroup_size}, large_group_threshold={large_group_threshold}")
+        
         # Set MusicBrainz user agent once
         musicbrainzngs.set_useragent("PlaylistGenerator", "1.0", "noreply@example.com")
         self.lastfm_api_key = os.getenv("LASTFM_API_KEY")
+        if self.lastfm_api_key:
+            logger.debug("Last.fm API key found")
+        else:
+            logger.debug("Last.fm API key not found")
 
     def enrich_track_metadata(self, track):
         """
         Enrich track metadata using MusicBrainz and Last.fm.
         Fills in missing genres, years, etc. if possible.
         """
+        logger.debug(f"Enriching metadata for track: {track.get('filepath', 'unknown')}")
+        
         meta = track.get('metadata', {})
         artist = meta.get('artist')
         title = meta.get('title')
+        
         # Only enrich if genre/year are missing
         needs_enrichment = not meta.get('genre') or not meta.get('year')
         if not needs_enrichment:
             logger.debug(f"Skipping enrichment for {track.get('filepath', 'unknown')} (metadata exists)")
             return track
+            
         enriched = False
+        
         # Try MusicBrainz first
         if artist and title:
+            logger.debug(f"Attempting MusicBrainz enrichment for: {artist} - {title}")
             try:
                 result = musicbrainzngs.search_recordings(artist=artist, recording=title, limit=1)
                 if result['recording-list']:
                     rec = result['recording-list'][0]
                     if 'first-release-date' in rec:
                         meta['year'] = rec['first-release-date'][:4]
+                        logger.debug(f"Extracted year from MusicBrainz: {meta['year']}")
                     if 'tag-list' in rec and rec['tag-list']:
                         meta['genre'] = [tag['name'] for tag in rec['tag-list']]
                         enriched = True
+                        logger.debug(f"Extracted genres from MusicBrainz: {meta['genre']}")
                     if 'release-list' in rec and rec['release-list']:
                         meta['album'] = rec['release-list'][0]['title']
+                        logger.debug(f"Extracted album from MusicBrainz: {meta['album']}")
                     track['metadata'] = meta
                     logger.info(f"Enriched metadata for {artist} - {title} from MusicBrainz.")
                 else:
                     logger.info(f"No MusicBrainz result for {artist} - {title}.")
             except Exception as e:
                 logger.warning(f"MusicBrainz enrichment failed for {artist} - {title}: {e}")
+                import traceback
+                logger.debug(f"MusicBrainz enrichment error traceback: {traceback.format_exc()}")
+                
         # If not enriched, try Last.fm
         if not enriched and artist and title and self.lastfm_api_key:
+            logger.debug(f"Attempting Last.fm enrichment for: {artist} - {title}")
             try:
                 url = (
                     "http://ws.audioscrobbler.com/2.0/"
@@ -69,26 +88,34 @@ class TagBasedPlaylistGenerator:
                         tags = track_info.get('toptags', {}).get('tag', [])
                         if tags:
                             meta['genre'] = [t['name'] for t in tags if 'name' in t]
+                            logger.debug(f"Extracted genres from Last.fm: {meta['genre']}")
                         # Get album
                         if 'album' in track_info and 'title' in track_info['album']:
                             meta['album'] = track_info['album']['title']
+                            logger.debug(f"Extracted album from Last.fm: {meta['album']}")
                         # Get year (if available)
                         if 'wiki' in track_info and 'published' in track_info['wiki']:
                             import re
                             match = re.search(r'(\\d{4})', track_info['wiki']['published'])
                             if match:
                                 meta['year'] = match.group(1)
+                                logger.debug(f"Extracted year from Last.fm: {meta['year']}")
                         track['metadata'] = meta
                         logger.info(f"Enriched metadata for {artist} - {title} from Last.fm.")
                 else:
                     logger.info(f"Last.fm API returned status {resp.status_code} for {artist} - {title}.")
             except Exception as e:
                 logger.warning(f"Last.fm enrichment failed for {artist} - {title}: {e}")
+                import traceback
+                logger.debug(f"Last.fm enrichment error traceback: {traceback.format_exc()}")
         elif not self.lastfm_api_key:
             logger.debug("LASTFM_API_KEY not set; skipping Last.fm enrichment.")
+            
         # Update database if db_file is set
         if self.db_file and (enriched or not meta.get('genre') or not meta.get('year')):
+            logger.debug(f"Updating track metadata in database: {track.get('filepath', 'unknown')}")
             self.update_track_metadata_in_db(track.get('filepath'), meta)
+            
         return track
 
     def update_track_metadata_in_db(self, filepath, metadata):
@@ -96,191 +123,238 @@ class TagBasedPlaylistGenerator:
         Update the metadata column for the given file in the audio_features table.
         """
         if not self.db_file or not filepath:
+            logger.debug("Skipping database update: no db_file or filepath")
             return
-        import sqlite3
+            
+        logger.debug(f"Updating metadata in database for: {filepath}")
+        
         try:
-            conn = sqlite3.connect(self.db_file, timeout=30)
-            cur = conn.cursor()
+            import sqlite3
             import json
-            cur.execute(
-                "UPDATE audio_features SET metadata = ? WHERE file_path = ?",
-                (json.dumps(metadata), filepath)
-            )
-            conn.commit()
-            conn.close()
-            logger.info(f"Updated metadata in DB for {filepath}")
+            with sqlite3.connect(self.db_file) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE audio_features 
+                    SET metadata = ? 
+                    WHERE file_path = ?
+                """, (json.dumps(metadata), filepath))
+                
+                if cursor.rowcount > 0:
+                    logger.debug(f"Successfully updated metadata for {filepath}")
+                else:
+                    logger.warning(f"No rows updated for {filepath}")
+                    
         except Exception as e:
-            logger.warning(f"Failed to update metadata in DB for {filepath}: {e}")
+            logger.error(f"Error updating metadata in database for {filepath}: {e}")
+            import traceback
+            logger.debug(f"Database update error traceback: {traceback.format_exc()}")
 
     def group_by_genre(self, features_list):
-        """
-        Group tracks by each genre. Tracks with multiple genres appear in multiple playlists.
-        Returns a dict: {genre_display_name: {'tracks': [...], 'features': {...}}}
-        """
-        genre_playlists = defaultdict(list)
-        for track in features_list:
-            meta = track.get('metadata', {})
-            genres = meta.get('genre', 'UnknownGenre')
-            if isinstance(genres, str):
-                genres = [genres]
-            norm_genres = [self._normalize_genre(g) for g in genres]
-            for genre in norm_genres:
-                genre_playlists[genre].append(track)
-        result = {}
-        for genre, tracks in genre_playlists.items():
-            display_name = self._format_display_name(genre, None)
-            file_name = self._format_file_name(genre, None)
-            result[display_name] = {
-                'tracks': [t['filepath'] for t in tracks],
-                'features': {
-                    'genre': genre,
-                    'file_name': file_name
-                }
-            }
-        return result
+        """Group tracks by genre, handling various genre formats."""
+        logger.debug(f"Grouping {len(features_list)} tracks by genre")
+        
+        try:
+            genre_groups = defaultdict(list)
+            processed_tracks = 0
+            skipped_tracks = 0
+            
+            for track in features_list:
+                if not track or 'metadata' not in track:
+                    skipped_tracks += 1
+                    logger.debug(f"Skipping track without metadata: {track}")
+                    continue
+                    
+                metadata = track['metadata']
+                genres = metadata.get('genre', [])
+                
+                if not genres:
+                    skipped_tracks += 1
+                    logger.debug(f"Skipping track without genre: {track.get('filepath', 'unknown')}")
+                    continue
+                
+                # Handle both string and list genre formats
+                if isinstance(genres, str):
+                    genres = [genres]
+                
+                # Use the first genre for grouping
+                primary_genre = self._normalize_genre(genres[0])
+                if primary_genre:
+                    genre_groups[primary_genre].append(track)
+                    processed_tracks += 1
+                    logger.debug(f"Added track to genre group '{primary_genre}': {track.get('filepath', 'unknown')}")
+                else:
+                    skipped_tracks += 1
+                    logger.debug(f"Skipping track with invalid genre: {genres[0]}")
+            
+            logger.info(f"Genre grouping complete: {len(genre_groups)} groups, {processed_tracks} tracks processed, {skipped_tracks} skipped")
+            logger.debug(f"Genre groups: {list(genre_groups.keys())}")
+            
+            return genre_groups
+            
+        except Exception as e:
+            logger.error(f"Error in genre grouping: {str(e)}")
+            import traceback
+            logger.error(f"Genre grouping error traceback: {traceback.format_exc()}")
+            return {}
 
     def group_by_decade(self, features_list):
-        """
-        Group tracks by decade (or year if you want more granularity).
-        Returns a dict: {decade_display_name: {'tracks': [...], 'features': {...}}}
-        """
-        decade_playlists = defaultdict(list)
-        for track in features_list:
-            meta = track.get('metadata', {})
-            year = meta.get('date') or meta.get('year')
-            decade = self._get_decade(year)
-            decade_playlists[decade].append(track)
-        result = {}
-        for decade, tracks in decade_playlists.items():
-            display_name = self._format_display_name(None, decade)
-            file_name = self._format_file_name(None, decade)
-            result[display_name] = {
-                'tracks': [t['filepath'] for t in tracks],
-                'features': {
-                    'decade': decade,
-                    'file_name': file_name
-                }
-            }
-        return result
+        """Group tracks by decade based on year."""
+        logger.debug(f"Grouping {len(features_list)} tracks by decade")
+        
+        try:
+            decade_groups = defaultdict(list)
+            processed_tracks = 0
+            skipped_tracks = 0
+            
+            for track in features_list:
+                if not track or 'metadata' not in track:
+                    skipped_tracks += 1
+                    logger.debug(f"Skipping track without metadata: {track}")
+                    continue
+                    
+                metadata = track['metadata']
+                year = metadata.get('year')
+                
+                if not year:
+                    skipped_tracks += 1
+                    logger.debug(f"Skipping track without year: {track.get('filepath', 'unknown')}")
+                    continue
+                
+                try:
+                    year_int = int(str(year)[:4])  # Handle various year formats
+                    decade = self._get_decade(year_int)
+                    decade_groups[decade].append(track)
+                    processed_tracks += 1
+                    logger.debug(f"Added track to decade group '{decade}': {track.get('filepath', 'unknown')} (year: {year_int})")
+                except (ValueError, TypeError):
+                    skipped_tracks += 1
+                    logger.debug(f"Skipping track with invalid year: {year}")
+            
+            logger.info(f"Decade grouping complete: {len(decade_groups)} groups, {processed_tracks} tracks processed, {skipped_tracks} skipped")
+            logger.debug(f"Decade groups: {list(decade_groups.keys())}")
+            
+            return decade_groups
+            
+        except Exception as e:
+            logger.error(f"Error in decade grouping: {str(e)}")
+            import traceback
+            logger.error(f"Decade grouping error traceback: {traceback.format_exc()}")
+            return {}
 
     def _normalize_genre(self, genre):
         # Replace underscores/hyphens with spaces, title case, strip
         if not genre:
-            return "UnknownGenre"
-        return genre.replace('_', ' ').replace('-', ' ').title().strip()
+            return None
+        normalized = genre.replace('_', ' ').replace('-', ' ').title().strip()
+        logger.debug(f"Normalized genre: '{genre}' -> '{normalized}'")
+        return normalized
 
     def _get_decade(self, year):
-        if not year or not str(year).isdigit() or len(str(year)) < 4:
-            return "All Eras"
-        y = str(year)
-        if y == "0000":
-            return "All Eras"
-        return f"{y[:3]}0s"
-
+        decade_start = (year // 10) * 10
+        return f"{decade_start}s"
+        
     def _get_mood(self, track):
         # Use danceability, bpm, centroid for a simple mood/energy label
-        dance = float(track.get('danceability', 0) or 0)
-        bpm = float(track.get('bpm', 0) or 0)
-        centroid = float(track.get('centroid', 0) or 0)
-        # Simple rules for mood/energy
-        if dance < 0.4 and bpm < 90:
-            return "Chill"
-        elif dance > 0.7 and bpm > 120:
-            return "Energetic"
+        danceability = track.get('danceability', 0)
+        bpm = track.get('bpm', 0)
+        centroid = track.get('centroid', 0)
+        
+        if danceability > 0.7 and bpm > 120:
+            return 'Energetic'
+        elif danceability < 0.3 and bpm < 80:
+            return 'Calm'
         elif centroid > 4000:
-            return "Bright"
-        elif bpm > 110:
-            return "Upbeat"
+            return 'Bright'
+        elif centroid < 1500:
+            return 'Warm'
         else:
-            return "Balanced"
+            return 'Balanced'
 
     def _format_display_name(self, genre, decade, mood=None):
-        genre_disp = self._normalize_genre(genre)
-        if not decade or decade in ("UnknownDecade", "0000s", "All Eras"):
-            decade_disp = "All Eras"
-        else:
-            decade_disp = decade
+        """Format a human-readable playlist name."""
         if mood:
-            return f"{genre_disp} ({decade_disp}) - {mood}"
-        else:
-            return f"{genre_disp} ({decade_disp})"
+            return f"{genre} {decade} ({mood})"
+        return f"{genre} {decade}"
 
     def _format_file_name(self, genre, decade, mood=None, part=None):
-        import re
-        genre_file = self._normalize_genre(genre).replace(' ', '_') if genre else ''
-        if not decade or decade in ("UnknownDecade", "0000s", "All Eras"):
-            decade_file = "All_Eras"
-        else:
-            decade_file = decade
-        name = f"{genre_file}_{decade_file}"
+        """Format a filename-safe playlist name."""
+        name_parts = [genre, decade]
         if mood:
-            name += f"_{mood}"
+            name_parts.append(mood)
         if part:
-            name += f"_Part{part}"
-        # Replace any non-alphanumeric character with underscore
-        name = re.sub(r'[^A-Za-z0-9_-]+', '_', name)
-        # Collapse multiple underscores
-        name = re.sub(r'_+', '_', name)
-        # Remove leading/trailing underscores
-        name = name.strip('_')
-        return name
+            name_parts.append(part)
+        
+        filename = '_'.join(name_parts).replace(' ', '_').replace('(', '').replace(')', '')
+        logger.debug(f"Formatted filename: {filename}")
+        return filename
 
     def generate(self, features_list):
         # Normalize genres and count
-        genre_counter = Counter()
-        track_genres = []
-        for track in features_list:
-            meta = track.get('metadata', {})
-            genres = meta.get('genre', 'UnknownGenre')
-            if isinstance(genres, str):
-                genres = [genres]
-            norm_genres = [self._normalize_genre(g) for g in genres]
-            track_genres.append((track, norm_genres))
-            genre_counter.update(norm_genres)
-        # Only keep genres with enough tracks
-        valid_genres = {g for g, count in genre_counter.items() if count >= self.min_tracks_per_genre}
-        # Group by genre and decade
-        genre_decade_groups = defaultdict(list)
-        for track, genres in track_genres:
-            meta = track.get('metadata', {})
-            year = meta.get('date') or meta.get('year')
-            decade = self._get_decade(year)
-            for genre in genres:
-                if genre in valid_genres:
-                    genre_decade_groups[(genre, decade)].append(track)
-        # For each genre+decade group, further split by mood/tempo if large
-        playlists = {}
-        for (genre, decade), tracks in genre_decade_groups.items():
-            if len(tracks) >= self.large_group_threshold:
-                # Subgroup by mood
-                mood_groups = defaultdict(list)
-                for t in tracks:
-                    mood = self._get_mood(t)
-                    mood_groups[mood].append(t)
-                for mood, mood_tracks in mood_groups.items():
-                    if len(mood_tracks) < self.min_subgroup_size:
-                        # Merge small subgroups into a "Mixed" for this genre+decade
-                        mixed_key = (genre, decade, "Mixed")
-                        if mixed_key not in playlists:
-                            playlists[mixed_key] = []
-                        playlists[mixed_key].extend(mood_tracks)
-                    else:
-                        playlists[(genre, decade, mood)] = mood_tracks
-            else:
-                playlists[(genre, decade, None)] = tracks
-        # Convert to expected playlist dict format
-        result = {}
-        for key, tracks in playlists.items():
-            genre, decade, mood = key
-            display_name = self._format_display_name(genre, decade, mood)
-            file_name = self._format_file_name(genre, decade, mood)
-            result[display_name] = {
-                'tracks': [t['filepath'] for t in tracks],
-                'features': {
-                    'genre': genre,
-                    'decade': decade,
-                    'mood': mood,
-                    'file_name': file_name
-                }
-            }
-        return result 
+        logger.debug(f"Starting tag-based playlist generation with {len(features_list)} tracks")
+        
+        try:
+            # Enrich metadata first
+            logger.debug("Enriching track metadata")
+            enriched_tracks = []
+            for track in features_list:
+                enriched_track = self.enrich_track_metadata(track)
+                enriched_tracks.append(enriched_track)
+            
+            # Group by genre
+            genre_groups = self.group_by_genre(enriched_tracks)
+            
+            # Group by decade
+            decade_groups = self.group_by_decade(enriched_tracks)
+            
+            # Generate playlists
+            playlists = {}
+            
+            # Genre-based playlists
+            for genre, tracks in genre_groups.items():
+                if len(tracks) >= self.min_tracks_per_genre:
+                    # Split large groups by decade
+                    decade_subgroups = self.group_by_decade(tracks)
+                    
+                    for decade, decade_tracks in decade_subgroups.items():
+                        if len(decade_tracks) >= self.min_subgroup_size:
+                            playlist_name = self._format_file_name(genre, decade)
+                            playlists[playlist_name] = {
+                                'tracks': [t['filepath'] for t in decade_tracks],
+                                'features': {
+                                    'type': 'tag_based',
+                                    'genre': genre,
+                                    'decade': decade,
+                                    'track_count': len(decade_tracks)
+                                }
+                            }
+                            logger.debug(f"Created genre-decade playlist: {playlist_name} with {len(decade_tracks)} tracks")
+            
+            # Decade-based playlists (for tracks without genre)
+            for decade, tracks in decade_groups.items():
+                if len(tracks) >= self.min_subgroup_size:
+                    # Filter out tracks that already have genre
+                    tracks_without_genre = [t for t in tracks if not t.get('metadata', {}).get('genre')]
+                    
+                    if len(tracks_without_genre) >= self.min_subgroup_size:
+                        playlist_name = self._format_file_name('Unknown', decade)
+                        playlists[playlist_name] = {
+                            'tracks': [t['filepath'] for t in tracks_without_genre],
+                            'features': {
+                                'type': 'tag_based',
+                                'genre': 'Unknown',
+                                'decade': decade,
+                                'track_count': len(tracks_without_genre)
+                            }
+                        }
+                        logger.debug(f"Created decade-only playlist: {playlist_name} with {len(tracks_without_genre)} tracks")
+            
+            logger.info(f"Tag-based playlist generation complete: {len(playlists)} playlists created")
+            logger.debug(f"Generated playlists: {list(playlists.keys())}")
+            
+            return playlists
+            
+        except Exception as e:
+            logger.error(f"Error in tag-based playlist generation: {str(e)}")
+            import traceback
+            logger.error(f"Tag-based generation error traceback: {traceback.format_exc()}")
+            return {} 

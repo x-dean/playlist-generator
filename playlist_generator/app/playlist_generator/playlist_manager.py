@@ -1,15 +1,17 @@
 import logging
+import os
+import json
 from typing import Dict, List, Any, Optional
-from .time_based import TimeBasedScheduler
 from .kmeans import KMeansPlaylistGenerator
 from .cache import CacheBasedGenerator
+from .time_based import TimeBasedScheduler
+from .tag_based import TagBasedPlaylistGenerator
+from .feature_group import FeatureGroupPlaylistGenerator
 from collections import defaultdict
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-from .feature_group import FeatureGroupPlaylistGenerator
-from .tag_based import TagBasedPlaylistGenerator
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 class PlaylistManager:
     """Manage playlist generation using various methods and strategies."""

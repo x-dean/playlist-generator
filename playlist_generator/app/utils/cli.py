@@ -1,3 +1,4 @@
+import argparse
 import logging
 import threading
 import queue
@@ -16,8 +17,7 @@ log_level = os.getenv('LOG_LEVEL', 'INFO')
 import logging
 logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
-logger = logging.getLogger()
-console = Console()
+logger = logging.getLogger(__name__)
 
 from typing import Tuple, Dict, Any, List, Optional
 
@@ -322,3 +322,245 @@ class CLIContextManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.progress:
             self.progress.stop() 
+
+class CLI:
+    """Command-line interface utilities."""
+    
+    def __init__(self):
+        self.console = Console()
+        logger.debug("Initialized CLI with Rich console")
+    
+    def show_analysis_summary(self, stats: Dict[str, Any], processed_this_run: int = 0, 
+                            failed_this_run: int = 0, total_found: int = 0, 
+                            total_in_db: int = 0, total_failed: int = 0):
+        """Display analysis summary with statistics."""
+        logger.debug("Displaying analysis summary")
+        logger.debug(f"Summary stats: processed={processed_this_run}, failed={failed_this_run}, total_found={total_found}, total_in_db={total_in_db}, total_failed={total_failed}")
+        
+        try:
+            # Create summary table
+            table = Table(title="Analysis Summary", show_header=True, header_style="bold magenta")
+            table.add_column("Metric", style="cyan", no_wrap=True)
+            table.add_column("Value", style="green")
+            
+            table.add_row("Files Processed This Run", str(processed_this_run))
+            table.add_row("Files Failed This Run", str(failed_this_run))
+            table.add_row("Total Files Found", str(total_found))
+            table.add_row("Total Files in Database", str(total_in_db))
+            table.add_row("Total Failed Files", str(total_failed))
+            
+            if stats:
+                table.add_row("Total Tracks", str(stats.get('total_tracks', 0)))
+                table.add_row("Unique Tracks", str(stats.get('unique_tracks', 0)))
+                table.add_row("Total Playlists", str(stats.get('total_playlists', 0)))
+            
+            self.console.print(table)
+            logger.info("Analysis summary displayed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error displaying analysis summary: {str(e)}")
+            import traceback
+            logger.error(f"Analysis summary error traceback: {traceback.format_exc()}")
+    
+    def show_playlist_summary(self, playlists: Dict[str, Dict[str, Any]]):
+        """Display playlist generation summary."""
+        logger.debug(f"Displaying playlist summary for {len(playlists)} playlists")
+        
+        try:
+            if not playlists:
+                self.console.print(Panel("No playlists generated", style="yellow"))
+                logger.warning("No playlists to display")
+                return
+            
+            # Create playlist table
+            table = Table(title="Generated Playlists", show_header=True, header_style="bold magenta")
+            table.add_column("Playlist Name", style="cyan", no_wrap=True)
+            table.add_column("Track Count", style="green", justify="right")
+            table.add_column("Type", style="blue")
+            
+            for name, data in playlists.items():
+                track_count = len(data.get('tracks', []))
+                playlist_type = data.get('features', {}).get('type', 'unknown')
+                table.add_row(name, str(track_count), playlist_type)
+            
+            self.console.print(table)
+            logger.info(f"Playlist summary displayed for {len(playlists)} playlists")
+            
+        except Exception as e:
+            logger.error(f"Error displaying playlist summary: {str(e)}")
+            import traceback
+            logger.error(f"Playlist summary error traceback: {traceback.format_exc()}")
+    
+    def show_library_stats(self, stats: Dict[str, Any]):
+        """Display library statistics."""
+        logger.debug("Displaying library statistics")
+        logger.debug(f"Library stats: {stats}")
+        
+        try:
+            if not stats:
+                self.console.print(Panel("No library statistics available", style="yellow"))
+                logger.warning("No library statistics to display")
+                return
+            
+            # Create stats table
+            table = Table(title="Library Statistics", show_header=True, header_style="bold magenta")
+            table.add_column("Metric", style="cyan", no_wrap=True)
+            table.add_column("Value", style="green")
+            
+            for key, value in stats.items():
+                if isinstance(value, dict):
+                    # Handle nested dictionaries
+                    for sub_key, sub_value in value.items():
+                        table.add_row(f"{key}.{sub_key}", str(sub_value))
+                else:
+                    table.add_row(key, str(value))
+            
+            self.console.print(table)
+            logger.info("Library statistics displayed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error displaying library statistics: {str(e)}")
+            import traceback
+            logger.error(f"Library stats error traceback: {traceback.format_exc()}")
+    
+    def show_error(self, message: str, details: str = None):
+        """Display error message."""
+        logger.error(f"CLI Error: {message}")
+        if details:
+            logger.error(f"Error details: {details}")
+        
+        try:
+            error_text = Text(message, style="red")
+            if details:
+                error_text.append(f"\n\nDetails: {details}", style="dim")
+            
+            self.console.print(Panel(error_text, title="Error", border_style="red"))
+            
+        except Exception as e:
+            logger.error(f"Error displaying error message: {str(e)}")
+    
+    def show_success(self, message: str):
+        """Display success message."""
+        logger.info(f"CLI Success: {message}")
+        
+        try:
+            self.console.print(Panel(message, title="Success", border_style="green"))
+            
+        except Exception as e:
+            logger.error(f"Error displaying success message: {str(e)}")
+    
+    def show_warning(self, message: str):
+        """Display warning message."""
+        logger.warning(f"CLI Warning: {message}")
+        
+        try:
+            self.console.print(Panel(message, title="Warning", border_style="yellow"))
+            
+        except Exception as e:
+            logger.error(f"Error displaying warning message: {str(e)}")
+    
+    def show_info(self, message: str):
+        """Display info message."""
+        logger.info(f"CLI Info: {message}")
+        
+        try:
+            self.console.print(Panel(message, title="Info", border_style="blue"))
+            
+        except Exception as e:
+            logger.error(f"Error displaying info message: {str(e)}")
+    
+    def add_playlist_stats(self, name: str, stats: Dict[str, Any]):
+        """Add playlist statistics to display."""
+        logger.debug(f"Adding playlist stats for '{name}': {stats}")
+        
+        try:
+            # Create stats table for the playlist
+            table = Table(title=f"Playlist Statistics: {name}", show_header=True, header_style="bold magenta")
+            table.add_column("Metric", style="cyan", no_wrap=True)
+            table.add_column("Value", style="green")
+            
+            for key, value in stats.items():
+                table.add_row(key, str(value))
+            
+            self.console.print(table)
+            logger.debug(f"Playlist stats displayed for '{name}'")
+            
+        except Exception as e:
+            logger.error(f"Error adding stats for playlist {name}: {str(e)}")
+            import traceback
+            logger.error(f"Add playlist stats error traceback: {traceback.format_exc()}")
+    
+    def create_key_distribution_table(self, name: str, key_data: Dict[str, int]):
+        """Create and display key distribution table."""
+        logger.debug(f"Creating key distribution table for '{name}'")
+        logger.debug(f"Key data: {key_data}")
+        
+        try:
+            if not key_data:
+                logger.warning(f"No key data available for playlist '{name}'")
+                return
+            
+            # Create key distribution table
+            table = Table(title=f"Key Distribution: {name}", show_header=True, header_style="bold magenta")
+            table.add_column("Key", style="cyan", no_wrap=True)
+            table.add_column("Count", style="green", justify="right")
+            table.add_column("Percentage", style="blue", justify="right")
+            
+            total = sum(key_data.values())
+            for key, count in sorted(key_data.items(), key=lambda x: x[1], reverse=True):
+                percentage = (count / total * 100) if total > 0 else 0
+                table.add_row(key, str(count), f"{percentage:.1f}%")
+            
+            self.console.print(table)
+            logger.debug(f"Key distribution table displayed for '{name}'")
+            
+        except Exception as e:
+            logger.error(f"Error creating key distribution table for {name}: {str(e)}")
+            import traceback
+            logger.error(f"Key distribution table error traceback: {traceback.format_exc()}")
+    
+    def show_progress(self, current: int, total: int, description: str = "Processing"):
+        """Show progress bar."""
+        logger.debug(f"Progress: {current}/{total} - {description}")
+        
+        try:
+            percentage = (current / total * 100) if total > 0 else 0
+            progress_text = f"{description}: {current}/{total} ({percentage:.1f}%)"
+            self.console.print(f"[cyan]{progress_text}[/cyan]")
+            
+        except Exception as e:
+            logger.error(f"Error showing progress: {str(e)}")
+    
+    def show_help(self):
+        """Display help information."""
+        logger.debug("Displaying help information")
+        
+        try:
+            help_text = """
+            [bold]Playlist Generator CLI[/bold]
+            
+            [bold]Available Commands:[/bold]
+            • analyze: Analyze audio files and extract features
+            • playlist: Generate playlists from analyzed files
+            • stats: Show library statistics
+            • help: Show this help message
+            
+            [bold]Common Options:[/bold]
+            • --library: Specify music library directory
+            • --workers: Number of parallel workers
+            • --force: Force re-analysis of files
+            • --method: Playlist generation method (kmeans, time, cache, etc.)
+            
+            [bold]Examples:[/bold]
+            • audiolyzer --library /music --analyze
+            • audiolyzer --playlist --method kmeans
+            • audiolyzer --stats
+            """
+            
+            self.console.print(Panel(help_text, title="Help", border_style="blue"))
+            logger.info("Help information displayed successfully")
+            
+        except Exception as e:
+            logger.error(f"Error displaying help: {str(e)}")
+            import traceback
+            logger.error(f"Help display error traceback: {traceback.format_exc()}") 

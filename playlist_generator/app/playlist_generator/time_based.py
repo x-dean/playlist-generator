@@ -6,10 +6,12 @@ from typing import Dict, List, Any
 import random
 from collections import defaultdict
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 class TimeBasedScheduler:
     def __init__(self):
+        logger.debug("Initializing TimeBasedScheduler")
+        
         # Define time slots with more granular divisions
         self.time_slots = {
             'Early_Morning': (5, 8),    # 5am-8am: Gentle wake up
@@ -78,152 +80,248 @@ class TimeBasedScheduler:
                 'description': "Ambient and peaceful music for late night listening"
             }
         }
+        logger.debug(f"TimeBasedScheduler initialized with {len(self.time_slots)} time slots")
 
     def get_current_time_slot(self) -> str:
         """Get the current time slot based on time of day"""
-        now = datetime.datetime.now().time()
-        current_hour = now.hour
+        logger.debug("Getting current time slot")
         
-        for slot, (start, end) in self.time_slots.items():
-            if start < end:
-                if start <= current_hour < end:
-                    return slot
-            else:  # Overnight slot
-                if current_hour >= start or current_hour < end:
-                    return slot
-        return 'Afternoon'  # Default
+        try:
+            now = datetime.datetime.now().time()
+            current_hour = now.hour
+            logger.debug(f"Current hour: {current_hour}")
+            
+            for slot, (start, end) in self.time_slots.items():
+                if start < end:
+                    if start <= current_hour < end:
+                        logger.debug(f"Current time slot: {slot}")
+                        return slot
+                else:  # Overnight slot
+                    if current_hour >= start or current_hour < end:
+                        logger.debug(f"Current time slot: {slot}")
+                        return slot
+                        
+            logger.debug("No matching time slot found, defaulting to Afternoon")
+            return 'Afternoon'  # Default
+            
+        except Exception as e:
+            logger.error(f"Error getting current time slot: {str(e)}")
+            return 'Afternoon'
 
     def filter_tracks_for_slot(self, features_list: List[Dict[str, Any]], slot_name: str) -> List[Dict[str, Any]]:
         """Filter tracks based on time slot rules"""
-        rules = self.feature_rules.get(slot_name, {})
-        filtered = []
+        logger.debug(f"Filtering tracks for time slot: {slot_name}")
         
-        for track in features_list:
-            if not track:
-                continue
+        try:
+            rules = self.feature_rules.get(slot_name, {})
+            logger.debug(f"Using rules for {slot_name}: {rules}")
             
-            valid = True
-            # Helper to safely get values with normalization
-            def get_val(key: str, default: float = 0) -> float:
-                val = track.get(key, default)
-                if val is None:
-                    return default
-                
-                # Normalize certain features
-                if key == 'danceability':
-                    return min(1.0, max(0.0, float(val)))
-                elif key == 'loudness':
-                    return min(0.0, max(-60.0, float(val)))
-                elif key == 'centroid':
-                    return min(10000.0, max(0.0, float(val)))
-                
-                return float(val)
+            filtered = []
+            total_tracks = len(features_list)
+            passed_tracks = 0
+            failed_tracks = 0
             
-            # Numeric validations with min/max checks
-            for feature in ['bpm', 'danceability', 'centroid', 'loudness', 
-                          'duration', 'onset_rate', 'zcr']:
-                val = get_val(feature)
-                
-                if f'min_{feature}' in rules and val < rules[f'min_{feature}']:
-                    valid = False
-                    break
-                if valid and f'max_{feature}' in rules and val > rules[f'max_{feature}']:
-                    valid = False
-                    break
-                    
-            if not valid:
-                continue
-                    
-            # Key validation
-            if 'compatible_keys' in rules:
-                key = int(track.get('key', -1))
-                if key >= 0 and key not in rules['compatible_keys']:
-                    valid = False
+            for track in features_list:
+                if not track:
+                    failed_tracks += 1
+                    logger.debug("Skipping empty track")
                     continue
-                        
-            # Scale validation
-            if 'required_scale' in rules:
-                scale = int(track.get('scale', 0))
-                req_scale = rules['required_scale']
-                if (req_scale == 'major' and scale != 1) or (req_scale == 'minor' and scale != 0):
-                    valid = False
-                    continue
-                    
-            if valid:
-                filtered.append(track)
                 
-        logger.debug(f"Filtered {len(filtered)} tracks for {slot_name} time slot")
-        return filtered
+                try:
+                    def get_val(key: str, default: float = 0) -> float:
+                        """Get track value with fallback"""
+                        val = track.get(key, default)
+                        if val is None:
+                            return default
+                        try:
+                            return float(val)
+                        except (ValueError, TypeError):
+                            return default
+                    
+                    # Check BPM rules
+                    bpm = get_val('bpm', 120)
+                    if 'min_bpm' in rules and bpm < rules['min_bpm']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed BPM min check: {bpm} < {rules['min_bpm']}")
+                        continue
+                    if 'max_bpm' in rules and bpm > rules['max_bpm']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed BPM max check: {bpm} > {rules['max_bpm']}")
+                        continue
+                    
+                    # Check danceability rules
+                    danceability = get_val('danceability', 0.5)
+                    if 'min_danceability' in rules and danceability < rules['min_danceability']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed danceability min check: {danceability} < {rules['min_danceability']}")
+                        continue
+                    if 'max_danceability' in rules and danceability > rules['max_danceability']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed danceability max check: {danceability} > {rules['max_danceability']}")
+                        continue
+                    
+                    # Check centroid rules
+                    centroid = get_val('centroid', 2000)
+                    if 'min_centroid' in rules and centroid < rules['min_centroid']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed centroid min check: {centroid} < {rules['min_centroid']}")
+                        continue
+                    if 'max_centroid' in rules and centroid > rules['max_centroid']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed centroid max check: {centroid} > {rules['max_centroid']}")
+                        continue
+                    
+                    # Check loudness rules
+                    loudness = get_val('loudness', -20)
+                    if 'min_loudness' in rules and loudness < rules['min_loudness']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed loudness min check: {loudness} < {rules['min_loudness']}")
+                        continue
+                    if 'max_loudness' in rules and loudness > rules['max_loudness']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed loudness max check: {loudness} > {rules['max_loudness']}")
+                        continue
+                    
+                    # Check duration rules
+                    duration = get_val('duration', 180)
+                    if 'min_duration' in rules and duration < rules['min_duration']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed duration min check: {duration} < {rules['min_duration']}")
+                        continue
+                    if 'max_duration' in rules and duration > rules['max_duration']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed duration max check: {duration} > {rules['max_duration']}")
+                        continue
+                    
+                    # Check onset rate rules
+                    onset_rate = get_val('onset_rate', 0.5)
+                    if 'min_onset_rate' in rules and onset_rate < rules['min_onset_rate']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed onset rate min check: {onset_rate} < {rules['min_onset_rate']}")
+                        continue
+                    if 'max_onset_rate' in rules and onset_rate > rules['max_onset_rate']:
+                        failed_tracks += 1
+                        logger.debug(f"Track {track.get('filepath', 'unknown')} failed onset rate max check: {onset_rate} > {rules['max_onset_rate']}")
+                        continue
+                    
+                    # Track passed all filters
+                    filtered.append(track)
+                    passed_tracks += 1
+                    logger.debug(f"Track {track.get('filepath', 'unknown')} passed all filters for {slot_name}")
+                    
+                except Exception as e:
+                    failed_tracks += 1
+                    logger.warning(f"Error filtering track {track.get('filepath', 'unknown')}: {str(e)}")
+            
+            logger.info(f"Time slot filtering complete for {slot_name}: {passed_tracks}/{total_tracks} tracks passed, {failed_tracks} failed")
+            return filtered
+            
+        except Exception as e:
+            logger.error(f"Error filtering tracks for time slot {slot_name}: {str(e)}")
+            import traceback
+            logger.error(f"Time slot filtering error traceback: {traceback.format_exc()}")
+            return []
 
     def generate_time_based_playlist(self, features_list: List[Dict[str, Any]], slot_name: str = None) -> List[Dict[str, Any]]:
         """Generate a playlist for a specific time slot"""
-        slot = slot_name or self.get_current_time_slot()
-        return self.filter_tracks_for_slot(features_list, slot)
+        logger.debug(f"Generating time-based playlist for slot: {slot_name}")
+        
+        try:
+            if not slot_name:
+                slot_name = self.get_current_time_slot()
+                logger.debug(f"Using current time slot: {slot_name}")
+            
+            # Filter tracks for the time slot
+            filtered_tracks = self.filter_tracks_for_slot(features_list, slot_name)
+            
+            if not filtered_tracks:
+                logger.warning(f"No tracks passed filters for time slot: {slot_name}")
+                return []
+            
+            # Interleave tracks by artist to avoid repetition
+            interleaved_tracks = self._interleave_by_artist(filtered_tracks)
+            
+            logger.info(f"Generated time-based playlist for {slot_name}: {len(interleaved_tracks)} tracks")
+            return interleaved_tracks
+            
+        except Exception as e:
+            logger.error(f"Error generating time-based playlist for {slot_name}: {str(e)}")
+            import traceback
+            logger.error(f"Time-based playlist generation error traceback: {traceback.format_exc()}")
+            return []
 
     def _interleave_by_artist(self, tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Interleave tracks by artist to maximize variety. Fallback to shuffle if artist missing."""
-        # Check if artist metadata is present for most tracks
-        has_artist = any('artist' in t and t['artist'] for t in tracks)
-        if not has_artist:
-            random.shuffle(tracks)
+        """Interleave tracks by artist to avoid repetition"""
+        logger.debug(f"Interleaving {len(tracks)} tracks by artist")
+        
+        try:
+            # Group tracks by artist
+            artist_groups = defaultdict(list)
+            for track in tracks:
+                metadata = track.get('metadata', {})
+                artist = metadata.get('artist', 'Unknown')
+                artist_groups[artist].append(track)
+            
+            logger.debug(f"Grouped tracks by {len(artist_groups)} artists")
+            
+            # Interleave tracks from different artists
+            interleaved = []
+            max_tracks_per_artist = max(len(tracks) for tracks in artist_groups.values()) if artist_groups else 0
+            
+            for i in range(max_tracks_per_artist):
+                for artist, artist_tracks in artist_groups.items():
+                    if i < len(artist_tracks):
+                        interleaved.append(artist_tracks[i])
+                        logger.debug(f"Added track {i+1} from artist '{artist}'")
+            
+            logger.debug(f"Interleaving complete: {len(interleaved)} tracks")
+            return interleaved
+            
+        except Exception as e:
+            logger.error(f"Error interleaving tracks by artist: {str(e)}")
+            import traceback
+            logger.error(f"Interleaving error traceback: {traceback.format_exc()}")
             return tracks
-        # Group tracks by artist
-        groups = defaultdict(list)
-        for t in tracks:
-            artist = t.get('artist', 'Unknown')
-            groups[artist].append(t)
-        # Shuffle within each artist group
-        for group in groups.values():
-            random.shuffle(group)
-        # Interleave tracks
-        interleaved = []
-        group_lists = list(groups.values())
-        while any(group_lists):
-            for group in group_lists:
-                if group:
-                    interleaved.append(group.pop(0))
-        return interleaved
 
     def generate_time_based_playlists(self, features_list: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-        """Generate playlists for all time slots, splitting if total duration exceeds slot length"""
-        playlists = {}
-        for slot_name in self.time_slots:
-            tracks = self.generate_time_based_playlist(features_list, slot_name)
-            if not tracks:
-                continue
-            # ADVANCED SHUFFLE: interleave by artist if possible, else random
-            tracks = self._interleave_by_artist(tracks)
-            # Calculate slot duration in seconds
-            start, end = self.time_slots[slot_name]
-            if start < end:
-                slot_hours = end - start
-            else:
-                slot_hours = (24 - start) + end
-            slot_duration_sec = slot_hours * 3600
-            # Split tracks into sub-playlists if needed
-            sub_playlists = []
-            current = []
-            current_duration = 0
-            for track in tracks:
-                track_duration = float(track.get('duration', 0))
-                if current_duration + track_duration > slot_duration_sec and current:
-                    sub_playlists.append(current)
-                    current = []
-                    current_duration = 0
-                current.append(track)
-                current_duration += track_duration
-            if current:
-                sub_playlists.append(current)
-            # Add sub-playlists to output
-            for i, sub in enumerate(sub_playlists, 1):
-                name = f"TimeSlot_{slot_name}" if len(sub_playlists) == 1 else f"TimeSlot_{slot_name}_Part{i}"
-                playlists[name] = {
-                    'tracks': [t['filepath'] for t in sub],
-                    'features': {
-                        'type': 'time_based',
-                        'slot': slot_name,
-                        'rules': self.feature_rules[slot_name]
-                    },
-                    'description': self.feature_rules[slot_name].get('description', '')
-                }
-        return playlists
+        """Generate playlists for all time slots"""
+        logger.debug(f"Generating time-based playlists for {len(features_list)} tracks")
+        
+        try:
+            playlists = {}
+            
+            for slot_name in self.time_slots.keys():
+                logger.debug(f"Generating playlist for time slot: {slot_name}")
+                
+                # Filter tracks for this time slot
+                filtered_tracks = self.filter_tracks_for_slot(features_list, slot_name)
+                
+                if filtered_tracks:
+                    # Interleave tracks
+                    interleaved_tracks = self._interleave_by_artist(filtered_tracks)
+                    
+                    # Create playlist
+                    playlist_name = f"Time_{slot_name}"
+                    playlists[playlist_name] = {
+                        'tracks': [track['filepath'] for track in interleaved_tracks],
+                        'features': {
+                            'type': 'time_based',
+                            'time_slot': slot_name,
+                            'description': self.feature_rules[slot_name]['description'],
+                            'track_count': len(interleaved_tracks)
+                        }
+                    }
+                    logger.debug(f"Created playlist '{playlist_name}' with {len(interleaved_tracks)} tracks")
+                else:
+                    logger.warning(f"No tracks available for time slot: {slot_name}")
+            
+            logger.info(f"Time-based playlist generation complete: {len(playlists)} playlists created")
+            logger.debug(f"Generated playlists: {list(playlists.keys())}")
+            
+            return playlists
+            
+        except Exception as e:
+            logger.error(f"Error generating time-based playlists: {str(e)}")
+            import traceback
+            logger.error(f"Time-based playlists generation error traceback: {traceback.format_exc()}")
+            return {}

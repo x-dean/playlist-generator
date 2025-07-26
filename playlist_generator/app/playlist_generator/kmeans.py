@@ -7,7 +7,7 @@ import traceback
 import sqlite3
 import re
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 # In kmeans.py:
 
