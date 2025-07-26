@@ -364,12 +364,11 @@ class AudioAnalyzer:
     def _extract_chroma(self, audio):
         """Extract chroma features from audio."""
         try:
-            # Use ChromaCrossSimilarity which handles frame size properly
-            chroma = es.ChromaCrossSimilarity()
-            chroma_matrix = chroma(audio, audio)
-            # Take the diagonal (self-similarity) and average
-            chroma_features = np.mean(np.diag(chroma_matrix))
-            return float(chroma_features)
+            # Use ChromaExtractor which is simpler and works with raw audio
+            chroma_extractor = es.ChromaExtractor()
+            chroma = chroma_extractor(audio)
+            # Return the mean of all chroma values as a single feature
+            return float(np.mean(chroma))
         except Exception as e:
             logger.warning(f"Chroma extraction failed: {str(e)}")
             return 0.0
