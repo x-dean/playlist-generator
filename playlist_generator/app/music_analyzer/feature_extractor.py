@@ -294,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "3.0.0"  # Version identifier for tracking updates - fixed numpy array handling
+    VERSION = "3.1.0"  # Version identifier for tracking updates - fixed danceability normalization
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -683,6 +683,9 @@ class AudioAnalyzer:
             
             # Handle different return types from Essentia
             if isinstance(dance_result, tuple):
+                logger.debug(f"Danceability tuple length: {len(dance_result)}")
+                for i, item in enumerate(dance_result):
+                    logger.debug(f"Danceability tuple[{i}]: {type(item)} = {item}")
                 if len(dance_result) >= 1:
                     dance_values = dance_result[0]
                     logger.debug(f"Extracted danceability from tuple[0]: {dance_values}")
@@ -708,10 +711,25 @@ class AudioAnalyzer:
                 dance_mean = float(dance_values)
                 logger.debug(f"Converted to float: {dance_mean}")
             
-            # Ensure danceability is a valid number
-            if not np.isfinite(dance_mean) or dance_mean < 0 or dance_mean > 1:
-                logger.warning(f"Invalid danceability value: {dance_mean}, using default")
+            # Ensure danceability is a valid number and normalize if needed
+            if not np.isfinite(dance_mean):
+                logger.warning(f"Invalid danceability value (non-finite): {dance_mean}, using default")
                 dance_mean = 0.0
+            elif dance_mean < 0:
+                logger.warning(f"Negative danceability value: {dance_mean}, using default")
+                dance_mean = 0.0
+            elif dance_mean > 1:
+                # The algorithm might return values in a different scale
+                # Try to normalize or use as-is if it's reasonable
+                if dance_mean <= 10:  # If it's in 0-10 scale, normalize
+                    dance_mean = dance_mean / 10.0
+                    logger.debug(f"Normalized danceability from 0-10 scale: {dance_mean:.3f}")
+                elif dance_mean <= 100:  # If it's in 0-100 scale, normalize
+                    dance_mean = dance_mean / 100.0
+                    logger.debug(f"Normalized danceability from 0-100 scale: {dance_mean:.3f}")
+                else:
+                    logger.warning(f"Danceability value out of expected range: {dance_mean}, using default")
+                    dance_mean = 0.0
             
             logger.debug(f"Final danceability: {dance_mean}")
             logger.info(f"Danceability extraction completed: {dance_mean:.3f}")
