@@ -372,6 +372,41 @@ def _create_resource_panel(total_workers):
     resource_text = f"📊 {cpu_info} | {memory_info} | {worker_info}"
     return Panel(resource_text, title="System Resources", border_style="blue")
 
+def _create_dynamic_resource_panel(workers):
+    """Create a dynamic resource panel that updates in real-time."""
+    cpu_percent = psutil.cpu_percent(interval=0.1)
+    memory = psutil.virtual_memory()
+    memory_gb = memory.used / (1024**3)
+    memory_total_gb = memory.total / (1024**3)
+    memory_percent = memory.percent
+    
+    # Count active workers (child Python processes)
+    active_workers = 0
+    try:
+        current_pid = os.getpid()
+        for proc in psutil.process_iter(['pid', 'ppid', 'name']):
+            if proc.info['ppid'] == current_pid and 'python' in proc.info['name'].lower():
+                active_workers += 1
+    except:
+        active_workers = 0
+    
+    content = f"📊 CPU: {cpu_percent:.1f}% | RAM: {memory_gb:.1f}GB/{memory_total_gb:.1f}GB ({memory_percent:.1f}%) | Workers: {active_workers}/{workers}"
+    return Panel(content, title="System Resources", border_style="cyan")
+
+def _resource_monitor_thread(workers, stop_event, update_interval=2):
+    """Background thread to monitor and update resource usage."""
+    console = Console()
+    
+    while not stop_event.is_set():
+        try:
+            panel = _create_dynamic_resource_panel(workers)
+            # Move cursor up to overwrite the previous resource panel
+            console.print(f"\r{panel}", end="", flush=True)
+            time.sleep(update_interval)
+        except Exception as e:
+            logger.debug(f"Resource monitor error: {e}")
+            time.sleep(update_interval)
+
 # --- Main Orchestration ---
 def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextract=False):
     """Run analysis with improved logic based on mode."""
@@ -385,25 +420,25 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
         return run_analyze_mode(args, audio_db, cli, stop_event, force_reextract)
 
 def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
-    """ANALYZE mode: Smart cache comparison and analysis."""
-    logger.info("Starting ANALYZE mode - smart cache comparison")
+    """Run analysis mode - analyze files that need processing."""
+    logger.info("Starting ANALYZE mode")
     
     # Get files that need analysis
     files_to_analyze = audio_db.get_files_needing_analysis()
     
     if not files_to_analyze:
-        logger.info("No files need analysis - all files are up to date")
+        logger.info("No files need analysis. All files are up to date.")
         return []
     
-    # Display totals with better visual formatting
+    # Get statistics
     total_files = len(audio_db.get_all_audio_files())
     total_in_db = audio_db.get_all_tracks()
-    files_to_process = len(files_to_analyze)
     
+    # Display statistics
     print(f"\n📊 Library Statistics:")
     print(f"   📁 Total music files: {total_files:,}")
     print(f"   💾 Tracks in database: {total_in_db:,}")
-    print(f"   🔄 Files to process: {files_to_process:,}")
+    print(f"   🔄 Files to process: {len(files_to_analyze):,}")
     print(f"   📈 Progress: {total_in_db}/{total_files} ({total_in_db/total_files*100:.1f}% complete)")
     print()  # Add spacing before progress bar
     
@@ -414,14 +449,19 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
         workers = args.workers or max(1, mp.cpu_count())
         
-        # Display resource panel first
-        console = Console()
-        console.print(_create_resource_panel(workers))
-        
         # Log which processor is being used
         processor_type = "Sequential" if args.force_sequential else "Parallel"
         logger.info(f"Using {processor_type} processor with {workers} workers")
         logger.info(f"Starting to process {len(files_to_analyze)} files")
+        
+        # Start resource monitoring in background thread
+        resource_stop_event = threading.Event()
+        resource_thread = threading.Thread(
+            target=_resource_monitor_thread, 
+            args=(workers, resource_stop_event),
+            daemon=True
+        )
+        resource_thread.start()
         
         # Pre-update progress bar with first file
         if files_to_analyze:
@@ -453,6 +493,10 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
                 logger.warning(f"Analysis failed for {filepath}")
             else:
                 logger.info(f"Analysis completed for {filepath}")
+        
+        # Stop resource monitoring
+        resource_stop_event.set()
+        resource_thread.join(timeout=1)
         
         logger.info(f"Processing loop completed. Processed {processed_count} files out of {len(files_to_analyze)}")
     
