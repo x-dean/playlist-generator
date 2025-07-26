@@ -93,21 +93,69 @@ class AudioAnalyzer:
                 '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
             )
             if not os.path.exists(model_path):
-                logger.error(f"MusiCNN model not found at {model_path}. Please download it from https://essentia.upf.edu/models/")
+                logger.warning(f"MusiCNN model not found at {model_path}. Skipping embedding extraction.")
                 return None
+            
             # Resample to 16kHz mono if needed
             if hasattr(audio, 'shape') and len(audio.shape) > 1:
                 audio = np.mean(audio, axis=0)
-            audio = librosa.resample(audio, orig_sr=44100, target_sr=16000)
+            
+            # Resample to 16kHz for MusiCNN
+            audio_16k = librosa.resample(audio, orig_sr=44100, target_sr=16000)
+            
+            # Use Essentia's TensorflowPredictMusiCNN
             musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
-            embeddings = musicnn(audio)
-            if isinstance(embeddings, list) or (hasattr(embeddings, 'shape') and len(embeddings.shape) == 2):
+            embeddings = musicnn(audio_16k)
+            
+            # Handle different output formats
+            if isinstance(embeddings, list):
+                # If it's a list of embeddings, take the mean
                 embedding = np.mean(np.array(embeddings), axis=0)
                 return embedding.tolist()
-            return None
+            elif hasattr(embeddings, 'shape') and len(embeddings.shape) == 2:
+                # If it's a 2D array, take the mean across time
+                embedding = np.mean(embeddings, axis=0)
+                return embedding.tolist()
+            elif hasattr(embeddings, 'shape') and len(embeddings.shape) == 1:
+                # If it's already a 1D array
+                return embeddings.tolist()
+            else:
+                logger.warning(f"Unexpected MusiCNN output format: {type(embeddings)}")
+                return None
+                
         except Exception as e:
             logger.warning(f"MusiCNN embedding extraction failed: {str(e)}")
-            return None
+            # Fallback: create a simple embedding from basic features
+            try:
+                # Create a simple 128-dimensional embedding from basic features
+                features = []
+                features.extend([float(audio.mean()), float(audio.std())])  # Basic stats
+                features.extend([float(np.percentile(audio, p)) for p in [25, 50, 75]])  # Percentiles
+                features.extend([float(np.max(audio)), float(np.min(audio))])  # Min/max
+                
+                # Add spectral features
+                if hasattr(audio, 'shape') and len(audio.shape) > 1:
+                    audio_mono = np.mean(audio, axis=0)
+                else:
+                    audio_mono = audio
+                
+                # FFT features
+                fft = np.fft.fft(audio_mono)
+                fft_magnitude = np.abs(fft)
+                features.extend([float(np.mean(fft_magnitude)), float(np.std(fft_magnitude))])
+                features.extend([float(np.percentile(fft_magnitude, p)) for p in [25, 50, 75]])
+                
+                # Pad or truncate to 128 dimensions
+                while len(features) < 128:
+                    features.append(0.0)
+                if len(features) > 128:
+                    features = features[:128]
+                
+                logger.info("Created fallback embedding from basic audio features")
+                return features
+            except Exception as fallback_error:
+                logger.warning(f"Fallback embedding also failed: {str(fallback_error)}")
+                return None
 
     def _init_db(self):
         self.conn = sqlite3.connect(self.cache_file, timeout=600)
