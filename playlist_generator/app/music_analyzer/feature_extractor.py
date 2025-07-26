@@ -108,11 +108,7 @@ class AudioAnalyzer:
     # Removed _audio_to_mel_spectrogram
 
     def _extract_musicnn_embedding(self, audio):
-        """Extract MusiCNN embedding using Essentia's TensorflowPredictMusiCNN."""
         try:
-            import essentia.standard as es
-            import numpy as np
-            import os
             model_path = os.getenv(
                 'MUSICNN_MODEL_PATH',
                 '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
@@ -120,24 +116,30 @@ class AudioAnalyzer:
             if not os.path.exists(model_path):
                 logger.warning(f"MusiCNN model not found at {model_path}. Skipping embedding extraction.")
                 return None
+
             # Ensure mono
             if hasattr(audio, 'shape') and len(audio.shape) > 1:
                 audio = np.mean(audio, axis=0)
-            # Resample to 16kHz if needed
-            orig_sr = 44100  # or get from your loader
-            if 'sr' in dir(self):
-                orig_sr = self.sr
-            if orig_sr != 16000:
-                import librosa
-                audio = librosa.resample(audio, orig_sr=orig_sr, target_sr=16000)
-            # Run MusiCNN
+
+            # Resample
+            audio_resampled = librosa.resample(audio, orig_sr=44100, target_sr=16000)
+
+            # Use TensorflowInputMusiCNN to prepare patches
+            tf_input = es.TensorflowInputMusiCNN(
+                signal=audio_resampled,
+                sampleRate=16000,
+                frameSize=65536,
+                hopSize=32768
+            )
+            patches = tf_input()
+
             musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
-            embeddings = musicnn(audio)
-            # Aggregate (mean-pool)
-            embedding = np.mean(np.array(embeddings), axis=0)
+            predictions = musicnn(patches)
+            embedding = np.mean(predictions, axis=0)
             return embedding.tolist()
+
         except Exception as e:
-            logger.warning(f"MusiCNN embedding extraction failed: {str(e)}")
+            logger.warning(f"Deep learning embedding extraction failed: {str(e)}")
             return None
 
     def _init_db(self):
