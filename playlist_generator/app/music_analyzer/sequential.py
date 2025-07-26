@@ -41,10 +41,13 @@ class SequentialProcessor:
         import essentia
         essentia.log.infoActive = False
         essentia.log.warningActive = False
-        for filepath in file_list:
+        
+        for i, filepath in enumerate(file_list):
+            # Check stop_event before processing each file
             if stop_event and stop_event.is_set():
-                logger.info("Stop event detected - stopping gracefully...")
+                logger.info("Stop event detected in sequential processing - stopping gracefully...")
                 break
+                
             try:
                 from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
@@ -55,7 +58,18 @@ class SequentialProcessor:
                 else:
                     self.failed_files.append(filepath)
                     yield None, filepath, False
+                    
+                # Check stop_event after processing each file
+                if stop_event and stop_event.is_set():
+                    logger.info("Stop event detected after processing file - stopping gracefully...")
+                    break
+                    
             except Exception as e:
                 self.failed_files.append(filepath)
                 logger.error(f"Error processing {filepath}: {str(e)}")
                 yield None, filepath, False
+                
+                # Check stop_event after error handling
+                if stop_event and stop_event.is_set():
+                    logger.info("Stop event detected after error handling - stopping gracefully...")
+                    break

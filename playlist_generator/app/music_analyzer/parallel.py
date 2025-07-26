@@ -88,6 +88,11 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
 
     while retry_count <= max_retries:
         try:
+            # Check for interruption before starting processing
+            if is_interrupted():
+                logger.info(f"Worker interrupted - stopping processing of {filepath}")
+                return None, filepath, False
+                
             if not os.path.exists(filepath):
                 notified["shown"] = True
                 logger.warning(f"File not found: {filepath}")
@@ -233,8 +238,11 @@ class ParallelProcessor:
                                 process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
                             # Process results from the batch
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
-                                # Don't check stop_event here - let workers complete their current file
-                                # The stop_event is only used to prevent feeding new files
+                                # Check stop_event after each file completion
+                                if stop_event and stop_event.is_set():
+                                    logger.info("Stop event detected during processing - stopping gracefully")
+                                    break
+                                
                                 if self.enforce_fail_limit:
                                     # Use in-memory retry counter
                                     count = self.retry_counter.get(filepath, 0)
@@ -251,8 +259,7 @@ class ParallelProcessor:
                                         logger.warning(
                                             f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
                                         continue
-                                # Don't check stop_event here - let workers complete their current file
-                                # The stop_event is only used to prevent feeding new files
+                                
                                 import sqlite3
                                 conn = sqlite3.connect(
                                     os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
@@ -289,6 +296,12 @@ class ParallelProcessor:
                                         conn.commit()
                                         conn.close()
                                         yield None, filepath, False
+                                
+                                # Check stop_event after yielding result
+                                if stop_event and stop_event.is_set():
+                                    logger.info("Stop event detected after yielding result - stopping gracefully")
+                                    break
+                                    
                         except KeyboardInterrupt:
                             logger.debug(
                                 "KeyboardInterrupt received, terminating pool and exiting cleanly...")
@@ -307,6 +320,12 @@ class ParallelProcessor:
                         finally:
                             pool.terminate()
                             pool.join()
+                            
+                    # Check stop_event after batch completion
+                    if stop_event and stop_event.is_set():
+                        logger.info("Stop event detected after batch completion - stopping gracefully")
+                        break
+                        
                 if enrich_later:
                     from music_analyzer.feature_extractor import AudioAnalyzer
                     analyzer = AudioAnalyzer(
@@ -341,6 +360,10 @@ class ParallelProcessor:
                     logger.error(
                         "Max retries reached, switching to sequential for remaining files")
                     for filepath in remaining_files:
+                        # Check stop_event before processing each file in sequential fallback
+                        if stop_event and stop_event.is_set():
+                            logger.info("Stop event detected in sequential fallback - stopping gracefully")
+                            break
                         features, _, db_write_success = process_file_worker(
                             filepath, status_queue)
                         if features and db_write_success:

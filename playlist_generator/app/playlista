@@ -391,14 +391,16 @@ Examples:
     stop_event = multiprocessing.Event()
 
     def handle_sigint(signum, frame):
-        logger.info("Received SIGINT (Ctrl+C), stopping gracefully...")
-        print("\n🛑 Process termination requested - 120 seconds grace time...")
+        logger.info("Received SIGINT (Ctrl+C), initiating graceful shutdown...")
+        print("\n🛑 Process termination requested - stopping gracefully...")
         stop_event.set()
         
-        # Give workers 120 seconds to finish current tasks
+        # Give workers time to finish current tasks
         import time
-        timeout = 120
+        timeout = 60  # Reduced from 120 to 60 seconds
         start_wait = time.time()
+        
+        print("⏳ Waiting for workers to finish current tasks...")
         
         while time.time() - start_wait < timeout:
             try:
@@ -416,10 +418,12 @@ Examples:
                         continue
                 
                 if active_workers == 0:
-                    print("✅ Grace period completed - exiting.")
+                    print("✅ All workers finished - exiting gracefully.")
                     break
                 
-                time.sleep(1)
+                remaining_time = timeout - (time.time() - start_wait)
+                print(f"⏳ {active_workers} workers still active, {remaining_time:.0f}s remaining...")
+                time.sleep(2)
                 
             except Exception as e:
                 logger.warning(f"Error checking worker status: {e}")
@@ -431,6 +435,7 @@ Examples:
             from music_analyzer.analysis_manager import cleanup_child_processes
             cleanup_child_processes()
         
+        print("👋 Exiting...")
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_sigint)
