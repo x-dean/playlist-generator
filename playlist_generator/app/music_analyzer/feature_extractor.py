@@ -19,15 +19,26 @@ logger = logging.getLogger(__name__)
 # Check if Essentia was built with TensorFlow support (only once)
 _essentia_tf_support_checked = False
 def check_essentia_tf_support():
-    global _essentia_tf_support_checked
-    if not _essentia_tf_support_checked:
+    """Check if Essentia has TensorFlow support for MusiCNN."""
+    logger.debug("Checking Essentia TensorFlow support")
+    try:
+        import essentia.standard as es
+        logger.debug("Essentia standard module imported successfully")
+        
+        # Try to import TensorFlowPredictMusiCNN
         try:
             from essentia.standard import TensorflowPredictMusiCNN
+            logger.debug("TensorflowPredictMusiCNN import successful")
             logger.info("Essentia TensorFlow support: AVAILABLE")
+            return True
         except ImportError as e:
+            logger.debug(f"TensorflowPredictMusiCNN import failed: {e}")
             logger.warning(f"Essentia TensorFlow support: NOT AVAILABLE - {e}")
             logger.warning("MusiCNN embeddings will not work. Install Essentia with TensorFlow support.")
-        _essentia_tf_support_checked = True
+            return False
+    except ImportError as e:
+        logger.error(f"Essentia import failed: {e}")
+        return False
 
 # Run the check once at module import
 check_essentia_tf_support()
@@ -133,6 +144,7 @@ class AudioAnalyzer:
 
     def _extract_musicnn_embedding(self, audio_path):
         """Extract MusiCNN embedding and auto-tags using Essentia's TensorflowPredictMusiCNN and MonoLoader, matching the official tutorial."""
+        logger.debug(f"Starting MusiCNN embedding extraction for {os.path.basename(audio_path)}")
         try:
             import essentia.standard as es
             import numpy as np
@@ -148,6 +160,9 @@ class AudioAnalyzer:
                 '/app/feature_extraction/models/musicnn/msd-musicnn-1.json'
             )
             
+            logger.debug(f"MusiCNN model path: {model_path}")
+            logger.debug(f"MusiCNN JSON metadata path: {json_path}")
+            
             if not os.path.exists(model_path):
                 logger.warning(f"MusiCNN model not found at {model_path}")
                 return None
@@ -155,38 +170,60 @@ class AudioAnalyzer:
                 logger.warning(f"MusiCNN JSON metadata not found at {json_path}")
                 return None
             
+            logger.debug("Loading MusiCNN tag names from JSON metadata")
             # Load tag names from JSON
             with open(json_path, 'r') as json_file:
                 metadata = json.load(json_file)
             tag_names = metadata.get('classes', [])
+            logger.debug(f"Loaded {len(tag_names)} tag names from MusiCNN metadata")
+            
             # Get output layer for embeddings
             output_layer = 'model/dense_1/BiasAdd'
+            logger.debug(f"Default MusiCNN output layer: {output_layer}")
             if 'schema' in metadata and 'outputs' in metadata['schema']:
+                logger.debug("Searching for embeddings output layer in schema")
                 for output in metadata['schema']['outputs']:
                     if 'description' in output and output['description'] == 'embeddings':
                         output_layer = output['name']
+                        logger.debug(f"Found embeddings output layer: {output_layer}")
                         break
             
+            logger.debug("Loading audio using Essentia MonoLoader at 16kHz")
             # Load audio using MonoLoader at 16kHz (tutorial pattern)
             audio = es.MonoLoader(filename=audio_path, sampleRate=16000)()
+            logger.debug(f"Loaded audio: {len(audio)} samples at 16kHz ({len(audio)/16000:.2f}s)")
             
+            logger.debug("Initializing MusiCNN for activations (auto-tagging)")
             # Run MusiCNN for activations (auto-tagging)
             musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
+            logger.debug("Running MusiCNN activations analysis")
             activations = musicnn(audio)  # shape: [time, tags]
+            logger.debug(f"MusiCNN activations shape: {activations.shape}")
+            
             tag_probs = activations.mean(axis=0)
+            logger.debug(f"Calculated tag probabilities: {len(tag_probs)} tags")
             # Convert NumPy types to Python native types for JSON serialization
             tags = dict(zip(tag_names, [float(prob) for prob in tag_probs]))
+            logger.debug(f"Top 5 predicted tags: {sorted(tags.items(), key=lambda x: x[1], reverse=True)[:5]}")
             
+            logger.debug(f"Initializing MusiCNN for embeddings using output layer: {output_layer}")
             # Run MusiCNN for embeddings (using correct output layer)
             musicnn_emb = es.TensorflowPredictMusiCNN(graphFilename=model_path, output=output_layer)
+            logger.debug("Running MusiCNN embeddings analysis")
             embeddings = musicnn_emb(audio)
-            embedding = np.mean(embeddings, axis=0)
+            logger.debug(f"MusiCNN embeddings shape: {embeddings.shape}")
             
-            logger.info("Successfully extracted MusiCNN embedding and tags")
-            return {
+            embedding = np.mean(embeddings, axis=0)
+            logger.debug(f"Calculated mean embedding: {len(embedding)} dimensions")
+            logger.debug(f"Embedding statistics: min={embedding.min():.3f}, max={embedding.max():.3f}, mean={embedding.mean():.3f}")
+            
+            result = {
                 'embedding': embedding.tolist(),
                 'tags': tags
             }
+            logger.info("Successfully extracted MusiCNN embedding and tags")
+            logger.debug(f"MusiCNN extraction completed: {len(tags)} tags, {len(embedding)} embedding dimensions")
+            return result
         except Exception as e:
             logger.warning(f"MusiCNN embedding/tag extraction failed: {str(e)}")
             logger.warning(f"Exception type: {type(e).__name__}")
@@ -299,158 +336,253 @@ class AudioAnalyzer:
         return os.path.normpath(path)
 
     def _safe_audio_load(self, audio_path):
+        """Safely load audio file using Essentia."""
+        logger.debug(f"Loading audio file: {os.path.basename(audio_path)}")
         try:
+            import essentia.standard as es
+            logger.debug("Initializing Essentia MonoLoader")
             loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
+            logger.debug("Running audio loading")
             audio = loader()
-            del loader  # Explicit cleanup
+            logger.debug(f"Successfully loaded audio: {len(audio)} samples at 44.1kHz ({len(audio)/44100:.2f}s)")
             return audio
         except Exception as e:
-            logger.error(f"AudioLoader error for {audio_path}: {str(e)}")
+            logger.error(f"Audio loading failed for {audio_path}: {str(e)}")
             return None
 
 
     def _extract_rhythm_features(self, audio):
+        logger.debug("Starting rhythm feature extraction with Essentia")
         try:
+            logger.debug("Initializing Essentia RhythmExtractor")
             rhythm_extractor = es.RhythmExtractor()
+            logger.debug("Running rhythm extraction on audio")
             bpm, _, confidence, _ = rhythm_extractor(audio)
+            logger.debug(f"Raw rhythm extraction results: BPM={bpm}, confidence shape={np.array(confidence).shape if hasattr(confidence, 'shape') else type(confidence)}")
+            
             beat_conf = float(np.nanmean(confidence)) if isinstance(confidence, (list, np.ndarray)) else float(confidence)
+            logger.debug(f"Processed rhythm features: BPM={bpm:.1f}, confidence={beat_conf:.3f}")
             return float(bpm), max(0.0, min(1.0, beat_conf))
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
+            logger.debug(f"Rhythm extraction error details: {type(e).__name__}")
             return 0.0, 0.0
 
     def _extract_spectral_features(self, audio):
+        logger.debug("Starting spectral feature extraction with Essentia")
         try:
+            logger.debug("Initializing Essentia SpectralCentroidTime with 44.1kHz sample rate")
             spectral = es.SpectralCentroidTime(sampleRate=44100)
+            logger.debug("Running spectral centroid extraction on audio")
             centroid_values = spectral(audio)
-            return float(np.nanmean(centroid_values)) if isinstance(centroid_values, (list, np.ndarray)) else float(centroid_values)
+            logger.debug(f"Spectral centroid raw values shape: {np.array(centroid_values).shape if hasattr(centroid_values, 'shape') else type(centroid_values)}")
+            
+            centroid_mean = float(np.nanmean(centroid_values)) if isinstance(centroid_values, (list, np.ndarray)) else float(centroid_values)
+            logger.debug(f"Processed spectral centroid: {centroid_mean:.1f} Hz")
+            return centroid_mean
         except Exception as e:
             logger.warning(f"Spectral extraction failed: {str(e)}")
+            logger.debug(f"Spectral extraction error details: {type(e).__name__}")
             return 0.0
 
     def _extract_loudness(self, audio):
+        logger.debug("Starting loudness extraction with Essentia")
         try:
-            return float(es.RMS()(audio))
+            logger.debug("Initializing Essentia RMS for loudness calculation")
+            rms = es.RMS()
+            logger.debug("Running RMS calculation on audio")
+            rms_value = rms(audio)
+            loudness_db = float(rms_value)
+            logger.debug(f"Processed loudness (RMS): {loudness_db:.3f}")
+            return loudness_db
         except Exception as e:
             logger.warning(f"Loudness extraction failed: {str(e)}")
+            logger.debug(f"Loudness extraction error details: {type(e).__name__}")
             return 0.0
 
     def _extract_danceability(self, audio):
+        logger.debug("Starting danceability extraction with Essentia")
         try:
-            danceability, _ = es.Danceability()(audio)
-            return float(danceability)
+            logger.debug("Initializing Essentia Danceability algorithm")
+            danceability_algo = es.Danceability()
+            logger.debug("Running danceability analysis on audio")
+            danceability, _ = danceability_algo(audio)
+            danceability_value = float(danceability)
+            logger.debug(f"Processed danceability: {danceability_value:.3f}")
+            return danceability_value
         except Exception as e:
             logger.warning(f"Danceability extraction failed: {str(e)}")
+            logger.debug(f"Danceability extraction error details: {type(e).__name__}")
             return 0.0
 
     def _extract_key(self, audio):
+        logger.debug("Starting key extraction with Essentia")
         try:
+            audio_duration = len(audio) / 44100.0
+            logger.debug(f"Audio duration: {audio_duration:.2f}s")
+            
             if len(audio) < 44100 * 3:  # Need at least 3 seconds
+                logger.debug("Audio too short for key extraction (< 3s), skipping")
                 return -1, 0
 
-            key, scale, _ = es.KeyExtractor(frameSize=4096, hopSize=2048)(audio)
+            logger.debug("Initializing Essentia KeyExtractor with frameSize=4096, hopSize=2048")
+            key_extractor = es.KeyExtractor(frameSize=4096, hopSize=2048)
+            logger.debug("Running key extraction on audio")
+            key, scale, _ = key_extractor(audio)
+            logger.debug(f"Raw key extraction results: key='{key}', scale='{scale}'")
 
             # Convert key to numerical index
             keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
             try:
                 key_idx = keys.index(key) if key in keys else -1
+                logger.debug(f"Converted key '{key}' to index {key_idx}")
             except ValueError:
+                logger.debug(f"Unknown key '{key}', setting index to -1")
                 key_idx = -1
 
             scale_idx = 1 if scale == 'major' else 0
+            logger.debug(f"Converted scale '{scale}' to index {scale_idx}")
+            logger.debug(f"Final key features: key_idx={key_idx}, scale_idx={scale_idx}")
             return key_idx, scale_idx
 
         except Exception as e:
             logger.warning(f"Key extraction failed: {str(e)}")
+            logger.debug(f"Key extraction error details: {type(e).__name__}")
             return -1, 0
 
     def _extract_onset_rate(self, audio):
+        logger.debug("Starting onset rate extraction with Essentia")
         try:
+            audio_duration = len(audio) / 44100.0
+            logger.debug(f"Audio duration: {audio_duration:.2f}s")
+            
             # Skip if audio is too short (less than 1 second)
             if len(audio) < 44100:
+                logger.debug("Audio too short for onset rate extraction (< 1s), skipping")
                 return 0.0
 
-            # Get the onset rate - returns (onset_rate, onset_times)
-            result = es.OnsetRate()(audio)
+            logger.debug("Initializing Essentia OnsetRate")
+            onset_rate_algo = es.OnsetRate()
+            logger.debug("Running onset rate analysis on audio")
+            result = onset_rate_algo(audio)
+            logger.debug(f"Raw onset rate result type: {type(result)}")
             
             # Extract the onset rate value
             if isinstance(result, tuple) and len(result) > 0:
                 onset_rate = result[0]
+                logger.debug(f"Onset rate raw value: {onset_rate}")
                 # If it's an array, take the mean
                 if isinstance(onset_rate, (list, np.ndarray)):
-                    return float(np.nanmean(onset_rate))
-                return float(onset_rate)
+                    onset_rate_mean = float(np.nanmean(onset_rate))
+                    logger.debug(f"Calculated mean onset rate: {onset_rate_mean:.3f}")
+                    return onset_rate_mean
+                onset_rate_float = float(onset_rate)
+                logger.debug(f"Converted onset rate to float: {onset_rate_float:.3f}")
+                return onset_rate_float
+            logger.debug("No onset rate result, returning 0.0")
             return 0.0
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
+            logger.debug(f"Onset rate extraction error details: {type(e).__name__}")
             return 0.0
 
     def _extract_zcr(self, audio):
+        logger.debug("Starting zero crossing rate extraction with Essentia")
         try:
-            return float(np.mean(es.ZeroCrossingRate()(audio)))
+            logger.debug("Initializing Essentia ZeroCrossingRate")
+            zcr_algo = es.ZeroCrossingRate()
+            logger.debug("Running zero crossing rate analysis on audio")
+            zcr_values = zcr_algo(audio)
+            logger.debug(f"Zero crossing rate raw values shape: {np.array(zcr_values).shape if hasattr(zcr_values, 'shape') else type(zcr_values)}")
+            
+            zcr_mean = float(np.mean(zcr_values))
+            logger.debug(f"Calculated mean zero crossing rate: {zcr_mean:.3f}")
+            return zcr_mean
         except Exception as e:
             logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
+            logger.debug(f"Zero crossing rate extraction error details: {type(e).__name__}")
             return 0.0
 
     def _extract_mfcc(self, audio, num_coeffs=13):
+        logger.debug(f"Starting MFCC extraction with Essentia (coefficients: {num_coeffs})")
         try:
-            mfcc = es.MFCC(numberCoefficients=num_coeffs)
-            _, mfcc_coeffs = mfcc(audio)
-            return np.mean(mfcc_coeffs, axis=0).tolist()  # global average
+            logger.debug("Initializing Essentia MFCC algorithm")
+            mfcc_algo = es.MFCC(numberCoefficients=num_coeffs)
+            logger.debug("Running MFCC analysis on audio")
+            _, mfcc_coeffs = mfcc_algo(audio)
+            logger.debug(f"MFCC coefficients shape: {np.array(mfcc_coeffs).shape if hasattr(mfcc_coeffs, 'shape') else type(mfcc_coeffs)}")
+            
+            mfcc_mean = np.mean(mfcc_coeffs, axis=0).tolist()  # global average
+            logger.debug(f"Calculated mean MFCC coefficients: {len(mfcc_mean)} values")
+            logger.debug(f"MFCC coefficient range: min={min(mfcc_mean):.3f}, max={max(mfcc_mean):.3f}")
+            return mfcc_mean
         except Exception as e:
             logger.warning(f"MFCC extraction failed: {str(e)}")
+            logger.debug(f"MFCC extraction error details: {type(e).__name__}")
             return [0.0] * num_coeffs
 
     def _extract_chroma(self, audio):
         """Extract chroma features from audio using HPCP."""
+        logger.debug("Starting chroma feature extraction with Essentia HPCP")
         try:
             # Set up parameters
             frame_size = 2048
             hop_size = 1024
+            logger.debug(f"Chroma extraction parameters: frame_size={frame_size}, hop_size={hop_size}")
             
             # Initialize algorithms
-            window = es.Windowing(type='hann')
+            logger.debug("Initializing Essentia algorithms for chroma extraction")
+            window = es.Windowing(type='blackmanharris62')
             spectrum = es.Spectrum()
             spectral_peaks = es.SpectralPeaks()
             hpcp = es.HPCP()
             
-            hpcp_list = []
+            logger.debug("Running chroma extraction pipeline")
+            # Process audio in frames
+            chroma_values = []
+            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
+                logger.debug(f"Processing frame of length {len(frame)}")
+                windowed = window(frame)
+                spec = spectrum(windowed)
+                frequencies, magnitudes = spectral_peaks(spec)
+                hpcp_value = hpcp(frequencies, magnitudes)
+                chroma_values.append(hpcp_value)
             
-            # Process audio frame by frame
-            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
-                spec = spectrum(window(frame))
-                freqs, mags = spectral_peaks(spec)
-                
-                if len(freqs) > 0:
-                    hpcp_frame = hpcp(freqs, mags)
-                    hpcp_list.append(hpcp_frame)
-            
-            # Aggregate results over time (mean)
-            if hpcp_list:
-                hpcp_mean = np.mean(hpcp_list, axis=0).tolist()
-                return hpcp_mean  # Return full 12-dimensional HPCP vector
-            else:
-                return [0.0] * 12  # Return 12 zeros if no frames processed
-                
+            logger.debug(f"Extracted {len(chroma_values)} chroma frames")
+            # Calculate global average
+            chroma_avg = np.mean(chroma_values, axis=0).tolist()
+            logger.debug(f"Calculated mean chroma features: {len(chroma_avg)} values")
+            logger.debug(f"Chroma feature range: min={min(chroma_avg):.3f}, max={max(chroma_avg):.3f}")
+            return chroma_avg
         except Exception as e:
             logger.warning(f"Chroma extraction failed: {str(e)}")
+            logger.debug(f"Chroma extraction error details: {type(e).__name__}")
             return [0.0] * 12
 
     def _extract_spectral_contrast(self, audio):
         """Extract spectral contrast features from audio."""
+        logger.debug("Starting spectral contrast extraction with Essentia")
         try:
             # Use frame-by-frame processing for spectral contrast
             frame_size = 2048
             hop_size = 1024
+            logger.debug(f"Spectral contrast parameters: frame_size={frame_size}, hop_size={hop_size}")
             
+            logger.debug("Initializing Essentia algorithms for spectral contrast")
             window = es.Windowing(type='hann')
             spectrum = es.Spectrum()
             spectral_peaks = es.SpectralPeaks()
             
             contrast_list = []
+            frame_count = 0
             
+            logger.debug("Running spectral contrast analysis frame by frame")
             # Process audio frame by frame
             for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                frame_count += 1
+                if frame_count % 100 == 0:
+                    logger.debug(f"Processed {frame_count} frames for spectral contrast")
+                
                 spec = spectrum(window(frame))
                 freqs, mags = spectral_peaks(spec)
                 
@@ -463,87 +595,55 @@ class AudioAnalyzer:
                     contrast = np.mean(peaks) - np.mean(valleys) if len(peaks) > 0 and len(valleys) > 0 else 0.0
                     contrast_list.append(contrast)
             
+            logger.debug(f"Processed {frame_count} frames, calculated contrast for {len(contrast_list)} frames")
             # Return mean contrast across all frames
             if contrast_list:
-                return float(np.mean(contrast_list))
+                contrast_mean = float(np.mean(contrast_list))
+                logger.debug(f"Calculated mean spectral contrast: {contrast_mean:.3f}")
+                return contrast_mean
             else:
+                logger.debug("No valid contrast values calculated, returning 0.0")
                 return 0.0
                 
         except Exception as e:
             logger.warning(f"Spectral contrast extraction failed: {str(e)}")
+            logger.debug(f"Spectral contrast extraction error details: {type(e).__name__}")
             return 0.0
 
     def _extract_spectral_flatness(self, audio):
         """Extract spectral flatness from audio."""
+        logger.debug("Starting spectral flatness extraction with Essentia")
         try:
-            # Use frame-by-frame processing for spectral flatness
-            frame_size = 2048
-            hop_size = 1024
+            logger.debug("Initializing Essentia SpectralFlatness algorithm")
+            flatness_algo = es.SpectralFlatness()
+            logger.debug("Running spectral flatness analysis on audio")
+            flatness_values = flatness_algo(audio)
+            logger.debug(f"Spectral flatness raw values shape: {np.array(flatness_values).shape if hasattr(flatness_values, 'shape') else type(flatness_values)}")
             
-            window = es.Windowing(type='hann')
-            spectrum = es.Spectrum()
-            
-            flatness_list = []
-            
-            # Process audio frame by frame
-            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
-                spec = spectrum(window(frame))
-                
-                # Calculate spectral flatness manually
-                # Flatness = geometric_mean / arithmetic_mean
-                spec_positive = spec[spec > 0]  # Avoid log(0)
-                if len(spec_positive) > 0:
-                    geometric_mean = np.exp(np.mean(np.log(spec_positive)))
-                    arithmetic_mean = np.mean(spec_positive)
-                    flatness = geometric_mean / arithmetic_mean if arithmetic_mean > 0 else 0.0
-                    flatness_list.append(flatness)
-            
-            # Return mean flatness across all frames
-            if flatness_list:
-                return float(np.mean(flatness_list))
-            else:
-                return 0.0
-                
+            flatness_mean = float(np.nanmean(flatness_values)) if isinstance(flatness_values, (list, np.ndarray)) else float(flatness_values)
+            logger.debug(f"Calculated mean spectral flatness: {flatness_mean:.3f}")
+            return flatness_mean
         except Exception as e:
             logger.warning(f"Spectral flatness extraction failed: {str(e)}")
+            logger.debug(f"Spectral flatness extraction error details: {type(e).__name__}")
             return 0.0
 
     def _extract_spectral_rolloff(self, audio):
         """Extract spectral rolloff from audio."""
+        logger.debug("Starting spectral rolloff extraction with Essentia")
         try:
-            # Use frame-by-frame processing for spectral rolloff
-            frame_size = 2048
-            hop_size = 1024
+            logger.debug("Initializing Essentia SpectralRolloff algorithm")
+            rolloff_algo = es.SpectralRolloff()
+            logger.debug("Running spectral rolloff analysis on audio")
+            rolloff_values = rolloff_algo(audio)
+            logger.debug(f"Spectral rolloff raw values shape: {np.array(rolloff_values).shape if hasattr(rolloff_values, 'shape') else type(rolloff_values)}")
             
-            window = es.Windowing(type='hann')
-            spectrum = es.Spectrum()
-            
-            rolloff_list = []
-            
-            # Process audio frame by frame
-            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
-                spec = spectrum(window(frame))
-                
-                # Calculate spectral rolloff manually
-                # Rolloff is the frequency below which 85% of the energy is contained
-                total_energy = np.sum(spec)
-                if total_energy > 0:
-                    cumulative_energy = np.cumsum(spec)
-                    threshold = 0.85 * total_energy
-                    rolloff_idx = np.where(cumulative_energy >= threshold)[0]
-                    if len(rolloff_idx) > 0:
-                        # Convert bin index to frequency (assuming 44.1kHz sample rate)
-                        rolloff_freq = (rolloff_idx[0] / len(spec)) * 22050  # Nyquist frequency
-                        rolloff_list.append(rolloff_freq)
-            
-            # Return mean rolloff across all frames
-            if rolloff_list:
-                return float(np.mean(rolloff_list))
-            else:
-                return 0.0
-                
+            rolloff_mean = float(np.nanmean(rolloff_values)) if isinstance(rolloff_values, (list, np.ndarray)) else float(rolloff_values)
+            logger.debug(f"Calculated mean spectral rolloff: {rolloff_mean:.1f} Hz")
+            return rolloff_mean
         except Exception as e:
             logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
+            logger.debug(f"Spectral rolloff extraction error details: {type(e).__name__}")
             return 0.0
 
     def _musicbrainz_lookup(self, artist, title):
