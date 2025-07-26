@@ -1,34 +1,42 @@
+import os
+import json
+import sqlite3
+import logging
+from typing import Optional, Dict, Any, List, Tuple
+from functools import wraps
+import time
 import numpy as np
 import essentia.standard as es
 import essentia
-essentia.log.infoActive = False
-essentia.log.warningActive = False
-import os
-import sys
-import json
-import hashlib
-import signal
-import sqlite3
-import logging
-from functools import wraps
-from typing import Optional, Dict, Any, List
-import time
-import traceback
+import librosa
+import requests
 import musicbrainzngs
 from mutagen import File as MutagenFile
-import requests
-from utils.path_converter import PathConverter
+
+# Configure Numba to use fallback mode to avoid compilation errors
+import numba
+numba.config.CUDA_DISABLE_JIT = True
+numba.config.DISABLE_JIT = True
+
+# Configure TensorFlow to suppress warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+import tensorflow as tf
+tf.get_logger().setLevel('ERROR')
 
 logger = logging.getLogger(__name__)
 
+# Lean metadata fields for playlisting
 LEAN_FIELDS = [
+    'artist', 'title', 'album', 'year', 'genre', 'tracknumber', 'discnumber',
+    'composer', 'lyricist', 'arranger', 'publisher', 'label', 'isrc',
     'musicbrainz_id', 'isrc', 'mb_artist_id', 'mb_album_id',
-    'artist', 'title', 'album', 'release_date', 'genre',
-    'genre_lastfm', 'listeners', 'playcount', 'wiki'
+    'release_date', 'country', 'work', 'composer',
+    'genre_lastfm', 'album_lastfm', 'listeners', 'playcount', 'wiki', 'album_mbid', 'artist_mbid'
 ]
 
 def filter_metadata(meta):
-    return {k: v for k, v in meta.items() if k in LEAN_FIELDS}
+    """Filter metadata to keep only lean fields relevant for playlisting."""
+    return {k: v for k, v in meta.items() if k in LEAN_FIELDS and v is not None and v != ''}
 
 class TimeoutException(Exception):
     pass
@@ -88,7 +96,6 @@ class AudioAnalyzer:
                 logger.error(f"MusiCNN model not found at {model_path}. Please download it from https://essentia.upf.edu/models/")
                 return None
             # Resample to 16kHz mono if needed
-            import librosa
             if hasattr(audio, 'shape') and len(audio.shape) > 1:
                 audio = np.mean(audio, axis=0)
             audio = librosa.resample(audio, orig_sr=44100, target_sr=16000)
@@ -638,6 +645,7 @@ class AudioAnalyzer:
         title = meta.get('title')
         mb_tags = {}
         if artist and title:
+            logger.info(f"Attempting MusicBrainz lookup for: {artist} - {title}")
             mb_tags = self._musicbrainz_lookup(artist, title)
             updated_fields_mb = [k for k, v in mb_tags.items() if v and (k not in meta or meta[k] != v)]
             meta.update({k: v for k, v in mb_tags.items() if v})
