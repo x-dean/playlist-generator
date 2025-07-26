@@ -13,5 +13,5 @@ musicbrainzngs==0.7.1
 mutagen==1.47.0 
 requests==2.31.0 
 questionary==1.10.0
-tensorflow>=2.8.0
+tensorflow==1.15.5
 librosa>=0.10.0 

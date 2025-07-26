@@ -21,6 +21,8 @@ numba.config.DISABLE_JIT = True
 # Configure TensorFlow to suppress warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import tensorflow as tf
+if not tf.__version__.startswith('1.'):
+    logger.warning(f"TensorFlow version {tf.__version__} detected. MusiCNN embedding requires TensorFlow 1.x for Essentia compatibility.")
 tf.get_logger().setLevel('ERROR')
 
 logger = logging.getLogger(__name__)
