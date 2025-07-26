@@ -93,66 +93,56 @@ def _get_status_dot(features, db_write_success):
 
 def select_files_for_analysis(args, audio_db):
     """Return (normal_files, big_files) to analyze based on args and DB state."""
-    # Use container music path instead of host library path for file discovery
-    file_list = get_audio_files('/music')
+    from .file_discovery import FileDiscovery
+    
+    # Initialize file discovery with audio_db
+    file_discovery = FileDiscovery(
+        music_dir='/music',
+        failed_dir='/music/failed_files',
+        cache_dir=os.getenv('CACHE_DIR', '/app/cache'),
+        audio_db=audio_db
+    )
+    
+    # Get database state
     db_features = audio_db.get_all_features(include_failed=True)
     db_files = set(f['filepath'] for f in db_features)
-    failed_files_db = set(f['filepath'] for f in db_features if f['failed'])
-    # Exclude files in the failed directory
-    failed_dir = os.path.join(
-        os.getenv('CACHE_DIR', '/app/cache'), 'failed_files')
-    failed_dir_abs = os.path.abspath(failed_dir)
-    file_list = [f for f in file_list if not os.path.abspath(
-        f).startswith(failed_dir_abs)]
-
+    failed_db_files = set(f['filepath'] for f in db_features if f['failed'])
+    
+    # Get files for analysis using file discovery
+    files_to_analyze = file_discovery.get_files_for_analysis(
+        db_files=db_files,
+        failed_db_files=failed_db_files,
+        force=args.force,
+        failed_mode=args.failed
+    )
+    
+    # Update file discovery state
+    file_discovery.update_state()
+    
     # Debug logging
     logger.debug(
         f"select_files_for_analysis: args.force={args.force}, args.failed={args.failed}")
     logger.debug(
-        f"select_files_for_analysis: total files found={len(file_list)}")
+        f"select_files_for_analysis: files_to_analyze={len(files_to_analyze)}")
     logger.debug(f"select_files_for_analysis: files in db={len(db_files)}")
     logger.debug(
-        f"select_files_for_analysis: failed files in db={len(failed_files_db)}")
+        f"select_files_for_analysis: failed files in db={len(failed_db_files)}")
 
-    if args.force:
-        files_to_analyze = [f for f in file_list if f not in failed_files_db]
-        logger.debug(
-            f"select_files_for_analysis: force=True, files_to_analyze={len(files_to_analyze)}")
-        logger.debug(
-            f"select_files_for_analysis: force=True, first 5 files={files_to_analyze[:5]}")
-    elif args.failed:
-        # Directly query the DB for failed files
-        import sqlite3
-        conn = sqlite3.connect(audio_db.cache_file)
-        cur = conn.cursor()
-        cur.execute("SELECT file_path FROM audio_features WHERE failed=1")
-        files_to_analyze = [row[0] for row in cur.fetchall()]
-        conn.close()
-        
-        # Filter out files that are already in the failed_files directory
-        failed_dir = '/music/failed_files'
-        files_to_analyze = [f for f in files_to_analyze if not f.startswith(failed_dir)]
-        
-        logger.debug(
-            f"select_files_for_analysis: failed=True, files_to_analyze={len(files_to_analyze)}")
-        # All files to be processed sequentially
-        return files_to_analyze, [], file_list, db_features
-    else:
-        files_to_analyze = [
-            f for f in file_list if f not in db_files and f not in failed_files_db]
-        logger.debug(
-            f"select_files_for_analysis: default mode, files_to_analyze={len(files_to_analyze)}")
+    if args.failed:
+        # All files to be processed sequentially in failed mode
+        return files_to_analyze, [], list(file_discovery.current_files), db_features
 
     def is_big_file(filepath):
         try:
             return os.path.getsize(filepath) > BIG_FILE_SIZE_MB * 1024 * 1024
         except Exception:
             return False
+    
     big_files = [f for f in files_to_analyze if is_big_file(f)]
     normal_files = [f for f in files_to_analyze if not is_big_file(f)]
     logger.debug(
         f"select_files_for_analysis: normal_files={len(normal_files)}, big_files={len(big_files)}")
-    return normal_files, big_files, file_list, db_features
+    return normal_files, big_files, list(file_discovery.current_files), db_features
 
 
 def move_failed_files(audio_db, failed_dir=None):
@@ -622,28 +612,4 @@ def run_pipeline(args, audio_db, playlist_db, cli):
         "\n[bold green]PIPELINE: Complete. Now you can start generating playlists![/bold green]\n")
 
 # --- File Discovery Helper ---
-
-
-def get_audio_files(music: str) -> List[str]:
-    import os
-    file_list = []
-    valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
-    failed_dir = os.path.abspath('/music/failed_files')
-    logger.debug(f"Excluding failed directory: {failed_dir}")
-    for root, _, files in os.walk(music):
-        abs_root = os.path.abspath(root)
-        # Skip failed_files directory
-        if abs_root.startswith(failed_dir):
-            logger.debug(f"Skipping directory: {abs_root}")
-            continue
-        for file in files:
-            file_lower = file.lower()
-            if file_lower.endswith(valid_ext):
-                file_path = os.path.join(root, file)
-                # Double-check that the file is not in the failed directory
-                if not file_path.startswith('/music/failed_files'):
-                    file_list.append(file_path)
-                else:
-                    logger.debug(f"Skipping file in failed directory: {file_path}")
-    logger.info(f"Found {len(file_list)} audio files in {music}")
-    return file_list
+# File discovery is now handled by the FileDiscovery class in file_discovery.py

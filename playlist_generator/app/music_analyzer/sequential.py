@@ -43,9 +43,11 @@ class SequentialProcessor:
 
         for i, filepath in enumerate(file_list):
             try:
-                # Skip files that are already in the failed_files directory
-                if filepath.startswith('/music/failed_files'):
-                    logger.warning(f"Skipping file in failed directory: {filepath}")
+                # Use file discovery to check if file should be excluded
+                from .file_discovery import FileDiscovery
+                file_discovery = FileDiscovery()
+                if file_discovery._is_in_excluded_directory(filepath):
+                    logger.warning(f"Skipping file in excluded directory: {filepath}")
                     yield None, filepath, False
                     continue
                     

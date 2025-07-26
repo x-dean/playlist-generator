@@ -74,10 +74,12 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
 
     while retry_count <= max_retries:
         try:
-            # Skip files that are already in the failed_files directory
-            if filepath.startswith('/music/failed_files'):
+            # Use file discovery to check if file should be excluded
+            from .file_discovery import FileDiscovery
+            file_discovery = FileDiscovery()
+            if file_discovery._is_in_excluded_directory(filepath):
                 notified["shown"] = True
-                logger.warning(f"Skipping file in failed directory: {filepath}")
+                logger.warning(f"Skipping file in excluded directory: {filepath}")
                 return None, filepath, False
                 
             if not os.path.exists(filepath):
