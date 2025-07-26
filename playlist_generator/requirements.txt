@@ -14,5 +14,4 @@ mutagen==1.47.0
 requests==2.31.0 
 questionary==1.10.0
 tensorflow>=2.8.0
-librosa>=0.10.0
-vggish-keras==0.1.1 
+librosa>=0.10.0 
