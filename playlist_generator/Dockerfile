@@ -55,8 +55,10 @@ RUN chmod +x /app/playlista
 ENV PATH="${PATH}:/app"
 
 # Set environment variables
-ENV PYTHONPATH=/app
-ENV MODEL_DIR=/app/feature_extraction/models
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    CACHE_DIR=/app/cache \
+    MODEL_DIR=/app/feature_extraction/models
 
 # Default command
 CMD ["playlista"]
