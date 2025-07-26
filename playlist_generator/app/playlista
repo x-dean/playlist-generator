@@ -40,49 +40,6 @@ from datetime import datetime
 # Add the app directory to the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Suppress TensorFlow warnings early
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow warnings
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU warnings
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN warnings
-
-# Suppress TensorFlow warnings at Python level
-import warnings
-warnings.filterwarnings('ignore', category=UserWarning)
-warnings.filterwarnings('ignore', category=FutureWarning)
-
-# Setup logging immediately to capture error output
-cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-logfile_path = '/app/logs/playlista.log'
-os.makedirs(os.path.dirname(logfile_path), exist_ok=True)
-
-# Create a custom stderr that filters out Rich output but captures real errors
-import sys
-from io import StringIO
-
-class FilteredStderr:
-    def __init__(self, original_stderr, logfile):
-        self.original_stderr = original_stderr
-        self.logfile = logfile
-        self.buffer = StringIO()
-    
-    def write(self, text):
-        # Write to original stderr for Rich progress bars
-        self.original_stderr.write(text)
-        self.original_stderr.flush()
-        
-        # Also write to log file for actual errors
-        self.logfile.write(text)
-        self.logfile.flush()
-    
-    def flush(self):
-        self.original_stderr.flush()
-        self.logfile.flush()
-
-# Open log file and set up filtered stderr
-logfile = open(logfile_path, 'a')
-filtered_stderr = FilteredStderr(sys.stderr, logfile)
-sys.stderr = filtered_stderr
-
 # Parse --log_level early to set LOG_LEVEL env var
 pre_parser = argparse.ArgumentParser(add_help=False)
 pre_parser.add_argument('--log_level', default='INFO',
@@ -212,6 +169,12 @@ cli = PlaylistGeneratorCLI()
 
 os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
 os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
+
+cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+logfile_path = '/app/logs/playlista.log'
+logfile = open(logfile_path, 'a')
+os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
+sys.stderr = logfile  # Also update Python's sys.stderr
 
 
 def get_audio_files(music_dir: str) -> List[str]:
@@ -401,8 +364,7 @@ Examples:
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
     logger.debug(f"Using cache file: {cache_file}")
 
-    import sys
-    console = Console(file=sys.stdout, force_terminal=True)
+    console = Console()
     console.print(f"[bold magenta]{banner}[/bold magenta]")
 
     logger.info("Scanning music library for audio files")
@@ -433,7 +395,11 @@ Examples:
     os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
     os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
-    # Logging is already set up at the top of the file
+    cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+    logfile_path = '/app/logs/playlista.log'
+    logfile = open(logfile_path, 'a')
+    os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
+    sys.stderr = logfile  # Also update Python's sys.stderr
 
     # Show configuration
     # Remove the call to cli.show_config

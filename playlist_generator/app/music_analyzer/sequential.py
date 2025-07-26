@@ -51,16 +51,9 @@ class SequentialProcessor:
                     yield features, filepath, db_write_success
                 else:
                     self.failed_files.append(filepath)
-                    if not features:
-                        logger.info(f"Marked file as failed: {filepath} (reason: Feature extraction failed)")
-                    elif not db_write_success:
-                        logger.info(f"Marked file as failed: {filepath} (reason: Database write failed)")
-                    else:
-                        logger.info(f"Marked file as failed: {filepath} (reason: Unknown processing error)")
                     yield None, filepath, False
 
             except Exception as e:
                 self.failed_files.append(filepath)
                 logger.error(f"Error processing {filepath}: {str(e)}")
-                logger.info(f"Marked file as failed: {filepath} (reason: Exception - {str(e)[:100]})")
                 yield None, filepath, False
