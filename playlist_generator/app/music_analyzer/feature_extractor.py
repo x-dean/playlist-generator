@@ -13,7 +13,7 @@ import librosa
 import requests
 import musicbrainzngs
 from mutagen import File as MutagenFile
-from app.utils.path_converter import PathConverter
+from utils.path_converter import PathConverter
 
 # Set up logger first
 logger = logging.getLogger(__name__)
