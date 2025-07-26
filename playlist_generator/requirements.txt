@@ -1,7 +1,7 @@
 pandas
 scikit-learn
 tqdm
-essentia
+essentia-tensorflow
 numpy
 matplotlib
 psutil
