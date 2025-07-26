@@ -82,6 +82,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                     audio_analyzer = AudioAnalyzer()
                     file_info = audio_analyzer._get_file_info(filepath)
                     audio_analyzer._mark_failed(file_info)
+                    logger.info(f"Marked file as failed: {filepath} (reason: File not found)")
                 except Exception:
                     pass  # Ignore database errors
                 return None, filepath, False
@@ -93,6 +94,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                     audio_analyzer = AudioAnalyzer()
                     file_info = audio_analyzer._get_file_info(filepath)
                     audio_analyzer._mark_failed(file_info)
+                    logger.info(f"Marked file as failed: {filepath} (reason: File too small < 1KB)")
                 except Exception:
                     pass  # Ignore database errors
                 return None, filepath, False
@@ -104,6 +106,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                     audio_analyzer = AudioAnalyzer()
                     file_info = audio_analyzer._get_file_info(filepath)
                     audio_analyzer._mark_failed(file_info)
+                    logger.info(f"Marked file as failed: {filepath} (reason: Unsupported file format)")
                 except Exception:
                     pass  # Ignore database errors
                 return None, filepath, False
@@ -125,6 +128,12 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                     try:
                         file_info = audio_analyzer._get_file_info(filepath)
                         audio_analyzer._mark_failed(file_info)
+                        if not features:
+                            logger.info(f"Marked file as failed: {filepath} (reason: Feature extraction failed)")
+                        elif not db_write_success:
+                            logger.info(f"Marked file as failed: {filepath} (reason: Database write failed)")
+                        else:
+                            logger.info(f"Marked file as failed: {filepath} (reason: Unknown processing error)")
                     except Exception:
                         pass  # Ignore database errors
                     return None, filepath, False
@@ -143,13 +152,31 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                     f"Retrying {filepath} (attempt {retry_count}/{max_retries})")
                 continue
             logger.warning(f"Feature extraction failed for {filepath}")
+            try:
+                file_info = audio_analyzer._get_file_info(filepath)
+                audio_analyzer._mark_failed(file_info)
+                logger.info(f"Marked file as failed: {filepath} (reason: Max retries exceeded)")
+            except Exception:
+                pass  # Ignore database errors
             return None, filepath, False
         except TimeoutException:
             logger.debug(f"TIMEOUT in worker for {os.path.basename(filepath)}")
+            try:
+                file_info = audio_analyzer._get_file_info(filepath)
+                audio_analyzer._mark_failed(file_info)
+                logger.info(f"Marked file as failed: {filepath} (reason: Processing timeout)")
+            except Exception:
+                pass  # Ignore database errors
             return None, filepath, False
         except Exception as e:
             logger.error(
                 f"FATAL ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
+            try:
+                file_info = audio_analyzer._get_file_info(filepath)
+                audio_analyzer._mark_failed(file_info)
+                logger.info(f"Marked file as failed: {filepath} (reason: Fatal error - {str(e)[:100]})")
+            except Exception:
+                pass  # Ignore database errors
             return None, filepath, False
     notified["shown"] = True
     return None, filepath, False
