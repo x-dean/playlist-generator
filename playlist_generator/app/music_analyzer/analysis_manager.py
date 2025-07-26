@@ -155,7 +155,7 @@ def select_files_for_analysis(args, audio_db):
 def move_failed_files(audio_db, failed_dir=None):
     import os
     if failed_dir is None:
-        failed_dir = '/app/failed_files'
+        failed_dir = '/music/failed_files'
     failed_dir_abs = os.path.abspath(failed_dir)
     if not os.path.exists(failed_dir_abs):
         os.makedirs(failed_dir_abs)
@@ -187,7 +187,7 @@ def move_failed_files(audio_db, failed_dir=None):
 def move_newly_failed_files(audio_db, newly_failed, failed_dir=None):
     import os
     if failed_dir is None:
-        failed_dir = '/app/failed_files'
+        failed_dir = '/music/failed_files'
     failed_dir_abs = os.path.abspath(failed_dir)
     if not os.path.exists(failed_dir_abs):
         os.makedirs(failed_dir_abs)
@@ -587,9 +587,9 @@ def run_pipeline(args, audio_db, playlist_db, cli):
                         force_reextract=True, pipeline_mode=True)
     logger.info(f"Pipeline Stage 3 result: {len(res3) if res3 else 0} files processed")
     logger.debug(f"DISCOVERY: Stage 3 - after run_analysis: returned {len(res3) if res3 else 0} files")
-    # Count files in /app/failed_files after failed step
+    # Count files in /music/failed_files after failed step
     import os
-    failed_dir = '/app/failed_files'
+    failed_dir = '/music/failed_files'
     try:
         moved_failed = len([f for f in os.listdir(
             failed_dir) if os.path.isfile(os.path.join(failed_dir, f))])
