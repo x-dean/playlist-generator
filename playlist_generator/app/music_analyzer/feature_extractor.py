@@ -593,6 +593,8 @@ class AudioAnalyzer:
                 self.conn.execute(
                     f"ALTER TABLE audio_features ADD COLUMN {col} {col_type}")
 
+
+
     def _ensure_float(self, value):
         """Convert value to float safely"""
         try:
