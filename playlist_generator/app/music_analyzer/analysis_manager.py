@@ -303,6 +303,41 @@ def create_progress_bar(total_files):
         console=Console()
     )
 
+def _get_system_resources():
+    """Get current system resource usage."""
+    try:
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        memory_percent = memory.percent
+        memory_used_gb = memory.used / (1024**3)
+        memory_total_gb = memory.total / (1024**3)
+        return {
+            'cpu_percent': cpu_percent,
+            'memory_percent': memory_percent,
+            'memory_used_gb': memory_used_gb,
+            'memory_total_gb': memory_total_gb
+        }
+    except Exception as e:
+        logger.debug(f"Error getting system resources: {e}")
+        return {
+            'cpu_percent': 0,
+            'memory_percent': 0,
+            'memory_used_gb': 0,
+            'memory_total_gb': 0
+        }
+
+def _display_resource_usage(workers, total_workers):
+    """Display current resource usage under progress bar."""
+    resources = _get_system_resources()
+    
+    # Create resource info string
+    cpu_info = f"CPU: {resources['cpu_percent']:.1f}%"
+    memory_info = f"RAM: {resources['memory_used_gb']:.1f}GB/{resources['memory_total_gb']:.1f}GB ({resources['memory_percent']:.1f}%)"
+    worker_info = f"Workers: {workers}/{total_workers}"
+    
+    # Print resource usage with spacing from progress bar
+    print(f"\n[dim]📊 {cpu_info} | {memory_info} | {worker_info}[/dim]", end="", flush=True)
+
 # --- Main Orchestration ---
 def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextract=False):
     """Run analysis with improved logic based on mode."""
@@ -354,6 +389,9 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
             _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze), 
                                "[cyan]", "", "", None, not args.force_sequential)
         
+        # Display initial resource usage
+        _display_resource_usage(workers, workers)
+        
         # Prepare list of file paths only for processing
         file_paths_only = [item[0] if isinstance(item, tuple) else item for item in files_to_analyze]
         
@@ -372,6 +410,10 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
             _update_progress_bar(progress, task_id, files_to_analyze, processed_count, len(files_to_analyze), 
                                "[cyan]", "", status_dot, None, not args.force_sequential)
             
+            # Update resource usage display every 5 files
+            if processed_count % 5 == 0:
+                _display_resource_usage(workers, workers)
+            
             logger.debug(f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
             
             if not features or not db_write_success:
@@ -379,6 +421,10 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
                 logger.warning(f"Analysis failed for {filepath}")
             else:
                 logger.info(f"Analysis completed for {filepath}")
+        
+        # Final resource usage display
+        _display_resource_usage(workers, workers)
+        print()  # New line after resource display
         
         logger.info(f"Processing loop completed. Processed {processed_count} files out of {len(files_to_analyze)}")
     
