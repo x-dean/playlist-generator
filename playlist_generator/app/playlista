@@ -407,10 +407,13 @@ Examples:
         
         # Give workers time to finish current tasks
         import time
-        timeout = 30  # Reduced from 60 to 30 seconds
+        # Calculate timeout based on number of workers (60 seconds per worker)
+        # Get number of workers from environment or use default
+        num_workers = int(os.getenv('WORKERS', '4'))  # Default to 4 workers
+        timeout = num_workers * 60  # 60 seconds per worker
         start_wait = time.time()
         
-        print("⏳ Waiting for workers to finish current tasks...")
+        print(f"⏳ Waiting for workers to finish current tasks (timeout: {timeout}s)...")
         
         while time.time() - start_wait < timeout:
             try:
@@ -440,9 +443,9 @@ Examples:
                 print(
                     f"⏳ {active_workers} workers still active, {remaining_time:.0f}s remaining...")
                 
-                # If workers are still active after 10 seconds, force termination
-                if (time.time() - start_wait) > 10 and active_workers > 0:
-                    print(f"⚠️  {active_workers} workers still active after 10s - forcing termination...")
+                # If workers are still active after 30 seconds, force termination
+                if (time.time() - start_wait) > 30 and active_workers > 0:
+                    print(f"⚠️  {active_workers} workers still active after 30s - forcing termination...")
                     from music_analyzer.analysis_manager import cleanup_child_processes
                     cleanup_child_processes()
                     break

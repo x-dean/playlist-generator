@@ -271,8 +271,22 @@ class ParallelProcessor:
                             from functools import partial
                             worker_func = partial(
                                 process_file_worker, status_queue=status_queue, force_reextract=force_reextract, stop_event=stop_event)
-                            # Process results from the batch
+                            
+                            # Calculate timeout for this batch (60 seconds per worker)
+                            batch_timeout = len(batch) * 60  # 60 seconds per file in batch
+                            logger.info(f"Processing batch of {len(batch)} files with {batch_timeout}s timeout")
+                            
+                            # Process results from the batch with timeout
+                            start_time = time.time()
+                            results = []
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
+                                # Check if we've exceeded the batch timeout
+                                if time.time() - start_time > batch_timeout:
+                                    logger.warning(f"Batch timeout ({batch_timeout}s) exceeded - terminating pool")
+                                    pool.terminate()
+                                    pool.join()
+                                    break
+                                    
                                 # Check stop_event after each file completion
                                 if stop_event and stop_event.is_set():
                                     logger.info(
@@ -281,6 +295,8 @@ class ParallelProcessor:
                                     pool.terminate()
                                     pool.join()
                                     break
+                                
+                                results.append((features, filepath, db_write_success))
                                 
                                 if self.enforce_fail_limit:
                                     # Use in-memory retry counter
