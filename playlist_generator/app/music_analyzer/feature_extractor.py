@@ -400,7 +400,8 @@ class AudioAnalyzer:
         cursor = self.conn.cursor()
         cursor.execute("""
         SELECT duration, bpm, beat_confidence, centroid,
-               loudness, danceability, key, scale, onset_rate, zcr, metadata
+               loudness, danceability, key, scale, onset_rate, zcr,
+               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, metadata
         FROM audio_features
         WHERE file_hash = ? AND last_modified >= ?
         """, (file_info['file_hash'], file_info['last_modified']))
@@ -418,7 +419,12 @@ class AudioAnalyzer:
                 'scale': row[7],
                 'onset_rate': row[8],
                 'zcr': row[9],
-                'metadata': json.loads(row[10]) if row[10] else {},
+                'mfcc': json.loads(row[10]) if row[10] else [0.0] * 13,
+                'chroma': json.loads(row[11]) if row[11] else [0.0] * 12,
+                'spectral_contrast': json.loads(row[12]) if row[12] else [0.0] * 6,
+                'spectral_flatness': row[13],
+                'spectral_rolloff': row[14],
+                'metadata': json.loads(row[15]) if row[15] else {},
                 'filepath': file_info['file_path'],
                 'filename': os.path.basename(file_info['file_path'])
             }
