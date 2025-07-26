@@ -13,6 +13,15 @@ import requests
 import musicbrainzngs
 from mutagen import File as MutagenFile
 
+# Check if Essentia was built with TensorFlow support
+try:
+    # Try to import TensorflowPredictMusiCNN to see if it's available
+    from essentia.standard import TensorflowPredictMusiCNN
+    logger.info("Essentia TensorFlow support: AVAILABLE")
+except ImportError as e:
+    logger.warning(f"Essentia TensorFlow support: NOT AVAILABLE - {e}")
+    logger.warning("MusiCNN embeddings will not work. Install Essentia with TensorFlow support.")
+
 # Configure Numba to use fallback mode to avoid compilation errors
 import numba
 numba.config.CUDA_DISABLE_JIT = True
@@ -95,6 +104,8 @@ class AudioAnalyzer:
                 'MUSICNN_MODEL_PATH',
                 '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
             )
+            logger.info(f"Attempting MusiCNN extraction with model: {model_path}")
+            
             if not os.path.exists(model_path):
                 logger.warning(f"MusiCNN model not found at {model_path}. Skipping embedding extraction.")
                 return None
@@ -105,22 +116,36 @@ class AudioAnalyzer:
             
             # Resample to 16kHz for MusiCNN
             audio_16k = librosa.resample(audio, orig_sr=44100, target_sr=16000)
+            logger.info(f"Audio resampled to 16kHz, shape: {audio_16k.shape}, dtype: {audio_16k.dtype}")
+            
+            # Check TensorFlow version and compatibility
+            import tensorflow as tf
+            logger.info(f"TensorFlow version: {tf.__version__}")
+            logger.info(f"TensorFlow eager execution disabled: {not tf.executing_eagerly()}")
             
             # Use Essentia's TensorflowPredictMusiCNN
+            logger.info("Creating TensorflowPredictMusiCNN instance...")
             musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
+            logger.info("TensorflowPredictMusiCNN instance created successfully")
+            
+            logger.info("Running MusiCNN inference...")
             embeddings = musicnn(audio_16k)
+            logger.info(f"MusiCNN inference completed, output type: {type(embeddings)}, shape: {getattr(embeddings, 'shape', 'N/A')}")
             
             # Handle different output formats
             if isinstance(embeddings, list):
                 # If it's a list of embeddings, take the mean
                 embedding = np.mean(np.array(embeddings), axis=0)
+                logger.info(f"List embeddings converted to array, final shape: {embedding.shape}")
                 return embedding.tolist()
             elif hasattr(embeddings, 'shape') and len(embeddings.shape) == 2:
                 # If it's a 2D array, take the mean across time
                 embedding = np.mean(embeddings, axis=0)
+                logger.info(f"2D embeddings mean-pooled, final shape: {embedding.shape}")
                 return embedding.tolist()
             elif hasattr(embeddings, 'shape') and len(embeddings.shape) == 1:
                 # If it's already a 1D array
+                logger.info(f"1D embeddings, shape: {embeddings.shape}")
                 return embeddings.tolist()
             else:
                 logger.warning(f"Unexpected MusiCNN output format: {type(embeddings)}")
@@ -128,6 +153,9 @@ class AudioAnalyzer:
                 
         except Exception as e:
             logger.warning(f"MusiCNN embedding extraction failed: {str(e)}")
+            logger.warning(f"Exception type: {type(e).__name__}")
+            import traceback
+            logger.warning(f"Full traceback: {traceback.format_exc()}")
             # Fallback: create a simple embedding from basic features
             try:
                 # Create a simple 128-dimensional embedding from basic features
