@@ -164,8 +164,9 @@ def validate_and_convert_features(features):
         'centroid': float,
         'loudness': float,
         'danceability': float,
-        'key': int,
-        'scale': int,
+        'key': str,  # Changed from int to str - keys are strings like 'C', 'Ab'
+        'scale': str,  # Changed from int to str - scales are strings like 'major', 'minor'
+        'key_strength': float,
         'onset_rate': float,
         'zcr': float,
         'mfcc': list,
@@ -173,7 +174,8 @@ def validate_and_convert_features(features):
         'spectral_contrast': float,
         'spectral_flatness': float,
         'spectral_rolloff': float,
-        'musicnn_embedding': (dict, type(None)),
+        'musicnn_embedding': (list, dict, type(None)),  # Changed to accept list as well
+        'musicnn_tags': (dict, type(None)),
         'metadata': dict
     }
     
@@ -186,6 +188,8 @@ def validate_and_convert_features(features):
                         validated_features[feature_name] = 0.0
                     elif expected_type == int:
                         validated_features[feature_name] = 0
+                    elif expected_type == str:
+                        validated_features[feature_name] = ''
                     elif expected_type == list:
                         validated_features[feature_name] = []
                     elif expected_type == dict:
@@ -207,6 +211,8 @@ def validate_and_convert_features(features):
                         validated_features[feature_name] = float(value)
                     elif expected_type == int:
                         validated_features[feature_name] = int(value)
+                    elif expected_type == str:
+                        validated_features[feature_name] = str(value)
                     elif expected_type == list:
                         if isinstance(value, (list, np.ndarray)):
                             validated_features[feature_name] = convert_to_python_types(value)
@@ -219,22 +225,36 @@ def validate_and_convert_features(features):
                             validated_features[feature_name] = {}
                     else:
                         validated_features[feature_name] = convert_to_python_types(value)
-                        
             except (ValueError, TypeError) as e:
                 logger.warning(f"Failed to convert {feature_name} from {type(value)} to {expected_type}: {e}")
-                # Set default values based on expected type
+                # Set appropriate default value
                 if expected_type == float:
                     validated_features[feature_name] = 0.0
                 elif expected_type == int:
                     validated_features[feature_name] = 0
+                elif expected_type == str:
+                    validated_features[feature_name] = ''
                 elif expected_type == list:
                     validated_features[feature_name] = []
                 elif expected_type == dict:
                     validated_features[feature_name] = {}
                 else:
                     validated_features[feature_name] = None
+        else:
+            # Set default value for missing feature
+            if expected_type == float:
+                validated_features[feature_name] = 0.0
+            elif expected_type == int:
+                validated_features[feature_name] = 0
+            elif expected_type == str:
+                validated_features[feature_name] = ''
+            elif expected_type == list:
+                validated_features[feature_name] = []
+            elif expected_type == dict:
+                validated_features[feature_name] = {}
+            else:
+                validated_features[feature_name] = None
     
-    logger.debug(f"Validated {len(validated_features)} features for database storage")
     return validated_features
 
 class TimeoutException(Exception):
@@ -274,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "2.6.0"  # Version identifier for tracking updates - colored file logging
+    VERSION = "2.7.0"  # Version identifier for tracking updates - fixed database schema and validation
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -405,8 +425,9 @@ class AudioAnalyzer:
                 centroid REAL,
                 loudness REAL,
                 danceability REAL,
-                key INTEGER,
-                scale INTEGER,
+                key TEXT,
+                scale TEXT,
+                key_strength REAL,
                 onset_rate REAL,
                 zcr REAL,
                 mfcc JSON,
@@ -415,18 +436,71 @@ class AudioAnalyzer:
                 spectral_flatness REAL,
                 spectral_rolloff REAL,
                 musicnn_embedding JSON,
+                musicnn_tags JSON,
                 last_modified REAL,
                 last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 metadata JSON,
                 failed INTEGER DEFAULT 0
             )
             """)
-            # Migration: add 'failed' column if missing
+            # Migration: add missing columns if they don't exist
             columns = [row[1] for row in self.conn.execute("PRAGMA table_info(audio_features)")]
             if 'failed' not in columns:
                 self.conn.execute("ALTER TABLE audio_features ADD COLUMN failed INTEGER DEFAULT 0")
             if 'musicnn_embedding' not in columns:
                 self.conn.execute("ALTER TABLE audio_features ADD COLUMN musicnn_embedding JSON")
+            if 'musicnn_tags' not in columns:
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN musicnn_tags JSON")
+            if 'key_strength' not in columns:
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN key_strength REAL DEFAULT 0")
+            # Update key and scale columns to TEXT if they exist as INTEGER
+            if 'key' in columns:
+                cursor = self.conn.execute("PRAGMA table_info(audio_features)")
+                for row in cursor.fetchall():
+                    if row[1] == 'key' and row[2] == 'INTEGER':
+                        logger.info("Converting key column from INTEGER to TEXT")
+                        self.conn.execute("ALTER TABLE audio_features RENAME TO audio_features_old")
+                        self.conn.execute("""
+                        CREATE TABLE audio_features (
+                            file_hash TEXT PRIMARY KEY,
+                            file_path TEXT NOT NULL,
+                            duration REAL,
+                            bpm REAL,
+                            beat_confidence REAL,
+                            centroid REAL,
+                            loudness REAL,
+                            danceability REAL,
+                            key TEXT,
+                            scale TEXT,
+                            key_strength REAL,
+                            onset_rate REAL,
+                            zcr REAL,
+                            mfcc JSON,
+                            chroma JSON,
+                            spectral_contrast REAL,
+                            spectral_flatness REAL,
+                            spectral_rolloff REAL,
+                            musicnn_embedding JSON,
+                            musicnn_tags JSON,
+                            last_modified REAL,
+                            last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            metadata JSON,
+                            failed INTEGER DEFAULT 0
+                        )
+                        """)
+                        self.conn.execute("""
+                        INSERT INTO audio_features SELECT 
+                            file_hash, file_path, duration, bpm, beat_confidence, centroid, 
+                            loudness, danceability, 
+                            CASE WHEN key = -1 THEN '' ELSE CAST(key AS TEXT) END as key,
+                            CASE WHEN scale = 0 THEN 'major' WHEN scale = 1 THEN 'minor' ELSE 'major' END as scale,
+                            0 as key_strength,
+                            onset_rate, zcr, mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff,
+                            musicnn_embedding, '{}' as musicnn_tags, last_modified, last_analyzed, metadata, failed
+                        FROM audio_features_old
+                        """)
+                        self.conn.execute("DROP TABLE audio_features_old")
+                        break
             self._verify_db_schema()
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
@@ -439,8 +513,9 @@ class AudioAnalyzer:
         required_columns = {
             'loudness': 'REAL DEFAULT 0',
             'danceability': 'REAL DEFAULT 0',
-            'key': 'INTEGER DEFAULT -1',
-            'scale': 'INTEGER DEFAULT 0',
+            'key': 'TEXT DEFAULT ""',
+            'scale': 'TEXT DEFAULT "major"',
+            'key_strength': 'REAL DEFAULT 0',
             'onset_rate': 'REAL DEFAULT 0',
             'zcr': 'REAL DEFAULT 0',
             'metadata': 'JSON',
@@ -448,7 +523,8 @@ class AudioAnalyzer:
             'chroma': 'JSON',
             'spectral_contrast': 'REAL',
             'spectral_flatness': 'REAL DEFAULT 0',
-            'spectral_rolloff': 'REAL DEFAULT 0'
+            'spectral_rolloff': 'REAL DEFAULT 0',
+            'musicnn_tags': 'JSON'
         }
 
         for col, col_type in required_columns.items():
@@ -1239,7 +1315,7 @@ class AudioAnalyzer:
         cursor.execute("""
         SELECT duration, bpm, beat_confidence, centroid,
                loudness, danceability, key, scale, onset_rate, zcr,
-               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, metadata
+               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, musicnn_tags, metadata
         FROM audio_features
         WHERE file_hash = ? AND last_modified >= ?
         """, (file_info['file_hash'], file_info['last_modified']))
@@ -1264,7 +1340,8 @@ class AudioAnalyzer:
                 'spectral_flatness': row[13],
                 'spectral_rolloff': row[14],
                 'musicnn_embedding': json.loads(row[15]) if row[15] else None,
-                'metadata': json.loads(row[16]) if row[16] else {},
+                'musicnn_tags': json.loads(row[16]) if row[16] else {},
+                'metadata': json.loads(row[17]) if row[17] else {},
                 'filepath': file_info['file_path'],
                 'filename': os.path.basename(file_info['file_path'])
             }
@@ -1506,8 +1583,9 @@ class AudioAnalyzer:
                 features.get('centroid', 0.0),
                 features.get('loudness', 0.0),
                 features.get('danceability', 0.0),
-                features.get('key', 0),
-                features.get('scale', 0),
+                features.get('key', ''),  # Changed from 0 to '' for string
+                features.get('scale', ''),  # Changed from 0 to '' for string
+                features.get('key_strength', 0.0),  # Added key_strength
                 features.get('onset_rate', 0.0),
                 features.get('zcr', 0.0),
                 safe_json_dumps(features.get('mfcc', [])),
@@ -1516,6 +1594,7 @@ class AudioAnalyzer:
                 features.get('spectral_flatness', 0.0),
                 features.get('spectral_rolloff', 0.0),
                 safe_json_dumps(features.get('musicnn_embedding')),
+                safe_json_dumps(features.get('musicnn_tags', {})),  # Added musicnn_tags
                 file_info['last_modified'],
                 safe_json_dumps(features.get('metadata', {})),
                 failed
@@ -1530,10 +1609,10 @@ class AudioAnalyzer:
                 self.conn.execute(
                     """
                     INSERT OR REPLACE INTO audio_features (
-                        file_hash, file_path, duration, bpm, beat_confidence, centroid, loudness, danceability, key, scale, onset_rate, zcr,
-                        mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding,
+                        file_hash, file_path, duration, bpm, beat_confidence, centroid, loudness, danceability, key, scale, key_strength, onset_rate, zcr,
+                        mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, musicnn_tags,
                         last_modified, metadata, failed
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     values_tuple
                 )
