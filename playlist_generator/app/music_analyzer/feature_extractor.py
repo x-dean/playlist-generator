@@ -1126,6 +1126,10 @@ class AudioAnalyzer:
                 self._mark_failed(file_info)
                 return None, False, None
             features = self._extract_all_features(audio_path, audio)
+            if features is None:
+                logger.error(f"Feature extraction failed for {audio_path}")
+                self._mark_failed(file_info)
+                return None, False, None
             db_write_success = self._save_features_to_db(file_info, features, failed=0)
             if db_write_success:
                 logger.info(f"DB WRITE: {file_info['file_path']}")
@@ -1222,8 +1226,15 @@ class AudioAnalyzer:
                 features['metadata'] = {}
 
             # Extract duration
-            features['duration'] = float(audio['duration'])
-            logger.debug(f"Duration: {features['duration']:.2f}s")
+            try:
+                # Calculate duration from audio array length and sample rate
+                sample_rate = 44100  # Default sample rate
+                duration = len(audio) / sample_rate
+                features['duration'] = float(duration)
+                logger.debug(f"Duration: {features['duration']:.2f}s (calculated from {len(audio)} samples at {sample_rate}Hz)")
+            except Exception as e:
+                logger.warning(f"Duration calculation failed: {str(e)}")
+                features['duration'] = 0.0
 
             # Extract rhythm features
             logger.debug("Extracting rhythm features (BPM, beat confidence)")
