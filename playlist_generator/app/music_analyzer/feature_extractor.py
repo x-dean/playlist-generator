@@ -74,7 +74,6 @@ class AudioAnalyzer:
             if not os.path.exists(model_path):
                 # Import download_models using absolute path
                 import sys
-                import os
                 # Get the project root directory (playlist_generator)
                 current_dir = os.path.dirname(__file__)  # music_analyzer
                 project_root = os.path.join(current_dir, '..', '..')  # playlist_generator
