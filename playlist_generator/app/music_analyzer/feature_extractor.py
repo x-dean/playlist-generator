@@ -21,6 +21,15 @@ from utils.path_converter import PathConverter
 
 logger = logging.getLogger(__name__)
 
+LEAN_FIELDS = [
+    'musicbrainz_id', 'isrc', 'mb_artist_id', 'mb_album_id',
+    'artist', 'title', 'album', 'release_date', 'genre',
+    'genre_lastfm', 'listeners', 'playcount', 'wiki'
+]
+
+def filter_metadata(meta):
+    return {k: v for k, v in meta.items() if k in LEAN_FIELDS}
+
 class TimeoutException(Exception):
     pass
 
@@ -589,15 +598,6 @@ class AudioAnalyzer:
                 'filename': os.path.basename(file_info['file_path'])
             }
         return None
-
-LEAN_FIELDS = [
-    'musicbrainz_id', 'isrc', 'mb_artist_id', 'mb_album_id',
-    'artist', 'title', 'album', 'release_date', 'genre',
-    'genre_lastfm', 'listeners', 'playcount', 'wiki'
-]
-
-def filter_metadata(meta):
-    return {k: v for k, v in meta.items() if k in LEAN_FIELDS}
 
     def _extract_all_features(self, audio_path, audio):
         # Initialize with default values
