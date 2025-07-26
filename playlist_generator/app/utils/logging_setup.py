@@ -11,7 +11,7 @@ log_consumer_thread = None
 
 
 def setup_colored_file_logging(logfile_path=None):
-    """Setup colored logging to write to files and terminal."""
+    """Setup colored logging to write to files only."""
     # Ensure log directory exists
     if logfile_path:
         log_dir = os.path.dirname(logfile_path)
@@ -47,13 +47,9 @@ def setup_colored_file_logging(logfile_path=None):
     )
     file_handler.setFormatter(color_formatter)
 
-    # Create console handler for terminal output
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(color_formatter)
-
-    # Clear all existing handlers and add both file and console handlers
+    # Clear all existing handlers and add only file handler
     root_logger = logging.getLogger()
-    root_logger.handlers = [file_handler, console_handler]
+    root_logger.handlers = [file_handler]
 
     # Set the log level from environment variable
     log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
