@@ -361,8 +361,6 @@ Examples:
     
     total_in_db = len(audio_db.get_all_features())
     logger.info(f"Database contains {total_in_db} analyzed tracks")
-    console.print(f"[cyan]Total music files found in library:[/cyan] [bold]{total_files}[/bold]")
-    console.print(f"[cyan]Total tracks in database:[/cyan] [bold]{total_in_db}[/bold]")
 
     if args.pipeline:
         logger.info("Starting pipeline mode")

@@ -294,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "4.18.0"  # Version identifier for tracking updates - enhanced visual statistics display with spacing
+    VERSION = "4.19.0"  # Version identifier for tracking updates - added missing methods for statistics display
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -1787,6 +1787,26 @@ class AudioAnalyzer:
         except Exception as e:
             logger.error(f"Error fetching features: {str(e)}")
             return []
+
+    def get_all_audio_files(self, music_dir='/music'):
+        """Get all audio files from the filesystem."""
+        current_files = set()
+        for root, dirs, files in os.walk(music_dir):
+            for file in files:
+                if file.lower().endswith(('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac')):
+                    file_path = os.path.join(root, file)
+                    current_files.add(file_path)
+        return list(current_files)
+
+    def get_all_tracks(self):
+        """Get all tracks from the database (non-failed)."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM audio_features WHERE failed=0")
+            return cursor.fetchone()[0]
+        except Exception as e:
+            logger.error(f"Error getting track count: {str(e)}")
+            return 0
 
     def cleanup_database(self) -> List[str]:
         """Remove entries for files that no longer exist.
