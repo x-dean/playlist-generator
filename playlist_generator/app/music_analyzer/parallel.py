@@ -54,7 +54,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     log_level = os.getenv('LOG_LEVEL', 'INFO')
     logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
     audio_analyzer = AudioAnalyzer()
-    
+
     def is_interrupted():
         """Check if the parent process is still running (indicates interruption)"""
         try:
@@ -90,9 +90,10 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
         try:
             # Check for interruption before starting processing
             if is_interrupted():
-                logger.info(f"Worker interrupted - stopping processing of {filepath}")
+                logger.info(
+                    f"Worker interrupted - stopping processing of {filepath}")
                 return None, filepath, False
-                
+
             if not os.path.exists(filepath):
                 notified["shown"] = True
                 logger.warning(f"File not found: {filepath}")
@@ -224,12 +225,14 @@ class ParallelProcessor:
                     batch = remaining_files[i:i+self.batch_size]
                     # Check stop_event before starting new batch - this prevents feeding new files
                     if stop_event and stop_event.is_set():
-                        logger.info("Stop event detected - stopping new file processing")
+                        logger.info(
+                            "Stop event detected - stopping new file processing")
                         break
                     with ctx.Pool(processes=self.workers) as pool:
                         # Check stop_event again after pool creation to handle interruption during processing
                         if stop_event and stop_event.is_set():
-                            logger.info("Stop event detected - letting workers finish current files")
+                            logger.info(
+                                "Stop event detected - letting workers finish current files")
                             # Don't terminate pool - let workers finish their current files
                             break
                         try:
@@ -240,9 +243,10 @@ class ParallelProcessor:
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
                                 # Check stop_event after each file completion
                                 if stop_event and stop_event.is_set():
-                                    logger.info("Stop event detected during processing - stopping gracefully")
+                                    logger.info(
+                                        "Stop event detected during processing - stopping gracefully")
                                     break
-                                
+
                                 if self.enforce_fail_limit:
                                     # Use in-memory retry counter
                                     count = self.retry_counter.get(filepath, 0)
@@ -259,7 +263,7 @@ class ParallelProcessor:
                                         logger.warning(
                                             f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
                                         continue
-                                
+
                                 import sqlite3
                                 conn = sqlite3.connect(
                                     os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
@@ -296,12 +300,13 @@ class ParallelProcessor:
                                         conn.commit()
                                         conn.close()
                                         yield None, filepath, False
-                                
+
                                 # Check stop_event after yielding result
                                 if stop_event and stop_event.is_set():
-                                    logger.info("Stop event detected after yielding result - stopping gracefully")
+                                    logger.info(
+                                        "Stop event detected after yielding result - stopping gracefully")
                                     break
-                                    
+
                         except KeyboardInterrupt:
                             logger.debug(
                                 "KeyboardInterrupt received, terminating pool and exiting cleanly...")
@@ -320,12 +325,13 @@ class ParallelProcessor:
                         finally:
                             pool.terminate()
                             pool.join()
-                            
+
                     # Check stop_event after batch completion
                     if stop_event and stop_event.is_set():
-                        logger.info("Stop event detected after batch completion - stopping gracefully")
+                        logger.info(
+                            "Stop event detected after batch completion - stopping gracefully")
                         break
-                        
+
                 if enrich_later:
                     from music_analyzer.feature_extractor import AudioAnalyzer
                     analyzer = AudioAnalyzer(
@@ -362,7 +368,8 @@ class ParallelProcessor:
                     for filepath in remaining_files:
                         # Check stop_event before processing each file in sequential fallback
                         if stop_event and stop_event.is_set():
-                            logger.info("Stop event detected in sequential fallback - stopping gracefully")
+                            logger.info(
+                                "Stop event detected in sequential fallback - stopping gracefully")
                             break
                         features, _, db_write_success = process_file_worker(
                             filepath, status_queue)

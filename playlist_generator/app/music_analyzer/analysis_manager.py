@@ -411,7 +411,8 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
 
         for features, filepath, db_write_success in processor.process(file_paths_only, workers, force_reextract=force_reextract):
             if stop_event and stop_event.is_set():
-                logger.info("Stop event detected in analysis loop - stopping gracefully...")
+                logger.info(
+                    "Stop event detected in analysis loop - stopping gracefully...")
                 print("\n🛑 Analysis interrupted - stopping gracefully...")
                 break
 
@@ -436,11 +437,12 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
 
         logger.info(
             f"Processing loop completed. Processed {processed_count} files out of {len(files_to_analyze)}")
-        
+
         # Check if we were interrupted
         if stop_event and stop_event.is_set():
             logger.info("Analysis was interrupted by user")
-            print(f"\n📊 Analysis Summary: {processed_count} processed, {len(failed_files)} failed")
+            print(
+                f"\n📊 Analysis Summary: {processed_count} processed, {len(failed_files)} failed")
             return failed_files
 
     logger.info(
@@ -491,7 +493,8 @@ def run_force_mode(args, audio_db, cli, stop_event):
         processed_count = 0
         for file_path in file_paths_only:
             if stop_event and stop_event.is_set():
-                logger.info("Stop event detected in force mode - stopping gracefully...")
+                logger.info(
+                    "Stop event detected in force mode - stopping gracefully...")
                 print("\n🛑 Force mode interrupted - stopping gracefully...")
                 break
 
@@ -523,11 +526,12 @@ def run_force_mode(args, audio_db, cli, stop_event):
             logger.debug(f"Retry result for {filename}: {status_dot}")
 
     logger.info(f"FORCE mode completed with {len(failed_files)} failed files")
-    
+
     # Check if we were interrupted
     if stop_event and stop_event.is_set():
         logger.info("Force mode was interrupted by user")
-        print(f"\n📊 Force Mode Summary: {processed_count} processed, {len(failed_files)} failed")
+        print(
+            f"\n📊 Force Mode Summary: {processed_count} processed, {len(failed_files)} failed")
         return failed_files
     return failed_files
 
@@ -575,7 +579,8 @@ def run_failed_mode(args, audio_db, cli, stop_event):
         processed_count = 0
         for file_path in file_paths_only:
             if stop_event and stop_event.is_set():
-                logger.info("Stop event detected in failed mode - stopping gracefully...")
+                logger.info(
+                    "Stop event detected in failed mode - stopping gracefully...")
                 print("\n🛑 Failed mode interrupted - stopping gracefully...")
                 break
 
@@ -610,11 +615,12 @@ def run_failed_mode(args, audio_db, cli, stop_event):
 
     logger.info(
         f"FAILED mode completed with {len(still_failed)} still failed files")
-    
+
     # Check if we were interrupted
     if stop_event and stop_event.is_set():
         logger.info("Failed mode was interrupted by user")
-        print(f"\n📊 Failed Mode Summary: {processed_count} processed, {len(still_failed)} still failed")
+        print(
+            f"\n📊 Failed Mode Summary: {processed_count} processed, {len(still_failed)} still failed")
         return still_failed
     return still_failed
 
