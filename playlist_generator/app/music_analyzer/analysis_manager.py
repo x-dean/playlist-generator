@@ -139,6 +139,9 @@ def setup_graceful_shutdown():
         logger.debug(f"Stop event set: {stop_event.is_set()}")
         # Force cleanup of child processes
         cleanup_child_processes()
+        # Force exit after cleanup
+        import sys
+        sys.exit(0)
     # Handle multiple signal types for Docker compatibility
     signal.signal(signal.SIGINT, handle_stop_signal)
     signal.signal(signal.SIGTERM, handle_stop_signal)
@@ -447,12 +450,31 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                 logger.debug(f"Starting parallel processing of {len(normal_files)} normal files")
                 from music_analyzer.feature_extractor import AudioAnalyzer
                 analyzer = AudioAnalyzer(audio_db.cache_file)
+                
+                # Check stop_event before starting parallel processing
+                if stop_event.is_set():
+                    logger.debug("Stop event set before parallel processing, exiting")
+                    return {
+                        'processed_this_run': processed_count,
+                        'failed_this_run': len(failed_files),
+                        'total_found': len(file_list),
+                        'total_in_db': len(audio_db.get_all_features(include_failed=True)),
+                        'total_failed': len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
+                    }
+                    
                 for features, filepath in par_manager.process(normal_files, workers=args.workers or multiprocessing.cpu_count(), force_reextract=force_reextract, enforce_fail_limit=False):
+                    # Check stop_event more frequently
                     if stop_event.is_set():
                         logger.debug("Stop event set, breaking from processing loop")
                         break
                     processed_count += 1
                     logger.debug(f"Processed file {processed_count}/{total_files}: {filepath}")
+                    
+                    # Check stop_event again after processing each file
+                    if stop_event.is_set():
+                        logger.debug("Stop event set after processing file, breaking")
+                        break
+                        
                     if filepath:
                         filename = os.path.basename(filepath)
                         max_len = 50
@@ -488,16 +510,34 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                 logger.debug(f"Parallel processing completed. Processed {processed_count} files out of {total_files}")
                 logger.debug(f"Big files to process: {len(big_files)}")
                 
+                # Check stop_event before starting sequential processing
+                if stop_event.is_set():
+                    logger.debug("Stop event set before sequential processing, exiting")
+                    return {
+                        'processed_this_run': processed_count,
+                        'failed_this_run': len(failed_files),
+                        'total_found': len(file_list),
+                        'total_in_db': len(audio_db.get_all_features(include_failed=True)),
+                        'total_failed': len([f for f in audio_db.get_all_features(include_failed=True) if f['failed']])
+                    }
+                
                 # Sequential for big files (with force_reextract)
                 if big_files:
                     logger.debug(f"Starting sequential processing of {len(big_files)} big files")
                     seq_manager = SequentialWorkerManager(stop_event)
                     for features, filepath in seq_manager.process(big_files, workers=1, force_reextract=force_reextract):
+                        # Check stop_event more frequently
                         if stop_event.is_set():
                             logger.debug("Stop event set, breaking from sequential processing loop")
                             break
                         processed_count += 1
                         logger.debug(f"Processed big file {processed_count}/{total_files}: {filepath}")
+                        
+                        # Check stop_event again after processing each big file
+                        if stop_event.is_set():
+                            logger.debug("Stop event set after processing big file, breaking")
+                            break
+                            
                         filename = os.path.basename(filepath)
                         max_len = 50
                         if len(filename) > max_len:
