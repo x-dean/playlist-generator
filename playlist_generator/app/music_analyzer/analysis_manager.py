@@ -308,10 +308,10 @@ def create_progress_bar(total_files):
 
 
 # --- Main Orchestration ---
-def run_analysis(args, audio_db, playlist_db, cli, force_reextract=False):
+def run_analysis(args, audio_db, playlist_db, cli, force_reextract=False, pipeline_mode=False):
     """Run analysis with improved logic based on mode."""
     logger.info(
-        f"Starting analysis with mode: analyze={args.analyze}, force={args.force}, failed={args.failed}")
+        f"Starting analysis with mode: analyze={args.analyze}, force={args.force}, failed={args.failed}, pipeline_mode={pipeline_mode}")
 
     if args.failed:
         return run_failed_mode(args, audio_db, cli)
@@ -603,7 +603,7 @@ def run_pipeline(args, audio_db, playlist_db, cli):
     args.failed = False
     res1 = run_analysis(args, audio_db, playlist_db, cli,
                         force_reextract=False, pipeline_mode=True)
-    results.append(('Default', res1))
+    results.append(('Default', {'processed_this_run': len(res1) if res1 else 0, 'failed_this_run': len(res1) if res1 else 0}))
     console.print(
         "[green]PIPELINE: Default analysis complete (new files analyzed)[/green]")
     console.print(
@@ -616,7 +616,7 @@ def run_pipeline(args, audio_db, playlist_db, cli):
     args.failed = False
     res2 = run_analysis(args, audio_db, playlist_db, cli,
                         force_reextract=True, pipeline_mode=True)
-    results.append(('Force', res2))
+    results.append(('Force', {'processed_this_run': len(res2) if res2 else 0, 'failed_this_run': len(res2) if res2 else 0}))
     console.print(
         "[green]PIPELINE: Tags enriching complete (tags updated)[/green]")
     console.print(
@@ -636,7 +636,7 @@ def run_pipeline(args, audio_db, playlist_db, cli):
             failed_dir) if os.path.isfile(os.path.join(failed_dir, f))])
     except Exception:
         moved_failed = 0
-    results.append(('Failed', res3))
+    results.append(('Failed', {'processed_this_run': len(res3) if res3 else 0, 'failed_this_run': moved_failed}))
     console.print(
         "[green]PIPELINE: Failed files retry complete (failures handled)[/green]")
     console.print(
