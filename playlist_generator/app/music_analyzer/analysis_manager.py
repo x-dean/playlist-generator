@@ -411,8 +411,7 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
 
         for features, filepath, db_write_success in processor.process(file_paths_only, workers, force_reextract=force_reextract):
             if stop_event and stop_event.is_set():
-                logger.info(
-                    "Stop event detected in analysis loop, stopping gracefully...")
+                logger.info("Stop event detected - stopping gracefully...")
                 break
 
             processed_count += 1
@@ -485,8 +484,7 @@ def run_force_mode(args, audio_db, cli, stop_event):
         processed_count = 0
         for file_path in file_paths_only:
             if stop_event and stop_event.is_set():
-                logger.info(
-                    "Stop event detected in force mode, stopping gracefully...")
+                logger.info("Stop event detected - stopping gracefully...")
                 break
 
             processed_count += 1
@@ -563,8 +561,7 @@ def run_failed_mode(args, audio_db, cli, stop_event):
         processed_count = 0
         for file_path in file_paths_only:
             if stop_event and stop_event.is_set():
-                logger.info(
-                    "Stop event detected in failed mode, stopping gracefully...")
+                logger.info("Stop event detected - stopping gracefully...")
                 break
 
             processed_count += 1

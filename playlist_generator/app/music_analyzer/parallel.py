@@ -26,7 +26,7 @@ class UserAbortException(Exception):
     pass
 
 
-def process_file_worker(filepath: str, status_queue: Optional[object] = None, force_reextract: bool = False, stop_event=None) -> Optional[tuple]:
+def process_file_worker(filepath: str, status_queue: Optional[object] = None, force_reextract: bool = False) -> Optional[tuple]:
     """Worker function to process a single audio file in parallel.
 
     Args:
@@ -78,11 +78,6 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
         size_mb = 0
 
     while retry_count <= max_retries:
-        # Check stop event before starting each retry
-        if stop_event and stop_event.is_set():
-            logger.debug(f"Stop event detected in worker, skipping {filepath}")
-            return None, filepath, False
-
         try:
             if not os.path.exists(filepath):
                 notified["shown"] = True
@@ -199,7 +194,7 @@ class ParallelProcessor:
                         try:
                             from functools import partial
                             worker_func = partial(
-                                process_file_worker, status_queue=status_queue, force_reextract=force_reextract, stop_event=stop_event)
+                                process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
                                 if self.enforce_fail_limit:
                                     # Use in-memory retry counter
@@ -264,7 +259,7 @@ class ParallelProcessor:
                         except Exception as e:
                             if "stop_event" in str(e) or "interrupt" in str(e).lower():
                                 logger.debug(
-                                    "Stop event detected, terminating pool gracefully...")
+                                    "Stop event detected - terminating pool...")
                                 pool.terminate()
                                 pool.join()
                                 break

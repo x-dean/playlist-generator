@@ -43,8 +43,7 @@ class SequentialProcessor:
         essentia.log.warningActive = False
         for filepath in file_list:
             if stop_event and stop_event.is_set():
-                logger.info(
-                    "Stop event detected in sequential processor, stopping gracefully...")
+                logger.info("Stop event detected - stopping gracefully...")
                 break
             try:
                 from .feature_extractor import AudioAnalyzer
