@@ -625,6 +625,18 @@ class AudioAnalyzer:
                 'file_path': library_path
             }
 
+    def _get_file_hash(self, filepath):
+        """Get file hash for file discovery tracking."""
+        library_path = self._normalize_to_library_path(filepath)
+        try:
+            stat = os.stat(library_path)
+            return f"{os.path.basename(library_path)}_{stat.st_size}_{stat.st_mtime}"
+        except Exception as e:
+            logger.warning(
+                f"Couldn't get file hash for {library_path}: {str(e)}")
+            import hashlib
+            return hashlib.md5(library_path.encode()).hexdigest()
+
     def _normalize_to_library_path(self, path):
         if self.library and self.music:
             path_converter = PathConverter(self.library, self.music)
