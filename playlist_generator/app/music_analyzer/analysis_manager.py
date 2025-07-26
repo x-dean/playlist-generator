@@ -11,7 +11,7 @@ from datetime import datetime
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.console import Console
-from music_analyzer.parallel import ParallelProcessor, UserAbortException
+from music_analyzer.parallel import ParallelProcessor
 from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.feature_extractor import AudioAnalyzer
 import psutil
