@@ -294,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "3.3.0"  # Version identifier for tracking updates - fixed failure detection logic
+    VERSION = "3.4.0"  # Version identifier for tracking updates - added debugging for failure detection
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
@@ -1419,12 +1419,14 @@ class AudioAnalyzer:
                 self._mark_failed(file_info)
                 return None, False, None
             db_write_success = self._save_features_to_db(file_info, features, failed=0)
+            logger.debug(f"Database save result for {file_info['file_path']}: {db_write_success}")
             if db_write_success:
                 logger.info(f"DB WRITE: {file_info['file_path']}")
             else:
                 logger.error(f"DB WRITE FAILED: {file_info['file_path']}")
                 self._mark_failed(file_info)
                 return None, False, None
+            logger.debug(f"Returning successful result for {file_info['file_path']}")
             return features, db_write_success, file_info['file_hash']
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
@@ -1692,6 +1694,7 @@ class AudioAnalyzer:
         try:
             # Validate and convert all features to proper Python types
             features = validate_and_convert_features(features)
+            logger.debug(f"Validated features for {file_info['file_path']}: {len(features)} features")
             
             # Debug: check database schema first
             cursor = self.conn.execute("PRAGMA table_info(audio_features)")
@@ -1743,6 +1746,7 @@ class AudioAnalyzer:
                     values_tuple
                 )
             logger.debug(f"Successfully saved features to database for {file_info['file_path']}")
+            logger.info(f"Database save completed successfully for {file_info['file_path']}")
             return True
         except Exception as e:
             logger.error(f"Error saving features to DB: {str(e)}")
