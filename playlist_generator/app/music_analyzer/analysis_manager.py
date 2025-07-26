@@ -27,13 +27,13 @@ BIG_FILE_SIZE_MB = 200
 
 def _update_progress_bar(progress, task_id, files_list, current_index, total_count, 
                         mode_color="[cyan]", mode_text="Processing", status_dot="", 
-                        current_filepath=None):
+                        current_filepath=None, is_parallel=True):
     """Update progress bar with current file info and next file preview."""
     if current_index >= len(files_list):
         return
     
     current_filename = os.path.basename(files_list[current_index])
-    max_len = 40
+    max_len = 30  # Shorter to make room for file size and mode
     if len(current_filename) > max_len:
         display_name = current_filename[:max_len-3] + "..."
     else:
@@ -42,9 +42,19 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
     # Get file size
     try:
         size_mb = os.path.getsize(files_list[current_index]) / (1024 * 1024)
-        trackinfo = f"{size_mb:.1f} MB"
+        file_size_info = f"{size_mb:.1f}MB"
+        
+        # Determine processing mode based on file size and context
+        if size_mb > BIG_FILE_SIZE_MB:
+            processing_mode = "Sequential"  # Big files always use sequential
+        else:
+            processing_mode = "Parallel" if is_parallel else "Sequential"
     except:
-        trackinfo = "Unknown size"
+        file_size_info = "Unknown"
+        processing_mode = "Sequential" if not is_parallel else "Parallel"
+    
+    # Calculate percentage
+    percentage = (current_index / total_count * 100) if total_count > 0 else 0
     
     # Update progress bar
     if current_index < len(files_list) - 1:
@@ -52,16 +62,16 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
         progress.update(
             task_id, 
             advance=1 if current_index > 0 else 0,
-            description=f"{mode_color}{mode_text}: {display_name} ({current_index}/{total_count}) {status_dot}",
-            trackinfo=trackinfo
+            description=f"{mode_color}{processing_mode}: {display_name} ({file_size_info}) ({current_index}/{total_count}) {status_dot}",
+            trackinfo=f"{percentage:.1f}%"
         )
     else:
         # Last file completed
         progress.update(
             task_id, 
             advance=1,
-            description=f"{mode_color}Completed: {display_name} ({current_index}/{total_count}) {status_dot}",
-            trackinfo=trackinfo
+            description=f"{mode_color}Completed: {display_name} ({file_size_info}) ({current_index}/{total_count}) {status_dot}",
+            trackinfo=f"{percentage:.1f}%"
         )
 
 def _get_status_dot(features, db_write_success):
@@ -331,7 +341,7 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
     
     # Run analysis on files that need it
     failed_files = []
-    with CLIContextManager(cli, len(files_to_analyze), "[cyan]Analyzing audio files...") as (progress, task_id):
+    with CLIContextManager(cli, len(files_to_analyze), f"[cyan]Analyzing {len(files_to_analyze)} files...") as (progress, task_id):
         processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
         workers = args.workers or max(1, mp.cpu_count())
         
@@ -343,7 +353,7 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         # Pre-update progress bar with first file
         if files_to_analyze:
             _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze), 
-                               "[cyan]", "Processing", "")
+                               "[cyan]", "", "", None, not args.force_sequential)
         
         processed_count = 0
         for features, filepath, db_write_success in processor.process(files_to_analyze, workers, force_reextract=force_reextract):
@@ -358,7 +368,7 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
             
             # Update progress bar with next file
             _update_progress_bar(progress, task_id, files_to_analyze, processed_count, len(files_to_analyze), 
-                               "[cyan]", "Processing", status_dot)
+                               "[cyan]", "", status_dot, None, not args.force_sequential)
             
             logger.debug(f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
             
@@ -388,14 +398,14 @@ def run_force_mode(args, audio_db, cli, stop_event):
     
     # Retry analysis for invalid files
     failed_files = []
-    with CLIContextManager(cli, len(invalid_files), "[yellow]Retrying invalid files...") as (progress, task_id):
+    with CLIContextManager(cli, len(invalid_files), f"[yellow]Retrying {len(invalid_files)} invalid files...") as (progress, task_id):
         # Log processor type for force mode (always sequential for retries)
         logger.info("Using Sequential processor for force mode retries")
         
         # Pre-update progress bar with first file
         if invalid_files:
             _update_progress_bar(progress, task_id, invalid_files, 0, len(invalid_files), 
-                               "[yellow]", "Processing", "")
+                               "[yellow]", "", "", None, True)  # Force mode can use parallel for small files
         
         processed_count = 0
         for file_path in invalid_files:
@@ -407,7 +417,7 @@ def run_force_mode(args, audio_db, cli, stop_event):
             
             # Update progress bar with current file
             _update_progress_bar(progress, task_id, invalid_files, processed_count, len(invalid_files), 
-                               "[yellow]", "Processing", "")
+                               "[yellow]", "", "", None, True)  # Force mode can use parallel for small files
             
             logger.info(f"Retrying analysis for {file_path}")
             success, features = audio_db.retry_analysis_with_backoff(file_path, max_attempts=3)
@@ -444,14 +454,14 @@ def run_failed_mode(args, audio_db, cli, stop_event):
     
     # Retry each failed file up to 3 times
     still_failed = []
-    with CLIContextManager(cli, len(failed_files), "[red]Retrying failed files...") as (progress, task_id):
+    with CLIContextManager(cli, len(failed_files), f"[red]Recovering {len(failed_files)} failed files...") as (progress, task_id):
         # Log processor type for failed mode (always sequential for retries)
         logger.info("Using Sequential processor for failed mode retries")
         
         # Pre-update progress bar with first file
         if failed_files:
             _update_progress_bar(progress, task_id, failed_files, 0, len(failed_files), 
-                               "[red]", "Processing", "")
+                               "[red]", "", "", None, False)  # Failed mode always uses sequential
         
         processed_count = 0
         for file_path in failed_files:
@@ -463,7 +473,7 @@ def run_failed_mode(args, audio_db, cli, stop_event):
             
             # Update progress bar with current file
             _update_progress_bar(progress, task_id, failed_files, processed_count, len(failed_files), 
-                               "[red]", "Processing", "")
+                               "[red]", "", "", None, False)  # Failed mode always uses sequential
             
             logger.info(f"Retrying failed file: {file_path}")
             success, features = audio_db.retry_analysis_with_backoff(file_path, max_attempts=3)
