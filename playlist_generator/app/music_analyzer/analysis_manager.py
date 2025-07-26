@@ -15,6 +15,8 @@ from music_analyzer.parallel import ParallelProcessor, UserAbortException
 from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.feature_extractor import AudioAnalyzer
 import psutil
+import threading
+from typing import List, Tuple, Optional
 from utils.cli import CLIContextManager
 
 # Default logging level for workers
@@ -326,14 +328,31 @@ def _get_system_resources():
             'memory_total_gb': 0
         }
 
-def _display_resource_usage(workers, total_workers):
+def _get_active_workers():
+    """Get count of active worker processes."""
+    try:
+        current_pid = os.getpid()
+        active_workers = 0
+        for proc in psutil.process_iter(['pid', 'ppid', 'name']):
+            try:
+                if proc.info['ppid'] == current_pid and 'python' in proc.info['name'].lower():
+                    active_workers += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return active_workers
+    except Exception as e:
+        logger.debug(f"Error getting active workers: {e}")
+        return 0
+
+def _display_resource_usage(total_workers):
     """Display current resource usage under progress bar."""
     resources = _get_system_resources()
+    active_workers = _get_active_workers()
     
     # Create resource info string
     cpu_info = f"CPU: {resources['cpu_percent']:.1f}%"
     memory_info = f"RAM: {resources['memory_used_gb']:.1f}GB/{resources['memory_total_gb']:.1f}GB ({resources['memory_percent']:.1f}%)"
-    worker_info = f"Workers: {workers}/{total_workers}"
+    worker_info = f"Workers: {active_workers}/{total_workers}"
     
     # Print resource usage with spacing from progress bar
     print(f"\n[dim]📊 {cpu_info} | {memory_info} | {worker_info}[/dim]", end="", flush=True)
@@ -389,8 +408,16 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
             _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze), 
                                "[cyan]", "", "", None, not args.force_sequential)
         
-        # Display initial resource usage
-        _display_resource_usage(workers, workers)
+        # Start dynamic resource monitoring thread
+        resource_stop_event = threading.Event()
+        def resource_monitor():
+            refresh_rate = 2.0  # Update every 2 seconds
+            while not resource_stop_event.is_set():
+                _display_resource_usage(workers)
+                time.sleep(refresh_rate)
+        
+        monitor_thread = threading.Thread(target=resource_monitor, daemon=True)
+        monitor_thread.start()
         
         # Prepare list of file paths only for processing
         file_paths_only = [item[0] if isinstance(item, tuple) else item for item in files_to_analyze]
@@ -410,10 +437,6 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
             _update_progress_bar(progress, task_id, files_to_analyze, processed_count, len(files_to_analyze), 
                                "[cyan]", "", status_dot, None, not args.force_sequential)
             
-            # Update resource usage display every 5 files
-            if processed_count % 5 == 0:
-                _display_resource_usage(workers, workers)
-            
             logger.debug(f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
             
             if not features or not db_write_success:
@@ -422,8 +445,12 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
             else:
                 logger.info(f"Analysis completed for {filepath}")
         
+        # Stop resource monitoring
+        resource_stop_event.set()
+        monitor_thread.join(timeout=1.0)
+        
         # Final resource usage display
-        _display_resource_usage(workers, workers)
+        _display_resource_usage(workers)
         print()  # New line after resource display
         
         logger.info(f"Processing loop completed. Processed {processed_count} files out of {len(files_to_analyze)}")
