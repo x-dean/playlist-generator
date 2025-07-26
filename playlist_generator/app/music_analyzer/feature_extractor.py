@@ -634,82 +634,67 @@ class AudioAnalyzer:
             return {}
 
     def extract_features(self, audio_path: str, force_reextract: bool = False) -> Optional[tuple]:
-        """Extract features from an audio file.
-
-        Args:
-            audio_path (str): Path to the audio file.
-            force_reextract (bool): If True, bypass the cache and re-extract features.
-
-        Returns:
-            Optional[tuple]: (features dict, db_write_success bool, file_hash str) or None on failure.
-        """
+        """Extract audio features from a file."""
+        logger.debug(f"Starting feature extraction for: {audio_path}")
+        logger.debug(f"Force reextract: {force_reextract}")
+        
         try:
+            # Get file info
             file_info = self._get_file_info(audio_path)
-            self.timeout_seconds = 180
+            logger.debug(f"File info: hash={file_info['file_hash']}, last_modified={file_info['last_modified']}")
+            
+            # Check cache first
             if not force_reextract:
                 cached_features = self._get_cached_features(file_info)
                 if cached_features:
                     logger.info(f"Using cached features for {file_info['file_path']}")
                     return cached_features, True, file_info['file_hash']
+                else:
+                    logger.debug(f"No cached features found for {file_info['file_path']}")
+            
+            # Load audio
+            logger.debug(f"Loading audio file: {audio_path}")
             audio = self._safe_audio_load(audio_path)
             if audio is None:
                 logger.warning(f"Audio loading failed for {audio_path}")
                 self._mark_failed(file_info)
-                return None, False, None
+                return None, False, file_info['file_hash']
+            
+            logger.debug(f"Audio loaded successfully: {len(audio)} samples")
+            
+            # Extract features
+            logger.debug(f"Starting feature extraction for {audio_path}")
             features = self._extract_all_features(audio_path, audio)
-            db_write_success = self._save_features_to_db(file_info, features, failed=0)
-            if db_write_success:
-                logger.info(f"DB WRITE: {file_info['file_path']}")
+            
+            if features:
+                logger.info(f"Feature extraction successful for {audio_path}")
+                # Save to database
+                db_success = self._save_features_to_db(file_info, features)
+                if db_success:
+                    logger.info(f"DB WRITE: {file_info['file_path']}")
+                    return features, True, file_info['file_hash']
+                else:
+                    logger.error(f"DB WRITE FAILED: {file_info['file_path']}")
+                    self._mark_failed(file_info)
+                    return None, False, file_info['file_hash']
             else:
-                logger.error(f"DB WRITE FAILED: {file_info['file_path']}")
-            return features, db_write_success, file_info['file_hash']
+                logger.warning(f"Feature extraction failed for {audio_path}")
+                self._mark_failed(file_info)
+                return None, False, file_info['file_hash']
+                
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             logger.warning(traceback.format_exc())
-            self._mark_failed(self._get_file_info(audio_path))
-            return None, False, None
-        except TimeoutException:
-            logger.warning(f"Timeout on {audio_path}")
-            self._mark_failed(self._get_file_info(audio_path))
-            return None, False, None
-
-    def _get_cached_features(self, file_info):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-        SELECT duration, bpm, beat_confidence, centroid,
-               loudness, danceability, key, scale, onset_rate, zcr,
-               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, metadata
-        FROM audio_features
-        WHERE file_hash = ? AND last_modified >= ?
-        """, (file_info['file_hash'], file_info['last_modified']))
-
-        row = cursor.fetchone()
-        if row:
-            logger.debug(f"Using cached features for {file_info['file_path']}")
-            return {
-                'duration': row[0],
-                'bpm': row[1],
-                'beat_confidence': row[2],
-                'centroid': row[3],
-                'loudness': row[4],
-                'danceability': row[5],
-                'key': row[6],
-                'scale': row[7],
-                'onset_rate': row[8],
-                'zcr': row[9],
-                'mfcc': json.loads(row[10]) if row[10] else [0.0] * 13,
-                'chroma': json.loads(row[11]) if row[11] else [0.0] * 12,
-                'spectral_contrast': row[12],
-                'spectral_flatness': row[13],
-                'spectral_rolloff': row[14],
-                'musicnn_embedding': json.loads(row[15]) if row[15] else None,
-                'metadata': json.loads(row[16]) if row[16] else {},
-                'filepath': file_info['file_path'],
-                'filename': os.path.basename(file_info['file_path'])
-            }
-        return None
+            try:
+                self._mark_failed(file_info)
+            except Exception as mark_error:
+                logger.error(f"Failed to mark file as failed: {mark_error}")
+            return None, False, file_info.get('file_hash', 'unknown')
 
     def _extract_all_features(self, audio_path, audio):
+        """Extract all audio features from the audio data."""
+        logger.debug(f"Starting comprehensive feature extraction for {audio_path}")
+        
         # Initialize with default values
         features = {
             'duration': float(len(audio) / 44100.0),
@@ -731,14 +716,22 @@ class AudioAnalyzer:
             'spectral_rolloff': 0.0,
             'musicnn_embedding': None
         }
+        
+        logger.debug(f"Feature extraction initialized with duration: {features['duration']:.2f}s")
+        
         # --- Metadata extraction ---
+        logger.debug("Starting metadata extraction")
         meta = {}
         try:
             audiofile = MutagenFile(audio_path, easy=True)
             if audiofile:
                 meta = {k: (v[0] if isinstance(v, list) and v else v) for k, v in audiofile.items()}
+                logger.debug(f"Extracted {len(meta)} metadata fields")
+            else:
+                logger.debug("No metadata found in audio file")
         except Exception as e:
             logger.warning(f"Mutagen tag extraction failed: {e}")
+        
         # If artist/title found, try MusicBrainz
         artist = meta.get('artist')
         title = meta.get('title')
@@ -749,6 +742,7 @@ class AudioAnalyzer:
             updated_fields_mb = [k for k, v in mb_tags.items() if v and (k not in meta or meta[k] != v)]
             meta.update({k: v for k, v in mb_tags.items() if v})
             logger.info(f"MusicBrainz enrichment: {artist} - {title} (fields updated: {updated_fields_mb})")
+        
         # Last.fm enrichment
         genre = meta.get('genre')
         missing_fields = [field for field in ['genre', 'year', 'album'] if not meta.get(field)]
@@ -765,8 +759,10 @@ class AudioAnalyzer:
                     meta[field] = lastfm_tags[field]
                     updated_fields_lastfm.append(field)
             logger.info(f"Last.fm enrichment: {artist} - {title} (fields updated: {updated_fields_lastfm})")
+        
         # Filter metadata to keep only lean fields
         features['metadata'] = filter_metadata(meta)
+        logger.debug(f"Final metadata contains {len(features['metadata'])} fields")
 
         # Print/log MusicBrainz info if present
         # (Removed per user request)
@@ -774,43 +770,91 @@ class AudioAnalyzer:
             logger.debug(f"MusicBrainz info for '{artist} - {title}': {mb_tags}")
 
         if len(audio) >= 44100:  # At least 1 second
+            logger.debug("Audio is long enough for feature extraction, proceeding...")
             try:
                 # Extract features
+                logger.debug("Extracting rhythm features (BPM, beat confidence)")
                 bpm, confidence = self._extract_rhythm_features(audio)
+                features['bpm'] = bpm
+                features['beat_confidence'] = confidence
+                logger.debug(f"Rhythm features: BPM={bpm:.2f}, confidence={confidence:.2f}")
+                
+                logger.debug("Extracting spectral centroid")
                 centroid = self._extract_spectral_features(audio)
+                features['centroid'] = centroid
+                logger.debug(f"Spectral centroid: {centroid:.2f}")
+                
+                logger.debug("Extracting loudness")
                 loudness = self._extract_loudness(audio)
+                features['loudness'] = loudness
+                logger.debug(f"Loudness: {loudness:.2f}")
+                
+                logger.debug("Extracting danceability")
                 danceability = self._extract_danceability(audio)
+                features['danceability'] = danceability
+                logger.debug(f"Danceability: {danceability:.2f}")
+                
+                logger.debug("Extracting key and scale")
                 key, scale = self._extract_key(audio)
+                features['key'] = key
+                features['scale'] = scale
+                logger.debug(f"Key: {key}, Scale: {scale}")
+                
+                logger.debug("Extracting onset rate")
                 onset_rate = self._extract_onset_rate(audio)
+                features['onset_rate'] = onset_rate
+                logger.debug(f"Onset rate: {onset_rate:.2f}")
+                
+                logger.debug("Extracting zero crossing rate")
                 zcr = self._extract_zcr(audio)
+                features['zcr'] = zcr
+                logger.debug(f"Zero crossing rate: {zcr:.2f}")
+                
+                logger.debug("Extracting MFCC features")
                 mfcc = self._extract_mfcc(audio)
+                features['mfcc'] = mfcc
+                logger.debug(f"MFCC features: {len(mfcc)} coefficients")
+                
+                logger.debug("Extracting chroma features")
                 chroma = self._extract_chroma(audio)
+                features['chroma'] = chroma
+                logger.debug(f"Chroma features: {len(chroma)} dimensions")
+                
+                logger.debug("Extracting spectral contrast")
                 spectral_contrast = self._extract_spectral_contrast(audio)
+                features['spectral_contrast'] = spectral_contrast
+                logger.debug(f"Spectral contrast: {spectral_contrast:.2f}")
+                
+                logger.debug("Extracting spectral flatness")
                 spectral_flatness = self._extract_spectral_flatness(audio)
+                features['spectral_flatness'] = spectral_flatness
+                logger.debug(f"Spectral flatness: {spectral_flatness:.2f}")
+                
+                logger.debug("Extracting spectral rolloff")
                 spectral_rolloff = self._extract_spectral_rolloff(audio)
-                musicnn_embedding = self._extract_musicnn_embedding(audio_path)
-
-                # Update features
-                features.update({
-                    'bpm': self._ensure_float(bpm),
-                    'beat_confidence': self._ensure_float(confidence),
-                    'centroid': self._ensure_float(centroid),
-                    'loudness': self._ensure_float(loudness),
-                    'danceability': self._ensure_float(danceability),
-                    'key': self._ensure_int(key),
-                    'scale': self._ensure_int(scale),
-                    'onset_rate': self._ensure_float(onset_rate),
-                    'zcr': self._ensure_float(zcr),
-                    'mfcc': mfcc,
-                    'chroma': chroma,
-                    'spectral_contrast': spectral_contrast,
-                    'spectral_flatness': self._ensure_float(spectral_flatness),
-                    'spectral_rolloff': self._ensure_float(spectral_rolloff),
-                    'musicnn_embedding': musicnn_embedding
-                })
+                features['spectral_rolloff'] = spectral_rolloff
+                logger.debug(f"Spectral rolloff: {spectral_rolloff:.2f}")
+                
+                # Extract MusiCNN embedding
+                logger.debug("Extracting MusiCNN embedding")
+                musicnn_result = self._extract_musicnn_embedding(audio_path)
+                if musicnn_result:
+                    features['musicnn_embedding'] = musicnn_result
+                    logger.debug("MusiCNN embedding extracted successfully")
+                else:
+                    logger.warning("MusiCNN embedding extraction failed")
+                
+                logger.info(f"Feature extraction completed successfully for {audio_path}")
+                return features
+                
             except Exception as e:
                 logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
-        return features
+                import traceback
+                logger.error(f"Feature extraction traceback: {traceback.format_exc()}")
+                return None
+        else:
+            logger.warning(f"Audio file too short for analysis: {len(audio)} samples")
+            return None
 
     def _mark_failed(self, file_info):
         # Ensure file_path is host path
@@ -827,6 +871,8 @@ class AudioAnalyzer:
         # Ensure file_path is host path
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_library_path(file_info['file_path'])
+        logger.debug(f"Saving features to database for: {file_info['file_path']}")
+        
         try:
             # Debug: check database schema first
             cursor = self.conn.execute("PRAGMA table_info(audio_features)")
@@ -872,12 +918,16 @@ class AudioAnalyzer:
                     """,
                     values_tuple
                 )
+            logger.debug(f"Database write successful for: {file_info['file_path']}")
             return True
         except Exception as e:
             logger.error(f"Error saving features to DB: {str(e)}")
+            import traceback
+            logger.error(f"Database error traceback: {traceback.format_exc()}")
             return False
 
     def get_all_features(self, include_failed=False):
+        logger.debug(f"Retrieving all features from database (include_failed={include_failed})")
         try:
             cursor = self.conn.cursor()
             if include_failed:
@@ -892,7 +942,8 @@ class AudioAnalyzer:
                        loudness, danceability, key, scale, onset_rate, zcr, metadata, failed
                 FROM audio_features WHERE failed=0
                 """)
-            return [{
+            
+            results = [{
                 'filepath': row[0],
                 'duration': row[1],
                 'bpm': row[2],
@@ -907,8 +958,13 @@ class AudioAnalyzer:
                 'metadata': json.loads(row[11]) if row[11] else {},
                 'failed': row[12]
             } for row in cursor.fetchall()]
+            
+            logger.debug(f"Retrieved {len(results)} features from database")
+            return results
         except Exception as e:
             logger.error(f"Error fetching features: {str(e)}")
+            import traceback
+            logger.error(f"Database fetch error traceback: {traceback.format_exc()}")
             return []
 
     def cleanup_database(self) -> List[str]:
@@ -917,12 +973,15 @@ class AudioAnalyzer:
         Returns:
             List[str]: List of file paths that were removed from the database.
         """
+        logger.debug("Starting database cleanup process")
         try:
             cursor = self.conn.cursor()
             cursor.execute("SELECT file_path FROM audio_features")
             db_files = [row[0] for row in cursor.fetchall()]
+            logger.debug(f"Found {len(db_files)} files in database")
 
             missing_files = [f for f in db_files if not os.path.exists(f)]
+            logger.debug(f"Found {len(missing_files)} missing files")
 
             if missing_files:
                 logger.info(f"Cleaning up {len(missing_files)} missing files from database")
@@ -932,41 +991,60 @@ class AudioAnalyzer:
                     missing_files
                 )
                 self.conn.commit()
+                logger.info(f"Successfully removed {len(missing_files)} missing files from database")
+            else:
+                logger.debug("No missing files found, database is clean")
+            
             return missing_files
         except Exception as e:
             logger.error(f"Database cleanup failed: {str(e)}")
+            import traceback
+            logger.error(f"Database cleanup error traceback: {traceback.format_exc()}")
             return []
 
     def enrich_metadata_for_failed_file(self, file_info):
         """Enrich metadata for a failed file using MusicBrainz and Last.fm, and update DB."""
+        logger.debug(f"Starting metadata enrichment for failed file: {file_info['file_path']}")
+        
         # Try to extract artist/title from tags
         meta = {}
         try:
             audiofile = MutagenFile(file_info['file_path'], easy=True)
             if audiofile:
                 meta = {k: (v[0] if isinstance(v, list) and v else v) for k, v in audiofile.items()}
+                logger.debug(f"Extracted {len(meta)} metadata fields from failed file")
+            else:
+                logger.debug("No metadata found in failed file")
         except Exception as e:
             logger.warning(f"Mutagen tag extraction failed for enrichment: {e}")
+        
         artist = meta.get('artist')
         title = meta.get('title')
         mb_tags = {}
         lastfm_tags = {}
         updated_fields = []
+        
         if artist and title:
+            logger.debug(f"Attempting MusicBrainz enrichment for failed file: {artist} - {title}")
             mb_tags = self._musicbrainz_lookup(artist, title)
             for k, v in mb_tags.items():
                 if v and (k not in meta or meta[k] != v):
                     meta[k] = v
                     updated_fields.append(f"mb:{k}")
+            
             # Fallback to Last.fm for missing fields
             missing_fields = [field for field in ['genre', 'year', 'album'] if not meta.get(field)]
             if missing_fields:
+                logger.debug(f"Attempting Last.fm enrichment for failed file: {artist} - {title}")
                 lastfm_tags = self._lastfm_lookup(artist, title)
                 for field in missing_fields:
                     v = lastfm_tags.get(field)
                     if v and not meta.get(field):
                         meta[field] = v
                         updated_fields.append(f"lastfm:{field}")
+        else:
+            logger.debug("No artist/title found for failed file enrichment")
+        
         # Update only the metadata column, keep failed=1
         try:
             with self.conn:
@@ -977,5 +1055,7 @@ class AudioAnalyzer:
             logger.info(f"Enriched metadata for failed file {file_info['file_path']} (fields updated: {updated_fields})")
         except Exception as e:
             logger.error(f"Error updating metadata for failed file {file_info['file_path']}: {e}")
+            import traceback
+            logger.error(f"Failed file metadata update error traceback: {traceback.format_exc()}")
 
 audio_analyzer = AudioAnalyzer()

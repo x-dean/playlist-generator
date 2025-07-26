@@ -38,9 +38,11 @@ class PlaylistManager:
             num_playlists (int, optional): Number of playlists to generate (for kmeans). Defaults to 8.
 
         Returns:
-            dict[str, any]: Dictionary of playlist names to playlist data.
+            Dict[str, Any]: Dictionary of playlist names to playlist data.
         """
-        """Generate playlists using specified method"""
+        logger.info(f"Starting playlist generation with {len(features)} tracks")
+        logger.debug(f"Playlist generation parameters: method={self.playlist_method}, num_playlists={num_playlists}")
+        
         if not features:
             logger.warning("No features provided for playlist generation")
             return {}
@@ -52,12 +54,15 @@ class PlaylistManager:
             max_size = 500
 
             def _finalize_playlists(playlists: Dict[str, Any], features: List[Dict[str, Any]]) -> Dict[str, Any]:
+                logger.debug("Starting playlist finalization")
                 # Merge small playlists, split large ones, assign leftovers
                 all_tracks = set(f['filepath'] for f in features)
                 assigned_tracks = set()
                 for data in playlists.values():
                     assigned_tracks.update(data['tracks'])
                 unassigned_tracks = list(all_tracks - assigned_tracks)
+                logger.debug(f"Playlist finalization: {len(all_tracks)} total tracks, {len(assigned_tracks)} assigned, {len(unassigned_tracks)} unassigned")
+                
                 # Merge small playlists
                 merged = {}
                 small = []
@@ -66,6 +71,9 @@ class PlaylistManager:
                         small.extend(data['tracks'])
                     else:
                         merged[name] = data
+                
+                logger.debug(f"Merged playlists: {len(merged)} large playlists, {len(small)} tracks in small playlists")
+                
                 # Add small tracks to mixed
                 if small:
                     if 'Mixed_Collection' not in merged:
@@ -74,6 +82,8 @@ class PlaylistManager:
                             'features': {'type': 'mixed'}
                         }
                     merged['Mixed_Collection']['tracks'].extend(small)
+                    logger.debug(f"Added {len(small)} small tracks to Mixed_Collection")
+                
                 # Add unassigned tracks to mixed
                 if unassigned_tracks:
                     if 'Mixed_Collection' not in merged:
@@ -82,6 +92,8 @@ class PlaylistManager:
                             'features': {'type': 'mixed'}
                         }
                     merged['Mixed_Collection']['tracks'].extend(unassigned_tracks)
+                    logger.debug(f"Added {len(unassigned_tracks)} unassigned tracks to Mixed_Collection")
+                
                 # Split large playlists
                 balanced = {}
                 for name, data in merged.items():
@@ -94,74 +106,88 @@ class PlaylistManager:
                                 'tracks': chunk,
                                 'features': data.get('features', {})
                             }
+                        logger.debug(f"Split large playlist {name} into {len(chunks)} parts")
                     else:
                         balanced[name] = data
+                
+                logger.debug(f"Final playlist count: {len(balanced)}")
                 return balanced
 
-            # Tag-based playlists (genre + decade)
-            if self.playlist_method == 'tags':
-                tag_playlists = self.tag_generator.generate(features)
-                for name, data in tag_playlists.items():
-                    if len(data['tracks']) >= 3:
-                        final_playlists[name] = data
-                        used_tracks.update(data['tracks'])
-                final_playlists = _finalize_playlists(final_playlists, features)
-                self._calculate_playlist_stats(final_playlists, features)
-                return final_playlists
-
-            # Default: Feature-group-based generation
-            if self.playlist_method == 'all' or not self.playlist_method:
-                fg_playlists = self.feature_group_generator.generate(features)
-                for name, data in fg_playlists.items():
-                    if len(data['tracks']) >= 3:
-                        final_playlists[name] = data
-                        used_tracks.update(data['tracks'])
-                final_playlists = _finalize_playlists(final_playlists, features)
-                self._calculate_playlist_stats(final_playlists, features)
-                return final_playlists
-
-            if self.playlist_method == 'time':
-                # Only time-based playlists
-                time_playlists = self.time_scheduler.generate_time_based_playlists(features)
-                for name, data in time_playlists.items():
-                    if len(data['tracks']) >= 3:
-                        final_playlists[name] = data
-                final_playlists = _finalize_playlists(final_playlists, features)
-                self._calculate_playlist_stats(final_playlists, features)
-                return final_playlists
-
+            # Generate playlists based on method
             if self.playlist_method == 'kmeans':
-                # Only kmeans playlists
+                logger.info("Generating playlists using K-means clustering")
+                playlists = self.kmeans_generator.generate(features, num_playlists)
+            elif self.playlist_method == 'time':
+                logger.info("Generating playlists using time-based scheduling")
+                playlists = self.time_scheduler.generate_time_based_playlists(features)
+            elif self.playlist_method == 'cache':
+                logger.info("Generating playlists using cache-based method")
+                playlists = self.cache_generator.generate(features)
+            elif self.playlist_method == 'feature_group':
+                logger.info("Generating playlists using feature grouping")
+                playlists = self.feature_group_generator.generate(features)
+            elif self.playlist_method == 'tag_based':
+                logger.info("Generating playlists using tag-based method")
+                playlists = self.tag_generator.generate(features)
+            elif self.playlist_method == 'all':
+                logger.info("Generating playlists using all methods")
+                all_playlists = {}
+                
+                # K-means
+                logger.debug("Generating K-means playlists")
                 kmeans_playlists = self.kmeans_generator.generate(features, num_playlists)
                 for name, data in kmeans_playlists.items():
-                    if len(data['tracks']) >= 3:
-                        final_playlists[name] = data
-                final_playlists = _finalize_playlists(final_playlists, features)
-                self._calculate_playlist_stats(final_playlists, features)
-                return final_playlists
-
-            if self.playlist_method == 'cache':
-                # Only cache-based playlists
+                    all_playlists[f"KMeans_{name}"] = data
+                
+                # Time-based
+                logger.debug("Generating time-based playlists")
+                time_playlists = self.time_scheduler.generate_time_based_playlists(features)
+                for name, data in time_playlists.items():
+                    all_playlists[f"Time_{name}"] = data
+                
+                # Cache-based
+                logger.debug("Generating cache-based playlists")
                 cache_playlists = self.cache_generator.generate(features)
                 for name, data in cache_playlists.items():
-                    if len(data['tracks']) >= 3:
-                        final_playlists[name] = data
-                final_playlists = _finalize_playlists(final_playlists, features)
-                self._calculate_playlist_stats(final_playlists, features)
-                return final_playlists
+                    all_playlists[f"Cache_{name}"] = data
+                
+                # Feature group
+                logger.debug("Generating feature group playlists")
+                feature_playlists = self.feature_group_generator.generate(features)
+                for name, data in feature_playlists.items():
+                    all_playlists[f"Feature_{name}"] = data
+                
+                # Tag-based
+                logger.debug("Generating tag-based playlists")
+                tag_playlists = self.tag_generator.generate(features)
+                for name, data in tag_playlists.items():
+                    all_playlists[f"Tag_{name}"] = data
+                
+                playlists = all_playlists
+            else:
+                logger.warning(f"Unknown playlist method: {self.playlist_method}, using K-means")
+                playlists = self.kmeans_generator.generate(features, num_playlists)
 
-            # Fallback: use feature group generator
-            fg_playlists = self.feature_group_generator.generate(features)
-            for name, data in fg_playlists.items():
-                if len(data['tracks']) >= 3:
-                    final_playlists[name] = data
-                    used_tracks.update(data['tracks'])
-            final_playlists = _finalize_playlists(final_playlists, features)
+            logger.debug(f"Generated {len(playlists)} initial playlists")
+            
+            # Finalize playlists
+            final_playlists = _finalize_playlists(playlists, features)
+            
+            # Optimize playlists
+            logger.debug("Optimizing playlists")
+            final_playlists = self._optimize_playlists(final_playlists)
+            
+            # Calculate statistics
+            logger.debug("Calculating playlist statistics")
             self._calculate_playlist_stats(final_playlists, features)
+            
+            logger.info(f"Playlist generation complete: {len(final_playlists)} playlists created")
             return final_playlists
-
+            
         except Exception as e:
             logger.error(f"Error generating playlists: {str(e)}")
+            import traceback
+            logger.error(f"Playlist generation error traceback: {traceback.format_exc()}")
             return {}
 
     def _optimize_playlists(self, playlists: Dict[str, Any]) -> Dict[str, Any]:

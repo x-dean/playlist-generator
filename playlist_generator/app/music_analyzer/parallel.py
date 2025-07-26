@@ -32,6 +32,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     Returns:
         Optional[tuple]: (features dict, filepath, db_write_success bool) or None on failure.
     """
+    logger.debug(f"Worker starting processing for: {filepath}")
     from utils.logging_setup import setup_queue_colored_logging
     setup_queue_colored_logging()
     import essentia
@@ -56,22 +57,28 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     def notify_if_long():
         time.sleep(5)
         if not notified["shown"] and status_queue is not None:
+            logger.debug(f"Notifying main process about long-running file: {filepath}")
             status_queue.put(filepath)
             notified["shown"] = True
     if status_queue is not None:
         notifier = threading.Thread(target=notify_if_long, daemon=True)
         notifier.start()
+        logger.debug(f"Started notification thread for: {filepath}")
 
     # Set a timeout for processing each file (e.g., 5 minutes = 300 seconds)
     signal.signal(signal.SIGALRM, timeout_handler)
     signal.alarm(300)
     try:
         size_mb = os.path.getsize(filepath) / (1024 * 1024)
+        logger.debug(f"File size: {size_mb:.2f} MB")
     except Exception:
         size_mb = 0
+        logger.warning(f"Could not determine file size for: {filepath}")
 
     while retry_count <= max_retries:
         try:
+            logger.debug(f"Processing attempt {retry_count + 1}/{max_retries + 1} for: {filepath}")
+            
             if not os.path.exists(filepath):
                 notified["shown"] = True
                 logger.warning(f"File not found: {filepath}")
@@ -98,169 +105,129 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 return None, filepath, False
             result = None
             try:
+                logger.debug(f"Starting feature extraction for: {filepath}")
                 result = audio_analyzer.extract_features(filepath, force_reextract=force_reextract)
+                logger.debug(f"Feature extraction completed for: {filepath}")
             except Exception as e:
                 logger.debug(f"ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
-                return None, filepath, False
+                result = None
             finally:
-                # Cancel the alarm
-                signal.alarm(0)
-                # If result is None or metadata is missing/empty, mark as failed and return failure
-                features, db_write_success, file_hash = (result if result is not None else (None, False, None))
-                if not features or not db_write_success or not features.get('metadata') or not any(features.get('metadata', {}).values()):
-                    file_info = audio_analyzer._get_file_info(filepath)
-                    audio_analyzer._mark_failed(file_info)
-                    return None, filepath, False
-            if result and result[0] is not None:
-                features, db_write_success, _ = result
-                for key in ['bpm', 'centroid', 'duration']:
-                    if features.get(key) is None:
-                        features[key] = 0.0
+                signal.alarm(0)  # Cancel the alarm
+            if result and result[0]:
+                notified["shown"] = True
                 logger.info(f"PROCESSED: {filepath}")
-                return features, filepath, db_write_success
-            if retry_count < max_retries:
-                retry_count += 1
-                time.sleep(backoff_time)
-                backoff_time *= 2  # Exponential backoff
-                logger.debug(f"Retrying {filepath} (attempt {retry_count}/{max_retries})")
-                continue
-            logger.warning(f"Feature extraction failed for {filepath}")
-            return None, filepath, False
+                return result
+            else:
+                logger.warning(f"Feature extraction failed for {filepath}")
+                if retry_count < max_retries:
+                    logger.debug(f"Retrying {filepath} (attempt {retry_count + 1}/{max_retries})")
+                    time.sleep(backoff_time)
+                    retry_count += 1
+                    backoff_time *= 2  # Exponential backoff
+                else:
+                    logger.debug(f"TIMEOUT in worker for {os.path.basename(filepath)}")
+                    return None, filepath, False
         except TimeoutException:
             logger.debug(f"TIMEOUT in worker for {os.path.basename(filepath)}")
             return None, filepath, False
         except Exception as e:
             logger.error(f"FATAL ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
             return None, filepath, False
-    notified["shown"] = True
     return None, filepath, False
 
 class ParallelProcessor:
-    """Parallel processor for batch audio analysis using multiprocessing."""
+    """Parallel processor for audio analysis using multiprocessing."""
     def __init__(self, enforce_fail_limit: bool = False, retry_counter=None) -> None:
-        self.failed_files = []
-        self.batch_size = int(os.getenv('BATCH_SIZE', '50'))
-        self.max_retries = int(os.getenv('MAX_RETRIES', '3'))
-        self.min_workers = 2
-        self.max_workers = int(os.getenv('MAX_WORKERS', str(mp.cpu_count())))
         self.enforce_fail_limit = enforce_fail_limit
-        if retry_counter is None and enforce_fail_limit:
-            manager = mp.Manager()
-            self.retry_counter = manager.dict()
-        else:
-            self.retry_counter = retry_counter
+        self.retry_counter = retry_counter
+        self.failed_files = []
+        self.workers = None
+        logger.debug("Initialized ParallelProcessor")
 
     def process(self, file_list: List[str], workers: int = None, status_queue: Optional[object] = None, stop_event=None, force_reextract: bool = False, enforce_fail_limit: bool = None, retry_counter=None) -> iter:
         if enforce_fail_limit is not None:
             self.enforce_fail_limit = enforce_fail_limit
         if retry_counter is not None:
             self.retry_counter = retry_counter
-        if not file_list:
-            return
-        self.workers = max(self.min_workers, min(workers or self.max_workers, self.max_workers))
-        self.batch_size = min(self.batch_size, len(file_list))
-        yield from self._process_parallel(file_list, status_queue, stop_event=stop_event, force_reextract=force_reextract)
-
-    def _process_parallel(self, file_list, status_queue, stop_event=None, force_reextract: bool = False):
-        retries = 0
+        
+        logger.info(f"Starting parallel processing with {len(file_list)} files")
+        logger.debug(f"Parallel processing parameters: workers={workers}, force_reextract={force_reextract}, enforce_fail_limit={enforce_fail_limit}")
+        
+        if workers is None:
+            workers = max(1, multiprocessing.cpu_count() // 2)
+        self.workers = workers
+        
         remaining_files = file_list[:]
-        while remaining_files and retries < self.max_retries:
+        retries = 0
+        max_retries = 3
+        
+        while remaining_files and retries < max_retries:
+            logger.info(f"Starting multiprocessing with {self.workers} workers (retry {retries})")
+            
             try:
-                logger.info(f"Starting multiprocessing with {self.workers} workers (retry {retries})")
-                ctx = mp.get_context('spawn')
-                failed_in_batch = []
-                enrich_later = []
-                for i in range(0, len(remaining_files), self.batch_size):
-                    batch = remaining_files[i:i+self.batch_size]
-                    if stop_event and stop_event.is_set():
-                        break
-                    with ctx.Pool(processes=self.workers) as pool:
-                        try:
-                            from functools import partial
-                            worker_func = partial(process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
-                            for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
-                                if self.enforce_fail_limit:
-                                    # Use in-memory retry counter
-                                    count = self.retry_counter.get(filepath, 0)
-                                    if count >= 3:
-                                        # Mark as failed in DB
-                                        import sqlite3
-                                        conn = sqlite3.connect(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                                        cur = conn.cursor()
-                                        cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                                        conn.commit()
-                                        conn.close()
-                                        logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
-                                        continue
-                                if stop_event and stop_event.is_set():
-                                    break
-                                import sqlite3
-                                conn = sqlite3.connect(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                                cur = conn.cursor()
-                                cur.execute("PRAGMA table_info(audio_features)")
-                                columns = [row[1] for row in cur.fetchall()]
-                                if features and db_write_success:
-                                    # On success, reset failed
-                                    cur.execute("UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
-                                    conn.commit()
-                                    conn.close()
-                                    yield features, filepath
-                                else:
-                                    if self.enforce_fail_limit:
-                                        count = self.retry_counter.get(filepath, 0) + 1
-                                        self.retry_counter[filepath] = count
-                                        logger.warning(f"Retrying file {filepath} (retry count: {count})")
-                                        if count >= 3:
-                                            cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                                        conn.commit()
-                                        conn.close()
-                                        enrich_later.append(filepath)
-                                        logger.warning(f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
-                                        continue
-                                    else:
-                                        cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                                        conn.commit()
-                                        conn.close()
-                        except KeyboardInterrupt:
-                            logger.debug("KeyboardInterrupt received, terminating pool and exiting cleanly...")
+                with multiprocessing.Pool(processes=self.workers) as pool:
+                    logger.debug(f"Created process pool with {self.workers} workers")
+                    
+                    # Prepare arguments for each file
+                    args_list = [(f, status_queue, force_reextract) for f in remaining_files]
+                    logger.debug(f"Prepared {len(args_list)} tasks for processing")
+                    
+                    # Process files in parallel
+                    results = []
+                    for result in pool.imap_unordered(process_file_worker, args_list):
+                        if stop_event and stop_event.is_set():
+                            logger.info("Stop event received, terminating parallel processing")
                             pool.terminate()
                             pool.join()
-                            raise UserAbortException()
-                        finally:
-                            pool.terminate()
-                            pool.join()
-                if enrich_later:
-                    from music_analyzer.feature_extractor import AudioAnalyzer
-                    analyzer = AudioAnalyzer(os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                    for filepath in enrich_later:
-                        file_info = analyzer._get_file_info(filepath)
-                        analyzer.enrich_metadata_for_failed_file(file_info)
-                if failed_in_batch:
-                    logger.info(f"Retrying {len(failed_in_batch)} failed files in next round")
-                    files_to_retry = []
-                    for filepath in failed_in_batch:
-                        if self.enforce_fail_limit:
-                            count = self.retry_counter.get(filepath, 0)
-                            if count < 3:
-                                files_to_retry.append(filepath)
-                    remaining_files = files_to_retry if self.enforce_fail_limit else []
-                    self.failed_files.extend(files_to_retry)
-                else:
-                    logger.info(f"Batch processing complete: {len(file_list)} files processed, {len(self.failed_files)} failed in total.")
-                    return
-            except (mp.TimeoutError, BrokenPipeError, ConnectionResetError) as e:
+                            return
+                        
+                        if result and result[0]:
+                            logger.debug(f"Successful processing result: {result[1]}")
+                            yield result
+                        else:
+                            failed_file = result[1] if result else "unknown"
+                            logger.warning(f"File {failed_file} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                            self.failed_files.append(failed_file)
+                    
+                    logger.debug(f"Parallel processing completed for batch")
+                    
+            except KeyboardInterrupt:
+                logger.debug("KeyboardInterrupt received, terminating pool and exiting cleanly...")
+                if 'pool' in locals():
+                    pool.terminate()
+                    pool.join()
+                return
+            except Exception as e:
                 logger.error(f"Multiprocessing error: {str(e)}")
-                retries += 1
-                if retries < self.max_retries:
-                    self.workers = max(self.min_workers, self.workers // 2)
+                import traceback
+                logger.error(f"Multiprocessing error traceback: {traceback.format_exc()}")
+                
+                # Reduce workers and retry
+                if self.workers > 1:
+                    self.workers = max(1, self.workers // 2)
                     logger.warning(f"Reducing workers to {self.workers} and retrying with {len(remaining_files)} remaining files")
-                    time.sleep(2 ** retries)
+                    retries += 1
                 else:
                     logger.error("Max retries reached, switching to sequential for remaining files")
-                    for filepath in remaining_files:
-                        features, _, db_write_success = process_file_worker(filepath, status_queue)
-                        if features and db_write_success:
-                            yield features, filepath
-                        else:
-                            self.failed_files.append(filepath)
-                    return
+                    break
+        
+        # Process any remaining failed files
+        if self.failed_files:
+            logger.info(f"Retrying {len(self.failed_files)} failed files in next round")
+            for failed_file in self.failed_files:
+                try:
+                    result = process_file_worker(failed_file, status_queue, force_reextract)
+                    if result and result[0]:
+                        logger.debug(f"Retry successful for: {failed_file}")
+                        yield result
+                    else:
+                        logger.warning(f"Retry failed for: {failed_file}")
+                        count = self.retry_counter.get(failed_file, 0) + 1 if self.retry_counter else 1
+                        if self.retry_counter:
+                            self.retry_counter[failed_file] = count
+                        if count >= 3:
+                            logger.warning(f"File {failed_file} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                except Exception as e:
+                    logger.error(f"Error during retry processing: {e}")
+        
+        logger.info(f"Batch processing complete: {len(file_list)} files processed, {len(self.failed_files)} failed in total.")
