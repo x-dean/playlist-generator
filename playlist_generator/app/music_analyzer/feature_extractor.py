@@ -82,18 +82,160 @@ def safe_json_dumps(obj):
             # Convert NumPy types to Python native types
             import numpy as np
             if isinstance(obj, dict):
-                return json.dumps({k: float(v) if isinstance(v, np.floating) else 
-                                       int(v) if isinstance(v, np.integer) else v 
-                                 for k, v in obj.items()})
+                converted = {}
+                for k, v in obj.items():
+                    if isinstance(v, np.floating):
+                        converted[k] = float(v)
+                    elif isinstance(v, np.integer):
+                        converted[k] = int(v)
+                    elif isinstance(v, np.ndarray):
+                        converted[k] = v.tolist()
+                    elif isinstance(v, dict):
+                        converted[k] = safe_json_dumps(v)
+                    elif isinstance(v, list):
+                        converted[k] = [float(x) if isinstance(x, np.floating) else 
+                                      int(x) if isinstance(x, np.integer) else 
+                                      x.tolist() if isinstance(x, np.ndarray) else x 
+                                      for x in v]
+                    else:
+                        converted[k] = v
+                return json.dumps(converted)
             elif isinstance(obj, list):
-                return json.dumps([float(v) if isinstance(v, np.floating) else 
-                                       int(v) if isinstance(v, np.integer) else v 
-                                 for v in obj])
+                converted = []
+                for v in obj:
+                    if isinstance(v, np.floating):
+                        converted.append(float(v))
+                    elif isinstance(v, np.integer):
+                        converted.append(int(v))
+                    elif isinstance(v, np.ndarray):
+                        converted.append(v.tolist())
+                    elif isinstance(v, dict):
+                        converted.append(safe_json_dumps(v))
+                    elif isinstance(v, list):
+                        converted.append([float(x) if isinstance(x, np.floating) else 
+                                       int(x) if isinstance(x, np.integer) else 
+                                       x.tolist() if isinstance(x, np.ndarray) else x 
+                                       for x in v])
+                    else:
+                        converted.append(v)
+                return json.dumps(converted)
+            elif isinstance(obj, np.ndarray):
+                return json.dumps(obj.tolist())
+            elif isinstance(obj, np.floating):
+                return json.dumps(float(obj))
+            elif isinstance(obj, np.integer):
+                return json.dumps(int(obj))
             else:
-                return json.dumps(float(obj) if isinstance(obj, np.floating) else 
-                                       int(obj) if isinstance(obj, np.integer) else obj)
+                return json.dumps(str(obj))
         else:
             raise e
+
+def convert_to_python_types(obj):
+    """Convert NumPy types to Python native types for database storage."""
+    if obj is None:
+        return None
+    import numpy as np
+    if isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: convert_to_python_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_python_types(v) for v in obj]
+    else:
+        return obj
+
+def validate_and_convert_features(features):
+    """Validate and convert all features to proper Python types for database storage."""
+    if not isinstance(features, dict):
+        logger.error(f"Features must be a dictionary, got {type(features)}")
+        return {}
+    
+    validated_features = {}
+    
+    # Define expected types for each feature
+    feature_types = {
+        'duration': float,
+        'bpm': float,
+        'beat_confidence': float,
+        'centroid': float,
+        'loudness': float,
+        'danceability': float,
+        'key': int,
+        'scale': int,
+        'onset_rate': float,
+        'zcr': float,
+        'mfcc': list,
+        'chroma': list,
+        'spectral_contrast': float,
+        'spectral_flatness': float,
+        'spectral_rolloff': float,
+        'musicnn_embedding': (dict, type(None)),
+        'metadata': dict
+    }
+    
+    for feature_name, expected_type in feature_types.items():
+        if feature_name in features:
+            value = features[feature_name]
+            try:
+                if value is None:
+                    if expected_type == float:
+                        validated_features[feature_name] = 0.0
+                    elif expected_type == int:
+                        validated_features[feature_name] = 0
+                    elif expected_type == list:
+                        validated_features[feature_name] = []
+                    elif expected_type == dict:
+                        validated_features[feature_name] = {}
+                    else:
+                        validated_features[feature_name] = None
+                elif isinstance(expected_type, tuple):
+                    # Handle multiple acceptable types (like musicnn_embedding)
+                    if any(isinstance(value, t) for t in expected_type):
+                        validated_features[feature_name] = convert_to_python_types(value)
+                    else:
+                        logger.warning(f"Feature {feature_name} has unexpected type {type(value)}, expected {expected_type}")
+                        validated_features[feature_name] = None
+                elif isinstance(value, expected_type):
+                    validated_features[feature_name] = convert_to_python_types(value)
+                else:
+                    # Try to convert to expected type
+                    if expected_type == float:
+                        validated_features[feature_name] = float(value)
+                    elif expected_type == int:
+                        validated_features[feature_name] = int(value)
+                    elif expected_type == list:
+                        if isinstance(value, (list, np.ndarray)):
+                            validated_features[feature_name] = convert_to_python_types(value)
+                        else:
+                            validated_features[feature_name] = [convert_to_python_types(value)]
+                    elif expected_type == dict:
+                        if isinstance(value, dict):
+                            validated_features[feature_name] = convert_to_python_types(value)
+                        else:
+                            validated_features[feature_name] = {}
+                    else:
+                        validated_features[feature_name] = convert_to_python_types(value)
+                        
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to convert {feature_name} from {type(value)} to {expected_type}: {e}")
+                # Set default values based on expected type
+                if expected_type == float:
+                    validated_features[feature_name] = 0.0
+                elif expected_type == int:
+                    validated_features[feature_name] = 0
+                elif expected_type == list:
+                    validated_features[feature_name] = []
+                elif expected_type == dict:
+                    validated_features[feature_name] = {}
+                else:
+                    validated_features[feature_name] = None
+    
+    logger.debug(f"Validated {len(validated_features)} features for database storage")
+    return validated_features
 
 class TimeoutException(Exception):
     pass
@@ -619,30 +761,34 @@ class AudioAnalyzer:
                 if frame_count % 100 == 0:
                     logger.debug(f"Processed {frame_count} frames for spectral contrast")
                 
-                spec = spectrum(window(frame))
-                freqs, mags = spectral_peaks(spec)
-                
-                if len(freqs) > 0 and len(mags) > 0:
-                    # Ensure mags is a numpy array and has valid values
-                    mags_array = np.array(mags)
-                    if len(mags_array) > 0 and np.any(mags_array > 0):
-                        # Calculate spectral contrast manually
-                        # Sort magnitudes and find valleys
-                        sorted_mags = np.sort(mags_array)
-                        third = max(1, len(sorted_mags) // 3)  # Ensure at least 1 element
-                        valleys = sorted_mags[:third]  # Bottom third
-                        peaks = sorted_mags[-third:]   # Top third
-                        
-                        if len(peaks) > 0 and len(valleys) > 0:
-                            contrast = float(np.mean(peaks) - np.mean(valleys))
-                            contrast_list.append(contrast)
-                            logger.debug(f"Frame {frame_count}: contrast={contrast:.3f}")
+                try:
+                    spec = spectrum(window(frame))
+                    freqs, mags = spectral_peaks(spec)
+                    
+                    if len(freqs) > 0 and len(mags) > 0:
+                        # Ensure mags is a numpy array and has valid values
+                        mags_array = np.array(mags)
+                        if len(mags_array) > 0 and np.any(mags_array > 0):
+                            # Calculate spectral contrast manually
+                            # Sort magnitudes and find valleys
+                            sorted_mags = np.sort(mags_array)
+                            third = max(1, len(sorted_mags) // 3)  # Ensure at least 1 element
+                            valleys = sorted_mags[:third]  # Bottom third
+                            peaks = sorted_mags[-third:]   # Top third
+                            
+                            if len(peaks) > 0 and len(valleys) > 0:
+                                contrast = float(np.mean(peaks) - np.mean(valleys))
+                                contrast_list.append(contrast)
+                                logger.debug(f"Frame {frame_count}: contrast={contrast:.3f}")
+                            else:
+                                logger.debug(f"Frame {frame_count}: insufficient peaks/valleys for contrast")
                         else:
-                            logger.debug(f"Frame {frame_count}: insufficient peaks/valleys for contrast")
+                            logger.debug(f"Frame {frame_count}: no valid magnitudes")
                     else:
-                        logger.debug(f"Frame {frame_count}: no valid magnitudes")
-                else:
-                    logger.debug(f"Frame {frame_count}: no spectral peaks found")
+                        logger.debug(f"Frame {frame_count}: no spectral peaks found")
+                except Exception as frame_error:
+                    logger.debug(f"Frame {frame_count} processing error: {frame_error}")
+                    continue
             
             logger.debug(f"Processed {frame_count} frames, calculated contrast for {len(contrast_list)} frames")
             # Return mean contrast across all frames
@@ -690,7 +836,7 @@ class AudioAnalyzer:
             logger.debug(f"Spectral rolloff raw values shape: {np.array(rolloff_values).shape if hasattr(rolloff_values, 'shape') else type(rolloff_values)}")
             
             rolloff_mean = float(np.nanmean(rolloff_values)) if isinstance(rolloff_values, (list, np.ndarray)) else float(rolloff_values)
-            logger.debug(f"Calculated mean spectral rolloff: {rolloff_mean:.1f} Hz")
+            logger.debug(f"Calculated mean spectral rolloff: {rolloff_mean:.1f}")
             return rolloff_mean
         except Exception as e:
             logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
@@ -1234,38 +1380,44 @@ class AudioAnalyzer:
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_library_path(file_info['file_path'])
         try:
+            # Validate and convert all features to proper Python types
+            features = validate_and_convert_features(features)
+            
             # Debug: check database schema first
             cursor = self.conn.execute("PRAGMA table_info(audio_features)")
             columns = cursor.fetchall()
             logger.debug(f"Database columns: {[col[1] for col in columns]}")
             logger.debug(f"Number of columns: {len(columns)}")
             
-            # Debug: count the values
+            # Prepare values with proper type conversion
             values_tuple = (
                 file_info['file_hash'],
                 file_info['file_path'],
-                features.get('duration'),
-                features.get('bpm'),
-                features.get('beat_confidence'),
-                features.get('centroid'),
-                features.get('loudness'),
-                features.get('danceability'),
-                features.get('key'),
-                features.get('scale'),
-                features.get('onset_rate'),
-                features.get('zcr'),
+                features.get('duration', 0.0),
+                features.get('bpm', 0.0),
+                features.get('beat_confidence', 0.0),
+                features.get('centroid', 0.0),
+                features.get('loudness', 0.0),
+                features.get('danceability', 0.0),
+                features.get('key', 0),
+                features.get('scale', 0),
+                features.get('onset_rate', 0.0),
+                features.get('zcr', 0.0),
                 safe_json_dumps(features.get('mfcc', [])),
                 safe_json_dumps(features.get('chroma', [])),
-                features.get('spectral_contrast'),
-                features.get('spectral_flatness'),
-                features.get('spectral_rolloff'),
+                features.get('spectral_contrast', 0.0),
+                features.get('spectral_flatness', 0.0),
+                features.get('spectral_rolloff', 0.0),
                 safe_json_dumps(features.get('musicnn_embedding')),
                 file_info['last_modified'],
                 safe_json_dumps(features.get('metadata', {})),
                 failed
             )
+            
+            # Debug: log the values for troubleshooting
             logger.debug(f"Values count: {len(values_tuple)}")
-            logger.debug(f"Values: {values_tuple}")
+            for i, val in enumerate(values_tuple):
+                logger.debug(f"Value {i}: {type(val)} = {val}")
             
             with self.conn:
                 self.conn.execute(
@@ -1278,9 +1430,12 @@ class AudioAnalyzer:
                     """,
                     values_tuple
                 )
+            logger.debug(f"Successfully saved features to database for {file_info['file_path']}")
             return True
         except Exception as e:
             logger.error(f"Error saving features to DB: {str(e)}")
+            import traceback
+            logger.error(f"Database save error traceback: {traceback.format_exc()}")
             return False
 
     def get_all_features(self, include_failed=False):
