@@ -286,10 +286,25 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         processor_type = "Sequential" if args.force_sequential else "Parallel"
         logger.info(f"Using {processor_type} processor with {workers} workers")
         
+        processed_count = 0
         for features, filepath, db_write_success in processor.process(files_to_analyze, workers, force_reextract=force_reextract):
             if stop_event and stop_event.is_set():
                 break
-            progress.update(task_id, advance=1)
+            
+            processed_count += 1
+            filename = os.path.basename(filepath)
+            max_len = 40
+            if len(filename) > max_len:
+                display_name = filename[:max_len-3] + "..."
+            else:
+                display_name = filename
+            
+            # Update progress bar with current file and count
+            progress.update(
+                task_id, 
+                advance=1,
+                description=f"[cyan]Analyzing: {display_name} ({processed_count}/{len(files_to_analyze)})"
+            )
             
             if not features or not db_write_success:
                 failed_files.append(filepath)
@@ -319,9 +334,25 @@ def run_force_mode(args, audio_db, cli, stop_event):
         # Log processor type for force mode (always sequential for retries)
         logger.info("Using Sequential processor for force mode retries")
         
+        processed_count = 0
         for file_path in invalid_files:
             if stop_event and stop_event.is_set():
                 break
+            
+            processed_count += 1
+            filename = os.path.basename(file_path)
+            max_len = 40
+            if len(filename) > max_len:
+                display_name = filename[:max_len-3] + "..."
+            else:
+                display_name = filename
+            
+            # Update progress bar with current file and count
+            progress.update(
+                task_id, 
+                advance=1,
+                description=f"[yellow]Retrying: {display_name} ({processed_count}/{len(invalid_files)})"
+            )
             
             logger.info(f"Retrying analysis for {file_path}")
             success, features = audio_db.retry_analysis_with_backoff(file_path, max_attempts=3)
@@ -334,8 +365,6 @@ def run_force_mode(args, audio_db, cli, stop_event):
                 file_info = audio_db._get_file_info(file_path)
                 audio_db._mark_failed(file_info)
                 failed_files.append(file_path)
-            
-            progress.update(task_id, advance=1)
     
     logger.info(f"FORCE mode completed with {len(failed_files)} failed files")
     return failed_files
@@ -359,9 +388,25 @@ def run_failed_mode(args, audio_db, cli, stop_event):
         # Log processor type for failed mode (always sequential for retries)
         logger.info("Using Sequential processor for failed mode retries")
         
+        processed_count = 0
         for file_path in failed_files:
             if stop_event and stop_event.is_set():
                 break
+            
+            processed_count += 1
+            filename = os.path.basename(file_path)
+            max_len = 40
+            if len(filename) > max_len:
+                display_name = filename[:max_len-3] + "..."
+            else:
+                display_name = filename
+            
+            # Update progress bar with current file and count
+            progress.update(
+                task_id, 
+                advance=1,
+                description=f"[red]Recovering: {display_name} ({processed_count}/{len(failed_files)})"
+            )
             
             logger.info(f"Retrying failed file: {file_path}")
             success, features = audio_db.retry_analysis_with_backoff(file_path, max_attempts=3)
@@ -375,8 +420,6 @@ def run_failed_mode(args, audio_db, cli, stop_event):
                     still_failed.append(file_path)
                 else:
                     logger.error(f"Failed to move {file_path} to failed directory")
-            
-            progress.update(task_id, advance=1)
     
     logger.info(f"FAILED mode completed with {len(still_failed)} still failed files")
     return still_failed
