@@ -447,16 +447,28 @@ class AudioAnalyzer:
 
     def _musicbrainz_lookup(self, artist, title):
         try:
-            result = musicbrainzngs.search_recordings(artist=artist, recording=title, limit=1)
+            # Request more fields for playlisting
+            result = musicbrainzngs.search_recordings(
+                artist=artist, recording=title, limit=1, includes=[
+                    'artists', 'releases', 'tags', 'isrcs', 'work-rels', 'artist-credits', 'artist-rels', 'release-groups', 'labels', 'aliases', 'recording-rels'
+                ]
+            )
             if result['recording-list']:
                 rec = result['recording-list'][0]
                 tags = {
                     'artist': rec['artist-credit'][0]['artist']['name'] if 'artist-credit' in rec and rec['artist-credit'] else None,
                     'title': rec['title'],
                     'album': rec['release-list'][0]['title'] if 'release-list' in rec and rec['release-list'] else None,
-                    'date': rec.get('first-release-date'),
-                    'genre': [tag['name'] for tag in rec['tag-list']] if 'tag-list' in rec and rec['tag-list'] else [],
-                    'musicbrainz_id': rec['id']
+                    'release_date': rec['release-list'][0].get('date') if 'release-list' in rec and rec['release-list'] and 'date' in rec['release-list'][0] else None,
+                    'country': rec['release-list'][0].get('country') if 'release-list' in rec and rec['release-list'] and 'country' in rec['release-list'][0] else None,
+                    'label': rec['release-list'][0]['label-info-list'][0]['label']['name'] if 'release-list' in rec and rec['release-list'] and 'label-info-list' in rec['release-list'][0] and rec['release-list'][0]['label-info-list'] else None,
+                    'genre': [tag['name'] for tag in rec.get('tag-list', [])],
+                    'musicbrainz_id': rec['id'],
+                    'isrc': rec.get('isrc-list', [None])[0],
+                    'mb_artist_id': rec['artist-credit'][0]['artist']['id'] if 'artist-credit' in rec and rec['artist-credit'] else None,
+                    'mb_album_id': rec['release-list'][0]['id'] if 'release-list' in rec and rec['release-list'] else None,
+                    'work': rec['work-relation-list'][0]['work']['title'] if 'work-relation-list' in rec and rec['work-relation-list'] else None,
+                    'composer': rec['work-relation-list'][0]['work']['artist-relation-list'][0]['artist']['name'] if 'work-relation-list' in rec and rec['work-relation-list'] and 'artist-relation-list' in rec['work-relation-list'][0]['work'] and rec['work-relation-list'][0]['work']['artist-relation-list'] else None,
                 }
                 return tags
         except Exception as e:
@@ -483,19 +495,21 @@ class AudioAnalyzer:
             data = resp.json()
             track = data.get('track', {})
             tags = track.get('toptags', {}).get('tag', [])
-            genre = tags[0]['name'] if tags else None
+            genre = [t['name'] for t in tags] if tags else None
             album = track.get('album', {}).get('title')
-            year = None
-            # Last.fm does not provide year directly; try to parse from album or wiki
-            if 'wiki' in track and 'published' in track['wiki']:
-                import re
-                match = re.search(r'(\d{4})', track['wiki']['published'])
-                if match:
-                    year = match.group(1)
+            listeners = track.get('listeners')
+            playcount = track.get('playcount')
+            wiki = track.get('wiki', {}).get('summary')
+            album_mbid = track.get('album', {}).get('mbid')
+            artist_mbid = track.get('artist', {}).get('mbid') if isinstance(track.get('artist'), dict) else None
             return {
-                'genre': genre,
-                'album': album,
-                'year': year
+                'genre_lastfm': genre,
+                'album_lastfm': album,
+                'listeners': listeners,
+                'playcount': playcount,
+                'wiki': wiki,
+                'album_mbid': album_mbid,
+                'artist_mbid': artist_mbid
             }
         except Exception as e:
             logger.warning(f"Last.fm lookup failed for {artist} - {title}: {e}")
@@ -576,6 +590,15 @@ class AudioAnalyzer:
             }
         return None
 
+LEAN_FIELDS = [
+    'musicbrainz_id', 'isrc', 'mb_artist_id', 'mb_album_id',
+    'artist', 'title', 'album', 'release_date', 'genre',
+    'genre_lastfm', 'listeners', 'playcount', 'wiki'
+]
+
+def filter_metadata(meta):
+    return {k: v for k, v in meta.items() if k in LEAN_FIELDS}
+
     def _extract_all_features(self, audio_path, audio):
         # Initialize with default values
         features = {
@@ -615,12 +638,10 @@ class AudioAnalyzer:
             updated_fields_mb = [k for k, v in mb_tags.items() if v and (k not in meta or meta[k] != v)]
             meta.update({k: v for k, v in mb_tags.items() if v})
             logger.info(f"MusicBrainz enrichment: {artist} - {title} (fields updated: {updated_fields_mb})")
-
-        # Define a comprehensive set of non-real genres
-        NON_REAL_GENRES = {None, '', 'Other', 'UnknownGenre', 'Unknown', 'Misc', 'Various', 'VA', 'General', 'Soundtrack', 'OST', 'N/A', 'Not Available', 'No Genre', 'Unclassified', 'Unsorted', 'Undefined', 'Genre', 'Genres', 'Music', 'Song', 'Songs', 'Audio', 'MP3', 'Instrumental', 'Vocal', 'Various Artists', 'VA', 'Compilation', 'Compilations', 'Album', 'Albums', 'CD', 'CDs', 'Record', 'Records', 'Single', 'Singles', 'EP', 'EPs', 'LP', 'LPs', 'Demo', 'Demos', 'Test', 'Tests', 'Sample', 'Samples', 'Example', 'Examples', 'Untitled', 'Unknown Artist', 'Unknown Album', 'Unknown Title', 'No Title', 'No Album', 'No Artist'}
+        # Last.fm enrichment
         genre = meta.get('genre')
         missing_fields = [field for field in ['genre', 'year', 'album'] if not meta.get(field)]
-        if genre is None or (isinstance(genre, str) and genre.strip() in NON_REAL_GENRES):
+        if genre is None or (isinstance(genre, str) and genre.strip() in {None, '', 'Other', 'UnknownGenre', 'Unknown', 'Misc', 'Various', 'VA', 'General', 'Soundtrack', 'OST', 'N/A', 'Not Available', 'No Genre', 'Unclassified', 'Unsorted', 'Undefined', 'Genre', 'Genres', 'Music', 'Song', 'Songs', 'Audio', 'MP3', 'Instrumental', 'Vocal', 'Various Artists', 'VA', 'Compilation', 'Compilations', 'Album', 'Albums', 'CD', 'CDs', 'Record', 'Records', 'Single', 'Singles', 'EP', 'EPs', 'LP', 'LPs', 'Demo', 'Demos', 'Test', 'Tests', 'Sample', 'Samples', 'Example', 'Examples', 'Untitled', 'Unknown Artist', 'Unknown Album', 'Unknown Title', 'No Title', 'No Album', 'No Artist'}):
             if 'genre' not in missing_fields:
                 missing_fields.append('genre')
         if missing_fields and artist and title:
@@ -633,8 +654,8 @@ class AudioAnalyzer:
                     meta[field] = lastfm_tags[field]
                     updated_fields_lastfm.append(field)
             logger.info(f"Last.fm enrichment: {artist} - {title} (fields updated: {updated_fields_lastfm})")
-
-        features['metadata'] = meta
+        # Filter metadata to keep only lean fields
+        features['metadata'] = filter_metadata(meta)
 
         # Print/log MusicBrainz info if present
         # (Removed per user request)
