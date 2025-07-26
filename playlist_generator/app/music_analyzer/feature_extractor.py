@@ -257,6 +257,20 @@ def timeout(seconds=60, error_message="Processing timed out"):
         return wrapper
     return decorator
 
+def safe_essentia_call(func, *args, **kwargs):
+    """Safely call Essentia functions with error handling for NumPy indexing issues."""
+    try:
+        return func(*args, **kwargs)
+    except (IndexError, ValueError, TypeError) as e:
+        if "only integers, slices" in str(e) or "valid indices" in str(e):
+            logger.warning(f"Essentia NumPy indexing error in {func.__name__}: {e}")
+            return None
+        else:
+            raise e
+    except Exception as e:
+        logger.warning(f"Essentia call error in {func.__name__}: {e}")
+        return None
+
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
@@ -499,16 +513,23 @@ class AudioAnalyzer:
             logger.debug("Initializing Essentia RhythmExtractor")
             rhythm_extractor = es.RhythmExtractor()
             logger.debug("Running rhythm extraction on audio")
-            bpm, _, confidence, _ = rhythm_extractor(audio)
+            
+            # Use safe wrapper for Essentia call
+            result = safe_essentia_call(rhythm_extractor, audio)
+            if result is None:
+                logger.warning("Rhythm extraction failed due to Essentia error")
+                return {'bpm': 0.0, 'beat_confidence': 0.0}
+            
+            bpm, _, confidence, _ = result
             logger.debug(f"Raw rhythm extraction results: BPM={bpm}, confidence shape={np.array(confidence).shape if hasattr(confidence, 'shape') else type(confidence)}")
             
             beat_conf = float(np.nanmean(confidence)) if isinstance(confidence, (list, np.ndarray)) else float(confidence)
             logger.debug(f"Processed rhythm features: BPM={bpm:.1f}, confidence={beat_conf:.3f}")
-            return float(bpm), max(0.0, min(1.0, beat_conf))
+            return {'bpm': float(bpm), 'beat_confidence': max(0.0, min(1.0, beat_conf))}
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
             logger.debug(f"Rhythm extraction error details: {type(e).__name__}")
-            return 0.0, 0.0
+            return {'bpm': 0.0, 'beat_confidence': 0.0}
 
     def _extract_spectral_features(self, audio):
         logger.debug("Starting spectral feature extraction with Essentia")
@@ -521,11 +542,11 @@ class AudioAnalyzer:
             
             centroid_mean = float(np.nanmean(centroid_values)) if isinstance(centroid_values, (list, np.ndarray)) else float(centroid_values)
             logger.debug(f"Processed spectral centroid: {centroid_mean:.1f} Hz")
-            return centroid_mean
+            return {'centroid': centroid_mean}
         except Exception as e:
             logger.warning(f"Spectral extraction failed: {str(e)}")
             logger.debug(f"Spectral extraction error details: {type(e).__name__}")
-            return 0.0
+            return {'centroid': 0.0}
 
     def _extract_loudness(self, audio):
         logger.debug("Starting loudness extraction with Essentia")
@@ -536,11 +557,11 @@ class AudioAnalyzer:
             rms_value = rms(audio)
             loudness_db = float(rms_value)
             logger.debug(f"Processed loudness (RMS): {loudness_db:.3f}")
-            return loudness_db
+            return {'loudness': loudness_db}
         except Exception as e:
             logger.warning(f"Loudness extraction failed: {str(e)}")
             logger.debug(f"Loudness extraction error details: {type(e).__name__}")
-            return 0.0
+            return {'loudness': 0.0}
 
     def _extract_danceability(self, audio):
         logger.debug("Starting danceability extraction with Essentia")
@@ -551,11 +572,11 @@ class AudioAnalyzer:
             danceability, _ = danceability_algo(audio)
             danceability_value = float(danceability)
             logger.debug(f"Processed danceability: {danceability_value:.3f}")
-            return danceability_value
+            return {'danceability': danceability_value}
         except Exception as e:
             logger.warning(f"Danceability extraction failed: {str(e)}")
             logger.debug(f"Danceability extraction error details: {type(e).__name__}")
-            return 0.0
+            return {'danceability': 0.0}
 
     def _extract_key(self, audio):
         logger.debug("Starting key extraction with Essentia")
@@ -565,7 +586,7 @@ class AudioAnalyzer:
             
             if len(audio) < 44100 * 3:  # Need at least 3 seconds
                 logger.debug("Audio too short for key extraction (< 3s), skipping")
-                return -1, 0
+                return {'key': -1, 'scale': 0}
 
             logger.debug("Initializing Essentia KeyExtractor with frameSize=4096, hopSize=2048")
             key_extractor = es.KeyExtractor(frameSize=4096, hopSize=2048)
@@ -585,12 +606,12 @@ class AudioAnalyzer:
             scale_idx = 1 if scale == 'major' else 0
             logger.debug(f"Converted scale '{scale}' to index {scale_idx}")
             logger.debug(f"Final key features: key_idx={key_idx}, scale_idx={scale_idx}")
-            return key_idx, scale_idx
+            return {'key': key_idx, 'scale': scale_idx}
 
         except Exception as e:
             logger.warning(f"Key extraction failed: {str(e)}")
             logger.debug(f"Key extraction error details: {type(e).__name__}")
-            return -1, 0
+            return {'key': -1, 'scale': 0}
 
     def _extract_onset_rate(self, audio):
         logger.debug("Starting onset rate extraction with Essentia")
@@ -601,7 +622,7 @@ class AudioAnalyzer:
             # Skip if audio is too short (less than 1 second)
             if len(audio) < 44100:
                 logger.debug("Audio too short for onset rate extraction (< 1s), skipping")
-                return 0.0
+                return {'onset_rate': 0.0}
 
             logger.debug("Initializing Essentia OnsetRate")
             onset_rate_algo = es.OnsetRate()
@@ -617,16 +638,16 @@ class AudioAnalyzer:
                 if isinstance(onset_rate, (list, np.ndarray)):
                     onset_rate_mean = float(np.nanmean(onset_rate))
                     logger.debug(f"Calculated mean onset rate: {onset_rate_mean:.3f}")
-                    return onset_rate_mean
+                    return {'onset_rate': onset_rate_mean}
                 onset_rate_float = float(onset_rate)
                 logger.debug(f"Converted onset rate to float: {onset_rate_float:.3f}")
-                return onset_rate_float
+                return {'onset_rate': onset_rate_float}
             logger.debug("No onset rate result, returning 0.0")
-            return 0.0
+            return {'onset_rate': 0.0}
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
             logger.debug(f"Onset rate extraction error details: {type(e).__name__}")
-            return 0.0
+            return {'onset_rate': 0.0}
 
     def _extract_zcr(self, audio):
         logger.debug("Starting zero crossing rate extraction with Essentia")
@@ -639,11 +660,11 @@ class AudioAnalyzer:
             
             zcr_mean = float(np.mean(zcr_values))
             logger.debug(f"Calculated mean zero crossing rate: {zcr_mean:.3f}")
-            return zcr_mean
+            return {'zcr': zcr_mean}
         except Exception as e:
             logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
             logger.debug(f"Zero crossing rate extraction error details: {type(e).__name__}")
-            return 0.0
+            return {'zcr': 0.0}
 
     def _extract_mfcc(self, audio, num_coeffs=13):
         logger.debug(f"Starting MFCC extraction with Essentia (coefficients: {num_coeffs})")
@@ -657,11 +678,11 @@ class AudioAnalyzer:
             mfcc_mean = np.mean(mfcc_coeffs, axis=0).tolist()  # global average
             logger.debug(f"Calculated mean MFCC coefficients: {len(mfcc_mean)} values")
             logger.debug(f"MFCC coefficient range: min={min(mfcc_mean):.3f}, max={max(mfcc_mean):.3f}")
-            return mfcc_mean
+            return {'mfcc': mfcc_mean}
         except Exception as e:
             logger.warning(f"MFCC extraction failed: {str(e)}")
             logger.debug(f"MFCC extraction error details: {type(e).__name__}")
-            return [0.0] * num_coeffs
+            return {'mfcc': [0.0] * num_coeffs}
 
     def _extract_chroma(self, audio):
         """Extract chroma features from audio using HPCP."""
@@ -725,17 +746,17 @@ class AudioAnalyzer:
                 chroma_avg = np.mean(chroma_values, axis=0).tolist()
                 logger.debug(f"Calculated mean chroma features: {len(chroma_avg)} values")
                 logger.debug(f"Chroma feature range: min={min(chroma_avg):.3f}, max={max(chroma_avg):.3f}")
-                return chroma_avg
+                return {'chroma': chroma_avg}
             else:
                 logger.debug("No valid chroma values calculated, returning default")
-                return [0.0] * 12
+                return {'chroma': [0.0] * 12}
                 
         except Exception as e:
             logger.warning(f"Chroma extraction failed: {str(e)}")
             logger.debug(f"Chroma extraction error details: {type(e).__name__}")
             import traceback
             logger.debug(f"Chroma extraction full traceback: {traceback.format_exc()}")
-            return [0.0] * 12
+            return {'chroma': [0.0] * 12}
 
     def _extract_spectral_contrast(self, audio):
         """Extract spectral contrast features from audio."""
@@ -795,17 +816,17 @@ class AudioAnalyzer:
             if contrast_list:
                 contrast_mean = float(np.mean(contrast_list))
                 logger.debug(f"Calculated mean spectral contrast: {contrast_mean:.3f}")
-                return contrast_mean
+                return {'spectral_contrast': contrast_mean}
             else:
                 logger.debug("No valid contrast values calculated, returning 0.0")
-                return 0.0
+                return {'spectral_contrast': 0.0}
                 
         except Exception as e:
             logger.warning(f"Spectral contrast extraction failed: {str(e)}")
             logger.debug(f"Spectral contrast extraction error details: {type(e).__name__}")
             import traceback
             logger.debug(f"Spectral contrast full traceback: {traceback.format_exc()}")
-            return 0.0
+            return {'spectral_contrast': 0.0}
 
     def _extract_spectral_flatness(self, audio):
         """Extract spectral flatness from audio."""
@@ -819,11 +840,11 @@ class AudioAnalyzer:
             
             flatness_mean = float(np.nanmean(flatness_values)) if isinstance(flatness_values, (list, np.ndarray)) else float(flatness_values)
             logger.debug(f"Calculated mean spectral flatness: {flatness_mean:.3f}")
-            return flatness_mean
+            return {'spectral_flatness': flatness_mean}
         except Exception as e:
             logger.warning(f"Spectral flatness extraction failed: {str(e)}")
             logger.debug(f"Spectral flatness extraction error details: {type(e).__name__}")
-            return 0.0
+            return {'spectral_flatness': 0.0}
 
     def _extract_spectral_rolloff(self, audio):
         """Extract spectral rolloff from audio."""
@@ -837,11 +858,11 @@ class AudioAnalyzer:
             
             rolloff_mean = float(np.nanmean(rolloff_values)) if isinstance(rolloff_values, (list, np.ndarray)) else float(rolloff_values)
             logger.debug(f"Calculated mean spectral rolloff: {rolloff_mean:.1f}")
-            return rolloff_mean
+            return {'spectral_rolloff': rolloff_mean}
         except Exception as e:
             logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
             logger.debug(f"Spectral rolloff extraction error details: {type(e).__name__}")
-            return 0.0
+            return {'spectral_rolloff': 0.0}
 
     def _musicbrainz_lookup(self, artist, title):
         try:
@@ -1172,7 +1193,7 @@ class AudioAnalyzer:
             'zcr': 0.0,
             'mfcc': [0.0] * 13,
             'chroma': [0.0] * 12,
-            'spectral_contrast': [0.0] * 7,
+            'spectral_contrast': 0.0,  # Fixed: should be float, not list
             'spectral_flatness': 0.0,
             'spectral_rolloff': 0.0,
             'musicnn_embedding': None,
@@ -1226,7 +1247,8 @@ class AudioAnalyzer:
             # Extract loudness
             logger.debug("Extracting loudness")
             try:
-                features['loudness'] = self._extract_loudness(audio)
+                loudness_result = self._extract_loudness(audio)
+                features['loudness'] = loudness_result['loudness']
                 logger.debug(f"Loudness: {features['loudness']:.1f} dB")
             except Exception as e:
                 logger.warning(f"Loudness extraction failed: {str(e)}")
@@ -1234,7 +1256,8 @@ class AudioAnalyzer:
             # Extract danceability
             logger.debug("Extracting danceability")
             try:
-                features['danceability'] = self._extract_danceability(audio)
+                danceability_result = self._extract_danceability(audio)
+                features['danceability'] = danceability_result['danceability']
                 logger.debug(f"Danceability: {features['danceability']:.2f}")
             except Exception as e:
                 logger.warning(f"Danceability extraction failed: {str(e)}")
@@ -1252,7 +1275,8 @@ class AudioAnalyzer:
             # Extract onset rate
             logger.debug("Extracting onset rate")
             try:
-                features['onset_rate'] = self._extract_onset_rate(audio)
+                onset_result = self._extract_onset_rate(audio)
+                features['onset_rate'] = onset_result['onset_rate']
                 logger.debug(f"Onset rate: {features['onset_rate']:.2f}")
             except Exception as e:
                 logger.warning(f"Onset rate extraction failed: {str(e)}")
@@ -1260,7 +1284,8 @@ class AudioAnalyzer:
             # Extract zero crossing rate
             logger.debug("Extracting zero crossing rate")
             try:
-                features['zcr'] = self._extract_zcr(audio)
+                zcr_result = self._extract_zcr(audio)
+                features['zcr'] = zcr_result['zcr']
                 logger.debug(f"Zero crossing rate: {features['zcr']:.2f}")
             except Exception as e:
                 logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
@@ -1268,7 +1293,8 @@ class AudioAnalyzer:
             # Extract MFCC
             logger.debug("Extracting MFCC coefficients")
             try:
-                features['mfcc'] = self._extract_mfcc(audio)
+                mfcc_result = self._extract_mfcc(audio)
+                features['mfcc'] = mfcc_result['mfcc']
                 logger.debug(f"MFCC: {len(features['mfcc'])} coefficients")
             except Exception as e:
                 logger.warning(f"MFCC extraction failed: {str(e)}")
@@ -1276,7 +1302,8 @@ class AudioAnalyzer:
             # Extract chroma
             logger.debug("Extracting chroma features")
             try:
-                features['chroma'] = self._extract_chroma(audio)
+                chroma_result = self._extract_chroma(audio)
+                features['chroma'] = chroma_result['chroma']
                 logger.debug(f"Chroma: {len(features['chroma'])} features")
             except Exception as e:
                 logger.warning(f"Chroma extraction failed: {str(e)}")
@@ -1284,15 +1311,17 @@ class AudioAnalyzer:
             # Extract spectral contrast
             logger.debug("Extracting spectral contrast")
             try:
-                features['spectral_contrast'] = self._extract_spectral_contrast(audio)
-                logger.debug(f"Spectral contrast: {len(features['spectral_contrast'])} features")
+                contrast_result = self._extract_spectral_contrast(audio)
+                features['spectral_contrast'] = contrast_result['spectral_contrast']
+                logger.debug(f"Spectral contrast: {features['spectral_contrast']:.3f}")
             except Exception as e:
                 logger.warning(f"Spectral contrast extraction failed: {str(e)}")
 
             # Extract spectral flatness
             logger.debug("Extracting spectral flatness")
             try:
-                features['spectral_flatness'] = self._extract_spectral_flatness(audio)
+                flatness_result = self._extract_spectral_flatness(audio)
+                features['spectral_flatness'] = flatness_result['spectral_flatness']
                 logger.debug(f"Spectral flatness: {features['spectral_flatness']:.3f}")
             except Exception as e:
                 logger.warning(f"Spectral flatness extraction failed: {str(e)}")
@@ -1300,7 +1329,8 @@ class AudioAnalyzer:
             # Extract spectral rolloff
             logger.debug("Extracting spectral rolloff")
             try:
-                features['spectral_rolloff'] = self._extract_spectral_rolloff(audio)
+                rolloff_result = self._extract_spectral_rolloff(audio)
+                features['spectral_rolloff'] = rolloff_result['spectral_rolloff']
                 logger.debug(f"Spectral rolloff: {features['spectral_rolloff']:.1f}")
             except Exception as e:
                 logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
@@ -1325,44 +1355,35 @@ class AudioAnalyzer:
                 title = metadata.get('title', '')
                 
                 if artist and title:
-                    logger.debug(f"Attempting MusicBrainz lookup for: {artist} - {title}")
+                    logger.debug(f"Enriching metadata for: {artist} - {title}")
+                    
+                    # MusicBrainz lookup
                     mb_data = self._musicbrainz_lookup(artist, title)
                     if mb_data:
-                        updated_fields_mb = 0
-                        for key, value in mb_data.items():
-                            if value and key not in metadata:
-                                metadata[key] = value
-                                updated_fields_mb += 1
-                        if updated_fields_mb > 0:
-                            logger.info(f"MusicBrainz enrichment: {artist} - {title} (fields updated: {updated_fields_mb})")
-                        features['metadata'] = metadata
+                        metadata.update(mb_data)
+                        logger.debug(f"Added {len(mb_data)} MusicBrainz fields")
                     
-                    # Last.fm enrichment for missing fields
-                    missing_fields = ['genre', 'album', 'year']
-                    if any(field not in metadata or not metadata.get(field) for field in missing_fields):
-                        logger.debug(f"Last.fm enrichment triggered for {artist} - {title}, missing fields: {missing_fields}")
-                        lastfm_tags = self._lastfm_lookup(artist, title)
-                        if lastfm_tags:
-                            updated_fields_lastfm = 0
-                            for key, value in lastfm_tags.items():
-                                if value and key not in metadata:
-                                    metadata[key] = value
-                                    updated_fields_lastfm += 1
-                            if updated_fields_lastfm > 0:
-                                logger.info(f"Last.fm enrichment: {artist} - {title} (fields updated: {updated_fields_lastfm})")
-                            features['metadata'] = metadata
-                
-                logger.debug(f"Final metadata: {len(metadata)} fields")
-                
+                    # Last.fm lookup
+                    lfm_data = self._lastfm_lookup(artist, title)
+                    if lfm_data:
+                        metadata.update(lfm_data)
+                        logger.debug(f"Added {len(lfm_data)} Last.fm fields")
+                    
+                    features['metadata'] = metadata
+                    logger.debug(f"Final metadata has {len(metadata)} fields")
+                else:
+                    logger.debug("No artist/title found for metadata enrichment")
             except Exception as e:
                 logger.warning(f"Metadata enrichment failed: {str(e)}")
 
-            logger.info(f"Feature extraction completed for {os.path.basename(audio_path)}")
+            logger.info(f"Feature extraction completed successfully for {os.path.basename(audio_path)}")
             return features
-
+            
         except Exception as e:
             logger.error(f"Feature extraction error for {audio_path}: {str(e)}")
-            return features
+            import traceback
+            logger.error(f"Feature extraction error traceback: {traceback.format_exc()}")
+            return None
 
     def _mark_failed(self, file_info):
         # Ensure file_path is host path
