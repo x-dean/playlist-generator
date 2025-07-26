@@ -294,7 +294,7 @@ def safe_essentia_call(func, *args, **kwargs):
 class AudioAnalyzer:
     """Analyze audio files and extract features for playlist generation."""
     
-    VERSION = "3.4.0"  # Version identifier for tracking updates - added debugging for failure detection
+    VERSION = "3.5.0"  # Version identifier for tracking updates - implemented daily log rotation
     
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
         """Initialize the AudioAnalyzer.
