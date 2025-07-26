@@ -281,7 +281,7 @@ Playlista: Fast, flexible music playlist generator and analyzer.
 Usage Tips:
   - All paths are fixed for Docker: /music, /app/playlists, /app/cache
   - Use --workers N for parallel processing (default: all CPUs)
-  - Use --force_sequential for single-threaded (debugging/low memory)
+  - Use --workers=1 for sequential processing (debugging/low memory)
   - Use --analyze to analyze new/changed files
   - Use --generate_only to generate playlists from existing analysis
   - Use --update to regenerate all playlists
@@ -294,7 +294,7 @@ Examples:
   playlista --analyze --workers 8
   playlista --generate_only
   playlista --update
-  playlista --force_sequential
+  playlista --analyze --workers=1
   playlista --playlist_method tags --min_tracks_per_genre 15
 ''')
     # -h/--help is available by default in argparse
@@ -313,10 +313,8 @@ Examples:
                         help='Number of playlists to generate')
     # Number of workers for parallel processing
     parser.add_argument('--workers', type=int, default=None,
-                        help='Number of workers (default: auto)')
-    # Force sequential (single-threaded) processing
-    parser.add_argument('--force_sequential', action='store_true',
-                        help='Force sequential processing (disables multiprocessing)')
+                        help='Number of workers (default: auto, use --workers=1 for sequential processing)')
+
     # Analyze files (default mode)
     parser.add_argument('-a', '--analyze', action='store_true',
                         help='Analyze files (see --failed and --force for options)')
@@ -352,7 +350,7 @@ Examples:
                         help='Run full pipeline: analyze, force, then failed')
 
     args = parser.parse_args()
-    logger.info(f"Parsed arguments: analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}, failed={args.failed}, force={args.force}, playlist_method={args.playlist_method}, workers={args.workers}, force_sequential={args.force_sequential}")
+    logger.info(f"Parsed arguments: analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}, failed={args.failed}, force={args.force}, playlist_method={args.playlist_method}, workers={args.workers}")
 
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
@@ -543,7 +541,7 @@ Examples:
             # Analysis phase
             logger.info("Starting analysis phase")
             with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
-                processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
+                processor = ParallelProcessor()
                 workers = args.workers or max(1, mp.cpu_count())
                 logger.debug(f"Using {workers} workers for analysis")
 
