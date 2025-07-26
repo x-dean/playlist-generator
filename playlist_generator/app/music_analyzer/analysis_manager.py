@@ -18,6 +18,7 @@ import psutil
 import threading
 from typing import List, Tuple, Optional
 from utils.cli import CLIContextManager
+from rich.status import Status
 
 # Default logging level for workers
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
@@ -356,8 +357,8 @@ def _get_active_workers():
         logger.debug(f"Error getting active workers: {e}")
         return 1  # Fallback to 1 worker
 
-def _display_resource_usage(total_workers):
-    """Display current resource usage in a fixed position."""
+def _display_resource_usage(console, total_workers):
+    """Display current resource usage using Rich console."""
     resources = _get_system_resources()
     active_workers = _get_active_workers()
     
@@ -366,8 +367,9 @@ def _display_resource_usage(total_workers):
     memory_info = f"RAM: {resources['memory_used_gb']:.1f}GB/{resources['memory_total_gb']:.1f}GB ({resources['memory_percent']:.1f}%)"
     worker_info = f"Workers: {active_workers}/{total_workers}"
     
-    # Print resource usage in a fixed position (overwrites the same line)
-    print(f"\r[dim]📊 {cpu_info} | {memory_info} | {worker_info}[/dim]", end="", flush=True)
+    # Display resource status using Rich
+    resource_status = f"📊 {cpu_info} | {memory_info} | {worker_info}"
+    console.print(resource_status, style="dim")
 
 # --- Main Orchestration ---
 def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextract=False):
@@ -420,16 +422,8 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
             _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze), 
                                "[cyan]", "", "", None, not args.force_sequential)
         
-        # Start dynamic resource monitoring thread
-        resource_stop_event = threading.Event()
-        def resource_monitor():
-            refresh_rate = 2.0  # Update every 2 seconds
-            while not resource_stop_event.is_set():
-                _display_resource_usage(workers)
-                time.sleep(refresh_rate)
-        
-        monitor_thread = threading.Thread(target=resource_monitor, daemon=True)
-        monitor_thread.start()
+        # Display initial resource usage once
+        _display_resource_usage(Console(), workers)
         
         # Prepare list of file paths only for processing
         file_paths_only = [item[0] if isinstance(item, tuple) else item for item in files_to_analyze]
@@ -456,13 +450,6 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
                 logger.warning(f"Analysis failed for {filepath}")
             else:
                 logger.info(f"Analysis completed for {filepath}")
-        
-        # Stop resource monitoring
-        resource_stop_event.set()
-        monitor_thread.join(timeout=1.0)
-        
-        # Final newline to clear the resource display
-        print()
         
         logger.info(f"Processing loop completed. Processed {processed_count} files out of {len(files_to_analyze)}")
     
