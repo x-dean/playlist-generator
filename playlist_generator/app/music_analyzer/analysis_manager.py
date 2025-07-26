@@ -471,6 +471,7 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                             trackinfo=f"{size_mb:.1f} MB",
                             refresh=True
                         )
+                        logger.debug(f"Updated progress for file: {display_name}")
                     else:
                         filename = "Unknown"
                         size_mb = 0
@@ -482,6 +483,10 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                         refresh=True
                     )
                     logger.debug(f"Features: {features}")
+                    logger.debug(f"Completed processing file {processed_count}/{total_files}")
+                
+                logger.debug(f"Parallel processing completed. Processed {processed_count} files out of {total_files}")
+                logger.debug(f"Big files to process: {len(big_files)}")
                 
                 # Sequential for big files (with force_reextract)
                 if big_files:
@@ -510,27 +515,9 @@ def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextr
                             trackinfo=f"{size_mb:.1f} MB",
                             refresh=True
                         )
-                    # After processing, check if metadata is present
-                    file_info = analyzer._get_file_info(filepath)
-                    meta = None
-                    try:
-                        conn = sqlite3.connect(audio_db.cache_file)
-                        cur = conn.cursor()
-                        cur.execute("SELECT metadata FROM audio_features WHERE file_path = ?", (filepath,))
-                        row = cur.fetchone()
-                        meta = json.loads(row[0]) if row and row[0] else {}
-                        conn.close()
-                    except Exception as e:
-                        logger.error(f"Error reading metadata for {filepath}: {e}")
-                        meta = {}
-                    if not meta or not any(meta.values()):
-                        # If metadata is still empty, set failed=1 and log
-                        conn = sqlite3.connect(audio_db.cache_file)
-                        cur = conn.cursor()
-                        cur.execute("UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                        conn.commit()
-                        conn.close()
-                        logger.warning(f"Marking file as failed: {filepath} (no metadata after --force)")
+                        logger.debug(f"Completed processing big file {processed_count}/{total_files}")
+                    
+                    logger.debug(f"Sequential processing completed. Total processed: {processed_count}/{total_files}")
             # Big files in subprocesses
             if big_files:
                 big_manager = BigFileWorkerManager(stop_event, audio_db)
