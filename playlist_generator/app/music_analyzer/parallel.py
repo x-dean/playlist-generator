@@ -26,14 +26,13 @@ class UserAbortException(Exception):
     pass
 
 
-def process_file_worker(filepath: str, status_queue: Optional[object] = None, force_reextract: bool = False, stop_event=None) -> Optional[tuple]:
+def process_file_worker(filepath: str, status_queue: Optional[object] = None, force_reextract: bool = False) -> Optional[tuple]:
     """Worker function to process a single audio file in parallel.
 
     Args:
         filepath (str): Path to the audio file.
         status_queue (multiprocessing.Queue, optional): Queue to notify main process of long-running files.
         force_reextract (bool): If True, bypass the cache for all files.
-        stop_event (multiprocessing.Event, optional): Event to signal graceful shutdown.
 
     Returns:
         Optional[tuple]: (features dict, filepath, db_write_success bool) or None on failure.
@@ -70,17 +69,6 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
         except:
             return False
             
-    def should_stop():
-        """Check if we should stop processing"""
-        # Check environment variable first (most immediate)
-        if os.getenv('SHUTDOWN_REQUESTED') == '1':
-            return True
-        # Check stop_event (most reliable)
-        if stop_event and stop_event.is_set():
-            return True
-        # Fallback to parent process check
-        return is_interrupted()
-        
     max_retries = 2
     retry_count = 0
     backoff_time = 1  # Initial backoff time in seconds
@@ -107,7 +95,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     while retry_count <= max_retries:
         try:
             # Check for interruption before starting processing
-            if should_stop():
+            if is_interrupted():
                 logger.info(
                     f"Worker interrupted - stopping processing of {filepath}")
                 return None, filepath, False
@@ -116,7 +104,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 notified["shown"] = True
                 logger.warning(f"File not found: {filepath}")
                 # Don't mark as failed if we're being interrupted
-                if not should_stop():
+                if not is_interrupted():
                     try:
                         from .feature_extractor import AudioAnalyzer
                         audio_analyzer = AudioAnalyzer()
@@ -129,7 +117,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 notified["shown"] = True
                 logger.warning(f"Skipping small file: {filepath}")
                 # Don't mark as failed if we're being interrupted
-                if not should_stop():
+                if not is_interrupted():
                     try:
                         from .feature_extractor import AudioAnalyzer
                         audio_analyzer = AudioAnalyzer()
@@ -142,7 +130,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 notified["shown"] = True
                 logger.warning(f"Unsupported extension, skipping: {filepath}")
                 # Don't mark as failed if we're being interrupted
-                if not should_stop():
+                if not is_interrupted():
                     try:
                         from .feature_extractor import AudioAnalyzer
                         audio_analyzer = AudioAnalyzer()
@@ -154,7 +142,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
             result = None
             try:
                 # Check for interruption before starting feature extraction
-                if should_stop():
+                if is_interrupted():
                     logger.info(f"Worker interrupted before feature extraction - stopping {filepath}")
                     return None, filepath, False
                     
@@ -163,7 +151,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                     filepath, force_reextract=force_reextract)
                     
                 # Check again after feature extraction
-                if should_stop():
+                if is_interrupted():
                     logger.info(f"Worker interrupted after feature extraction - stopping {filepath}")
                     return None, filepath, False
                     
@@ -179,7 +167,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                     result if result is not None else (None, False, None))
                 if not features or not db_write_success:
                     # Don't mark as failed if we're being interrupted
-                    if not should_stop():
+                    if not is_interrupted():
                         try:
                             file_info = audio_analyzer._get_file_info(filepath)
                             audio_analyzer._mark_failed(file_info)
@@ -229,7 +217,7 @@ class ParallelProcessor:
         else:
             self.retry_counter = retry_counter
 
-    def process(self, file_list: List[str], workers: int = None, status_queue: Optional[object] = None, stop_event=None, force_reextract: bool = False, enforce_fail_limit: bool = None, retry_counter=None) -> iter:
+    def process(self, file_list: List[str], workers: int = None, status_queue: Optional[object] = None, force_reextract: bool = False, enforce_fail_limit: bool = None, retry_counter=None) -> iter:
         if enforce_fail_limit is not None:
             self.enforce_fail_limit = enforce_fail_limit
         if retry_counter is not None:
@@ -241,9 +229,9 @@ class ParallelProcessor:
         # Set batch size equal to number of workers for optimal control
         self.batch_size = self.workers
         logger.info(f"Using {self.workers} workers with batch size {self.batch_size}")
-        yield from self._process_parallel(file_list, status_queue, stop_event=stop_event, force_reextract=force_reextract)
+        yield from self._process_parallel(file_list, status_queue, force_reextract=force_reextract)
 
-    def _process_parallel(self, file_list, status_queue, stop_event=None, force_reextract: bool = False):
+    def _process_parallel(self, file_list, status_queue, force_reextract: bool = False):
         retries = 0
         remaining_files = file_list[:]
         while remaining_files and retries < self.max_retries:
@@ -255,22 +243,11 @@ class ParallelProcessor:
                 enrich_later = []
                 for i in range(0, len(remaining_files), self.batch_size):
                     batch = remaining_files[i:i+self.batch_size]
-                    # Check stop_event before starting new batch - this prevents feeding new files
-                    if stop_event and stop_event.is_set():
-                        logger.info(
-                            "Stop event detected - stopping new file processing")
-                        break
                     with ctx.Pool(processes=self.workers) as pool:
-                        # Check stop_event again after pool creation to handle interruption during processing
-                        if stop_event and stop_event.is_set():
-                            logger.info(
-                                "Stop event detected - letting workers finish current files")
-                            # Don't terminate pool - let workers finish their current files
-                            break
                         try:
                             from functools import partial
                             worker_func = partial(
-                                process_file_worker, status_queue=status_queue, force_reextract=force_reextract, stop_event=stop_event)
+                                process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
                             
                             # Calculate timeout for this batch (60 seconds per worker)
                             batch_timeout = len(batch) * 60  # 60 seconds per file in batch
@@ -283,15 +260,6 @@ class ParallelProcessor:
                                 # Check if we've exceeded the batch timeout
                                 if time.time() - start_time > batch_timeout:
                                     logger.warning(f"Batch timeout ({batch_timeout}s) exceeded - terminating pool")
-                                    pool.terminate()
-                                    pool.join()
-                                    break
-                                    
-                                # Check stop_event after each file completion
-                                if stop_event and stop_event.is_set():
-                                    logger.info(
-                                        "Stop event detected during processing - stopping gracefully")
-                                    # Terminate the pool to stop all workers
                                     pool.terminate()
                                     pool.join()
                                     break
@@ -351,15 +319,6 @@ class ParallelProcessor:
                                         conn.commit()
                                         conn.close()
                                         yield None, filepath, False
-                                
-                                # Check stop_event after yielding result
-                                if stop_event and stop_event.is_set():
-                                    logger.info(
-                                        "Stop event detected after yielding result - stopping gracefully")
-                                    # Terminate the pool to stop all workers
-                                    pool.terminate()
-                                    pool.join()
-                                    break
                                     
                         except KeyboardInterrupt:
                             logger.debug(
@@ -381,12 +340,6 @@ class ParallelProcessor:
                             pool.terminate()
                             pool.join()
                             
-                    # Check stop_event after batch completion
-                    if stop_event and stop_event.is_set():
-                        logger.info(
-                            "Stop event detected after batch completion - stopping gracefully")
-                        break
-                        
                 if enrich_later:
                     from music_analyzer.feature_extractor import AudioAnalyzer
                     analyzer = AudioAnalyzer(
@@ -421,13 +374,8 @@ class ParallelProcessor:
                     logger.error(
                         "Max retries reached, switching to sequential for remaining files")
                     for filepath in remaining_files:
-                        # Check stop_event before processing each file in sequential fallback
-                        if stop_event and stop_event.is_set():
-                            logger.info(
-                                "Stop event detected in sequential fallback - stopping gracefully")
-                            break
                         features, _, db_write_success = process_file_worker(
-                            filepath, status_queue, stop_event=stop_event)
+                            filepath, status_queue)
                         if features and db_write_success:
                             yield features, filepath, db_write_success
                         else:

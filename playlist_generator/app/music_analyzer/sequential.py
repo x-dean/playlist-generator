@@ -20,35 +20,28 @@ class SequentialProcessor:
     def __init__(self) -> None:
         self.failed_files: List[str] = []
 
-    def process(self, file_list: List[str], workers: int = None, stop_event=None, force_reextract: bool = False) -> iter:
+    def process(self, file_list: List[str], workers: int = None, force_reextract: bool = False) -> iter:
         """Process a list of files sequentially.
 
         Args:
             file_list (List[str]): List of file paths.
             workers (int, optional): Ignored for sequential processing.
-            stop_event (multiprocessing.Event, optional): Event to signal graceful shutdown.
             force_reextract (bool, optional): If True, bypass the cache for all files.
 
         Yields:
             tuple: (features, filepath, db_write_success) for each file.
         """
-        yield from self._process_sequential(file_list, stop_event=stop_event, force_reextract=force_reextract)
+        yield from self._process_sequential(file_list, force_reextract=force_reextract)
 
-    def _process_sequential(self, file_list: List[str], stop_event=None, force_reextract: bool = False) -> iter:
+    def _process_sequential(self, file_list: List[str], force_reextract: bool = False) -> iter:
         """Internal generator for sequential processing."""
         from utils.logging_setup import setup_queue_colored_logging
         setup_queue_colored_logging()
         import essentia
         essentia.log.infoActive = False
         essentia.log.warningActive = False
-
+        
         for i, filepath in enumerate(file_list):
-            # Check stop_event before processing each file
-            if stop_event and stop_event.is_set():
-                logger.info(
-                    "Stop event detected in sequential processing - stopping gracefully...")
-                break
-
             try:
                 from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
@@ -59,20 +52,8 @@ class SequentialProcessor:
                 else:
                     self.failed_files.append(filepath)
                     yield None, filepath, False
-
-                # Check stop_event after processing each file
-                if stop_event and stop_event.is_set():
-                    logger.info(
-                        "Stop event detected after processing file - stopping gracefully...")
-                    break
-
+                    
             except Exception as e:
                 self.failed_files.append(filepath)
                 logger.error(f"Error processing {filepath}: {str(e)}")
                 yield None, filepath, False
-
-                # Check stop_event after error handling
-                if stop_event and stop_event.is_set():
-                    logger.info(
-                        "Stop event detected after error handling - stopping gracefully...")
-                    break

@@ -219,113 +219,46 @@ def move_newly_failed_files(audio_db, newly_failed, failed_dir=None):
 
 # --- Graceful Shutdown ---
 
-
-def setup_graceful_shutdown():
-    stop_event = mp.Event()
-
-    def handle_stop_signal(signum, frame):
-        stop_event.set()
-        logger.info(
-            f"Received signal {signum}, initiating graceful shutdown...")
-        logger.debug(f"Stop event set: {stop_event.is_set()}")
-        # Force cleanup of child processes
-        cleanup_child_processes()
-        # Force exit after cleanup
-        import sys
-        sys.exit(0)
-    # Handle multiple signal types for Docker compatibility
-    import signal
-    signal.signal(signal.SIGINT, handle_stop_signal)
-    signal.signal(signal.SIGTERM, handle_stop_signal)
-    signal.signal(signal.SIGQUIT, handle_stop_signal)
-    return stop_event
-
-
-def cleanup_child_processes():
-    """Force cleanup of child processes with more aggressive termination."""
-    logger.info("Starting aggressive cleanup of child processes...")
-    parent = psutil.Process(os.getpid())
-    
-    # First, try to terminate all children gracefully
-    children = parent.children(recursive=True)
-    logger.info(f"Found {len(children)} child processes to terminate")
-    
-    for child in children:
-        try:
-            logger.debug(f"Terminating child process {child.pid}")
-            child.terminate()
-        except Exception as e:
-            logger.debug(f"Error terminating child {child.pid}: {e}")
-    
-    # Wait for processes to terminate gracefully
-    gone, alive = psutil.wait_procs(children, timeout=5)
-    logger.info(f"Gracefully terminated {len(gone)} processes, {len(alive)} still alive")
-    
-    # Force kill any remaining processes
-    for p in alive:
-        try:
-            logger.debug(f"Force killing child process {p.pid}")
-            p.kill()
-        except Exception as e:
-            logger.debug(f"Error force killing child {p.pid}: {e}")
-    
-    # Final cleanup - kill any remaining children
-    remaining_children = parent.children(recursive=True)
-    for child in remaining_children:
-        try:
-            logger.debug(f"Final cleanup: killing child process {child.pid}")
-            os.kill(child.pid, signal.SIGKILL)
-        except Exception as e:
-            logger.debug(f"Error in final cleanup of child {child.pid}: {e}")
-    
-    logger.info("Child process cleanup completed")
-
 # --- Worker Managers ---
 
 
 class ParallelWorkerManager:
-    def __init__(self, stop_event):
-        self.stop_event = stop_event
+    def __init__(self):
+        pass
 
     def process(self, files, workers, status_queue=None, **kwargs):
         processor = ParallelProcessor()
-        return processor.process(files, workers=workers, status_queue=status_queue, stop_event=self.stop_event, **kwargs)
+        return processor.process(files, workers=workers, status_queue=status_queue, **kwargs)
 
 
 class SequentialWorkerManager:
-    def __init__(self, stop_event):
-        self.stop_event = stop_event
+    def __init__(self):
+        pass
 
     def process(self, files, workers, **kwargs):
         processor = SequentialProcessor()
-        return processor.process(files, workers=workers, stop_event=self.stop_event, **kwargs)
+        return processor.process(files, workers=workers, **kwargs)
 
 
 class BigFileWorkerManager:
-    def __init__(self, stop_event, audio_db):
-        self.stop_event = stop_event
+    def __init__(self, audio_db):
         self.audio_db = audio_db
         self.processes = []
 
     def process(self, files):
         results = []
         for filepath in files:
-            if self.stop_event.is_set():
-                break
             queue = mp.Queue()
 
-            def analyze_in_subprocess(filepath, cache_file, library, music, queue, stop_event):
+            def analyze_in_subprocess(filepath, cache_file, library, music, queue):
                 try:
-                    if stop_event.is_set():
-                        queue.put(None)
-                        return
                     analyzer = AudioAnalyzer(cache_file, library, music)
                     result = analyzer.extract_features(filepath)
                     queue.put(result)
                 except Exception as e:
                     queue.put(None)
             p = mp.Process(target=analyze_in_subprocess, args=(
-                filepath, self.audio_db.cache_file, self.audio_db.library, self.audio_db.music, queue, self.stop_event))
+                filepath, self.audio_db.cache_file, self.audio_db.library, self.audio_db.music, queue))
             p.start()
             self.processes.append(p)
             try:
@@ -369,20 +302,20 @@ def create_progress_bar(total_files):
 
 
 # --- Main Orchestration ---
-def run_analysis(args, audio_db, playlist_db, cli, stop_event=None, force_reextract=False):
+def run_analysis(args, audio_db, playlist_db, cli, force_reextract=False):
     """Run analysis with improved logic based on mode."""
     logger.info(
         f"Starting analysis with mode: analyze={args.analyze}, force={args.force}, failed={args.failed}")
 
     if args.failed:
-        return run_failed_mode(args, audio_db, cli, stop_event)
+        return run_failed_mode(args, audio_db, cli)
     elif args.force:
-        return run_force_mode(args, audio_db, cli, stop_event)
+        return run_force_mode(args, audio_db, cli)
     else:
-        return run_analyze_mode(args, audio_db, cli, stop_event, force_reextract)
+        return run_analyze_mode(args, audio_db, cli, force_reextract)
 
 
-def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
+def run_analyze_mode(args, audio_db, cli, force_reextract):
     """Run analysis mode - analyze files that need processing."""
     logger.info("Starting ANALYZE mode")
 
@@ -430,12 +363,6 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         processed_count = 0
 
         for features, filepath, db_write_success in processor.process(file_paths_only, workers, force_reextract=force_reextract):
-            if stop_event and stop_event.is_set():
-                logger.info(
-                    "Stop event detected in analysis loop - stopping gracefully...")
-                print("\n🛑 Analysis interrupted - stopping gracefully...")
-                break
-
             processed_count += 1
             filename = os.path.basename(filepath)
 
@@ -458,19 +385,12 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
         logger.info(
             f"Processing loop completed. Processed {processed_count} files out of {len(files_to_analyze)}")
 
-        # Check if we were interrupted
-        if stop_event and stop_event.is_set():
-            logger.info("Analysis was interrupted by user")
-            print(
-                f"\n📊 Analysis Summary: {processed_count} processed, {len(failed_files)} failed")
-            return failed_files
-
     logger.info(
         f"ANALYZE mode completed with {len(failed_files)} failed files")
     return failed_files
 
 
-def run_force_mode(args, audio_db, cli, stop_event):
+def run_force_mode(args, audio_db, cli):
     """FORCE mode: Fast validation and retry of cached files."""
     logger.info("Starting FORCE mode - fast validation and retry")
 
@@ -512,12 +432,6 @@ def run_force_mode(args, audio_db, cli, stop_event):
 
         processed_count = 0
         for file_path in file_paths_only:
-            if stop_event and stop_event.is_set():
-                logger.info(
-                    "Stop event detected in force mode - stopping gracefully...")
-                print("\n🛑 Force mode interrupted - stopping gracefully...")
-                break
-
             processed_count += 1
             filename = os.path.basename(file_path)
 
@@ -548,15 +462,10 @@ def run_force_mode(args, audio_db, cli, stop_event):
     logger.info(f"FORCE mode completed with {len(failed_files)} failed files")
 
     # Check if we were interrupted
-    if stop_event and stop_event.is_set():
-        logger.info("Force mode was interrupted by user")
-        print(
-            f"\n📊 Force Mode Summary: {processed_count} processed, {len(failed_files)} failed")
-        return failed_files
     return failed_files
 
 
-def run_failed_mode(args, audio_db, cli, stop_event):
+def run_failed_mode(args, audio_db, cli):
     """FAILED mode: Recovery of previously failed files."""
     logger.info("Starting FAILED mode - recovering failed files")
 
@@ -598,12 +507,6 @@ def run_failed_mode(args, audio_db, cli, stop_event):
 
         processed_count = 0
         for file_path in file_paths_only:
-            if stop_event and stop_event.is_set():
-                logger.info(
-                    "Stop event detected in failed mode - stopping gracefully...")
-                print("\n🛑 Failed mode interrupted - stopping gracefully...")
-                break
-
             processed_count += 1
             filename = os.path.basename(file_path)
 
@@ -637,11 +540,6 @@ def run_failed_mode(args, audio_db, cli, stop_event):
         f"FAILED mode completed with {len(still_failed)} still failed files")
 
     # Check if we were interrupted
-    if stop_event and stop_event.is_set():
-        logger.info("Failed mode was interrupted by user")
-        print(
-            f"\n📊 Failed Mode Summary: {processed_count} processed, {len(still_failed)} still failed")
-        return still_failed
     return still_failed
 
 
@@ -656,7 +554,7 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     args.force = False
     args.failed = False
     res1 = run_analysis(args, audio_db, playlist_db, cli,
-                        stop_event=stop_event, force_reextract=False, pipeline_mode=True)
+                        force_reextract=False, pipeline_mode=True)
     results.append(('Default', res1))
     console.print(
         "[green]PIPELINE: Default analysis complete (new files analyzed)[/green]")
@@ -669,7 +567,7 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     args.force = True
     args.failed = False
     res2 = run_analysis(args, audio_db, playlist_db, cli,
-                        stop_event=stop_event, force_reextract=True, pipeline_mode=True)
+                        force_reextract=True, pipeline_mode=True)
     results.append(('Force', res2))
     console.print(
         "[green]PIPELINE: Tags enriching complete (tags updated)[/green]")
@@ -681,7 +579,7 @@ def run_pipeline(args, audio_db, playlist_db, cli, stop_event=None):
     args.force = False
     args.failed = True
     res3 = run_analysis(args, audio_db, playlist_db, cli,
-                        stop_event=stop_event, force_reextract=True, pipeline_mode=True)
+                        force_reextract=True, pipeline_mode=True)
     # Count files in /app/failed_files after failed step
     import os
     failed_dir = '/app/failed_files'

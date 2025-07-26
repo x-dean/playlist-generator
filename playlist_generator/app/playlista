@@ -384,131 +384,23 @@ Examples:
     if args.pipeline:
         logger.info("Starting pipeline mode")
         from music_analyzer.analysis_manager import run_pipeline
-        run_pipeline(args, audio_db, playlist_db, cli)
+        run_pipeline(args, audio_db, playlist_db,
+                         cli)
         logger.info("Pipeline mode completed")
         sys.exit(0)
 
-    stop_event = multiprocessing.Event()
-    shutdown_initiated = False
+    # Initialize CLI
+    cli = PlaylistGeneratorCLI()
 
-    def handle_sigint(signum, frame):
-        nonlocal shutdown_initiated
-        if shutdown_initiated:
-            logger.info("Shutdown already initiated, forcing exit...")
-            sys.exit(1)
-            
-        shutdown_initiated = True
-        logger.info("Received SIGINT (Ctrl+C), initiating graceful shutdown...")
-        print("\n🛑 Process termination requested - stopping gracefully...")
-        stop_event.set()
-        
-        # Set environment variable to signal workers
-        os.environ['SHUTDOWN_REQUESTED'] = '1'
-        
-        # Give workers time to finish current tasks
-        import time
-        # Calculate timeout based on number of workers (60 seconds per worker)
-        # Get number of workers from environment or use default
-        num_workers = int(os.getenv('WORKERS', '4'))  # Default to 4 workers
-        timeout = num_workers * 60  # 60 seconds per worker
-        start_wait = time.time()
-        
-        print(f"⏳ Waiting for workers to finish current tasks (timeout: {timeout}s)...")
-        
-        while time.time() - start_wait < timeout:
-            try:
-                import psutil
-                current_pid = os.getpid()
-                active_workers = 0
-                active_worker_pids = []
-                
-                for proc in psutil.process_iter(['pid', 'ppid', 'name', 'status']):
-                    try:
-                        proc_info = proc.info
-                        if (proc_info['ppid'] == current_pid and
-                            proc_info['name'] and
-                                'python' in proc_info['name'].lower()):
-                            # Check if process is actually running (not zombie)
-                            if proc_info.get('status') != 'zombie':
-                                active_workers += 1
-                                active_worker_pids.append(proc_info['pid'])
-                    except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
-                        continue
-                
-                if active_workers == 0:
-                    print("✅ All workers finished - exiting gracefully.")
-                    break
-                
-                remaining_time = timeout - (time.time() - start_wait)
-                print(
-                    f"⏳ {active_workers} workers still active, {remaining_time:.0f}s remaining...")
-                
-                # If workers are still active after 30 seconds, force termination
-                if (time.time() - start_wait) > 30 and active_workers > 0:
-                    print(f"⚠️  {active_workers} workers still active after 30s - forcing termination...")
-                    from music_analyzer.analysis_manager import cleanup_child_processes
-                    cleanup_child_processes()
-                    break
-                
-                # If we're getting close to timeout and workers are still active, be more aggressive
-                if remaining_time < 10 and active_workers > 0:
-                    print(f"⚠️  {active_workers} workers still active near timeout - forcing termination...")
-                    from music_analyzer.analysis_manager import cleanup_child_processes
-                    cleanup_child_processes()
-                    break
-                
-                time.sleep(2)
-                
-            except Exception as e:
-                logger.warning(f"Error checking worker status: {e}")
-                time.sleep(1)
-        
-        # Force cleanup if timeout reached
-        if time.time() - start_wait >= timeout:
-            print("⏰ Grace period expired - forcing termination...")
-            from music_analyzer.analysis_manager import cleanup_child_processes
-            cleanup_child_processes()
-        
-        print("👋 Exiting...")
-        sys.exit(0)
+    os.environ["ESSENTIA_LOGGING_LEVEL"] = "error"
+    os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
-    signal.signal(signal.SIGINT, handle_sigint)
+    cache_dir = os.getenv('CACHE_DIR', '/app/cache')
+    logfile_path = '/app/logs/playlista.log'
+    logfile = open(logfile_path, 'a')
+    os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
+    sys.stderr = logfile  # Also update Python's sys.stderr
 
-    # Set logging level from CLI
-    logger.setLevel(
-        getattr(pylogging, args.log_level.upper(), pylogging.WARNING))
-    os.environ['LOG_LEVEL'] = args.log_level.upper()
-    logger.debug(f"Logging level set to: {args.log_level.upper()}")
-
-    # If --status is set, show statistics and exit
-    if getattr(args, 'status', False):
-        logger.info("Status mode: displaying library statistics")
-        stats = playlist_db.get_library_statistics()
-        # Add failed/skipped files count
-        skipped_count = len([f for f in audio_db.get_all_features(
-            include_failed=True) if f['failed']])
-        stats['skipped_failed'] = skipped_count
-        cli.show_library_statistics(stats)
-        logger.info("Status display completed")
-        sys.exit(0)
-
-    # If no mutually exclusive mode is set, default to analyze_only
-    if not (args.analyze or args.failed or args.update or args.generate_only):
-        args.analyze = True
-        logger.info("No execution mode specified, defaulting to analyze mode")
-
-    # Robust mode selection
-    sequential_mode = args.force_sequential or (
-        args.workers is not None and int(args.workers) == 1)
-    logger.info(
-        f"Processing mode: {'sequential' if sequential_mode else 'parallel'}")
-
-    # If sequential mode is forced, always use 1 worker and warn if user set more
-    if args.force_sequential:
-        if args.workers is not None and int(args.workers) != 1:
-            logger.warning(
-                "Both --force_sequential and --workers > 1 set. Forcing sequential mode with 1 worker.")
-        args.workers = 1
 
     # Show configuration
     # Remove the call to cli.show_config
@@ -551,7 +443,7 @@ Examples:
         if getattr(args, 'pipeline', False):
             logger.info("Running full pipeline mode")
             run_pipeline(args, audio_db, playlist_db,
-                         cli, stop_event=stop_event)
+                         cli)
             logger.info("Pipeline mode completed")
             sys.exit(0)
 
@@ -618,7 +510,7 @@ Examples:
             logger.info(
                 f"Starting ANALYSIS mode: analyze={args.analyze}, failed={args.failed}, force={args.force}")
             failed_files = run_analysis(
-                args, audio_db, playlist_db, cli, stop_event=stop_event, force_reextract=args.no_cache)
+                args, audio_db, playlist_db, cli, force_reextract=args.no_cache)
             logger.info(
                 f"Analysis completed with {len(failed_files)} failed files")
 
@@ -664,7 +556,7 @@ Examples:
             # Analysis phase
             logger.info("Starting analysis phase")
             with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
-                processor = ParallelProcessor() if not sequential_mode else SequentialProcessor()
+                processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
                 workers = args.workers or max(1, mp.cpu_count())
                 logger.debug(f"Using {workers} workers for analysis")
 
@@ -679,10 +571,6 @@ Examples:
                     filename = os.path.basename(filepath)
                     progress.update(
                         task_id, advance=1, description=f"Analyzing: {filename} ({i+1}/{len(file_list)})")
-                    if stop_event.is_set():
-                        logger.info("Analysis interrupted by user")
-                        print("\nAnalysis interrupted - exiting gracefully...")
-                        break
 
                 failed_files.extend(processor.failed_files)
                 logger.info(
@@ -700,10 +588,6 @@ Examples:
                     features_from_db, args.num_playlists)
                 progress.update(task_id, advance=3)
                 logger.info(f"Generated {len(all_playlists)} playlists")
-                if stop_event.is_set():
-                    logger.info("Playlist generation interrupted by user")
-                    print("\nPlaylist generation interrupted - exiting gracefully...")
-                    return
 
             # Show playlist statistics
             logger.debug("Calculating and displaying playlist statistics")
