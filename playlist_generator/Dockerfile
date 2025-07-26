@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     libasound2-dev \
     portaudio19-dev \
     python3-dev \
+    libfftw3-dev \
+    libtag1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install runtime dependencies only
@@ -39,31 +41,22 @@ RUN pip install --upgrade pip && \
 # Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p /app/cache /app/logs /app/feature_extraction/models/musicnn
+# Create __init__.py files to make directories importable
+RUN touch /app/database/__init__.py && \
+    touch /app/music_analyzer/__init__.py && \
+    touch /app/playlist_generator/__init__.py
+
+# Create directories with proper permissions
+RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \
+    chmod -R 777 /app/playlists /app/cache
+
+# Make playlista executable and add to PATH
+RUN chmod +x /app/playlista
+ENV PATH="${PATH}:/app"
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV MODEL_DIR=/app/feature_extraction/models
-
-# Create __init__.py files to make directories importable
-# RUN touch /app/database/__init__.py && \ # This line is removed as per the new_code
-#     touch /app/music_analyzer/__init__.py && \ # This line is removed as per the new_code
-#     touch /app/playlist_generator/__init__.py # This line is removed as per the new_code
-
-# Create directories with proper permissions
-# RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics && \ # This line is removed as per the new_code
-#     chmod -R 777 /app/playlists /app/cache # This line is removed as per the new_code
-
-# Make playlista executable and add to PATH
-# RUN chmod +x /app/playlista # This line is removed as per the new_code
-# ENV PATH="${PATH}:/app" # This line is removed as per the new_code
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app \
-    CACHE_DIR=/app/cache 
 
 # Default command
 CMD ["playlista"]
