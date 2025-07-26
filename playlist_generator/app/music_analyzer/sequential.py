@@ -43,6 +43,12 @@ class SequentialProcessor:
 
         for i, filepath in enumerate(file_list):
             try:
+                # Skip files that are already in the failed_files directory
+                if filepath.startswith('/music/failed_files'):
+                    logger.warning(f"Skipping file in failed directory: {filepath}")
+                    yield None, filepath, False
+                    continue
+                    
                 from .feature_extractor import AudioAnalyzer
                 audio_analyzer = AudioAnalyzer()
                 features, db_write_success, file_hash = audio_analyzer.extract_features(

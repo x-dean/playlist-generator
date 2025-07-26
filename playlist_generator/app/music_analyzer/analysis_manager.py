@@ -128,6 +128,11 @@ def select_files_for_analysis(args, audio_db):
         cur.execute("SELECT file_path FROM audio_features WHERE failed=1")
         files_to_analyze = [row[0] for row in cur.fetchall()]
         conn.close()
+        
+        # Filter out files that are already in the failed_files directory
+        failed_dir = '/music/failed_files'
+        files_to_analyze = [f for f in files_to_analyze if not f.startswith(failed_dir)]
+        
         logger.debug(
             f"select_files_for_analysis: failed=True, files_to_analyze={len(files_to_analyze)}")
         # All files to be processed sequentially
@@ -624,14 +629,21 @@ def get_audio_files(music: str) -> List[str]:
     file_list = []
     valid_ext = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus')
     failed_dir = os.path.abspath('/music/failed_files')
+    logger.debug(f"Excluding failed directory: {failed_dir}")
     for root, _, files in os.walk(music):
         abs_root = os.path.abspath(root)
         # Skip failed_files directory
         if abs_root.startswith(failed_dir):
+            logger.debug(f"Skipping directory: {abs_root}")
             continue
         for file in files:
             file_lower = file.lower()
             if file_lower.endswith(valid_ext):
-                file_list.append(os.path.join(root, file))
+                file_path = os.path.join(root, file)
+                # Double-check that the file is not in the failed directory
+                if not file_path.startswith('/music/failed_files'):
+                    file_list.append(file_path)
+                else:
+                    logger.debug(f"Skipping file in failed directory: {file_path}")
     logger.info(f"Found {len(file_list)} audio files in {music}")
     return file_list

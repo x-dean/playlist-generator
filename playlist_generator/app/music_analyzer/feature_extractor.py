@@ -1558,6 +1558,11 @@ class AudioAnalyzer:
         Returns:
             Optional[tuple]: (features dict, db_write_success bool, file_hash str) or None on failure.
         """
+        # Skip files that are already in the failed_files directory
+        if audio_path.startswith('/music/failed_files'):
+            logger.warning(f"Skipping file in failed directory: {audio_path}")
+            return None, False, None
+            
         try:
             file_info = self._get_file_info(audio_path)
             self.timeout_seconds = 180
@@ -2324,10 +2329,15 @@ class AudioAnalyzer:
         """)
 
         failed_files = []
+        failed_dir = '/music/failed_files'
         for row in cursor.fetchall():
             file_path, last_analyzed = row
             if os.path.exists(file_path):
-                failed_files.append(file_path)
+                # Skip files that are already in the failed_files directory
+                if not file_path.startswith(failed_dir):
+                    failed_files.append(file_path)
+                else:
+                    logger.debug(f"Skipping file already in failed directory: {file_path}")
             else:
                 logger.warning(f"Failed file no longer exists: {file_path}")
 
