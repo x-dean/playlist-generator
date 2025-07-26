@@ -297,6 +297,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
         files_to_analyze = normal_files + big_files
         normal_files = []  # Move all files to big_files for sequential processing
         big_files = files_to_analyze
+        logger.debug(f"DISCOVERY: After force_sequential: normal_files={len(normal_files)}, big_files={len(big_files)}")
     else:
         files_to_analyze = normal_files + big_files
     
@@ -365,6 +366,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             logger.info(f"Processing {len(normal_files)} normal files in parallel...")
             parallel_processor = ParallelProcessor()
             workers = args.workers or max(1, mp.cpu_count())
+        else:
+            logger.debug("DISCOVERY: No normal files to process in parallel")
             
             for features, filepath, db_write_success in parallel_processor.process(normal_files, workers, force_reextract=force_reextract):
                 processed_count += 1
