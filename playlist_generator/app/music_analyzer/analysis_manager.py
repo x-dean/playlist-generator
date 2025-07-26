@@ -410,13 +410,13 @@ def run_analyze_mode(args, audio_db, cli, stop_event, force_reextract):
     # Run analysis on files that need it
     failed_files = []
     
-    # Display resource panel first
-    console = Console()
-    console.print(_create_resource_panel(workers))
-    
     with CLIContextManager(cli, len(files_to_analyze), f"[cyan]Analyzing {len(files_to_analyze)} files...") as (progress, task_id):
         processor = ParallelProcessor() if not args.force_sequential else SequentialProcessor()
         workers = args.workers or max(1, mp.cpu_count())
+        
+        # Display resource panel first
+        console = Console()
+        console.print(_create_resource_panel(workers))
         
         # Log which processor is being used
         processor_type = "Sequential" if args.force_sequential else "Parallel"
