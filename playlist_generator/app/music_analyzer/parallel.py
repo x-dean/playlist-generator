@@ -49,14 +49,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     logging.getLogger().setLevel(getattr(logging, log_level.upper(), logging.INFO))
     audio_analyzer = AudioAnalyzer()
     
-    # Test database connection in worker
-    try:
-        test_cursor = audio_analyzer.conn.execute("SELECT COUNT(*) FROM audio_features")
-        count = test_cursor.fetchone()[0]
-        logger.debug(f"Worker database connection test: {count} records in DB")
-    except Exception as e:
-        logger.error(f"Worker database connection failed: {e}")
-        return None, filepath, False
+
 
     max_retries = 2
     retry_count = 0
