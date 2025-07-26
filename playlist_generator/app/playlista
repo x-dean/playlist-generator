@@ -392,14 +392,14 @@ Examples:
 
     def handle_sigint(signum, frame):
         logger.info("Received SIGINT (Ctrl+C), stopping gracefully...")
-        print("\n🛑 Ctrl+C received - stopping gracefully...")
+        print("\n🛑 Process termination requested - 120 seconds grace time...")
         stop_event.set()
-
-        # Give workers 30 seconds to finish current tasks
+        
+        # Give workers 120 seconds to finish current tasks
         import time
-        timeout = 30
+        timeout = 120
         start_wait = time.time()
-
+        
         while time.time() - start_wait < timeout:
             try:
                 import psutil
@@ -414,26 +414,23 @@ Examples:
                             active_workers += 1
                     except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                         continue
-
+                
                 if active_workers == 0:
-                    print("✅ Workers finished. Exiting gracefully.")
+                    print("✅ Grace period completed - exiting.")
                     break
-
-                remaining_time = timeout - (time.time() - start_wait)
-                print(
-                    f"⏳ {active_workers} workers active... ({remaining_time:.0f}s)")
+                
                 time.sleep(1)
-
+                
             except Exception as e:
                 logger.warning(f"Error checking worker status: {e}")
                 time.sleep(1)
-
+        
         # Force cleanup if timeout reached
         if time.time() - start_wait >= timeout:
-            print("⏰ Timeout - forcing cleanup...")
+            print("⏰ Grace period expired - forcing termination...")
             from music_analyzer.analysis_manager import cleanup_child_processes
             cleanup_child_processes()
-
+        
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_sigint)
