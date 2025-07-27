@@ -356,6 +356,8 @@ Examples:
     # Run full pipeline: analyze, force, then failed
     parser.add_argument('--pipeline', action='store_true',
                         help='Run full pipeline: analyze, force, then failed')
+    
+
 
     args = parser.parse_args()
     logger.info(
@@ -602,6 +604,8 @@ Examples:
                 failed_files.extend(processor.failed_files)
                 logger.info(
                     f"Analysis phase completed. Processed {len(file_list)} files, {len(failed_files)} failed")
+
+
 
             # Generation phase
             logger.info("Starting playlist generation phase")

@@ -2011,8 +2011,12 @@ class AudioAnalyzer:
                         if tag in audio_file:
                             metadata[tag] = str(
                                 audio_file[tag][0]) if audio_file[tag] else None
+                    logger.info(f"Extracted metadata from file: {metadata}")
+                else:
+                    logger.info("No audio file metadata found")
             except Exception as e:
                 logger.debug(f"File tag extraction failed: {str(e)}")
+                logger.info(f"Could not extract metadata from file: {str(e)}")
 
             # Enrich with MusicBrainz data
             if metadata.get('artist') and metadata.get('title'):
@@ -2026,6 +2030,8 @@ class AudioAnalyzer:
                         f"MusicBrainz: found {len(mb_data)} additional fields")
                 else:
                     logger.info("MusicBrainz: no additional data found")
+            else:
+                logger.info(f"No artist/title found for enrichment. Metadata: {metadata}")
 
             # Enrich with Last.fm data
             if metadata.get('artist') and metadata.get('title'):
@@ -2039,6 +2045,8 @@ class AudioAnalyzer:
                         f"Last.fm: found {len(lfm_data)} additional fields")
                 else:
                     logger.info("Last.fm: no additional data found")
+            else:
+                logger.info(f"Skipping Last.fm enrichment - no artist/title available")
 
             features['metadata'] = metadata
             logger.info(
