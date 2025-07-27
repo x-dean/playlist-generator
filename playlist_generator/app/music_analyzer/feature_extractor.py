@@ -68,7 +68,7 @@ LEAN_FIELDS = [
     'artist', 'title', 'album', 'year', 'genre', 'tracknumber', 'discnumber',
     'composer', 'lyricist', 'arranger', 'publisher', 'label', 'isrc',
     'musicbrainz_id', 'isrc', 'mb_artist_id', 'mb_album_id',
-    'release_date', 'country', 'work', 'composer',
+    'release_date', 'country', 'work', 'composer', 'bpm',
     'genre_lastfm', 'album_lastfm', 'listeners', 'playcount', 'wiki', 'album_mbid', 'artist_mbid'
 ]
 
@@ -712,11 +712,16 @@ class AudioAnalyzer:
         # Try MusicBrainz first
         try:
             mb_data = self._musicbrainz_lookup(artist, title)
+            logger.debug(f"MusicBrainz lookup returned: {list(mb_data.keys()) if mb_data else 'None'}")
             if mb_data and 'bpm' in mb_data and mb_data['bpm']:
                 bpm = float(mb_data['bpm'])
                 if 60 <= bpm <= 200:  # Valid BPM range
                     logger.info(f"Found BPM in MusicBrainz: {bpm:.1f}")
                     return bpm
+                else:
+                    logger.debug(f"BPM from MusicBrainz ({bpm:.1f}) outside valid range (60-200)")
+            else:
+                logger.debug(f"No BPM found in MusicBrainz data: {mb_data.get('bpm', 'Not present')}")
         except Exception as e:
             logger.debug(f"MusicBrainz BPM lookup failed: {e}")
             
@@ -1562,7 +1567,7 @@ class AudioAnalyzer:
                 logger.debug(f"Error extracting genres: {e}")
                 all_mb_data['genre'] = None
 
-            # Safe work info extraction
+                        # Safe work info extraction
             try:
                 if 'work-relation-list' in rec_full and rec_full['work-relation-list'] and len(rec_full['work-relation-list']) > 0:
                     work = rec_full['work-relation-list'][0]['work']
@@ -1570,15 +1575,40 @@ class AudioAnalyzer:
                     
                     # Try to get BPM from work attributes if available
                     if 'attributes' in work:
+                        logger.debug(f"Work has {len(work['attributes'])} attributes")
                         for attr in work['attributes']:
+                            logger.debug(f"Checking attribute: {attr.get('type', 'unknown')} = {attr.get('value', 'unknown')}")
                             if attr.get('type') == 'bpm' and attr.get('value'):
                                 try:
                                     bpm = float(attr['value'])
                                     if 60 <= bpm <= 200:  # Valid BPM range
                                         all_mb_data['bpm'] = bpm
                                         logger.debug(f"Found BPM in MusicBrainz work: {bpm}")
-                                except (ValueError, TypeError):
-                                    pass
+                                    else:
+                                        logger.debug(f"BPM from work attribute ({bpm}) outside valid range")
+                                except (ValueError, TypeError) as e:
+                                    logger.debug(f"Could not convert BPM value '{attr.get('value')}': {e}")
+                    else:
+                        logger.debug("No attributes found in work")
+                    
+                    # Also check for BPM in recording attributes
+                    if 'attributes' in rec_full:
+                        logger.debug(f"Recording has {len(rec_full['attributes'])} attributes")
+                        for attr in rec_full['attributes']:
+                            logger.debug(f"Checking recording attribute: {attr.get('type', 'unknown')} = {attr.get('value', 'unknown')}")
+                            if attr.get('type') == 'bpm' and attr.get('value'):
+                                try:
+                                    bpm = float(attr['value'])
+                                    if 60 <= bpm <= 200:  # Valid BPM range
+                                        all_mb_data['bpm'] = bpm
+                                        logger.debug(f"Found BPM in MusicBrainz recording: {bpm}")
+                                    else:
+                                        logger.debug(f"BPM from recording attribute ({bpm}) outside valid range")
+                                except (ValueError, TypeError) as e:
+                                    logger.debug(f"Could not convert BPM value '{attr.get('value')}': {e}")
+                    else:
+                        logger.debug("No attributes found in recording")
+                    
                     all_mb_data['composer'] = work.get('composer')
                 else:
                     all_mb_data['work'] = None
