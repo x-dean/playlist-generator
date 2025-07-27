@@ -2,25 +2,51 @@
 
 # Script to test the playlist generator analysis pipeline with custom paths
 # Now supports multiple pipeline variants and other modules
+#
+# IMPORTANT: Make sure your docker-compose.yaml includes these volume mappings:
+#   - /tmp:/music
+#   - /tmp/playlist_cache:/app/cache
+#   - /tmp/playlist_output:/app/playlists
+#
+# Host paths:         Container paths:
+#   /tmp              -> /music
+#   /tmp/playlist_cache -> /app/cache
+#   /tmp/playlist_output -> /app/playlists
 
-echo "=== Playlist Generator: Analysis Pipeline Variants ==="
-echo ""
+HOST_LIBRARY_DIR="/tmp"                    # Host test music library
+HOST_CACHE_DIR="/tmp/playlist_cache"       # Host cache directory
+HOST_OUTPUT_DIR="/tmp/playlist_output"     # Host output directory
 
-# Set your custom paths here
-LIBRARY_DIR="/tmp"                    # Your test music library
-CACHE_DIR="/tmp/playlist_cache"       # Cache directory for analysis data
-OUTPUT_DIR="/tmp/playlist_output"     # Output directory for generated playlists
+CONTAINER_LIBRARY_DIR="/music"             # Container music library
+CONTAINER_CACHE_DIR="/app/cache"           # Container cache directory
+CONTAINER_OUTPUT_DIR="/app/playlists"      # Container output directory
 
 # Create directories if they don't exist
-mkdir -p "$CACHE_DIR"
-mkdir -p "$OUTPUT_DIR"
+mkdir -p "$HOST_CACHE_DIR"
+mkdir -p "$HOST_OUTPUT_DIR"
 
-echo "Using paths:"
-echo "  Library: $LIBRARY_DIR"
-echo "  Cache:   $CACHE_DIR"
-echo "  Output:  $OUTPUT_DIR"
+# Print mapping info
+cat <<EOF
+=== Playlist Generator: Analysis Pipeline Variants ===
+
+Host paths:
+  Library: $HOST_LIBRARY_DIR
+  Cache:   $HOST_CACHE_DIR
+  Output:  $HOST_OUTPUT_DIR
+
+Container paths (used in CLI arguments):
+  Library: $CONTAINER_LIBRARY_DIR
+  Cache:   $CONTAINER_CACHE_DIR
+  Output:  $CONTAINER_OUTPUT_DIR
+
+Make sure your docker-compose.yaml includes:
+  volumes:
+    - $HOST_LIBRARY_DIR:$CONTAINER_LIBRARY_DIR
+    - $HOST_CACHE_DIR:$CONTAINER_CACHE_DIR
+    - $HOST_OUTPUT_DIR:$CONTAINER_OUTPUT_DIR
+EOF
+
 echo ""
-
 echo "Select an operation:"
 echo "1) Standard analysis pipeline (automatic)"
 echo "2) Low memory analysis pipeline"
@@ -34,24 +60,24 @@ read -p "Enter your choice (1-6): " choice
 case $choice in
     1)
         echo "Running standard analysis pipeline..."
-        docker compose run --rm --remove-orphans playlista --analyze --library "$LIBRARY_DIR" --cache_dir "$CACHE_DIR" --output_dir "$OUTPUT_DIR" --workers 2
+        docker compose run --rm --remove-orphans playlista --analyze --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR" --workers 2
         ;;
     2)
         echo "Running low memory analysis pipeline..."
-        docker compose run --rm --remove-orphans playlista --analyze --low_memory --workers 1 --library "$LIBRARY_DIR" --cache_dir "$CACHE_DIR" --output_dir "$OUTPUT_DIR"
+        docker compose run --rm --remove-orphans playlista --analyze --low_memory --workers 1 --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR"
         ;;
     3)
         echo "[Playlist generation is for future use. Uncomment below to enable.]"
-        # docker compose run --rm --remove-orphans playlista --generate_only --library "$LIBRARY_DIR" --cache_dir "$CACHE_DIR" --output_dir "$OUTPUT_DIR"
+        # docker compose run --rm --remove-orphans playlista --generate_only --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR"
         ;;
     4)
         echo "[Show statistics is for future use. Uncomment below to enable.]"
-        # docker compose run --rm --remove-orphans playlista --status --library "$LIBRARY_DIR" --cache_dir "$CACHE_DIR"
+        # docker compose run --rm --remove-orphans playlista --status --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR"
         ;;
     5)
         echo "Enter your custom command:"
         read -p "docker compose run --rm --remove-orphans playlista " custom_cmd
-        eval "docker compose run --rm --remove-orphans playlista $custom_cmd --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
+        eval "docker compose run --rm --remove-orphans playlista $custom_cmd --library $CONTAINER_LIBRARY_DIR --cache_dir $CONTAINER_CACHE_DIR --output_dir $CONTAINER_OUTPUT_DIR"
         ;;
     6)
         echo "Exiting..."
@@ -65,9 +91,9 @@ esac
 
 echo ""
 echo "=== Operation Complete ==="
-echo "Check the cache directory for analysis data:"
-echo "   ls -la $CACHE_DIR"
-echo "Check the output directory for generated playlists:"
-echo "   ls -la $OUTPUT_DIR"
+echo "Check the cache directory for analysis data (on host):"
+echo "   ls -la $HOST_CACHE_DIR"
+echo "Check the output directory for generated playlists (on host):"
+echo "   ls -la $HOST_OUTPUT_DIR"
 echo ""
 # Playlist generation and stats can be enabled in the future as needed 
