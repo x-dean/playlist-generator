@@ -7,12 +7,14 @@
 #   - /root/music/test_files:/music
 #   - /root/music/test/cache:/app/cache
 #   - /root/music/test/logs:/app/logs
+#   - /root/music/playlista/models/musicnn:/app/feature_extraction/models/musicnn
 #   - /root/music/playlist_output:/app/playlists
 #
 # Host paths:         Container paths:
 #   /root/music/test_files      -> /music
 #   /root/music/test/cache      -> /app/cache
 #   /root/music/test/logs       -> /app/logs
+#   /root/music/playlista/models/musicnn -> /app/feature_extraction/models/musicnn
 #   /root/music/playlist_output -> /app/playlists
 #
 # All docker compose commands use: -f docker-compose.test.yaml
@@ -20,11 +22,13 @@
 HOST_LIBRARY_DIR="/root/music/test_files"            # Host test music library
 HOST_CACHE_DIR="/root/music/test/cache"              # Host cache directory
 HOST_LOGS_DIR="/root/music/test/logs"                # Host logs directory
+HOST_MODELS_DIR="/root/music/playlista/models/musicnn" # Host models directory (musicnn)
 HOST_OUTPUT_DIR="/root/music/playlist_output"        # Host output directory
 
 CONTAINER_LIBRARY_DIR="/music"             # Container music library
 CONTAINER_CACHE_DIR="/app/cache"           # Container cache directory
 CONTAINER_LOGS_DIR="/app/logs"             # Container logs directory
+CONTAINER_MODELS_DIR="/app/feature_extraction/models/musicnn"  # Container models directory (musicnn)
 CONTAINER_OUTPUT_DIR="/app/playlists"      # Container output directory
 
 COMPOSE_FILE="-f docker-compose.test.yaml"
@@ -33,6 +37,7 @@ COMPOSE_FILE="-f docker-compose.test.yaml"
 mkdir -p "$HOST_LIBRARY_DIR"
 mkdir -p "$HOST_CACHE_DIR"
 mkdir -p "$HOST_LOGS_DIR"
+mkdir -p "$HOST_MODELS_DIR"
 mkdir -p "$HOST_OUTPUT_DIR"
 
 # Print mapping info
@@ -43,12 +48,14 @@ Host paths:
   Library: $HOST_LIBRARY_DIR
   Cache:   $HOST_CACHE_DIR
   Logs:    $HOST_LOGS_DIR
+  Models:  $HOST_MODELS_DIR
   Output:  $HOST_OUTPUT_DIR
 
 Container paths (used in CLI arguments):
   Library: $CONTAINER_LIBRARY_DIR
   Cache:   $CONTAINER_CACHE_DIR
   Logs:    $CONTAINER_LOGS_DIR
+  Models:  $CONTAINER_MODELS_DIR
   Output:  $CONTAINER_OUTPUT_DIR
 
 Docker Compose file: docker-compose.test.yaml
@@ -56,6 +63,7 @@ Docker Compose file: docker-compose.test.yaml
     - $HOST_LIBRARY_DIR:$CONTAINER_LIBRARY_DIR
     - $HOST_CACHE_DIR:$CONTAINER_CACHE_DIR
     - $HOST_LOGS_DIR:$CONTAINER_LOGS_DIR
+    - $HOST_MODELS_DIR:$CONTAINER_MODELS_DIR
     - $HOST_OUTPUT_DIR:$CONTAINER_OUTPUT_DIR
 EOF
 
@@ -108,6 +116,8 @@ echo "Check the cache directory for analysis data (on host):"
 echo "   ls -la $HOST_CACHE_DIR"
 echo "Check the logs directory for log files (on host):"
 echo "   ls -la $HOST_LOGS_DIR"
+echo "Check the models directory for model files (on host):"
+echo "   ls -la $HOST_MODELS_DIR"
 echo "Check the output directory for generated playlists (on host):"
 echo "   ls -la $HOST_OUTPUT_DIR"
 echo ""

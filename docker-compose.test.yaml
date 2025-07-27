@@ -9,6 +9,7 @@ services:
       - /root/music/test_files:/music
       - /root/music/test/cache:/app/cache
       - /root/music/test/logs:/app/logs
+      - /root/music/playlista/models/musicnn:/app/feature_extraction/models/musicnn
       - /root/music/playlist_output:/app/playlists
     # Optional: set working directory if needed
     # working_dir: /app
