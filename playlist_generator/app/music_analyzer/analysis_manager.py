@@ -373,19 +373,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             def timeout_monitor():
                 """Monitor for stuck processes and memory issues."""
                 while True:
-                    # Check for interrupt every 5 seconds instead of 30
-                    for _ in range(6):  # 6 * 5 = 30 seconds
-                        time.sleep(5)
-                        # Check for interrupt
-                        try:
-                            import signal
-                            # This will raise KeyboardInterrupt if Ctrl+C was pressed
-                            signal.signal(signal.SIGINT, signal.default_int_handler)
-                        except KeyboardInterrupt:
-                            logger.warning("Interrupt received in timeout monitor")
-                            print("\n🛑 Interrupt received! Stopping analysis...")
-                            return  # Exit the monitor
-                    
+                    time.sleep(30)  # Check every 30 seconds
                     current_time = time.time()
                     
                     # Check for stuck processes - only warn if no progress for 20 minutes
@@ -444,16 +432,16 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 processed_count += 1
                 filename = os.path.basename(filepath)
                 
-                # Check for interrupt AFTER processing the current file
-                # This allows the current file to complete but stops the next one
+                # Check for interrupt using global flag
                 try:
-                    import signal
-                    # This will raise KeyboardInterrupt if Ctrl+C was pressed
-                    signal.signal(signal.SIGINT, signal.default_int_handler)
-                except KeyboardInterrupt:
-                    logger.warning("Interrupt received after completing file")
-                    print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
-                    return failed_files
+                    from playlista import is_interrupt_requested
+                    if is_interrupt_requested():
+                        logger.warning("Interrupt received after completing file")
+                        print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
+                        return failed_files
+                except ImportError:
+                    # If we can't import the function, continue normally
+                    pass
                 
                 # Calculate individual file processing time
                 if isinstance(file_start_times, dict) and filepath in file_start_times:
@@ -510,17 +498,16 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 processed_count += 1
                 filename = os.path.basename(filepath)
                 
-                # Check for interrupt AFTER processing the current file
-                # This allows the current file to complete but stops the next one
+                # Check for interrupt using global flag
                 try:
-                    import signal
-                    # This will raise KeyboardInterrupt if Ctrl+C was pressed
-                    signal.signal(signal.SIGINT, signal.default_int_handler)
-                except KeyboardInterrupt:
-                    logger.warning("Interrupt received after completing file")
-                    print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
-                    return failed_files
-                filename = os.path.basename(filepath)
+                    from playlista import is_interrupt_requested
+                    if is_interrupt_requested():
+                        logger.warning("Interrupt received after completing file")
+                        print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
+                        return failed_files
+                except ImportError:
+                    # If we can't import the function, continue normally
+                    pass
 
                 # Get status dot for result
                 status_dot = _get_status_dot(features, db_write_success)

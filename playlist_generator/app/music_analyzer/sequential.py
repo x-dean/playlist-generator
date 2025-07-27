@@ -235,17 +235,8 @@ class LargeFileProcessor:
             if result and result[0] and result[1]:
                 logger.info(f"Large file processing completed: {os.path.basename(audio_path)}")
             
-            # Check for interrupt AFTER processing the current file
+            # Note: Interrupt checking is handled in the main analysis loop
             # This allows the current file to complete but stops the next one
-            try:
-                import signal
-                # This will raise KeyboardInterrupt if Ctrl+C was pressed
-                signal.signal(signal.SIGINT, signal.default_int_handler)
-            except KeyboardInterrupt:
-                logger.warning("Interrupt received after completing large file")
-                print(f"\n🛑 Interrupt received! Completed {os.path.basename(audio_path)}, stopping processing...")
-                # Return the current result but signal to stop processing more files
-                return result
             
             return result
         except Exception as e:
@@ -353,16 +344,8 @@ class SequentialProcessor:
                 logger.error(f"Error processing {filepath}: {str(e)}")
                 yield None, filepath, False
             
-            # Check for interrupt AFTER processing the current file
+            # Note: Interrupt checking is handled in the main analysis loop
             # This allows the current file to complete but stops the next one
-            try:
-                import signal
-                # This will raise KeyboardInterrupt if Ctrl+C was pressed
-                signal.signal(signal.SIGINT, signal.default_int_handler)
-            except KeyboardInterrupt:
-                logger.warning("Interrupt received after completing file")
-                print(f"\n🛑 Interrupt received! Completed {os.path.basename(filepath)}, stopping sequential processing...")
-                return  # Exit the generator
             
             # Force cleanup after each file to prevent memory buildup
             gc.collect()
