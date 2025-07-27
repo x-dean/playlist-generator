@@ -58,157 +58,10 @@ try:
     import tensorflow as tf
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     tf.get_logger().setLevel('ERROR')
-    
-    # Configure TensorFlow to use a single session and prevent network warnings
-    tf.compat.v1.disable_eager_execution()
-    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-    
-    # Set memory growth to prevent GPU memory issues
-    gpus = tf.config.experimental.list_physical_devices('GPU')
-    if gpus:
-        try:
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, True)
-        except RuntimeError as e:
-            logger.debug(f"GPU memory growth setting failed: {e}")
-            
 except ImportError:
     pass
 
 logger = logging.getLogger(__name__)
-
-# Global cache for MusiCNN models to avoid repeated loading
-_musicnn_models_cache = {
-    'model': None,
-    'emb_model': None,
-    'metadata': None,
-    'tag_names': [],
-    'output_layer': 'model/dense_1/BiasAdd',
-    'loaded': False,
-    'process_id': None  # Track which process loaded the models
-}
-
-def _load_musicnn_models_global():
-    """Load MusiCNN models globally once and cache them for all instances."""
-    global _musicnn_models_cache
-    import os
-    
-    current_pid = os.getpid()
-    
-    # If already loaded in this process, return cached models
-    if _musicnn_models_cache['loaded'] and _musicnn_models_cache['process_id'] == current_pid:
-        return _musicnn_models_cache
-    
-    # If loaded in a different process, reset cache
-    if _musicnn_models_cache['loaded'] and _musicnn_models_cache['process_id'] != current_pid:
-        logger.debug(f"MusiCNN models were loaded in process {_musicnn_models_cache['process_id']}, "
-                    f"but we're in process {current_pid}. Resetting cache.")
-        _musicnn_models_cache = {
-            'model': None,
-            'emb_model': None,
-            'metadata': None,
-            'tag_names': [],
-            'output_layer': 'model/dense_1/BiasAdd',
-            'loaded': False,
-            'process_id': None
-        }
-    
-    try:
-        import essentia.standard as es
-        import json
-        
-        model_path = os.getenv(
-            'MUSICNN_MODEL_PATH',
-            '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
-        )
-        json_path = os.getenv(
-            'MUSICNN_JSON_PATH',
-            '/app/feature_extraction/models/musicnn/msd-musicnn-1.json'
-        )
-
-        logger.debug(f"Global pre-loading MusiCNN model from: {model_path} (PID: {current_pid})")
-        logger.debug(f"Global pre-loading MusiCNN JSON from: {json_path}")
-
-        # Check if files exist
-        if not os.path.exists(model_path):
-            logger.warning(f"MusiCNN model not found at {model_path}")
-            return _musicnn_models_cache
-        if not os.path.exists(json_path):
-            logger.warning(f"MusiCNN JSON metadata not found at {json_path}")
-            return _musicnn_models_cache
-
-        # Load JSON metadata once
-        logger.debug("Loading MusiCNN tag names from JSON metadata")
-        with open(json_path, 'r') as json_file:
-            _musicnn_models_cache['metadata'] = json.load(json_file)
-        _musicnn_models_cache['tag_names'] = _musicnn_models_cache['metadata'].get('classes', [])
-        logger.debug(f"Loaded {len(_musicnn_models_cache['tag_names'])} tag names from MusiCNN metadata")
-
-        # Determine output layer for embeddings
-        if 'schema' in _musicnn_models_cache['metadata'] and 'outputs' in _musicnn_models_cache['metadata']['schema']:
-            logger.debug("Searching for embeddings output layer in schema")
-            for output in _musicnn_models_cache['metadata']['schema']['outputs']:
-                if 'description' in output and output['description'] == 'embeddings':
-                    _musicnn_models_cache['output_layer'] = output['name']
-                    logger.debug(f"Found embeddings output layer: {_musicnn_models_cache['output_layer']}")
-                    break
-
-        # Pre-load the model for activations (auto-tagging)
-        logger.debug("Pre-loading MusiCNN model for activations")
-        _musicnn_models_cache['model'] = es.TensorflowPredictMusiCNN(graphFilename=model_path)
-        
-        # Pre-load the model for embeddings
-        logger.debug(f"Pre-loading MusiCNN model for embeddings using output layer: {_musicnn_models_cache['output_layer']}")
-        _musicnn_models_cache['emb_model'] = es.TensorflowPredictMusiCNN(
-            graphFilename=model_path, output=_musicnn_models_cache['output_layer'])
-        
-        _musicnn_models_cache['loaded'] = True
-        _musicnn_models_cache['process_id'] = current_pid
-        logger.info(f"MusiCNN resources pre-loaded globally successfully (PID: {current_pid})")
-        
-    except Exception as e:
-        logger.warning(f"Failed to pre-load MusiCNN resources globally: {str(e)}")
-        logger.warning(f"Exception type: {type(e).__name__}")
-        import traceback
-        logger.warning(f"Full traceback: {traceback.format_exc()}")
-        # Reset to None to indicate failure
-        _musicnn_models_cache['model'] = None
-        _musicnn_models_cache['emb_model'] = None
-        _musicnn_models_cache['metadata'] = None
-        _musicnn_models_cache['tag_names'] = []
-        _musicnn_models_cache['loaded'] = False
-        _musicnn_models_cache['process_id'] = None
-    
-    return _musicnn_models_cache
-
-def _cleanup_musicnn_models():
-    """Clean up MusiCNN models to prevent TensorFlow warnings."""
-    global _musicnn_models_cache
-    
-    try:
-        if _musicnn_models_cache['model'] is not None:
-            # Clear TensorFlow model references
-            _musicnn_models_cache['model'] = None
-            _musicnn_models_cache['emb_model'] = None
-            _musicnn_models_cache['loaded'] = False
-            _musicnn_models_cache['process_id'] = None
-            
-            # Try to clear TensorFlow session if available
-            try:
-                import tensorflow as tf
-                if hasattr(tf, 'keras') and hasattr(tf.keras, 'backend'):
-                    tf.keras.backend.clear_session()
-                    logger.debug("Cleared TensorFlow Keras session")
-            except Exception as e:
-                logger.debug(f"Could not clear TensorFlow session: {e}")
-            
-            logger.debug("Cleaned up MusiCNN model references")
-    except Exception as e:
-        logger.debug(f"Error during MusiCNN model cleanup: {e}")
-
-# Register cleanup function to be called on process exit
-import atexit
-atexit.register(_cleanup_musicnn_models)
 
 # Lean metadata fields for playlisting
 LEAN_FIELDS = [
@@ -468,80 +321,81 @@ class AudioAnalyzer:
     VERSION = "4.20.0"
 
     def __init__(self, cache_file: str = None, library: str = None, music: str = None) -> None:
-        """Initialize the AudioAnalyzer with database and model resources."""
+        """Initialize the AudioAnalyzer.
+
+        Args:
+            cache_file (str, optional): Path to the cache database file. Defaults to None.
+            library (str, optional): Music library directory for path normalization.
+            music (str, optional): Container music directory for path normalization.
+        """
         logger.info(f"Initializing AudioAnalyzer version {self.VERSION}")
         self.timeout_seconds = 120
         cache_dir = os.getenv('CACHE_DIR', '/app/cache')
         self.cache_file = cache_file or os.path.join(
             cache_dir, 'audio_analysis.db')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-        
-        # Initialize database connection
-        self.conn = None
         self._init_db()
         self.cleanup_database()  # Clean up immediately on init
-        
         # Set MusicBrainz user agent
         musicbrainzngs.set_useragent(
             "PlaylistGenerator", "1.0", "noreply@example.com")
         self.library = library
         self.music = music
-        
-        # Pre-load MusiCNN model and metadata for efficiency
-        self._load_musicnn_resources()
-        
-        logger.info(f"AudioAnalyzer v{self.VERSION} initialized")
-        logger.debug(f"Cache file: {self.cache_file}")
-        logger.debug(f"Library path: {self.library}")
-        logger.debug(f"Music path: {self.music}")
+        # Load TensorFlow models
+        # self.vggish_model = self._load_vggish_model() # Removed VGGish model loading
 
-    def _load_musicnn_resources(self):
-        """Load MusiCNN model and JSON metadata from global cache to avoid repeated loading."""
-        # Use global cache to share models across all instances
-        global_cache = _load_musicnn_models_global()
-        
-        # Reference the globally cached models
-        self.musicnn_model = global_cache['model']
-        self.musicnn_emb_model = global_cache['emb_model']
-        self.musicnn_metadata = global_cache['metadata']
-        self.musicnn_tag_names = global_cache['tag_names']
-        self.musicnn_output_layer = global_cache['output_layer']
-        
-        if global_cache['loaded']:
-            logger.debug("MusiCNN resources loaded from global cache")
-        else:
-            logger.warning("MusiCNN resources not available in global cache")
-    
-    def cleanup(self):
-        """Clean up resources when AudioAnalyzer is no longer needed."""
-        try:
-            # Clean up database connection
-            if hasattr(self, 'conn') and self.conn:
-                self.conn.close()
-                logger.debug("Closed database connection")
-        except Exception as e:
-            logger.debug(f"Error during AudioAnalyzer cleanup: {e}")
-    
-    def __del__(self):
-        """Destructor to ensure cleanup when object is garbage collected."""
-        try:
-            self.cleanup()
-        except:
-            pass  # Ignore errors during cleanup
+    # Removed _load_vggish_model
+
+    # Removed _audio_to_mel_spectrogram
 
     def _extract_musicnn_embedding(self, audio_path):
-        """Extract MusiCNN embedding and auto-tags using pre-loaded model and metadata."""
+        """Extract MusiCNN embedding and auto-tags using Essentia's TensorflowPredictMusiCNN and MonoLoader, matching the official tutorial."""
         logger.debug(
             f"Starting MusiCNN embedding extraction for {os.path.basename(audio_path)}")
-        
-        # Check if pre-loaded resources are available
-        if self.musicnn_model is None or self.musicnn_emb_model is None:
-            logger.warning("MusiCNN models not available, skipping extraction")
-            return None
-            
         try:
             import essentia.standard as es
             import numpy as np
+            import json
+
+            model_path = os.getenv(
+                'MUSICNN_MODEL_PATH',
+                '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
+            )
+            json_path = os.getenv(
+                'MUSICNN_JSON_PATH',
+                '/app/feature_extraction/models/musicnn/msd-musicnn-1.json'
+            )
+
+            logger.debug(f"MusiCNN model path: {model_path}")
+            logger.debug(f"MusiCNN JSON metadata path: {json_path}")
+
+            if not os.path.exists(model_path):
+                logger.warning(f"MusiCNN model not found at {model_path}")
+                return None
+            if not os.path.exists(json_path):
+                logger.warning(
+                    f"MusiCNN JSON metadata not found at {json_path}")
+                return None
+
+            logger.debug("Loading MusiCNN tag names from JSON metadata")
+            # Load tag names from JSON
+            with open(json_path, 'r') as json_file:
+                metadata = json.load(json_file)
+            tag_names = metadata.get('classes', [])
+            logger.debug(
+                f"Loaded {len(tag_names)} tag names from MusiCNN metadata")
+
+            # Get output layer for embeddings
+            output_layer = 'model/dense_1/BiasAdd'
+            logger.debug(f"Default MusiCNN output layer: {output_layer}")
+            if 'schema' in metadata and 'outputs' in metadata['schema']:
+                logger.debug("Searching for embeddings output layer in schema")
+                for output in metadata['schema']['outputs']:
+                    if 'description' in output and output['description'] == 'embeddings':
+                        output_layer = output['name']
+                        logger.debug(
+                            f"Found embeddings output layer: {output_layer}")
+                        break
 
             logger.debug("Loading audio using Essentia MonoLoader at 16kHz")
             # Load audio using MonoLoader at 16kHz (tutorial pattern)
@@ -549,23 +403,28 @@ class AudioAnalyzer:
             logger.debug(
                 f"Loaded audio: {len(audio)} samples at 16kHz ({len(audio)/16000:.2f}s)")
 
-            logger.debug("Running MusiCNN activations analysis using pre-loaded model")
-            # Run MusiCNN for activations (auto-tagging) using pre-loaded model
-            activations = self.musicnn_model(audio)  # shape: [time, tags]
+            logger.debug("Initializing MusiCNN for activations (auto-tagging)")
+            # Run MusiCNN for activations (auto-tagging)
+            musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
+            logger.debug("Running MusiCNN activations analysis")
+            activations = musicnn(audio)  # shape: [time, tags]
             logger.debug(f"MusiCNN activations shape: {activations.shape}")
 
             tag_probs = activations.mean(axis=0)
             logger.debug(
                 f"Calculated tag probabilities: {len(tag_probs)} tags")
             # Convert NumPy types to Python native types for JSON serialization
-            tags = dict(zip(self.musicnn_tag_names, [float(prob) for prob in tag_probs]))
+            tags = dict(zip(tag_names, [float(prob) for prob in tag_probs]))
             logger.debug(
                 f"Top 5 predicted tags: {sorted(tags.items(), key=lambda x: x[1], reverse=True)[:5]}")
 
             logger.debug(
-                f"Running MusiCNN embeddings analysis using pre-loaded model with output layer: {self.musicnn_output_layer}")
-            # Run MusiCNN for embeddings using pre-loaded model
-            embeddings = self.musicnn_emb_model(audio)
+                f"Initializing MusiCNN for embeddings using output layer: {output_layer}")
+            # Run MusiCNN for embeddings (using correct output layer)
+            musicnn_emb = es.TensorflowPredictMusiCNN(
+                graphFilename=model_path, output=output_layer)
+            logger.debug("Running MusiCNN embeddings analysis")
+            embeddings = musicnn_emb(audio)
             logger.debug(f"MusiCNN embeddings shape: {embeddings.shape}")
 
             embedding = np.mean(embeddings, axis=0)
