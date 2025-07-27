@@ -45,8 +45,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
         Optional[tuple]: (features dict, filepath, db_write_success bool) or None on failure.
     """
     import essentia
-    essentia.log.infoActive = False
-    essentia.log.warningActive = False
+    # Essentia logging is now handled in main playlista script
 
     import os
     import traceback

@@ -67,7 +67,18 @@ import tensorflow as tf
 tf_logger = tf.get_logger()
 tf_logger.handlers = []  # Remove default handlers
 tf_logger.addHandler(logging.FileHandler(log_file))  # Add file handler
-tf_logger.setLevel('INFO')  # Keep all TensorFlow messages
+
+# Redirect Essentia logs to log file (keep audio processing info for debugging)
+import essentia
+essentia.log.infoActive = True
+essentia.log.warningActive = True
+essentia.log.errorActive = True
+
+# Redirect Essentia output to log file
+essentia_logger = logging.getLogger('essentia')
+essentia_logger.handlers = []  # Remove default handlers
+essentia_logger.addHandler(logging.FileHandler(log_file))  # Add file handler
+essentia_logger.setLevel(logging.INFO)
 
 # Setup runtime log level control
 setup_log_level_signal_handler_direct()
@@ -80,10 +91,6 @@ logger.info("=" * 80)
 logger.info(
     f"PLAYLISTA SESSION STARTED - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 logger.info("=" * 80)
-
-essentia.log.infoActive = False
-essentia.log.warningActive = False
-essentia.log.errorActive = False
 
 # Logging is already set up above with setup_colored_file_logging(log_file)
 

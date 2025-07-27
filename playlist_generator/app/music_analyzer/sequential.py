@@ -34,8 +34,7 @@ class SequentialProcessor:
     def _process_sequential(self, file_list: List[str], force_reextract: bool = False) -> iter:
         """Internal generator for sequential processing."""
         import essentia
-        essentia.log.infoActive = False
-        essentia.log.warningActive = False
+        # Essentia logging is now handled in main playlista script
 
         for i, filepath in enumerate(file_list):
             try:
