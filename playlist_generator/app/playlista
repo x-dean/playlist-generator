@@ -399,10 +399,9 @@ Examples:
 
     args = parser.parse_args()
     
-    # Set environment variables
+    # Set basic environment variables
     os.environ['LARGE_FILE_THRESHOLD'] = str(args.large_file_threshold)
     os.environ['MEMORY_AWARE'] = str(args.memory_aware).lower()
-    os.environ['CACHE_FILE'] = cache_file
     os.environ['HOST_LIBRARY_PATH'] = args.library
     os.environ['MUSIC_PATH'] = '/music'
     
@@ -412,6 +411,9 @@ Examples:
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')
     logger.debug(f"Using cache file: {cache_file}")
+    
+    # Set cache file environment variable after it's defined
+    os.environ['CACHE_FILE'] = cache_file
 
     console = Console()
     console.print(f"[bold magenta]{banner}[/bold magenta]")
