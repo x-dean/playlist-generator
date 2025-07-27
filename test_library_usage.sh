@@ -4,20 +4,20 @@
 # Now supports multiple pipeline variants and other modules
 #
 # IMPORTANT: This script uses docker-compose.test.yaml for test volume mappings:
-#   - /tmp:/music
-#   - /tmp/playlist_cache:/app/cache
-#   - /tmp/playlist_output:/app/playlists
+#   - /root/music/test_files:/music
+#   - /root/music/playlist_cache:/app/cache
+#   - /root/music/playlist_output:/app/playlists
 #
 # Host paths:         Container paths:
-#   /tmp              -> /music
-#   /tmp/playlist_cache -> /app/cache
-#   /tmp/playlist_output -> /app/playlists
+#   /root/music/test_files      -> /music
+#   /root/music/playlist_cache  -> /app/cache
+#   /root/music/playlist_output -> /app/playlists
 #
 # All docker compose commands use: -f docker-compose.test.yaml
 
-HOST_LIBRARY_DIR="/tmp"                    # Host test music library
-HOST_CACHE_DIR="/tmp/playlist_cache"       # Host cache directory
-HOST_OUTPUT_DIR="/tmp/playlist_output"     # Host output directory
+HOST_LIBRARY_DIR="/root/music/test_files"            # Host test music library
+HOST_CACHE_DIR="/root/music/playlist_cache"          # Host cache directory
+HOST_OUTPUT_DIR="/root/music/playlist_output"        # Host output directory
 
 CONTAINER_LIBRARY_DIR="/music"             # Container music library
 CONTAINER_CACHE_DIR="/app/cache"           # Container cache directory
@@ -26,6 +26,7 @@ CONTAINER_OUTPUT_DIR="/app/playlists"      # Container output directory
 COMPOSE_FILE="-f docker-compose.test.yaml"
 
 # Create directories if they don't exist
+mkdir -p "$HOST_LIBRARY_DIR"
 mkdir -p "$HOST_CACHE_DIR"
 mkdir -p "$HOST_OUTPUT_DIR"
 

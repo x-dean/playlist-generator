@@ -6,9 +6,9 @@ services:
     build: .
     container_name: playlista_test
     volumes:
-      - /tmp:/music
-      - /tmp/playlist_cache:/app/cache
-      - /tmp/playlist_output:/app/playlists
+      - /root/music/test_files:/music
+      - /root/music/playlist_cache:/app/cache
+      - /root/music/playlist_output:/app/playlists
     # Optional: set working directory if needed
     # working_dir: /app
     # Optional: environment variables
