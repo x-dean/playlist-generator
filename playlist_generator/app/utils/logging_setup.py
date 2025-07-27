@@ -124,7 +124,7 @@ def setup_log_level_signal_handler_direct():
     print("   SIGUSR1 -> DEBUG")
     print("   SIGUSR2 -> INFO") 
     print("   SIGTERM -> WARNING")
-    print("   Example: docker compose exec playlista kill -SIGUSR1 1")
+    print("   Example: docker compose exec playlista bash -c 'kill -SIGUSR1 1'")
 
 
 def setup_colored_file_logging(logfile_path=None):
