@@ -4,25 +4,10 @@ Main entry point for the playlist generator application.
 """
 
 import os
+import logging
 
 # Control TensorFlow C++ backend logging (must be set before import)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '0'  # Show all messages (INFO, WARNING, ERROR)
-
-# Setup TensorFlow and Essentia logging BEFORE any imports
-import tensorflow as tf
-import essentia
-
-# Redirect TensorFlow Python output to log file
-tf_logger = tf.get_logger()
-tf_logger.handlers = []  # Remove default handlers
-
-# Redirect Essentia logs to log file
-essentia.log.infoActive = True
-essentia.log.warningActive = True
-essentia.log.errorActive = True
-
-essentia_logger = logging.getLogger('essentia')
-essentia_logger.handlers = []  # Remove default handlers
 
 # Now import everything else
 from music_analyzer.analysis_manager import run_analysis, run_pipeline
@@ -55,7 +40,6 @@ import essentia
 import logging
 from utils.logging_setup import setup_colored_file_logging
 import sys
-import os
 import argparse
 from datetime import datetime
 
@@ -81,8 +65,21 @@ log_file = os.path.join(log_dir, f'playlista_{date_str}.log')
 # Setup colored logging to file only
 setup_colored_file_logging(log_file)
 
-# Add file handlers for TensorFlow and Essentia
+# Setup TensorFlow and Essentia logging AFTER log file is created
+import tensorflow as tf
+
+# Redirect TensorFlow Python output to log file
+tf_logger = tf.get_logger()
+tf_logger.handlers = []  # Remove default handlers
 tf_logger.addHandler(logging.FileHandler(log_file))
+
+# Redirect Essentia logs to log file
+essentia.log.infoActive = True
+essentia.log.warningActive = True
+essentia.log.errorActive = True
+
+essentia_logger = logging.getLogger('essentia')
+essentia_logger.handlers = []  # Remove default handlers
 essentia_logger.addHandler(logging.FileHandler(log_file))
 
 # Make both TensorFlow and Essentia respect the LOG_LEVEL environment variable
