@@ -358,6 +358,8 @@ Examples:
                         help='Enable low memory mode (reduces workers and batch size)')
     parser.add_argument('--large_file_threshold', type=int, default=50,
                         help='File size threshold in MB for separate process handling (default: 50MB)')
+    parser.add_argument('--memory_aware', action='store_true',
+                        help='Enable memory-aware processing (skip memory-intensive features when memory is low)')
 
     # Analyze files (default mode)
     parser.add_argument('-a', '--analyze', action='store_true',
@@ -397,11 +399,12 @@ Examples:
 
     args = parser.parse_args()
     
-    # Set environment variable for large file threshold
+    # Set environment variables
     os.environ['LARGE_FILE_THRESHOLD'] = str(args.large_file_threshold)
+    os.environ['MEMORY_AWARE'] = str(args.memory_aware).lower()
     
     logger.info(
-        f"Parsed arguments: analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}, failed={args.failed}, force={args.force}, playlist_method={args.playlist_method}, workers={args.workers}, large_file_threshold={args.large_file_threshold}MB")
+        f"Parsed arguments: analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}, failed={args.failed}, force={args.force}, playlist_method={args.playlist_method}, workers={args.workers}, large_file_threshold={args.large_file_threshold}MB, memory_aware={args.memory_aware}")
 
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')

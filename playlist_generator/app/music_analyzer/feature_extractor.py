@@ -1780,9 +1780,19 @@ class AudioAnalyzer:
         try:
             import psutil
             memory_info = psutil.virtual_memory()
-            logger.debug(f"Memory usage at start of feature extraction: {memory_info.used / (1024**3):.1f}GB used, {memory_info.available / (1024**3):.1f}GB available")
+            memory_percent = memory_info.percent
+            used_gb = memory_info.used / (1024**3)
+            available_gb = memory_info.available / (1024**3)
+            logger.debug(f"Memory usage at start of feature extraction: {memory_percent:.1f}% ({used_gb:.1f}GB used, {available_gb:.1f}GB available)")
+            
+            # Check if memory is critical (only if memory-aware processing is enabled)
+            memory_aware = os.getenv('MEMORY_AWARE', 'false').lower() == 'true'
+            is_memory_critical = memory_aware and memory_percent > 85
+            if is_memory_critical:
+                logger.warning(f"Memory usage critical ({memory_percent:.1f}%), will skip memory-intensive features")
         except Exception as e:
             logger.debug(f"Could not get memory info: {e}")
+            is_memory_critical = False
 
         # Input validation
         if audio is None:
@@ -1913,9 +1923,12 @@ class AudioAnalyzer:
             logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
             features['zcr'] = 0.0
 
-        # Extract MFCC (skip for extremely large files to avoid memory issues)
-        if is_extremely_large or is_too_large_for_mfcc:
-            logger.info("Skipping MFCC extraction for extremely large file to avoid memory issues")
+        # Extract MFCC (skip for extremely large files or when memory is critical)
+        if is_extremely_large or is_too_large_for_mfcc or is_memory_critical:
+            if is_memory_critical:
+                logger.info("Skipping MFCC extraction due to critical memory usage")
+            else:
+                logger.info("Skipping MFCC extraction for extremely large file to avoid memory issues")
             features['mfcc'] = [0.0] * 13
         else:
             try:
@@ -1929,8 +1942,8 @@ class AudioAnalyzer:
                 logger.warning(f"MFCC extraction failed: {str(e)}")
                 features['mfcc'] = [0.0] * 13
 
-        # For extremely large files, skip some features to avoid timeouts
-        if not is_extremely_large:
+        # For extremely large files or when memory is critical, skip some features to avoid timeouts/memory issues
+        if not is_extremely_large and not is_memory_critical:
             # Extract chroma
             try:
                 chroma_result = self._extract_chroma(audio)
@@ -1972,9 +1985,11 @@ class AudioAnalyzer:
                 logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
                 features['spectral_rolloff'] = 0.0
         else:
-            # For extremely large files, use default values for skipped features
-            logger.info(
-                "Skipping chroma, spectral contrast, flatness, and rolloff for extremely large file")
+            # For extremely large files or when memory is critical, use default values for skipped features
+            if is_memory_critical:
+                logger.info("Skipping chroma, spectral contrast, flatness, and rolloff due to critical memory usage")
+            else:
+                logger.info("Skipping chroma, spectral contrast, flatness, and rolloff for extremely large file")
             features['chroma'] = [0.0] * 12
             features['spectral_contrast'] = 0.0
             features['spectral_flatness'] = 0.0

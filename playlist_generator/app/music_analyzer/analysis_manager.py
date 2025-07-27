@@ -364,21 +364,44 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             last_update_time = start_time
             file_start_times = {}  # Track individual file processing times
 
-            # Add timeout monitoring for large files
+            # Add timeout and memory monitoring for large files
             def timeout_monitor():
-                """Monitor for stuck processes and log warnings."""
+                """Monitor for stuck processes and memory issues."""
                 while True:
-                    time.sleep(60)  # Check every minute
+                    time.sleep(30)  # Check every 30 seconds
                     current_time = time.time()
+                    
+                    # Check for stuck processes
                     if current_time - last_update_time > 300:  # 5 minutes without update
                         logger.warning("SEQUENTIAL: No progress for 5 minutes - large file may be stuck")
-                        # Log memory usage
-                        try:
-                            import psutil
+                    
+                    # Check memory usage
+                    try:
+                        import psutil
+                        memory_info = psutil.virtual_memory()
+                        memory_percent = memory_info.percent
+                        used_gb = memory_info.used / (1024**3)
+                        available_gb = memory_info.available / (1024**3)
+                        
+                        logger.info(f"Memory usage: {memory_percent:.1f}% ({used_gb:.1f}GB used, {available_gb:.1f}GB available)")
+                        
+                        # If memory is critical (>90%), force cleanup
+                        if memory_percent > 90:
+                            logger.error(f"CRITICAL: Memory usage at {memory_percent:.1f}% - forcing cleanup")
+                            import gc
+                            gc.collect()
+                            time.sleep(2)  # Give time for cleanup
+                            
+                            # Check again after cleanup
                             memory_info = psutil.virtual_memory()
-                            logger.warning(f"Memory usage: {memory_info.used / (1024**3):.1f}GB used, {memory_info.available / (1024**3):.1f}GB available")
-                        except:
-                            pass
+                            memory_percent = memory_info.percent
+                            logger.info(f"Memory after cleanup: {memory_percent:.1f}%")
+                            
+                            # If still critical, log warning
+                            if memory_percent > 95:
+                                logger.error(f"CRITICAL: Memory still at {memory_percent:.1f}% after cleanup")
+                    except Exception as e:
+                        logger.debug(f"Could not check memory: {e}")
 
             # Start timeout monitor in background
             timeout_thread = threading.Thread(target=timeout_monitor, daemon=True)

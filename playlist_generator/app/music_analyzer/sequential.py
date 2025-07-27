@@ -12,15 +12,48 @@ import signal
 import psutil
 import threading
 from concurrent.futures import ProcessPoolExecutor, TimeoutError as FutureTimeoutError
+import gc
 
 logger = logging.getLogger(__name__)
 
 
-class LargeFileProcessor:
-    """Handles large files in a separate process with timeout and progress monitoring."""
+class MemoryMonitor:
+    """Monitor system memory and trigger cleanup when needed."""
     
-    def __init__(self, timeout_seconds: int = 600):
+    def __init__(self, memory_threshold_percent=85):
+        self.memory_threshold_percent = memory_threshold_percent
+        self._stop_monitoring = threading.Event()
+    
+    def get_memory_usage(self):
+        """Get current memory usage percentage."""
+        try:
+            memory = psutil.virtual_memory()
+            return memory.percent, memory.used / (1024**3), memory.available / (1024**3)
+        except:
+            return 0, 0, 0
+    
+    def is_memory_critical(self):
+        """Check if memory usage is critical."""
+        usage_percent, used_gb, available_gb = self.get_memory_usage()
+        return usage_percent > self.memory_threshold_percent
+    
+    def force_cleanup(self):
+        """Force garbage collection and memory cleanup."""
+        logger.warning("Memory usage critical, forcing cleanup...")
+        gc.collect()
+        time.sleep(1)  # Give system time to free memory
+        
+        # Log memory after cleanup
+        usage_percent, used_gb, available_gb = self.get_memory_usage()
+        logger.info(f"Memory after cleanup: {usage_percent:.1f}% ({used_gb:.1f}GB used, {available_gb:.1f}GB available)")
+
+
+class LargeFileProcessor:
+    """Handles large files in a separate process with timeout and memory monitoring."""
+    
+    def __init__(self, timeout_seconds: int = 600, memory_threshold_percent: int = 85):
         self.timeout_seconds = timeout_seconds
+        self.memory_monitor = MemoryMonitor(memory_threshold_percent)
         self._stop_processing = threading.Event()
     
     def _extract_features_in_process(self, audio_path: str, force_reextract: bool = False) -> tuple:
@@ -34,12 +67,35 @@ class LargeFileProcessor:
             logger.error(f"Process extraction failed for {audio_path}: {str(e)}")
             return None, False, None
     
+    def _monitor_memory_and_kill_if_needed(self, process, timeout):
+        """Monitor memory usage and kill process if memory is exhausted."""
+        start_time = time.time()
+        while process.is_alive() and (time.time() - start_time) < timeout:
+            if self.memory_monitor.is_memory_critical():
+                logger.error(f"Memory usage critical during large file processing, terminating process")
+                try:
+                    process.terminate()
+                    process.wait(timeout=10)  # Wait for termination
+                except:
+                    process.kill()  # Force kill if terminate fails
+                return False
+            time.sleep(5)  # Check every 5 seconds
+        return True
+    
     def process_large_file(self, audio_path: str, force_reextract: bool = False) -> tuple:
-        """Process a large file in a separate process with timeout."""
+        """Process a large file in a separate process with timeout and memory monitoring."""
         file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
         logger.info(f"Processing large file ({file_size_mb:.1f}MB) in separate process: {os.path.basename(audio_path)}")
         
-        # Adjust timeout based on file size
+        # Check memory before starting
+        usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
+        logger.info(f"Memory before processing: {usage_percent:.1f}% ({used_gb:.1f}GB used, {available_gb:.1f}GB available)")
+        
+        if self.memory_monitor.is_memory_critical():
+            logger.error(f"Memory usage too high ({usage_percent:.1f}%) to process large file safely")
+            return None, False, None
+        
+        # Adjust timeout based on file size and available memory
         if file_size_mb > 200:
             timeout = 900  # 15 minutes for very large files
         elif file_size_mb > 100:
@@ -47,25 +103,66 @@ class LargeFileProcessor:
         else:
             timeout = 300  # 5 minutes for medium files
         
+        # Reduce timeout if memory is limited
+        if available_gb < 2.0:  # Less than 2GB available
+            timeout = min(timeout, 180)  # Max 3 minutes
+            logger.warning(f"Limited memory available ({available_gb:.1f}GB), reducing timeout to {timeout}s")
+        
         try:
             with ProcessPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(self._extract_features_in_process, audio_path, force_reextract)
-                result = future.result(timeout=timeout)
-                logger.info(f"Large file processing completed: {os.path.basename(audio_path)}")
-                return result
+                
+                # Monitor the process with memory checks
+                start_time = time.time()
+                while not future.done() and (time.time() - start_time) < timeout:
+                    # Check memory every 10 seconds
+                    if (time.time() - start_time) % 10 < 1:
+                        if self.memory_monitor.is_memory_critical():
+                            logger.error(f"Memory usage critical during processing, cancelling future")
+                            future.cancel()
+                            self.memory_monitor.force_cleanup()
+                            return None, False, None
+                    
+                    time.sleep(1)
+                
+                if future.done():
+                    result = future.result(timeout=1)  # Get result with short timeout
+                    logger.info(f"Large file processing completed: {os.path.basename(audio_path)}")
+                    return result
+                else:
+                    logger.error(f"Large file processing timed out after {timeout}s: {os.path.basename(audio_path)}")
+                    future.cancel()
+                    return None, False, None
+                    
         except FutureTimeoutError:
             logger.error(f"Large file processing timed out after {timeout}s: {os.path.basename(audio_path)}")
             # Kill any remaining processes
-            for proc in psutil.process_iter(['pid', 'name']):
-                try:
-                    if 'python' in proc.info['name'].lower():
-                        proc.terminate()
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
+            self._kill_python_processes()
             return None, False, None
         except Exception as e:
             logger.error(f"Large file processing failed: {os.path.basename(audio_path)} - {str(e)}")
             return None, False, None
+    
+    def _kill_python_processes(self):
+        """Kill any remaining Python processes that might be hanging."""
+        try:
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    if 'python' in proc.info['name'].lower():
+                        # Check if it's our process
+                        cmdline = proc.info.get('cmdline', [])
+                        if any('playlista' in arg for arg in cmdline):
+                            logger.warning(f"Killing hanging Python process: {proc.info['name']} (PID: {proc.info['pid']})")
+                            proc.terminate()
+                            proc.wait(timeout=5)
+                        elif any('essentia' in arg.lower() for arg in cmdline):
+                            logger.warning(f"Killing hanging Essentia process: {proc.info['name']} (PID: {proc.info['pid']})")
+                            proc.terminate()
+                            proc.wait(timeout=5)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception as e:
+            logger.error(f"Error killing processes: {str(e)}")
 
 
 class SequentialProcessor:
@@ -75,6 +172,7 @@ class SequentialProcessor:
         self.failed_files: List[str] = []
         self.audio_analyzer = audio_analyzer
         self.large_file_processor = LargeFileProcessor()
+        self.memory_monitor = MemoryMonitor()
 
     def process(self, file_list: List[str], workers: int = None, force_reextract: bool = False) -> iter:
         """Process a list of files sequentially.
@@ -98,6 +196,20 @@ class SequentialProcessor:
             try:
                 logger.debug(
                     f"SEQUENTIAL: Processing file {i+1}/{len(file_list)}: {filepath}")
+
+                # Check memory before processing each file
+                usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
+                if self.memory_monitor.is_memory_critical():
+                    logger.warning(f"Memory usage critical ({usage_percent:.1f}%), forcing cleanup before processing")
+                    self.memory_monitor.force_cleanup()
+                    
+                    # Check again after cleanup
+                    usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
+                    if self.memory_monitor.is_memory_critical():
+                        logger.error(f"Memory still critical after cleanup ({usage_percent:.1f}%), skipping file")
+                        self.failed_files.append(filepath)
+                        yield None, filepath, False
+                        continue
 
                 # Use file discovery to check if file should be excluded
                 from .file_discovery import FileDiscovery
@@ -152,3 +264,6 @@ class SequentialProcessor:
                 self.failed_files.append(filepath)
                 logger.error(f"Error processing {filepath}: {str(e)}")
                 yield None, filepath, False
+            
+            # Force cleanup after each file to prevent memory buildup
+            gc.collect()
