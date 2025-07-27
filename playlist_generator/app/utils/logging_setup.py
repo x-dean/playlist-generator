@@ -4,10 +4,92 @@ import threading
 import queue
 import time
 import os
+import signal
 from colorlog import ColoredFormatter
 
 log_queue = None
 log_consumer_thread = None
+log_level_monitor_thread = None
+
+
+def change_log_level(new_level):
+    """Change log level at runtime."""
+    try:
+        level = getattr(logging, new_level.upper(), logging.INFO)
+        root_logger = logging.getLogger()
+        root_logger.setLevel(level)
+        
+        # Also update all other loggers
+        for name in logging.root.manager.loggerDict:
+            logger = logging.getLogger(name)
+            logger.setLevel(level)
+        
+        # Log the change
+        root_logger.info(f"Log level changed to: {new_level.upper()}")
+        return True
+    except Exception as e:
+        print(f"Failed to change log level: {e}")
+        return False
+
+
+def monitor_log_level_changes():
+    """Background thread that monitors LOG_LEVEL environment variable changes."""
+    last_level = os.getenv('LOG_LEVEL', 'INFO')
+    
+    while True:
+        try:
+            current_level = os.getenv('LOG_LEVEL', 'INFO')
+            
+            if current_level != last_level:
+                print(f"\n🔄 Environment LOG_LEVEL changed from {last_level} to {current_level}")
+                if change_log_level(current_level):
+                    print(f"✅ Log level updated to: {current_level}")
+                else:
+                    print(f"❌ Failed to update log level to: {current_level}")
+                last_level = current_level
+            
+            time.sleep(1)  # Check every second
+            
+        except Exception as e:
+            print(f"Error in log level monitor: {e}")
+            time.sleep(5)  # Wait longer on error
+
+
+def start_log_level_monitor():
+    """Start the background thread that monitors LOG_LEVEL changes."""
+    global log_level_monitor_thread
+    
+    if log_level_monitor_thread is None or not log_level_monitor_thread.is_alive():
+        log_level_monitor_thread = threading.Thread(
+            target=monitor_log_level_changes, 
+            daemon=True,
+            name="LogLevelMonitor"
+        )
+        log_level_monitor_thread.start()
+        print("📝 Log level monitor started - set LOG_LEVEL env var to change level on the fly")
+
+
+def setup_log_level_signal_handler():
+    """Setup signal handler to change log level at runtime."""
+    def signal_handler(signum, frame):
+        current_level = os.getenv('LOG_LEVEL', 'INFO')
+        levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+        
+        try:
+            current_index = levels.index(current_level)
+            next_index = (current_index + 1) % len(levels)
+            new_level = levels[next_index]
+            
+            if change_log_level(new_level):
+                print(f"\n🔄 Log level cycled to: {new_level}")
+            else:
+                print(f"\n❌ Failed to change log level")
+        except Exception as e:
+            print(f"\n❌ Error changing log level: {e}")
+    
+    # Use SIGUSR1 to cycle through log levels
+    signal.signal(signal.SIGUSR1, signal_handler)
+    print("📝 Log level control: Send SIGUSR1 signal to cycle through log levels")
 
 
 def setup_colored_file_logging(logfile_path=None):
