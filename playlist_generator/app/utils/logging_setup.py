@@ -38,6 +38,7 @@ def monitor_log_level_changes():
     
     while True:
         try:
+            # Get current level from environment
             current_level = os.getenv('LOG_LEVEL', 'INFO')
             
             if current_level != last_level:
@@ -48,7 +49,7 @@ def monitor_log_level_changes():
                     print(f"❌ Failed to update log level to: {current_level}")
                 last_level = current_level
             
-            time.sleep(1)  # Check every second
+            time.sleep(2)  # Check every 2 seconds
             
         except Exception as e:
             print(f"Error in log level monitor: {e}")
@@ -66,7 +67,8 @@ def start_log_level_monitor():
             name="LogLevelMonitor"
         )
         log_level_monitor_thread.start()
-        print("📝 Log level monitor started - set LOG_LEVEL env var to change level on the fly")
+        print("📝 Log level monitor started - export LOG_LEVEL inside Docker to change level on the fly")
+        print("   Example: docker exec -it <container> export LOG_LEVEL=DEBUG")
 
 
 def setup_log_level_signal_handler():
