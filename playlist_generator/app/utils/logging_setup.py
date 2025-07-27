@@ -98,28 +98,13 @@ def setup_log_level_signal_handler():
 def setup_log_level_signal_handler_direct():
     """Setup signal handlers for direct log level control."""
     def debug_handler(signum, frame):
-        if change_log_level('DEBUG'):
-            # Only log to file, don't print to console
-            pass
-        else:
-            # Only log to file, don't print to console
-            pass
+        change_log_level('DEBUG')
     
     def info_handler(signum, frame):
-        if change_log_level('INFO'):
-            # Only log to file, don't print to console
-            pass
-        else:
-            # Only log to file, don't print to console
-            pass
+        change_log_level('INFO')
     
     def warning_handler(signum, frame):
-        if change_log_level('WARNING'):
-            # Only log to file, don't print to console
-            pass
-        else:
-            # Only log to file, don't print to console
-            pass
+        change_log_level('WARNING')
     
     # Use different signals for different levels
     signal.signal(signal.SIGUSR1, debug_handler)    # DEBUG
