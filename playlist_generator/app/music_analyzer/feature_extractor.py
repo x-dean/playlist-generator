@@ -1776,6 +1776,14 @@ class AudioAnalyzer:
         logger.info(
             f"Starting feature extraction for {os.path.basename(audio_path)}")
 
+        # Log memory usage at start of feature extraction
+        try:
+            import psutil
+            memory_info = psutil.virtual_memory()
+            logger.debug(f"Memory usage at start of feature extraction: {memory_info.used / (1024**3):.1f}GB used, {memory_info.available / (1024**3):.1f}GB available")
+        except Exception as e:
+            logger.debug(f"Could not get memory info: {e}")
+
         # Input validation
         if audio is None:
             logger.error("Audio is None, cannot extract features")

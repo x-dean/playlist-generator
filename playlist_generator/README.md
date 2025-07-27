@@ -145,6 +145,17 @@ You can adjust the threshold as needed. Genres with fewer tracks will be ignored
 - **Environment variables:**  
   You can set `MIN_PLAYLIST_SIZE` and `MAX_PLAYLIST_SIZE` to control playlist sizes.
 
+### Memory Optimization
+
+The playlist generator can consume significant memory during audio analysis. Use these options to control RAM usage:
+
+- **Low memory mode**: `playlista -a --low_memory`
+- **Sequential processing**: `playlista -a --workers 1`
+- **Custom batch size**: `playlista -a --batch_size 2`
+- **Memory limits**: `playlista -a --memory_limit "2GB"`
+
+For detailed memory optimization guidance, see [MEMORY_OPTIMIZATION.md](MEMORY_OPTIMIZATION.md).
+
 ---
 
 ## 9. Quick Reference Table
@@ -160,6 +171,9 @@ You can adjust the threshold as needed. Genres with fewer tracks will be ignored
 | `-m cache`          | Cache/rule-based playlists                   |
 | `--num_playlists N` | Number of playlists (for kmeans)             |
 | `--workers N`       | Number of parallel workers                   |
+| `--batch_size N`    | Batch size for processing                    |
+| `--low_memory`      | Enable low memory mode                       |
+| `--memory_limit S`  | Memory limit per worker (e.g., "2GB")       |
 | `--output_dir DIR`  | Where to save playlists                      |
 | `--music_dir DIR`   | Music directory (container path)             |
 | `--library DIR` | Music directory (host path)               |
@@ -171,13 +185,13 @@ You can adjust the threshold as needed. Genres with fewer tracks will be ignored
 
 ```sh
 # 1. Analyze your music library
-./run.sh --analyze --music_dir=/music --library=/music --output_dir=/playlists
+playlista --analyze --music_dir=/music --library=/music --output_dir=/playlists
 
 # 2. Generate time-based playlists for radio
-./run.sh --analyze --music_dir=/music --library=/music --output_dir=/playlists
+playlista --analyze --music_dir=/music --library=/music --output_dir=/playlists
 
 # 3. Update all playlists after adding new music
-./run.sh --analyze --music_dir=/music --library=/music --output_dir=/playlists
+playlista --analyze --music_dir=/music --library=/music --output_dir=/playlists
 ```
 
 ---
@@ -213,10 +227,10 @@ The playlist generator can enrich your music metadata using the MusicBrainz and 
 
 ```sh
 # Enrich only missing tags (recommended for most users)
-./run.sh --enrich_tags
+playlista --enrich_tags
 
 # Force re-enrichment and overwrite all tags in the database
-./run.sh --enrich_tags --force_enrich_tags
+playlista --enrich_tags --force_enrich_tags
 ```
 
 You can use these flags with any playlist method (e.g., `--playlist_method tags`). 

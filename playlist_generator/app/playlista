@@ -314,6 +314,14 @@ Examples:
     # Number of workers for parallel processing
     parser.add_argument('--workers', type=int, default=None,
                         help='Number of workers (default: auto, use --workers=1 for sequential processing)')
+    
+    # Memory management options
+    parser.add_argument('--memory_limit', type=str, default=None,
+                        help='Memory limit per worker (e.g., "2GB", "512MB")')
+    parser.add_argument('--batch_size', type=int, default=None,
+                        help='Batch size for processing (default: equals number of workers)')
+    parser.add_argument('--low_memory', action='store_true',
+                        help='Enable low memory mode (reduces workers and batch size)')
 
     # Analyze files (default mode)
     parser.add_argument('-a', '--analyze', action='store_true',
@@ -541,9 +549,30 @@ Examples:
 
             # Analysis phase
             logger.info("Starting analysis phase")
+            
+            # Memory management setup
+            if args.low_memory:
+                logger.info("Low memory mode enabled - reducing workers and batch size")
+                if args.workers is None:
+                    workers = max(1, mp.cpu_count() // 2)  # Use half the CPUs
+                else:
+                    workers = max(1, args.workers // 2)
+                os.environ['BATCH_SIZE'] = str(max(1, workers // 2))  # Smaller batches
+            else:
+                workers = args.workers or max(1, mp.cpu_count())
+                
+            # Set memory limit if specified
+            if args.memory_limit:
+                os.environ['MEMORY_LIMIT_PER_WORKER'] = args.memory_limit
+                logger.info(f"Memory limit per worker set to: {args.memory_limit}")
+                
+            # Set batch size if specified
+            if args.batch_size:
+                os.environ['BATCH_SIZE'] = str(args.batch_size)
+                logger.info(f"Batch size set to: {args.batch_size}")
+                
             with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
                 processor = ParallelProcessor()
-                workers = args.workers or max(1, mp.cpu_count())
                 logger.debug(f"Using {workers} workers for analysis")
 
                 for i, result in enumerate(processor.process(file_list, workers)):

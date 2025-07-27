@@ -9,6 +9,7 @@ from .feature_extractor import AudioAnalyzer
 from typing import Optional, List
 import threading
 import signal
+import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,17 @@ def timeout_handler(signum, frame):
 
 class TimeoutException(Exception):
     pass
+
+
+def get_memory_aware_worker_count(max_workers: int = None) -> int:
+    """Calculate optimal worker count based on available memory."""
+    try:
+        from utils.memory_monitor import MemoryMonitor
+        monitor = MemoryMonitor()
+        return monitor.get_optimal_worker_count(max_workers or mp.cpu_count())
+    except Exception as e:
+        logger.warning(f"Could not determine memory-aware worker count: {e}")
+        return max(1, min(max_workers or mp.cpu_count(), mp.cpu_count()))
 
 
 def process_file_worker(filepath: str, status_queue: Optional[object] = None, force_reextract: bool = False) -> Optional[tuple]:
@@ -195,10 +207,23 @@ class ParallelProcessor:
             self.retry_counter = retry_counter
         if not file_list:
             return
-        self.workers = max(self.min_workers, min(
-            workers or self.max_workers, self.max_workers))
-        # Set batch size equal to number of workers for optimal control
-        self.batch_size = self.workers
+        
+        # Use memory-aware worker calculation if MAX_WORKERS is not explicitly set
+        if workers is None and os.getenv('MAX_WORKERS') is None:
+            workers = get_memory_aware_worker_count()
+        elif workers is None:
+            workers = self.max_workers
+            
+        self.workers = max(self.min_workers, min(workers, self.max_workers))
+        
+        # Set batch size based on memory constraints
+        batch_size_env = os.getenv('BATCH_SIZE')
+        if batch_size_env:
+            self.batch_size = int(batch_size_env)
+        else:
+            # Default: batch size equals number of workers
+            self.batch_size = self.workers
+            
         logger.info(
             f"Using {self.workers} workers with batch size {self.batch_size}")
         yield from self._process_parallel(file_list, status_queue, force_reextract=force_reextract)
