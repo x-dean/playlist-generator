@@ -356,6 +356,8 @@ Examples:
                         help='Batch size for processing (default: equals number of workers)')
     parser.add_argument('--low_memory', action='store_true',
                         help='Enable low memory mode (reduces workers and batch size)')
+    parser.add_argument('--large_file_threshold', type=int, default=50,
+                        help='File size threshold in MB for separate process handling (default: 50MB)')
 
     # Analyze files (default mode)
     parser.add_argument('-a', '--analyze', action='store_true',
@@ -394,8 +396,12 @@ Examples:
 
 
     args = parser.parse_args()
+    
+    # Set environment variable for large file threshold
+    os.environ['LARGE_FILE_THRESHOLD'] = str(args.large_file_threshold)
+    
     logger.info(
-        f"Parsed arguments: analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}, failed={args.failed}, force={args.force}, playlist_method={args.playlist_method}, workers={args.workers}")
+        f"Parsed arguments: analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}, failed={args.failed}, force={args.force}, playlist_method={args.playlist_method}, workers={args.workers}, large_file_threshold={args.large_file_threshold}MB")
 
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
     cache_file = os.path.join(cache_dir, 'audio_analysis.db')

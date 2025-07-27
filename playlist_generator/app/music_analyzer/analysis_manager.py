@@ -344,6 +344,13 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
         if files_to_analyze:
             _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze),
                                  "[cyan]", "", "", None, True, file_sizes)
+            # Initialize timing for the first file
+            if big_files:
+                first_file = big_files[0]
+                first_filepath = first_file[0] if isinstance(first_file, tuple) else first_file
+                file_start_times[first_filepath] = time.time()
+                first_filename = os.path.basename(first_filepath)
+                logger.info(f"SEQUENTIAL: Starting processing {first_filename}")
 
         # Step 1: Process big files sequentially
         if big_files:
@@ -355,10 +362,38 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             # Add a periodic update for large files
             start_time = time.time()
             last_update_time = start_time
+            file_start_times = {}  # Track individual file processing times
+
+            # Add timeout monitoring for large files
+            def timeout_monitor():
+                """Monitor for stuck processes and log warnings."""
+                while True:
+                    time.sleep(60)  # Check every minute
+                    current_time = time.time()
+                    if current_time - last_update_time > 300:  # 5 minutes without update
+                        logger.warning("SEQUENTIAL: No progress for 5 minutes - large file may be stuck")
+                        # Log memory usage
+                        try:
+                            import psutil
+                            memory_info = psutil.virtual_memory()
+                            logger.warning(f"Memory usage: {memory_info.used / (1024**3):.1f}GB used, {memory_info.available / (1024**3):.1f}GB available")
+                        except:
+                            pass
+
+            # Start timeout monitor in background
+            timeout_thread = threading.Thread(target=timeout_monitor, daemon=True)
+            timeout_thread.start()
 
             for features, filepath, db_write_success in sequential_processor.process(big_files, workers, force_reextract=force_reextract):
                 processed_count += 1
                 filename = os.path.basename(filepath)
+                
+                # Calculate individual file processing time
+                if filepath in file_start_times:
+                    file_processing_time = time.time() - file_start_times[filepath]
+                    logger.info(f"SEQUENTIAL: {filename} completed in {file_processing_time:.1f}s")
+                else:
+                    file_processing_time = 0
 
                 # Get status dot for result
                 status_dot = _get_status_dot(features, db_write_success)
@@ -367,8 +402,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
                                      "[cyan]", "", status_dot, filepath, True, file_sizes)
                 
-                # Log completion
-                logger.info(f"SEQUENTIAL: Completed processing {filename}")
+                # Log completion with timing info
+                logger.info(f"SEQUENTIAL: Completed processing {filename} ({file_processing_time:.1f}s)")
                 
                 # Check if we need to show a periodic update for long-running processes
                 current_time = time.time()
@@ -377,15 +412,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     logger.info(f"SEQUENTIAL: Still processing... ({elapsed:.0f}s elapsed)")
                     last_update_time = current_time
                 
-                # Log completion
-                logger.info(f"SEQUENTIAL: Completed processing {filename}")
-                
-                # Check if we need to show a periodic update for long-running processes
-                current_time = time.time()
-                if current_time - last_update_time > 30:  # Update every 30 seconds
-                    elapsed = current_time - start_time
-                    logger.info(f"SEQUENTIAL: Still processing... ({elapsed:.0f}s elapsed)")
-                    last_update_time = current_time
+                # Update last_update_time for timeout monitoring
+                last_update_time = current_time
 
                 logger.debug(
                     f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
@@ -395,6 +423,14 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     logger.warning(f"Analysis failed for {filepath}")
                 else:
                     logger.info(f"Analysis completed for {filepath}")
+                
+                # Start timing the next file
+                if processed_count < len(files_to_analyze):
+                    next_file = files_to_analyze[processed_count]
+                    next_filepath = next_file[0] if isinstance(next_file, tuple) else next_file
+                    file_start_times[next_filepath] = time.time()
+                    next_filename = os.path.basename(next_filepath)
+                    logger.info(f"SEQUENTIAL: Starting processing {next_filename}")
 
         # Step 2: Process normal files in parallel
         if normal_files:
