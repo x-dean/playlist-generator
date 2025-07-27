@@ -339,18 +339,16 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
 
     with CLIContextManager(cli, len(files_to_analyze), f"[cyan]Analyzing {len(files_to_analyze)} files...") as (progress, task_id):
         processed_count = 0
+        file_start_times = {}  # Track individual file processing times
+        
+        # Ensure file_start_times is always a dictionary
+        if not isinstance(file_start_times, dict):
+            file_start_times = {}
 
         # Pre-update progress bar with first file
         if files_to_analyze:
             _update_progress_bar(progress, task_id, files_to_analyze, 0, len(files_to_analyze),
                                  "[cyan]", "", "", None, True, file_sizes)
-            # Initialize timing for the first file
-            if big_files:
-                first_file = big_files[0]
-                first_filepath = first_file[0] if isinstance(first_file, tuple) else first_file
-                file_start_times[first_filepath] = time.time()
-                first_filename = os.path.basename(first_filepath)
-                logger.info(f"SEQUENTIAL: Starting processing {first_filename}")
 
         # Step 1: Process big files sequentially
         if big_files:
@@ -362,7 +360,14 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             # Add a periodic update for large files
             start_time = time.time()
             last_update_time = start_time
-            file_start_times = {}  # Track individual file processing times
+            
+            # Initialize timing for the first file
+            if big_files and isinstance(file_start_times, dict):
+                first_file = big_files[0]
+                first_filepath = first_file[0] if isinstance(first_file, tuple) else first_file
+                file_start_times[first_filepath] = time.time()
+                first_filename = os.path.basename(first_filepath)
+                logger.info(f"SEQUENTIAL: Starting processing {first_filename}")
 
             # Add timeout and memory monitoring for large files
             def timeout_monitor():
@@ -412,7 +417,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 filename = os.path.basename(filepath)
                 
                 # Calculate individual file processing time
-                if filepath in file_start_times:
+                if isinstance(file_start_times, dict) and filepath in file_start_times:
                     file_processing_time = time.time() - file_start_times[filepath]
                     logger.info(f"SEQUENTIAL: {filename} completed in {file_processing_time:.1f}s")
                 else:
@@ -448,7 +453,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     logger.info(f"Analysis completed for {filepath}")
                 
                 # Start timing the next file
-                if processed_count < len(files_to_analyze):
+                if processed_count < len(files_to_analyze) and isinstance(file_start_times, dict):
                     next_file = files_to_analyze[processed_count]
                     next_filepath = next_file[0] if isinstance(next_file, tuple) else next_file
                     file_start_times[next_filepath] = time.time()
@@ -461,8 +466,6 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 f"Processing {len(normal_files)} normal files in parallel...")
             parallel_processor = ParallelProcessor()
             workers = args.workers or max(1, mp.cpu_count())
-        else:
-            logger.debug("DISCOVERY: No normal files to process in parallel")
 
             for features, filepath, db_write_success in parallel_processor.process(normal_files, workers, force_reextract=force_reextract):
                 processed_count += 1
@@ -483,6 +486,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     logger.warning(f"Analysis failed for {filepath}")
                 else:
                     logger.info(f"Analysis completed for {filepath}")
+        else:
+            logger.debug("DISCOVERY: No normal files to process in parallel")
 
         logger.info(
             f"Processing completed. Processed {processed_count} files out of {len(files_to_analyze)}")
