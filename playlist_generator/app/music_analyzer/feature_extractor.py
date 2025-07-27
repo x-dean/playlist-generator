@@ -614,13 +614,16 @@ class AudioAnalyzer:
             rhythm_algo = es.RhythmExtractor2013()
             logger.debug("Running rhythm analysis on audio")
             
-            # Add timeout protection for large files
-            import signal
-            def timeout_handler(signum, frame):
-                raise TimeoutException("Rhythm extraction timed out")
+            # Check if we're in a worker thread (signal only works in main thread)
+            import threading
+            is_main_thread = threading.current_thread() is threading.main_thread()
             
-            # Set timeout based on file size
-            if len(audio) > 100000000:  # More than 100M samples
+            # Add timeout protection for large files (only in main thread)
+            if is_main_thread and len(audio) > 100000000:  # More than 100M samples
+                import signal
+                def timeout_handler(signum, frame):
+                    raise TimeoutException("Rhythm extraction timed out")
+                
                 signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(300)  # 5 minutes for large files
                 logger.debug("Set 5-minute timeout for large file rhythm extraction")
@@ -635,8 +638,9 @@ class AudioAnalyzer:
                 logger.error(f"Rhythm extraction failed with error: {e}")
                 raise
             finally:
-                # Cancel timeout
-                signal.alarm(0)
+                # Cancel timeout (only in main thread)
+                if is_main_thread and len(audio) > 100000000:
+                    signal.alarm(0)
             logger.debug(f"Rhythm result type: {type(rhythm_result)}")
             logger.debug(
                 f"Rhythm result length: {len(rhythm_result) if isinstance(rhythm_result, tuple) else 'not tuple'}")
@@ -691,13 +695,16 @@ class AudioAnalyzer:
             centroid_algo = es.SpectralCentroidTime()
             logger.debug("Running spectral centroid analysis on audio")
             
-            # Add timeout protection for large files
-            import signal
-            def timeout_handler(signum, frame):
-                raise TimeoutException("Spectral extraction timed out")
+            # Check if we're in a worker thread (signal only works in main thread)
+            import threading
+            is_main_thread = threading.current_thread() is threading.main_thread()
             
-            # Set timeout based on file size
-            if len(audio) > 100000000:  # More than 100M samples
+            # Add timeout protection for large files (only in main thread)
+            if is_main_thread and len(audio) > 100000000:  # More than 100M samples
+                import signal
+                def timeout_handler(signum, frame):
+                    raise TimeoutException("Spectral extraction timed out")
+                
                 signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(300)  # 5 minutes for large files
                 logger.debug("Set 5-minute timeout for large file spectral extraction")
@@ -712,8 +719,9 @@ class AudioAnalyzer:
                 logger.error(f"Spectral extraction failed with error: {e}")
                 raise
             finally:
-                # Cancel timeout
-                signal.alarm(0)
+                # Cancel timeout (only in main thread)
+                if is_main_thread and len(audio) > 100000000:
+                    signal.alarm(0)
             logger.debug(
                 f"Spectral centroid values shape: {np.array(centroid_values).shape if hasattr(centroid_values, 'shape') else type(centroid_values)}")
 
@@ -741,13 +749,16 @@ class AudioAnalyzer:
             rms_algo = es.RMS()
             logger.debug("Running RMS analysis on audio")
             
-            # Add timeout protection for large files
-            import signal
-            def timeout_handler(signum, frame):
-                raise TimeoutException("Loudness extraction timed out")
+            # Check if we're in a worker thread (signal only works in main thread)
+            import threading
+            is_main_thread = threading.current_thread() is threading.main_thread()
             
-            # Set timeout based on file size
-            if len(audio) > 100000000:  # More than 100M samples
+            # Add timeout protection for large files (only in main thread)
+            if is_main_thread and len(audio) > 100000000:  # More than 100M samples
+                import signal
+                def timeout_handler(signum, frame):
+                    raise TimeoutException("Loudness extraction timed out")
+                
                 signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(300)  # 5 minutes for large files
                 logger.debug("Set 5-minute timeout for large file loudness extraction")
@@ -762,8 +773,9 @@ class AudioAnalyzer:
                 logger.error(f"Loudness extraction failed with error: {e}")
                 raise
             finally:
-                # Cancel timeout
-                signal.alarm(0)
+                # Cancel timeout (only in main thread)
+                if is_main_thread and len(audio) > 100000000:
+                    signal.alarm(0)
             logger.debug(
                 f"RMS values shape: {np.array(rms_values).shape if hasattr(rms_values, 'shape') else type(rms_values)}")
 
@@ -975,14 +987,16 @@ class AudioAnalyzer:
             logger.debug(f"Available memory before MFCC: {memory_info.available / (1024**3):.1f}GB")
             logger.debug(f"Audio samples: {len(audio)}, estimated memory needed: {len(audio) * 8 / (1024**3):.1f}GB")
 
-            # For very large files, use a timeout
-            import signal
-
-            def timeout_handler(signum, frame):
-                raise TimeoutException("MFCC extraction timed out")
-
-            # Set timeout for large files (10 minutes for very large files)
-            if len(audio) > 100000000:  # More than 100M samples (~2 hours at 44kHz)
+            # Check if we're in a worker thread (signal only works in main thread)
+            import threading
+            is_main_thread = threading.current_thread() is threading.main_thread()
+            
+            # For very large files, use a timeout (only in main thread)
+            if is_main_thread and len(audio) > 100000000:  # More than 100M samples (~2 hours at 44kHz)
+                import signal
+                def timeout_handler(signum, frame):
+                    raise TimeoutException("MFCC extraction timed out")
+                
                 signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(600)  # 10 minutes
                 logger.debug(
@@ -1017,8 +1031,9 @@ class AudioAnalyzer:
                 logger.error(f"MFCC error traceback: {traceback.format_exc()}")
                 raise
             finally:
-                # Cancel timeout
-                signal.alarm(0)
+                # Cancel timeout (only in main thread)
+                if is_main_thread and len(audio) > 100000000:
+                    signal.alarm(0)
             logger.debug(f"MFCC coefficients type: {type(mfcc_coeffs)}")
             logger.debug(
                 f"MFCC coefficients shape: {np.array(mfcc_coeffs).shape if hasattr(mfcc_coeffs, 'shape') else 'no shape'}")
