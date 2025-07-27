@@ -80,10 +80,10 @@ def test_model_loading_optimization():
     
     print("\n🎉 Model loading optimization test completed!")
     print("\n📋 Summary:")
-    print("   • Models are now loaded once during AudioAnalyzer initialization")
-    print("   • JSON metadata is loaded once and cached")
-    print("   • Each file processing reuses the pre-loaded models")
-    print("   • This eliminates repeated model loading overhead")
+    print("   • Models are now loaded once globally and shared across all AudioAnalyzer instances")
+    print("   • JSON metadata is loaded once and cached globally")
+    print("   • Each file processing reuses the globally cached models")
+    print("   • This eliminates repeated model loading overhead across multiple processes/threads")
 
 if __name__ == "__main__":
     test_model_loading_optimization() 
