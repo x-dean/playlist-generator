@@ -670,6 +670,9 @@ class AudioAnalyzer:
             logger.debug(f"Final BPM: {bpm}")
             logger.info(f"Rhythm extraction completed: BPM = {bpm:.1f}")
             return {'bpm': float(bpm)}
+        except TimeoutException as te:
+            logger.error(f"Rhythm extraction timed out: {str(te)}")
+            raise  # Re-raise to be caught by the main extraction function
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
             logger.debug(
@@ -721,6 +724,9 @@ class AudioAnalyzer:
             logger.info(
                 f"Spectral features completed: centroid = {centroid_mean:.1f}Hz")
             return {'spectral_centroid': centroid_mean}
+        except TimeoutException as te:
+            logger.error(f"Spectral extraction timed out: {str(te)}")
+            raise  # Re-raise to be caught by the main extraction function
         except Exception as e:
             logger.warning(f"Spectral features extraction failed: {str(e)}")
             logger.debug(
@@ -766,6 +772,9 @@ class AudioAnalyzer:
             logger.debug(f"Calculated mean RMS: {rms_mean:.3f}")
             logger.info(f"Loudness extraction completed: RMS = {rms_mean:.3f}")
             return {'rms': rms_mean}
+        except TimeoutException as te:
+            logger.error(f"Loudness extraction timed out: {str(te)}")
+            raise  # Re-raise to be caught by the main extraction function
         except Exception as e:
             logger.warning(f"Loudness extraction failed: {str(e)}")
             logger.debug(
@@ -1052,6 +1061,9 @@ class AudioAnalyzer:
             logger.info(
                 f"MFCC extraction completed: {len(mfcc_mean)} coefficients")
             return {'mfcc': mfcc_mean}
+        except TimeoutException as te:
+            logger.error(f"MFCC extraction timed out: {str(te)}")
+            raise  # Re-raise to be caught by the main extraction function
         except Exception as e:
             logger.warning(f"MFCC extraction failed: {str(e)}")
             logger.debug(f"MFCC extraction error details: {type(e).__name__}")
@@ -1710,13 +1722,13 @@ class AudioAnalyzer:
             logger.debug(
                 f"Returning successful result for {file_info['file_path']}")
             return features, db_write_success, file_info['file_hash']
+        except TimeoutException as te:
+            logger.error(f"Timeout processing {audio_path}: {str(te)}")
+            self._mark_failed(self._get_file_info(audio_path))
+            return None, False, None
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
             logger.warning(traceback.format_exc())
-            self._mark_failed(self._get_file_info(audio_path))
-            return None, False, None
-        except TimeoutException:
-            logger.warning(f"Timeout on {audio_path}")
             self._mark_failed(self._get_file_info(audio_path))
             return None, False, None
 
@@ -1813,6 +1825,9 @@ class AudioAnalyzer:
                 rhythm_result = self._extract_rhythm_features(audio)
                 features['bpm'] = rhythm_result['bpm']
                 logger.info(f"Rhythm: BPM = {features['bpm']:.1f}")
+            except TimeoutException as te:
+                logger.error(f"Rhythm extraction timed out, skipping file: {str(te)}")
+                return None  # Skip the entire file
             except Exception as e:
                 logger.warning(f"Rhythm extraction failed: {str(e)}")
                 features['bpm'] = 120.0
@@ -1826,6 +1841,9 @@ class AudioAnalyzer:
                 spectral_features = self._extract_spectral_features(audio)
                 features['centroid'] = spectral_features['spectral_centroid']
                 logger.info(f"Spectral: centroid = {features['centroid']:.1f}Hz")
+            except TimeoutException as te:
+                logger.error(f"Spectral extraction timed out, skipping file: {str(te)}")
+                return None  # Skip the entire file
             except Exception as e:
                 logger.warning(f"Spectral extraction failed: {str(e)}")
                 features['centroid'] = 0.0
@@ -1839,6 +1857,9 @@ class AudioAnalyzer:
                 loudness_result = self._extract_loudness(audio)
                 features['loudness'] = loudness_result['rms']
                 logger.info(f"Loudness: RMS = {features['loudness']:.3f}")
+            except TimeoutException as te:
+                logger.error(f"Loudness extraction timed out, skipping file: {str(te)}")
+                return None  # Skip the entire file
             except Exception as e:
                 logger.warning(f"Loudness extraction failed: {str(e)}")
                 features['loudness'] = 0.0
@@ -1893,6 +1914,9 @@ class AudioAnalyzer:
                 mfcc_result = self._extract_mfcc(audio)
                 features['mfcc'] = mfcc_result['mfcc']
                 logger.info(f"MFCC: {len(features['mfcc'])} coefficients")
+            except TimeoutException as te:
+                logger.error(f"MFCC extraction timed out, skipping file: {str(te)}")
+                return None  # Skip the entire file
             except Exception as e:
                 logger.warning(f"MFCC extraction failed: {str(e)}")
                 features['mfcc'] = [0.0] * 13
