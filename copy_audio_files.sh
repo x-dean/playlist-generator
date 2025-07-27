@@ -20,8 +20,8 @@ fi
 echo "Starting audio file copy process..."
 echo "Source directory: $SOURCE_DIR"
 
-# Find all audio files in source directory
-find "$SOURCE_DIR" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) > "$TEMP_DIR/all_audio_files.txt"
+# Find all audio files in source directory (using null-terminated output for proper path handling)
+find "$SOURCE_DIR" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) -print0 | tr '\0' '\n' > "$TEMP_DIR/all_audio_files.txt"
 
 total_files=$(wc -l < "$TEMP_DIR/all_audio_files.txt")
 echo "Found $total_files total audio files"
@@ -35,17 +35,27 @@ fi
 # Separate files by size using a more compatible approach
 echo "Analyzing file sizes..."
 
-# Create a temporary script to check file sizes
+# Create a temporary script to check file sizes with proper path handling
 cat > "$TEMP_DIR/check_sizes.sh" << 'EOF'
 #!/bin/bash
 source_dir="$1"
 temp_dir="$2"
 
-# Files over 50MB
-find "$source_dir" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) -exec ls -l {} \; | awk '$5 > 52428800 {print $9}' > "$temp_dir/large_files.txt"
+# Files over 50MB - use null-terminated output to handle spaces in filenames
+find "$source_dir" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) -print0 | while IFS= read -r -d $'\0' file; do
+    size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
+    if [ "$size" -gt 52428800 ]; then
+        echo "$file" >> "$temp_dir/large_files.txt"
+    fi
+done
 
-# Files under 50MB
-find "$source_dir" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) -exec ls -l {} \; | awk '$5 <= 52428800 {print $9}' > "$temp_dir/small_files.txt"
+# Files under 50MB - use null-terminated output to handle spaces in filenames
+find "$source_dir" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) -print0 | while IFS= read -r -d $'\0' file; do
+    size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null)
+    if [ "$size" -le 52428800 ]; then
+        echo "$file" >> "$temp_dir/small_files.txt"
+    fi
+done
 EOF
 
 chmod +x "$TEMP_DIR/check_sizes.sh"
