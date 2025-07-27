@@ -2,7 +2,8 @@ version: '3.8'
 
 services:
   playlista:
-    image: playlista:latest  # Replace with your actual image name if different
+    # Build from the local Dockerfile in the current directory
+    build: .
     container_name: playlista_test
     volumes:
       - /tmp:/music
