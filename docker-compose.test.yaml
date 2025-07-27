@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  playlista:
+    image: playlista:latest  # Replace with your actual image name if different
+    container_name: playlista_test
+    volumes:
+      - /tmp:/music
+      - /tmp/playlist_cache:/app/cache
+      - /tmp/playlist_output:/app/playlists
+    # Optional: set working directory if needed
+    # working_dir: /app
+    # Optional: environment variables
+    # environment:
+    #   - SOME_ENV_VAR=value
+    # Optional: entrypoint override if needed
+    # entrypoint: ["/bin/bash"]
+    # Remove container after run
+    restart: "no" 
