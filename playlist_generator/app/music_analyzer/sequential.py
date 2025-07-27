@@ -7,11 +7,8 @@ import traceback
 from typing import List, Dict, Any, Optional
 from .feature_extractor import AudioAnalyzer
 from utils.path_converter import PathConverter
-import multiprocessing as mp
-import signal
 import psutil
 import threading
-from concurrent.futures import ProcessPoolExecutor, TimeoutError as FutureTimeoutError
 import gc
 
 logger = logging.getLogger(__name__)
@@ -59,33 +56,68 @@ class LargeFileProcessor:
     def _extract_features_in_process(self, audio_path: str, force_reextract: bool = False) -> tuple:
         """Extract features in a separate process to avoid blocking the main process."""
         try:
-            # Create a new AudioAnalyzer instance in the subprocess
-            analyzer = AudioAnalyzer()
+            # Create a new AudioAnalyzer instance in the subprocess with minimal initialization
+            # This avoids pickle issues with thread locks and other non-serializable objects
+            cache_file = os.getenv('CACHE_FILE', '/app/cache/audio_analysis.db')
+            library = os.getenv('HOST_LIBRARY_PATH', '/root/music/library')
+            music = os.getenv('MUSIC_PATH', '/music')
+            
+            analyzer = AudioAnalyzer(cache_file=cache_file, library=library, music=music)
             result = analyzer.extract_features(audio_path, force_reextract=force_reextract)
             return result
         except Exception as e:
             logger.error(f"Process extraction failed for {audio_path}: {str(e)}")
             return None, False, None
     
-    def _monitor_memory_and_kill_if_needed(self, process, timeout):
-        """Monitor memory usage and kill process if memory is exhausted."""
-        start_time = time.time()
-        while process.is_alive() and (time.time() - start_time) < timeout:
-            if self.memory_monitor.is_memory_critical():
-                logger.error(f"Memory usage critical during large file processing, terminating process")
+    def _extract_features_with_timeout(self, audio_path: str, force_reextract: bool = False) -> tuple:
+        """Extract features with timeout in the same process to avoid pickle issues."""
+        try:
+            # Create a new AudioAnalyzer instance
+            cache_file = os.getenv('CACHE_FILE', '/app/cache/audio_analysis.db')
+            library = os.getenv('HOST_LIBRARY_PATH', '/root/music/library')
+            music = os.getenv('MUSIC_PATH', '/music')
+            
+            analyzer = AudioAnalyzer(cache_file=cache_file, library=library, music=music)
+            
+            # Use threading with timeout instead of multiprocessing
+            import threading
+            import queue
+            
+            result_queue = queue.Queue()
+            exception_queue = queue.Queue()
+            
+            def extract_worker():
                 try:
-                    process.terminate()
-                    process.wait(timeout=10)  # Wait for termination
-                except:
-                    process.kill()  # Force kill if terminate fails
-                return False
-            time.sleep(5)  # Check every 5 seconds
-        return True
+                    result = analyzer.extract_features(audio_path, force_reextract=force_reextract)
+                    result_queue.put(result)
+                except Exception as e:
+                    exception_queue.put(e)
+            
+            # Start worker thread
+            worker_thread = threading.Thread(target=extract_worker, daemon=True)
+            worker_thread.start()
+            
+            # Wait for result with timeout
+            try:
+                result = result_queue.get(timeout=self.timeout_seconds)
+                return result
+            except queue.Empty:
+                logger.error(f"Large file processing timed out after {self.timeout_seconds}s: {os.path.basename(audio_path)}")
+                return None, False, None
+            except Exception as e:
+                if not exception_queue.empty():
+                    exc = exception_queue.get()
+                    logger.error(f"Large file processing failed: {os.path.basename(audio_path)} - {str(exc)}")
+                return None, False, None
+                
+        except Exception as e:
+            logger.error(f"Large file processing failed: {os.path.basename(audio_path)} - {str(e)}")
+            return None, False, None
     
     def process_large_file(self, audio_path: str, force_reextract: bool = False) -> tuple:
-        """Process a large file in a separate process with timeout and memory monitoring."""
+        """Process a large file with timeout and memory monitoring."""
         file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
-        logger.info(f"Processing large file ({file_size_mb:.1f}MB) in separate process: {os.path.basename(audio_path)}")
+        logger.info(f"Processing large file ({file_size_mb:.1f}MB) with timeout: {os.path.basename(audio_path)}")
         
         # Check memory before starting
         usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
@@ -108,61 +140,18 @@ class LargeFileProcessor:
             timeout = min(timeout, 180)  # Max 3 minutes
             logger.warning(f"Limited memory available ({available_gb:.1f}GB), reducing timeout to {timeout}s")
         
+        # Set timeout for this processing session
+        self.timeout_seconds = timeout
+        
         try:
-            with ProcessPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(self._extract_features_in_process, audio_path, force_reextract)
-                
-                # Monitor the process with memory checks
-                start_time = time.time()
-                while not future.done() and (time.time() - start_time) < timeout:
-                    # Check memory every 10 seconds
-                    if (time.time() - start_time) % 10 < 1:
-                        if self.memory_monitor.is_memory_critical():
-                            logger.error(f"Memory usage critical during processing, cancelling future")
-                            future.cancel()
-                            self.memory_monitor.force_cleanup()
-                            return None, False, None
-                    
-                    time.sleep(1)
-                
-                if future.done():
-                    result = future.result(timeout=1)  # Get result with short timeout
-                    logger.info(f"Large file processing completed: {os.path.basename(audio_path)}")
-                    return result
-                else:
-                    logger.error(f"Large file processing timed out after {timeout}s: {os.path.basename(audio_path)}")
-                    future.cancel()
-                    return None, False, None
-                    
-        except FutureTimeoutError:
-            logger.error(f"Large file processing timed out after {timeout}s: {os.path.basename(audio_path)}")
-            # Kill any remaining processes
-            self._kill_python_processes()
-            return None, False, None
+            # Use the threading-based approach to avoid pickle issues
+            result = self._extract_features_with_timeout(audio_path, force_reextract)
+            if result and result[0] and result[1]:
+                logger.info(f"Large file processing completed: {os.path.basename(audio_path)}")
+            return result
         except Exception as e:
             logger.error(f"Large file processing failed: {os.path.basename(audio_path)} - {str(e)}")
             return None, False, None
-    
-    def _kill_python_processes(self):
-        """Kill any remaining Python processes that might be hanging."""
-        try:
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                try:
-                    if 'python' in proc.info['name'].lower():
-                        # Check if it's our process
-                        cmdline = proc.info.get('cmdline', [])
-                        if any('playlista' in arg for arg in cmdline):
-                            logger.warning(f"Killing hanging Python process: {proc.info['name']} (PID: {proc.info['pid']})")
-                            proc.terminate()
-                            proc.wait(timeout=5)
-                        elif any('essentia' in arg.lower() for arg in cmdline):
-                            logger.warning(f"Killing hanging Essentia process: {proc.info['name']} (PID: {proc.info['pid']})")
-                            proc.terminate()
-                            proc.wait(timeout=5)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-        except Exception as e:
-            logger.error(f"Error killing processes: {str(e)}")
 
 
 class SequentialProcessor:

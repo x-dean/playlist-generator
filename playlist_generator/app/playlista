@@ -402,6 +402,9 @@ Examples:
     # Set environment variables
     os.environ['LARGE_FILE_THRESHOLD'] = str(args.large_file_threshold)
     os.environ['MEMORY_AWARE'] = str(args.memory_aware).lower()
+    os.environ['CACHE_FILE'] = cache_file
+    os.environ['HOST_LIBRARY_PATH'] = args.library
+    os.environ['MUSIC_PATH'] = '/music'
     
     logger.info(
         f"Parsed arguments: analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}, failed={args.failed}, force={args.force}, playlist_method={args.playlist_method}, workers={args.workers}, large_file_threshold={args.large_file_threshold}MB, memory_aware={args.memory_aware}")
