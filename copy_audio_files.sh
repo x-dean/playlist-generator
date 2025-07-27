@@ -10,19 +10,46 @@ TEMP_DIR="/tmp/audio_copy_temp/"
 # Create temporary directory
 mkdir -p "$TEMP_DIR"
 
+# Check if source directory exists
+if [ ! -d "$SOURCE_DIR" ]; then
+    echo "Error: Source directory '$SOURCE_DIR' does not exist!"
+    echo "Please create the directory and add some audio files first."
+    exit 1
+fi
+
 echo "Starting audio file copy process..."
+echo "Source directory: $SOURCE_DIR"
 
 # Find all audio files in source directory
 find "$SOURCE_DIR" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) > "$TEMP_DIR/all_audio_files.txt"
 
-# Separate files by size
+total_files=$(wc -l < "$TEMP_DIR/all_audio_files.txt")
+echo "Found $total_files total audio files"
+
+if [ "$total_files" -eq 0 ]; then
+    echo "Error: No audio files found in '$SOURCE_DIR'"
+    echo "Please add some audio files (.mp3, .flac, .wav, .m4a, .ogg, .aac) to the source directory."
+    exit 1
+fi
+
+# Separate files by size using a more compatible approach
 echo "Analyzing file sizes..."
 
+# Create a temporary script to check file sizes
+cat > "$TEMP_DIR/check_sizes.sh" << 'EOF'
+#!/bin/bash
+source_dir="$1"
+temp_dir="$2"
+
 # Files over 50MB
-find "$SOURCE_DIR" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) -size +50M > "$TEMP_DIR/large_files.txt"
+find "$source_dir" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) -exec ls -l {} \; | awk '$5 > 52428800 {print $9}' > "$temp_dir/large_files.txt"
 
 # Files under 50MB
-find "$SOURCE_DIR" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) -size -50M > "$TEMP_DIR/small_files.txt"
+find "$source_dir" -type f \( -iname "*.mp3" -o -iname "*.flac" -o -iname "*.wav" -o -iname "*.m4a" -o -iname "*.ogg" -o -iname "*.aac" \) -exec ls -l {} \; | awk '$5 <= 52428800 {print $9}' > "$temp_dir/small_files.txt"
+EOF
+
+chmod +x "$TEMP_DIR/check_sizes.sh"
+"$TEMP_DIR/check_sizes.sh" "$SOURCE_DIR" "$TEMP_DIR"
 
 # Count available files
 large_count=$(wc -l < "$TEMP_DIR/large_files.txt")
