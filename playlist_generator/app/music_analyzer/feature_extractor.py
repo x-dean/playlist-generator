@@ -696,12 +696,18 @@ class AudioAnalyzer:
 
     def _get_external_bpm(self, audio_path, metadata):
         """Get BPM from external APIs when local extraction fails."""
+        logger.debug(f"External BPM lookup called with audio_path: {audio_path}")
+        logger.debug(f"External BPM lookup called with metadata: {metadata}")
+        
         if not audio_path or not metadata:
+            logger.debug("Missing audio_path or metadata for external BPM lookup")
             return None
             
         # Extract artist and title from metadata
         artist = metadata.get('artist') or metadata.get('mb_artist')
         title = metadata.get('title') or metadata.get('mb_title')
+        
+        logger.debug(f"Extracted artist: '{artist}', title: '{title}'")
         
         if not artist or not title:
             logger.debug("No artist/title available for external BPM lookup")
@@ -711,6 +717,7 @@ class AudioAnalyzer:
         
         # Try MusicBrainz first
         try:
+            logger.debug(f"Calling MusicBrainz lookup for: {artist} - {title}")
             mb_data = self._musicbrainz_lookup(artist, title)
             logger.debug(f"MusicBrainz lookup returned: {list(mb_data.keys()) if mb_data else 'None'}")
             if mb_data and 'bpm' in mb_data and mb_data['bpm']:
@@ -724,6 +731,9 @@ class AudioAnalyzer:
                 logger.debug(f"No BPM found in MusicBrainz data: {mb_data.get('bpm', 'Not present')}")
         except Exception as e:
             logger.debug(f"MusicBrainz BPM lookup failed: {e}")
+            logger.debug(f"MusicBrainz lookup exception type: {type(e).__name__}")
+            import traceback
+            logger.debug(f"MusicBrainz lookup full traceback: {traceback.format_exc()}")
             
         # Try LastFM as fallback
         try:
@@ -1474,9 +1484,16 @@ class AudioAnalyzer:
 
     def _musicbrainz_lookup(self, artist, title):
         try:
-            # Step 1: Search for the recording
+            # Step 1: Search for the recording with exact match
             result = musicbrainzngs.search_recordings(
                 artist=artist, recording=title, limit=1)
+            
+            # If no results, try with just the title (more flexible search)
+            if not result.get('recording-list') or len(result['recording-list']) == 0:
+                logger.debug(f"No exact match found for {artist} - {title}, trying title-only search")
+                result = musicbrainzngs.search_recordings(
+                    recording=title, limit=1)
+            
             if not result.get('recording-list') or len(result['recording-list']) == 0:
                 logger.debug(
                     f"No MusicBrainz results found for {artist} - {title}")
@@ -1618,6 +1635,24 @@ class AudioAnalyzer:
                 all_mb_data['work'] = None
                 all_mb_data['composer'] = None
 
+            # Try to extract BPM from tags if not found in attributes
+            if 'bpm' not in all_mb_data and 'tags' in all_mb_data and all_mb_data['tags']:
+                logger.debug("Checking tags for BPM information")
+                for tag in all_mb_data['tags']:
+                    if isinstance(tag, str) and 'bpm' in tag.lower():
+                        try:
+                            # Extract BPM from tag like "120 bpm" or "bpm 120"
+                            import re
+                            bpm_match = re.search(r'(\d{2,3})\s*bpm', tag.lower())
+                            if bpm_match:
+                                bpm = float(bpm_match.group(1))
+                                if 60 <= bpm <= 200:
+                                    all_mb_data['bpm'] = bpm
+                                    logger.debug(f"Found BPM in tag: {bpm}")
+                                    break
+                        except (ValueError, TypeError):
+                            pass
+            
             # Filter to lean fields only
             filtered_data = filter_metadata(all_mb_data)
             logger.debug(
@@ -1954,12 +1989,20 @@ class AudioAnalyzer:
                 try:
                     audio_file = MutagenFile(audio_path)
                     if audio_file:
+                        logger.debug(f"Audio file tags available: {list(audio_file.keys())}")
                         for tag in ['title', 'artist', 'album', 'date', 'genre']:
                             if tag in audio_file:
                                 metadata[tag] = str(
                                     audio_file[tag][0]) if audio_file[tag] else None
+                                logger.debug(f"Extracted {tag}: '{metadata[tag]}'")
+                            else:
+                                logger.debug(f"Tag '{tag}' not found in audio file")
+                    else:
+                        logger.debug("No audio file tags found")
                 except Exception as e:
                     logger.debug(f"File tag extraction failed: {str(e)}")
+                
+                logger.debug(f"Final metadata for external BPM lookup: {metadata}")
                 
                 rhythm_result = self._extract_rhythm_features(audio, audio_path, metadata)
                 features['bpm'] = rhythm_result['bpm']
