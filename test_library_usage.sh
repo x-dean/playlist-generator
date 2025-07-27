@@ -5,22 +5,26 @@
 #
 # IMPORTANT: This script uses docker-compose.test.yaml for test volume mappings:
 #   - /root/music/test_files:/music
-#   - /root/music/playlist_cache:/app/cache
+#   - /root/music/test/cache:/app/cache
+#   - /root/music/test/logs:/app/logs
 #   - /root/music/playlist_output:/app/playlists
 #
 # Host paths:         Container paths:
 #   /root/music/test_files      -> /music
-#   /root/music/playlist_cache  -> /app/cache
+#   /root/music/test/cache      -> /app/cache
+#   /root/music/test/logs       -> /app/logs
 #   /root/music/playlist_output -> /app/playlists
 #
 # All docker compose commands use: -f docker-compose.test.yaml
 
 HOST_LIBRARY_DIR="/root/music/test_files"            # Host test music library
-HOST_CACHE_DIR="/root/music/playlist_cache"          # Host cache directory
+HOST_CACHE_DIR="/root/music/test/cache"              # Host cache directory
+HOST_LOGS_DIR="/root/music/test/logs"                # Host logs directory
 HOST_OUTPUT_DIR="/root/music/playlist_output"        # Host output directory
 
 CONTAINER_LIBRARY_DIR="/music"             # Container music library
 CONTAINER_CACHE_DIR="/app/cache"           # Container cache directory
+CONTAINER_LOGS_DIR="/app/logs"             # Container logs directory
 CONTAINER_OUTPUT_DIR="/app/playlists"      # Container output directory
 
 COMPOSE_FILE="-f docker-compose.test.yaml"
@@ -28,6 +32,7 @@ COMPOSE_FILE="-f docker-compose.test.yaml"
 # Create directories if they don't exist
 mkdir -p "$HOST_LIBRARY_DIR"
 mkdir -p "$HOST_CACHE_DIR"
+mkdir -p "$HOST_LOGS_DIR"
 mkdir -p "$HOST_OUTPUT_DIR"
 
 # Print mapping info
@@ -37,17 +42,20 @@ cat <<EOF
 Host paths:
   Library: $HOST_LIBRARY_DIR
   Cache:   $HOST_CACHE_DIR
+  Logs:    $HOST_LOGS_DIR
   Output:  $HOST_OUTPUT_DIR
 
 Container paths (used in CLI arguments):
   Library: $CONTAINER_LIBRARY_DIR
   Cache:   $CONTAINER_CACHE_DIR
+  Logs:    $CONTAINER_LOGS_DIR
   Output:  $CONTAINER_OUTPUT_DIR
 
 Docker Compose file: docker-compose.test.yaml
   volumes:
     - $HOST_LIBRARY_DIR:$CONTAINER_LIBRARY_DIR
     - $HOST_CACHE_DIR:$CONTAINER_CACHE_DIR
+    - $HOST_LOGS_DIR:$CONTAINER_LOGS_DIR
     - $HOST_OUTPUT_DIR:$CONTAINER_OUTPUT_DIR
 EOF
 
@@ -65,24 +73,24 @@ read -p "Enter your choice (1-6): " choice
 case $choice in
     1)
         echo "Running standard analysis pipeline..."
-        docker compose $COMPOSE_FILE run --rm --remove-orphans playlista --analyze --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR" --workers 2
+        docker compose $COMPOSE_FILE run --rm --remove-orphans playlista playlista --analyze --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR" --workers 2
         ;;
     2)
         echo "Running low memory analysis pipeline..."
-        docker compose $COMPOSE_FILE run --rm --remove-orphans playlista --analyze --low_memory --workers 1 --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR"
+        docker compose $COMPOSE_FILE run --rm --remove-orphans playlista playlista --analyze --low_memory --workers 1 --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR"
         ;;
     3)
         echo "[Playlist generation is for future use. Uncomment below to enable.]"
-        # docker compose $COMPOSE_FILE run --rm --remove-orphans playlista --generate_only --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR"
+        # docker compose $COMPOSE_FILE run --rm --remove-orphans playlista playlista --generate_only --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR"
         ;;
     4)
         echo "[Show statistics is for future use. Uncomment below to enable.]"
-        # docker compose $COMPOSE_FILE run --rm --remove-orphans playlista --status --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR"
+        # docker compose $COMPOSE_FILE run --rm --remove-orphans playlista playlista --status --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR"
         ;;
     5)
         echo "Enter your custom command:"
-        read -p "docker compose $COMPOSE_FILE run --rm --remove-orphans playlista " custom_cmd
-        eval "docker compose $COMPOSE_FILE run --rm --remove-orphans playlista $custom_cmd --library $CONTAINER_LIBRARY_DIR --cache_dir $CONTAINER_CACHE_DIR --output_dir $CONTAINER_OUTPUT_DIR"
+        read -p "docker compose $COMPOSE_FILE run --rm --remove-orphans playlista playlista " custom_cmd
+        eval "docker compose $COMPOSE_FILE run --rm --remove-orphans playlista playlista $custom_cmd --library $CONTAINER_LIBRARY_DIR --cache_dir $CONTAINER_CACHE_DIR --output_dir $CONTAINER_OUTPUT_DIR"
         ;;
     6)
         echo "Exiting..."
@@ -98,6 +106,8 @@ echo ""
 echo "=== Operation Complete ==="
 echo "Check the cache directory for analysis data (on host):"
 echo "   ls -la $HOST_CACHE_DIR"
+echo "Check the logs directory for log files (on host):"
+echo "   ls -la $HOST_LOGS_DIR"
 echo "Check the output directory for generated playlists (on host):"
 echo "   ls -la $HOST_OUTPUT_DIR"
 echo ""
