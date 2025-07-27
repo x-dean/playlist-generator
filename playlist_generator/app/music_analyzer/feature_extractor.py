@@ -613,7 +613,30 @@ class AudioAnalyzer:
             logger.debug("Initializing Essentia RhythmExtractor algorithm")
             rhythm_algo = es.RhythmExtractor2013()
             logger.debug("Running rhythm analysis on audio")
-            rhythm_result = rhythm_algo(audio)
+            
+            # Add timeout protection for large files
+            import signal
+            def timeout_handler(signum, frame):
+                raise TimeoutException("Rhythm extraction timed out")
+            
+            # Set timeout based on file size
+            if len(audio) > 100000000:  # More than 100M samples
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(300)  # 5 minutes for large files
+                logger.debug("Set 5-minute timeout for large file rhythm extraction")
+            
+            try:
+                rhythm_result = rhythm_algo(audio)
+                logger.debug("Rhythm analysis completed successfully")
+            except MemoryError as me:
+                logger.error(f"Rhythm extraction failed due to memory error: {me}")
+                raise
+            except Exception as e:
+                logger.error(f"Rhythm extraction failed with error: {e}")
+                raise
+            finally:
+                # Cancel timeout
+                signal.alarm(0)
             logger.debug(f"Rhythm result type: {type(rhythm_result)}")
             logger.debug(
                 f"Rhythm result length: {len(rhythm_result) if isinstance(rhythm_result, tuple) else 'not tuple'}")
@@ -664,7 +687,30 @@ class AudioAnalyzer:
                 "Initializing Essentia SpectralCentroidTime algorithm")
             centroid_algo = es.SpectralCentroidTime()
             logger.debug("Running spectral centroid analysis on audio")
-            centroid_values = centroid_algo(audio)
+            
+            # Add timeout protection for large files
+            import signal
+            def timeout_handler(signum, frame):
+                raise TimeoutException("Spectral extraction timed out")
+            
+            # Set timeout based on file size
+            if len(audio) > 100000000:  # More than 100M samples
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(300)  # 5 minutes for large files
+                logger.debug("Set 5-minute timeout for large file spectral extraction")
+            
+            try:
+                centroid_values = centroid_algo(audio)
+                logger.debug("Spectral analysis completed successfully")
+            except MemoryError as me:
+                logger.error(f"Spectral extraction failed due to memory error: {me}")
+                raise
+            except Exception as e:
+                logger.error(f"Spectral extraction failed with error: {e}")
+                raise
+            finally:
+                # Cancel timeout
+                signal.alarm(0)
             logger.debug(
                 f"Spectral centroid values shape: {np.array(centroid_values).shape if hasattr(centroid_values, 'shape') else type(centroid_values)}")
 
@@ -688,7 +734,30 @@ class AudioAnalyzer:
             logger.debug("Initializing Essentia RMS algorithm")
             rms_algo = es.RMS()
             logger.debug("Running RMS analysis on audio")
-            rms_values = rms_algo(audio)
+            
+            # Add timeout protection for large files
+            import signal
+            def timeout_handler(signum, frame):
+                raise TimeoutException("Loudness extraction timed out")
+            
+            # Set timeout based on file size
+            if len(audio) > 100000000:  # More than 100M samples
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(300)  # 5 minutes for large files
+                logger.debug("Set 5-minute timeout for large file loudness extraction")
+            
+            try:
+                rms_values = rms_algo(audio)
+                logger.debug("Loudness analysis completed successfully")
+            except MemoryError as me:
+                logger.error(f"Loudness extraction failed due to memory error: {me}")
+                raise
+            except Exception as e:
+                logger.error(f"Loudness extraction failed with error: {e}")
+                raise
+            finally:
+                # Cancel timeout
+                signal.alarm(0)
             logger.debug(
                 f"RMS values shape: {np.array(rms_values).shape if hasattr(rms_values, 'shape') else type(rms_values)}")
 
@@ -1717,6 +1786,12 @@ class AudioAnalyzer:
         if is_too_large_for_mfcc:
             logger.warning(
                 f"File too large for MFCC extraction ({len(audio)} samples), skipping MFCC")
+        
+        # Check if file is extremely large for any processing (>500M samples ~11.3 hours at 44kHz)
+        is_extremely_large_for_processing = len(audio) > 500000000
+        if is_extremely_large_for_processing:
+            logger.warning(
+                f"File extremely large for processing ({len(audio)} samples), using minimal features only")
 
         # Duration calculation
         try:
@@ -1729,32 +1804,44 @@ class AudioAnalyzer:
             logger.warning(f"Duration calculation failed: {str(e)}")
             features['duration'] = 0.0
 
-        # Extract rhythm features
-        try:
-            rhythm_result = self._extract_rhythm_features(audio)
-            features['bpm'] = rhythm_result['bpm']
-            logger.info(f"Rhythm: BPM = {features['bpm']:.1f}")
-        except Exception as e:
-            logger.warning(f"Rhythm extraction failed: {str(e)}")
+        # Extract rhythm features (skip for extremely large files)
+        if is_extremely_large_for_processing:
+            logger.info("Skipping rhythm extraction for extremely large file")
             features['bpm'] = 120.0
+        else:
+            try:
+                rhythm_result = self._extract_rhythm_features(audio)
+                features['bpm'] = rhythm_result['bpm']
+                logger.info(f"Rhythm: BPM = {features['bpm']:.1f}")
+            except Exception as e:
+                logger.warning(f"Rhythm extraction failed: {str(e)}")
+                features['bpm'] = 120.0
 
-        # Extract spectral features
-        try:
-            spectral_features = self._extract_spectral_features(audio)
-            features['centroid'] = spectral_features['spectral_centroid']
-            logger.info(f"Spectral: centroid = {features['centroid']:.1f}Hz")
-        except Exception as e:
-            logger.warning(f"Spectral extraction failed: {str(e)}")
+        # Extract spectral features (skip for extremely large files)
+        if is_extremely_large_for_processing:
+            logger.info("Skipping spectral extraction for extremely large file")
             features['centroid'] = 0.0
+        else:
+            try:
+                spectral_features = self._extract_spectral_features(audio)
+                features['centroid'] = spectral_features['spectral_centroid']
+                logger.info(f"Spectral: centroid = {features['centroid']:.1f}Hz")
+            except Exception as e:
+                logger.warning(f"Spectral extraction failed: {str(e)}")
+                features['centroid'] = 0.0
 
-        # Extract loudness
-        try:
-            loudness_result = self._extract_loudness(audio)
-            features['loudness'] = loudness_result['rms']
-            logger.info(f"Loudness: RMS = {features['loudness']:.3f}")
-        except Exception as e:
-            logger.warning(f"Loudness extraction failed: {str(e)}")
+        # Extract loudness (skip for extremely large files)
+        if is_extremely_large_for_processing:
+            logger.info("Skipping loudness extraction for extremely large file")
             features['loudness'] = 0.0
+        else:
+            try:
+                loudness_result = self._extract_loudness(audio)
+                features['loudness'] = loudness_result['rms']
+                logger.info(f"Loudness: RMS = {features['loudness']:.3f}")
+            except Exception as e:
+                logger.warning(f"Loudness extraction failed: {str(e)}")
+                features['loudness'] = 0.0
 
         # Extract danceability
         try:
