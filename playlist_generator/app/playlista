@@ -3,6 +3,8 @@
 Main entry point for the playlist generator application.
 """
 
+import os
+
 # Control TensorFlow C++ backend logging (must be set before import)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '0'  # Show all messages (INFO, WARNING, ERROR)
 
