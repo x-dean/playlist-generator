@@ -373,7 +373,19 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             def timeout_monitor():
                 """Monitor for stuck processes and memory issues."""
                 while True:
-                    time.sleep(30)  # Check every 30 seconds
+                    # Check for interrupt every 5 seconds instead of 30
+                    for _ in range(6):  # 6 * 5 = 30 seconds
+                        time.sleep(5)
+                        # Check for interrupt
+                        try:
+                            import signal
+                            # This will raise KeyboardInterrupt if Ctrl+C was pressed
+                            signal.signal(signal.SIGINT, signal.default_int_handler)
+                        except KeyboardInterrupt:
+                            logger.warning("Interrupt received in timeout monitor")
+                            print("\n🛑 Interrupt received! Stopping analysis...")
+                            return  # Exit the monitor
+                    
                     current_time = time.time()
                     
                     # Check for stuck processes - only warn if no progress for 20 minutes
@@ -432,6 +444,17 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 processed_count += 1
                 filename = os.path.basename(filepath)
                 
+                # Check for interrupt AFTER processing the current file
+                # This allows the current file to complete but stops the next one
+                try:
+                    import signal
+                    # This will raise KeyboardInterrupt if Ctrl+C was pressed
+                    signal.signal(signal.SIGINT, signal.default_int_handler)
+                except KeyboardInterrupt:
+                    logger.warning("Interrupt received after completing file")
+                    print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
+                    return failed_files
+                
                 # Calculate individual file processing time
                 if isinstance(file_start_times, dict) and filepath in file_start_times:
                     file_processing_time = time.time() - file_start_times[filepath]
@@ -485,6 +508,18 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
 
             for features, filepath, db_write_success in parallel_processor.process(normal_files, workers, force_reextract=force_reextract):
                 processed_count += 1
+                filename = os.path.basename(filepath)
+                
+                # Check for interrupt AFTER processing the current file
+                # This allows the current file to complete but stops the next one
+                try:
+                    import signal
+                    # This will raise KeyboardInterrupt if Ctrl+C was pressed
+                    signal.signal(signal.SIGINT, signal.default_int_handler)
+                except KeyboardInterrupt:
+                    logger.warning("Interrupt received after completing file")
+                    print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
+                    return failed_files
                 filename = os.path.basename(filepath)
 
                 # Get status dot for result

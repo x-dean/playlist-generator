@@ -97,6 +97,34 @@ essentia_logger.setLevel(getattr(logging, log_level, logging.INFO))
 setup_log_level_signal_handler_direct()
 start_log_level_monitor()
 
+# Setup interrupt handler
+def signal_handler(signum, frame):
+    """Handle interrupt signals gracefully."""
+    logger.warning(f"Received signal {signum}, initiating graceful shutdown...")
+    print("\n🛑 Interrupt received! Initiating graceful shutdown...")
+    
+    # Force cleanup of any running processes
+    try:
+        import psutil
+        current_process = psutil.Process()
+        children = current_process.children(recursive=True)
+        if children:
+            logger.info(f"Terminating {len(children)} child processes...")
+            for child in children:
+                try:
+                    child.terminate()
+                except:
+                    pass
+    except:
+        pass
+    
+    sys.exit(130)
+
+# Register the signal handler
+import signal
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
 logger = logging.getLogger(__name__)
 
 # Add session separator to distinguish between runs
@@ -606,7 +634,23 @@ Examples:
         sys.exit(1)
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
-        print("\nInterrupted by user. Exiting...")
+        print("\n🛑 Interrupted by user. Exiting...")
+        
+        # Force cleanup of any running processes
+        try:
+            import psutil
+            current_process = psutil.Process()
+            children = current_process.children(recursive=True)
+            if children:
+                logger.info(f"Terminating {len(children)} child processes...")
+                for child in children:
+                    try:
+                        child.terminate()
+                    except:
+                        pass
+        except:
+            pass
+        
         sys.exit(130)
     finally:
         # Only print summary for generate/update modes (not analyze_only)

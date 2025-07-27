@@ -201,6 +201,7 @@ class LargeFileProcessor:
     
     def process_large_file(self, audio_path: str, force_reextract: bool = False) -> tuple:
         """Process a large file with timeout and memory monitoring."""
+        
         file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
         logger.info(f"Processing large file ({file_size_mb:.1f}MB) with timeout: {os.path.basename(audio_path)}")
         
@@ -233,6 +234,19 @@ class LargeFileProcessor:
             result = self._extract_features_with_timeout(audio_path, force_reextract)
             if result and result[0] and result[1]:
                 logger.info(f"Large file processing completed: {os.path.basename(audio_path)}")
+            
+            # Check for interrupt AFTER processing the current file
+            # This allows the current file to complete but stops the next one
+            try:
+                import signal
+                # This will raise KeyboardInterrupt if Ctrl+C was pressed
+                signal.signal(signal.SIGINT, signal.default_int_handler)
+            except KeyboardInterrupt:
+                logger.warning("Interrupt received after completing large file")
+                print(f"\n🛑 Interrupt received! Completed {os.path.basename(audio_path)}, stopping processing...")
+                # Return the current result but signal to stop processing more files
+                return result
+            
             return result
         except Exception as e:
             logger.error(f"Large file processing failed: {os.path.basename(audio_path)} - {str(e)}")
@@ -338,6 +352,17 @@ class SequentialProcessor:
                 self.failed_files.append(filepath)
                 logger.error(f"Error processing {filepath}: {str(e)}")
                 yield None, filepath, False
+            
+            # Check for interrupt AFTER processing the current file
+            # This allows the current file to complete but stops the next one
+            try:
+                import signal
+                # This will raise KeyboardInterrupt if Ctrl+C was pressed
+                signal.signal(signal.SIGINT, signal.default_int_handler)
+            except KeyboardInterrupt:
+                logger.warning("Interrupt received after completing file")
+                print(f"\n🛑 Interrupt received! Completed {os.path.basename(filepath)}, stopping sequential processing...")
+                return  # Exit the generator
             
             # Force cleanup after each file to prevent memory buildup
             gc.collect()
