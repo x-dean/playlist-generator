@@ -92,6 +92,39 @@ def setup_log_level_signal_handler():
     # Use SIGUSR1 to cycle through log levels
     signal.signal(signal.SIGUSR1, signal_handler)
     print("📝 Log level control: Send SIGUSR1 signal to cycle through log levels")
+    print("   Example: docker compose exec playlista kill -SIGUSR1 1")
+
+
+def setup_log_level_signal_handler_direct():
+    """Setup signal handlers for direct log level control."""
+    def debug_handler(signum, frame):
+        if change_log_level('DEBUG'):
+            print(f"\n✅ Log level set to DEBUG")
+        else:
+            print(f"\n❌ Failed to set log level to DEBUG")
+    
+    def info_handler(signum, frame):
+        if change_log_level('INFO'):
+            print(f"\n✅ Log level set to INFO")
+        else:
+            print(f"\n❌ Failed to set log level to INFO")
+    
+    def warning_handler(signum, frame):
+        if change_log_level('WARNING'):
+            print(f"\n✅ Log level set to WARNING")
+        else:
+            print(f"\n❌ Failed to set log level to WARNING")
+    
+    # Use different signals for different levels
+    signal.signal(signal.SIGUSR1, debug_handler)    # DEBUG
+    signal.signal(signal.SIGUSR2, info_handler)     # INFO  
+    signal.signal(signal.SIGTERM, warning_handler)   # WARNING (if not used for shutdown)
+    
+    print("📝 Direct log level control:")
+    print("   SIGUSR1 -> DEBUG")
+    print("   SIGUSR2 -> INFO") 
+    print("   SIGTERM -> WARNING")
+    print("   Example: docker compose exec playlista kill -SIGUSR1 1")
 
 
 def setup_colored_file_logging(logfile_path=None):

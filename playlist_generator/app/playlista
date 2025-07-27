@@ -26,7 +26,7 @@ from music_analyzer.feature_extractor import AudioAnalyzer
 from utils.path_converter import PathConverter
 from utils.path_utils import convert_to_host_path
 from utils.logging_setup import setup_colored_logging, setup_queue_colored_logging
-from utils.logging_setup import setup_colored_file_logging, setup_log_level_signal_handler, start_log_level_monitor
+from utils.logging_setup import setup_colored_file_logging, setup_log_level_signal_handler_direct, start_log_level_monitor
 import multiprocessing as mp
 import traceback
 import time
@@ -61,7 +61,7 @@ log_file = os.path.join(log_dir, f'playlista_{date_str}.log')
 setup_colored_file_logging(log_file)
 
 # Setup runtime log level control
-setup_log_level_signal_handler()
+setup_log_level_signal_handler_direct()
 start_log_level_monitor()
 
 logger = logging.getLogger(__name__)
