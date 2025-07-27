@@ -376,9 +376,9 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     time.sleep(30)  # Check every 30 seconds
                     current_time = time.time()
                     
-                    # Check for stuck processes - only warn if no progress for 15 minutes
+                    # Check for stuck processes - only warn if no progress for 20 minutes
                     # AND we're not in the middle of processing a large file
-                    if current_time - last_update_time > 900:  # 15 minutes without update
+                    if current_time - last_update_time > 1200:  # 20 minutes without update
                         # Check if we're currently processing a large file
                         current_file_size = 0
                         try:
@@ -393,8 +393,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                         
                         # Only warn if it's not a large file (>50MB) or if it's been too long even for a large file
                         threshold_mb = int(os.getenv('LARGE_FILE_THRESHOLD', '50'))
-                        if current_file_size < threshold_mb or current_time - last_update_time > 1800:  # 30 minutes max
-                            logger.warning(f"SEQUENTIAL: No progress for 15 minutes - file may be stuck (current file: {current_file_size:.1f}MB)")
+                        if current_file_size < threshold_mb or current_time - last_update_time > 2400:  # 40 minutes max
+                            logger.warning(f"SEQUENTIAL: No progress for 20 minutes - file may be stuck (current file: {current_file_size:.1f}MB)")
                     
                     # Check memory usage
                     try:

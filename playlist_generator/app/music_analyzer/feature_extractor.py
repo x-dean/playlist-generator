@@ -625,8 +625,8 @@ class AudioAnalyzer:
                     raise TimeoutException("Rhythm extraction timed out")
                 
                 signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(300)  # 5 minutes for large files
-                logger.debug("Set 5-minute timeout for large file rhythm extraction")
+                signal.alarm(600)  # 10 minutes for large files
+                logger.debug("Set 10-minute timeout for large file rhythm extraction")
             
             try:
                 rhythm_result = rhythm_algo(audio)
@@ -754,8 +754,8 @@ class AudioAnalyzer:
                     raise TimeoutException("Spectral extraction timed out")
                 
                 signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(300)  # 5 minutes for large files
-                logger.debug("Set 5-minute timeout for large file spectral extraction")
+                signal.alarm(600)  # 10 minutes for large files
+                logger.debug("Set 10-minute timeout for large file spectral extraction")
             
             try:
                 centroid_values = centroid_algo(audio)
@@ -808,8 +808,8 @@ class AudioAnalyzer:
                     raise TimeoutException("Loudness extraction timed out")
                 
                 signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(300)  # 5 minutes for large files
-                logger.debug("Set 5-minute timeout for large file loudness extraction")
+                signal.alarm(600)  # 10 minutes for large files
+                logger.debug("Set 10-minute timeout for large file loudness extraction")
             
             try:
                 rms_values = rms_algo(audio)
@@ -1046,9 +1046,9 @@ class AudioAnalyzer:
                     raise TimeoutException("MFCC extraction timed out")
                 
                 signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(600)  # 10 minutes
+                signal.alarm(900)  # 15 minutes
                 logger.debug(
-                    "Set 10-minute timeout for large file MFCC extraction")
+                    "Set 15-minute timeout for large file MFCC extraction")
 
             try:
                 logger.debug(f"Starting MFCC computation for {len(audio)} samples")

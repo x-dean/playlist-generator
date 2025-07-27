@@ -27,7 +27,7 @@ Files larger than the threshold (default: 50MB) are now processed in a separate 
 
 - **Individual File Timing**: Each large file's processing time is tracked and logged
 - **Periodic Updates**: Progress updates every 30 seconds for long-running files
-- **Timeout Monitoring**: Background thread monitors for stuck processes (15+ minutes without progress)
+- **Timeout Monitoring**: Background thread monitors for stuck processes (20+ minutes without progress)
 - **Memory Monitoring**: Memory usage is logged when timeouts occur
 
 ## Configuration

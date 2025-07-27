@@ -114,13 +114,20 @@ class LargeFileProcessor:
             # Use threading with timeout instead of multiprocessing
             import threading
             import queue
+            import time
             
             result_queue = queue.Queue()
             exception_queue = queue.Queue()
+            timeout_occurred = threading.Event()
             
             def extract_worker():
                 analyzer = None
                 try:
+                    # Check if timeout occurred before starting
+                    if timeout_occurred.is_set():
+                        logger.debug(f"Timeout occurred before worker started for {os.path.basename(audio_path)}")
+                        return
+                    
                     # Create a thread-safe AudioAnalyzer instance in the worker thread
                     # This ensures SQLite connections are thread-specific
                     cache_file = os.getenv('CACHE_FILE', '/app/cache/audio_analysis.db')
@@ -130,9 +137,24 @@ class LargeFileProcessor:
                     # Use thread-safe analyzer
                     analyzer = ThreadSafeAudioAnalyzer(cache_file, library, music)
                     result = analyzer.extract_features(audio_path, force_reextract=force_reextract)
-                    result_queue.put(result)
+                    
+                    # Only put result if timeout hasn't occurred
+                    if not timeout_occurred.is_set():
+                        result_queue.put(result)
+                    else:
+                        logger.debug(f"Timeout occurred during processing, discarding result for {os.path.basename(audio_path)}")
+                        # Don't write to database if timeout occurred
+                        if result and len(result) >= 3:
+                            # Mark as failed in database to prevent partial writes
+                            try:
+                                file_info = analyzer._get_file_info(audio_path)
+                                analyzer._mark_failed(file_info)
+                                logger.debug(f"Marked timed-out file as failed: {os.path.basename(audio_path)}")
+                            except Exception as e:
+                                logger.debug(f"Could not mark timed-out file as failed: {e}")
                 except Exception as e:
-                    exception_queue.put(e)
+                    if not timeout_occurred.is_set():
+                        exception_queue.put(e)
                 finally:
                     # Clean up analyzer resources
                     if analyzer:
@@ -150,9 +172,24 @@ class LargeFileProcessor:
                 result = result_queue.get(timeout=self.timeout_seconds)
                 return result
             except queue.Empty:
+                # Set timeout flag to prevent worker from putting results
+                timeout_occurred.set()
                 logger.error(f"Large file processing timed out after {self.timeout_seconds}s: {os.path.basename(audio_path)}")
+                
+                # Wait a bit for worker to finish cleanup
+                worker_thread.join(timeout=2.0)
+                
+                # Double-check that no result was put in the queue during the timeout
+                try:
+                    # Try to get any result that might have been put during timeout
+                    result = result_queue.get_nowait()
+                    logger.warning(f"Received late result after timeout for {os.path.basename(audio_path)}, discarding")
+                except queue.Empty:
+                    pass  # No late result, which is expected
+                
                 return None, False, None
             except Exception as e:
+                timeout_occurred.set()
                 if not exception_queue.empty():
                     exc = exception_queue.get()
                     logger.error(f"Large file processing failed: {os.path.basename(audio_path)} - {str(exc)}")
@@ -177,15 +214,15 @@ class LargeFileProcessor:
         
         # Adjust timeout based on file size and available memory
         if file_size_mb > 200:
-            timeout = 900  # 15 minutes for very large files
+            timeout = 1200  # 20 minutes for very large files
         elif file_size_mb > 100:
-            timeout = 600  # 10 minutes for large files
+            timeout = 900   # 15 minutes for large files
         else:
-            timeout = 300  # 5 minutes for medium files
+            timeout = 600   # 10 minutes for medium files
         
         # Reduce timeout if memory is limited
         if available_gb < 2.0:  # Less than 2GB available
-            timeout = min(timeout, 180)  # Max 3 minutes
+            timeout = min(timeout, 300)  # Max 5 minutes
             logger.warning(f"Limited memory available ({available_gb:.1f}GB), reducing timeout to {timeout}s")
         
         # Set timeout for this processing session
