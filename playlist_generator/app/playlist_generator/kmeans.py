@@ -118,9 +118,16 @@ class KMeansPlaylistGenerator:
                 data = []
                 for f in chunk:
                     try:
+                        bpm = float(f.get('bpm', 0))
+                        
+                        # Skip tracks with failed BPM extraction (-1.0 marker)
+                        if bpm == -1.0:
+                            logger.debug(f"Skipping track with failed BPM extraction: {os.path.basename(f['filepath'])}")
+                            continue
+                        
                         track_data = {
                             'filepath': str(f['filepath']),
-                            'bpm': float(f.get('bpm', 0)),
+                            'bpm': bpm,
                             'centroid': float(f.get('centroid', 0)),
                             'danceability': float(f.get('danceability', 0)),
                             'loudness': float(f.get('loudness', -30)),

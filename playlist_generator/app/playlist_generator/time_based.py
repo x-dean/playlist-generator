@@ -143,6 +143,12 @@ class TimeBasedScheduler:
 
                     # Check BPM rules
                     bpm = get_val('bpm', 120)
+                    # Skip tracks with failed BPM extraction (-1.0 marker)
+                    if bpm == -1.0:
+                        failed_tracks += 1
+                        logger.debug(
+                            f"Track {track.get('filepath', 'unknown')} skipped due to failed BPM extraction")
+                        continue
                     if 'min_bpm' in rules and bpm < rules['min_bpm']:
                         failed_tracks += 1
                         logger.debug(

@@ -299,6 +299,10 @@ class TagBasedPlaylistGenerator:
         bpm = track.get('bpm', 0)
         centroid = track.get('centroid', 0)
 
+        # Skip mood classification for tracks with failed BPM extraction
+        if bpm == -1.0:
+            return 'Unknown'  # Special mood for failed BPM tracks
+
         if danceability > 0.7 and bpm > 120:
             return 'Energetic'
         elif danceability < 0.3 and bpm < 80:

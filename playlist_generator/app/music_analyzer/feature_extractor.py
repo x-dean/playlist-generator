@@ -606,8 +606,8 @@ class AudioAnalyzer:
             logger.error(f"Audio loading failed for {audio_path}: {str(e)}")
             return None
 
-    def _extract_rhythm_features(self, audio):
-        """Extract rhythm features from audio."""
+    def _extract_rhythm_features(self, audio, audio_path=None, metadata=None):
+        """Extract rhythm features from audio with fallback to external APIs."""
         logger.info("Extracting rhythm features...")
         try:
             logger.debug("Initializing Essentia RhythmExtractor algorithm")
@@ -654,7 +654,7 @@ class AudioAnalyzer:
                     logger.debug(f"Extracted BPM from tuple[0]: {bpm}")
                 else:
                     logger.warning("Empty rhythm result tuple")
-                    bpm = 120.0
+                    bpm = -1.0  # Special marker for failed BPM extraction
             else:
                 # Single value return
                 bpm = rhythm_result
@@ -664,12 +664,12 @@ class AudioAnalyzer:
             try:
                 bpm = float(bpm)
                 if not np.isfinite(bpm) or bpm <= 0:
-                    logger.warning(f"Invalid BPM value: {bpm}, using default")
-                    bpm = 120.0
+                    logger.warning(f"Invalid BPM value: {bpm}, using failed marker")
+                    bpm = -1.0  # Special marker for failed BPM extraction
             except (ValueError, TypeError):
                 logger.warning(
-                    f"Could not convert BPM to float: {bpm}, using default")
-                bpm = 120.0
+                    f"Could not convert BPM to float: {bpm}, using failed marker")
+                bpm = -1.0  # Special marker for failed BPM extraction
 
             logger.debug(f"Final BPM: {bpm}")
             logger.info(f"Rhythm extraction completed: BPM = {bpm:.1f}")
@@ -684,7 +684,55 @@ class AudioAnalyzer:
             import traceback
             logger.debug(
                 f"Rhythm extraction full traceback: {traceback.format_exc()}")
-            return {'bpm': 120.0}
+            
+            # Try to get BPM from external APIs as fallback
+            external_bpm = self._get_external_bpm(audio_path, metadata)
+            if external_bpm is not None:
+                logger.info(f"Using external BPM fallback: {external_bpm:.1f}")
+                return {'bpm': float(external_bpm)}
+            else:
+                logger.warning("No external BPM available, using failed marker -1.0")
+                return {'bpm': -1.0}  # Special marker for failed BPM extraction
+
+    def _get_external_bpm(self, audio_path, metadata):
+        """Get BPM from external APIs when local extraction fails."""
+        if not audio_path or not metadata:
+            return None
+            
+        # Extract artist and title from metadata
+        artist = metadata.get('artist') or metadata.get('mb_artist')
+        title = metadata.get('title') or metadata.get('mb_title')
+        
+        if not artist or not title:
+            logger.debug("No artist/title available for external BPM lookup")
+            return None
+            
+        logger.info(f"Attempting external BPM lookup for: {artist} - {title}")
+        
+        # Try MusicBrainz first
+        try:
+            mb_data = self._musicbrainz_lookup(artist, title)
+            if mb_data and 'bpm' in mb_data and mb_data['bpm']:
+                bpm = float(mb_data['bpm'])
+                if 60 <= bpm <= 200:  # Valid BPM range
+                    logger.info(f"Found BPM in MusicBrainz: {bpm:.1f}")
+                    return bpm
+        except Exception as e:
+            logger.debug(f"MusicBrainz BPM lookup failed: {e}")
+            
+        # Try LastFM as fallback
+        try:
+            lf_data = self._lastfm_lookup(artist, title)
+            if lf_data and 'bpm' in lf_data and lf_data['bpm']:
+                bpm = float(lf_data['bpm'])
+                if 60 <= bpm <= 200:  # Valid BPM range
+                    logger.info(f"Found BPM in LastFM: {bpm:.1f}")
+                    return bpm
+        except Exception as e:
+            logger.debug(f"LastFM BPM lookup failed: {e}")
+            
+        logger.debug("No external BPM found")
+        return None
 
     def _extract_spectral_features(self, audio):
         """Extract spectral features from audio."""
@@ -1519,6 +1567,18 @@ class AudioAnalyzer:
                 if 'work-relation-list' in rec_full and rec_full['work-relation-list'] and len(rec_full['work-relation-list']) > 0:
                     work = rec_full['work-relation-list'][0]['work']
                     all_mb_data['work'] = work.get('title')
+                    
+                    # Try to get BPM from work attributes if available
+                    if 'attributes' in work:
+                        for attr in work['attributes']:
+                            if attr.get('type') == 'bpm' and attr.get('value'):
+                                try:
+                                    bpm = float(attr['value'])
+                                    if 60 <= bpm <= 200:  # Valid BPM range
+                                        all_mb_data['bpm'] = bpm
+                                        logger.debug(f"Found BPM in MusicBrainz work: {bpm}")
+                                except (ValueError, TypeError):
+                                    pass
                     all_mb_data['composer'] = work.get('composer')
                 else:
                     all_mb_data['work'] = None
@@ -1640,6 +1700,10 @@ class AudioAnalyzer:
             all_lastfm_data['playcount'] = track.get('playcount')
             all_lastfm_data['duration'] = track.get('duration')
             all_lastfm_data['url'] = track.get('url')
+            
+            # Note: LastFM API doesn't provide BPM data directly
+            # We could potentially use tags to infer BPM ranges, but it's not reliable
+            # For now, we'll skip BPM from LastFM and rely on MusicBrainz
             all_lastfm_data['mbid'] = track.get('mbid')
             all_lastfm_data['streamable'] = track.get('streamable')
             all_lastfm_data['userplaycount'] = track.get('userplaycount')
@@ -1852,10 +1916,22 @@ class AudioAnalyzer:
         # Extract rhythm features (skip for extremely large files)
         if is_extremely_large_for_processing:
             logger.info("Skipping rhythm extraction for extremely large file")
-            features['bpm'] = 120.0
+            features['bpm'] = -1.0  # Special marker for failed BPM extraction
         else:
             try:
-                rhythm_result = self._extract_rhythm_features(audio)
+                # Get metadata for external BPM lookup if local extraction fails
+                metadata = {}
+                try:
+                    audio_file = MutagenFile(audio_path)
+                    if audio_file:
+                        for tag in ['title', 'artist', 'album', 'date', 'genre']:
+                            if tag in audio_file:
+                                metadata[tag] = str(
+                                    audio_file[tag][0]) if audio_file[tag] else None
+                except Exception as e:
+                    logger.debug(f"File tag extraction failed: {str(e)}")
+                
+                rhythm_result = self._extract_rhythm_features(audio, audio_path, metadata)
                 features['bpm'] = rhythm_result['bpm']
                 logger.info(f"Rhythm: BPM = {features['bpm']:.1f}")
             except TimeoutException as te:
@@ -1863,7 +1939,7 @@ class AudioAnalyzer:
                 return None  # Skip the entire file
             except Exception as e:
                 logger.warning(f"Rhythm extraction failed: {str(e)}")
-                features['bpm'] = 120.0
+                features['bpm'] = -1.0  # Special marker for failed BPM extraction
 
         # Extract spectral features (skip for extremely large files)
         if is_extremely_large_for_processing:

@@ -126,6 +126,12 @@ class CacheBasedGenerator:
 
         try:
             bpm = float(features.get('bpm', 0))
+            
+            # Skip tracks with failed BPM extraction (-1.0 marker)
+            if bpm == -1.0:
+                logger.debug(f"Skipping track with failed BPM extraction: {features.get('filepath', 'unknown')}")
+                return "Failed_BPM_Playlist"
+            
             energy = self._get_combined_energy(features)
             centroid = float(features.get('centroid', 0))
 
@@ -151,6 +157,12 @@ class CacheBasedGenerator:
 
         try:
             bpm = float(features.get('bpm', 0))
+            
+            # Skip tracks with failed BPM extraction (-1.0 marker)
+            if bpm == -1.0:
+                logger.debug(f"Skipping track with failed BPM extraction: {features.get('filepath', 'unknown')}")
+                return "Track with failed BPM extraction."
+            
             energy = self._get_combined_energy(features)
             centroid = float(features.get('centroid', 0))
 

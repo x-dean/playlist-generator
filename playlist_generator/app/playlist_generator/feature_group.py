@@ -112,6 +112,13 @@ class FeatureGroupPlaylistGenerator:
                 scale = f.get('scale', None)
                 file_path = f['filepath']
 
+                # Skip tracks with failed BPM extraction (-1.0 marker)
+                if bpm == -1.0:
+                    skipped_tracks += 1
+                    logger.debug(
+                        f"Skipping track with failed BPM extraction: {file_path}")
+                    continue
+
                 # Skip invalid data
                 if None in (bpm, centroid, danceability):
                     skipped_tracks += 1
