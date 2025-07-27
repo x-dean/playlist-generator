@@ -99,27 +99,34 @@ def setup_log_level_signal_handler_direct():
     """Setup signal handlers for direct log level control."""
     def debug_handler(signum, frame):
         if change_log_level('DEBUG'):
-            print(f"\n✅ Log level set to DEBUG")
+            # Only log to file, don't print to console
+            pass
         else:
-            print(f"\n❌ Failed to set log level to DEBUG")
+            # Only log to file, don't print to console
+            pass
     
     def info_handler(signum, frame):
         if change_log_level('INFO'):
-            print(f"\n✅ Log level set to INFO")
+            # Only log to file, don't print to console
+            pass
         else:
-            print(f"\n❌ Failed to set log level to INFO")
+            # Only log to file, don't print to console
+            pass
     
     def warning_handler(signum, frame):
         if change_log_level('WARNING'):
-            print(f"\n✅ Log level set to WARNING")
+            # Only log to file, don't print to console
+            pass
         else:
-            print(f"\n❌ Failed to set log level to WARNING")
+            # Only log to file, don't print to console
+            pass
     
     # Use different signals for different levels
     signal.signal(signal.SIGUSR1, debug_handler)    # DEBUG
     signal.signal(signal.SIGUSR2, info_handler)     # INFO  
     signal.signal(signal.SIGTERM, warning_handler)   # WARNING (if not used for shutdown)
     
+    # Only show this once at startup, not on every signal
     print("📝 Direct log level control:")
     print("   SIGUSR1 -> DEBUG")
     print("   SIGUSR2 -> INFO") 
