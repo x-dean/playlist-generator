@@ -69,7 +69,7 @@ show_current_level() {
 
 # Function to show help
 show_help() {
-    echo "🎵 Playlista Log Level Control"
+    echo -e "\nPlaylista Log Level Control"
     echo ""
     echo "Usage:"
     echo "  ./log_level.sh debug    - Set log level to DEBUG (verbose)"

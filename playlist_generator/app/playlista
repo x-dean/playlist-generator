@@ -59,6 +59,13 @@ log_file = os.path.join(log_dir, f'playlista_{date_str}.log')
 # Setup colored logging to file only
 setup_colored_file_logging(log_file)
 
+# Redirect TensorFlow output to log file (keep warnings for debugging)
+import tensorflow as tf
+tf_logger = tf.get_logger()
+tf_logger.handlers = []  # Remove default handlers
+tf_logger.addHandler(logging.FileHandler(log_file))  # Add file handler
+tf_logger.setLevel('INFO')  # Keep all TensorFlow messages
+
 # Setup runtime log level control
 setup_log_level_signal_handler_direct()
 start_log_level_monitor()
