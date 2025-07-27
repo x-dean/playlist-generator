@@ -58,6 +58,20 @@ try:
     import tensorflow as tf
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     tf.get_logger().setLevel('ERROR')
+    
+    # Configure TensorFlow to use a single session and prevent network warnings
+    tf.compat.v1.disable_eager_execution()
+    tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+    
+    # Set memory growth to prevent GPU memory issues
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError as e:
+            logger.debug(f"GPU memory growth setting failed: {e}")
+            
 except ImportError:
     pass
 
@@ -70,16 +84,34 @@ _musicnn_models_cache = {
     'metadata': None,
     'tag_names': [],
     'output_layer': 'model/dense_1/BiasAdd',
-    'loaded': False
+    'loaded': False,
+    'process_id': None  # Track which process loaded the models
 }
 
 def _load_musicnn_models_global():
     """Load MusiCNN models globally once and cache them for all instances."""
     global _musicnn_models_cache
+    import os
     
-    # If already loaded, return cached models
-    if _musicnn_models_cache['loaded']:
+    current_pid = os.getpid()
+    
+    # If already loaded in this process, return cached models
+    if _musicnn_models_cache['loaded'] and _musicnn_models_cache['process_id'] == current_pid:
         return _musicnn_models_cache
+    
+    # If loaded in a different process, reset cache
+    if _musicnn_models_cache['loaded'] and _musicnn_models_cache['process_id'] != current_pid:
+        logger.debug(f"MusiCNN models were loaded in process {_musicnn_models_cache['process_id']}, "
+                    f"but we're in process {current_pid}. Resetting cache.")
+        _musicnn_models_cache = {
+            'model': None,
+            'emb_model': None,
+            'metadata': None,
+            'tag_names': [],
+            'output_layer': 'model/dense_1/BiasAdd',
+            'loaded': False,
+            'process_id': None
+        }
     
     try:
         import essentia.standard as es
@@ -94,7 +126,7 @@ def _load_musicnn_models_global():
             '/app/feature_extraction/models/musicnn/msd-musicnn-1.json'
         )
 
-        logger.debug(f"Global pre-loading MusiCNN model from: {model_path}")
+        logger.debug(f"Global pre-loading MusiCNN model from: {model_path} (PID: {current_pid})")
         logger.debug(f"Global pre-loading MusiCNN JSON from: {json_path}")
 
         # Check if files exist
@@ -131,7 +163,8 @@ def _load_musicnn_models_global():
             graphFilename=model_path, output=_musicnn_models_cache['output_layer'])
         
         _musicnn_models_cache['loaded'] = True
-        logger.info("MusiCNN resources pre-loaded globally successfully")
+        _musicnn_models_cache['process_id'] = current_pid
+        logger.info(f"MusiCNN resources pre-loaded globally successfully (PID: {current_pid})")
         
     except Exception as e:
         logger.warning(f"Failed to pre-load MusiCNN resources globally: {str(e)}")
@@ -144,8 +177,38 @@ def _load_musicnn_models_global():
         _musicnn_models_cache['metadata'] = None
         _musicnn_models_cache['tag_names'] = []
         _musicnn_models_cache['loaded'] = False
+        _musicnn_models_cache['process_id'] = None
     
     return _musicnn_models_cache
+
+def _cleanup_musicnn_models():
+    """Clean up MusiCNN models to prevent TensorFlow warnings."""
+    global _musicnn_models_cache
+    
+    try:
+        if _musicnn_models_cache['model'] is not None:
+            # Clear TensorFlow model references
+            _musicnn_models_cache['model'] = None
+            _musicnn_models_cache['emb_model'] = None
+            _musicnn_models_cache['loaded'] = False
+            _musicnn_models_cache['process_id'] = None
+            
+            # Try to clear TensorFlow session if available
+            try:
+                import tensorflow as tf
+                if hasattr(tf, 'keras') and hasattr(tf.keras, 'backend'):
+                    tf.keras.backend.clear_session()
+                    logger.debug("Cleared TensorFlow Keras session")
+            except Exception as e:
+                logger.debug(f"Could not clear TensorFlow session: {e}")
+            
+            logger.debug("Cleaned up MusiCNN model references")
+    except Exception as e:
+        logger.debug(f"Error during MusiCNN model cleanup: {e}")
+
+# Register cleanup function to be called on process exit
+import atexit
+atexit.register(_cleanup_musicnn_models)
 
 # Lean metadata fields for playlisting
 LEAN_FIELDS = [
@@ -448,6 +511,23 @@ class AudioAnalyzer:
             logger.debug("MusiCNN resources loaded from global cache")
         else:
             logger.warning("MusiCNN resources not available in global cache")
+    
+    def cleanup(self):
+        """Clean up resources when AudioAnalyzer is no longer needed."""
+        try:
+            # Clean up database connection
+            if hasattr(self, 'conn') and self.conn:
+                self.conn.close()
+                logger.debug("Closed database connection")
+        except Exception as e:
+            logger.debug(f"Error during AudioAnalyzer cleanup: {e}")
+    
+    def __del__(self):
+        """Destructor to ensure cleanup when object is garbage collected."""
+        try:
+            self.cleanup()
+        except:
+            pass  # Ignore errors during cleanup
 
     def _extract_musicnn_embedding(self, audio_path):
         """Extract MusiCNN embedding and auto-tags using pre-loaded model and metadata."""
