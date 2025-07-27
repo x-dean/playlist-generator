@@ -609,6 +609,19 @@ class AudioAnalyzer:
     def _extract_rhythm_features(self, audio, audio_path=None, metadata=None):
         """Extract rhythm features from audio with fallback to external APIs."""
         logger.info("Extracting rhythm features...")
+        
+        # Check if file is too large for Essentia rhythm extraction
+        # Files larger than 150M samples (~5.7 hours at 44kHz) often cause buffer overflow
+        if len(audio) > 150000000:
+            logger.warning(f"File too large for rhythm extraction ({len(audio)} samples), skipping to external BPM lookup")
+            external_bpm = self._get_external_bpm(audio_path, metadata)
+            if external_bpm is not None:
+                logger.info(f"Using external BPM for large file: {external_bpm:.1f}")
+                return {'bpm': float(external_bpm)}
+            else:
+                logger.warning("No external BPM available for large file, using failed marker -1.0")
+                return {'bpm': -1.0}
+        
         try:
             logger.debug("Initializing Essentia RhythmExtractor algorithm")
             rhythm_algo = es.RhythmExtractor2013()
@@ -699,15 +712,37 @@ class AudioAnalyzer:
         logger.debug(f"External BPM lookup called with audio_path: {audio_path}")
         logger.debug(f"External BPM lookup called with metadata: {metadata}")
         
-        if not audio_path or not metadata:
-            logger.debug("Missing audio_path or metadata for external BPM lookup")
+        if not audio_path:
+            logger.debug("Missing audio_path for external BPM lookup")
             return None
             
         # Extract artist and title from metadata
-        artist = metadata.get('artist') or metadata.get('mb_artist')
-        title = metadata.get('title') or metadata.get('mb_title')
+        artist = metadata.get('artist') or metadata.get('mb_artist') if metadata else None
+        title = metadata.get('title') or metadata.get('mb_title') if metadata else None
         
-        logger.debug(f"Extracted artist: '{artist}', title: '{title}'")
+        # If metadata is empty, try to extract from filename
+        if not artist or not title:
+            logger.debug("No artist/title in metadata, trying filename parsing")
+            try:
+                filename = os.path.basename(audio_path)
+                # Remove extension
+                name_without_ext = os.path.splitext(filename)[0]
+                
+                # Try to parse "Artist  - Title" format
+                if '  - ' in name_without_ext:
+                    parts = name_without_ext.split('  - ', 1)
+                    if len(parts) == 2:
+                        artist = parts[0].strip()
+                        title = parts[1].strip()
+                        logger.debug(f"Extracted from filename - artist: '{artist}', title: '{title}'")
+                    else:
+                        logger.debug("Could not parse artist/title from filename")
+                else:
+                    logger.debug("Filename does not match expected format")
+            except Exception as e:
+                logger.debug(f"Filename parsing failed: {e}")
+        
+        logger.debug(f"Final artist: '{artist}', title: '{title}'")
         
         if not artist or not title:
             logger.debug("No artist/title available for external BPM lookup")
@@ -1987,7 +2022,7 @@ class AudioAnalyzer:
                 # Get metadata for external BPM lookup if local extraction fails
                 metadata = {}
                 try:
-                    audio_file = MutagenFile(audio_path)
+                    audio_file = MutagenFile(audio_path, easy=True)
                     if audio_file:
                         logger.debug(f"Audio file tags available: {list(audio_file.keys())}")
                         for tag in ['title', 'artist', 'album', 'date', 'genre']:
@@ -2184,7 +2219,7 @@ class AudioAnalyzer:
 
             # Try to get metadata from file tags
             try:
-                audio_file = MutagenFile(audio_path)
+                audio_file = MutagenFile(audio_path, easy=True)
                 if audio_file:
                     for tag in ['title', 'artist', 'album', 'date', 'genre']:
                         if tag in audio_file:
