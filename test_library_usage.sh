@@ -3,7 +3,7 @@
 # Script to test the playlist generator analysis pipeline with custom paths
 # Now supports multiple pipeline variants and other modules
 #
-# IMPORTANT: Make sure your docker-compose.yaml includes these volume mappings:
+# IMPORTANT: This script uses docker-compose.test.yaml for test volume mappings:
 #   - /tmp:/music
 #   - /tmp/playlist_cache:/app/cache
 #   - /tmp/playlist_output:/app/playlists
@@ -12,6 +12,8 @@
 #   /tmp              -> /music
 #   /tmp/playlist_cache -> /app/cache
 #   /tmp/playlist_output -> /app/playlists
+#
+# All docker compose commands use: -f docker-compose.test.yaml
 
 HOST_LIBRARY_DIR="/tmp"                    # Host test music library
 HOST_CACHE_DIR="/tmp/playlist_cache"       # Host cache directory
@@ -21,13 +23,15 @@ CONTAINER_LIBRARY_DIR="/music"             # Container music library
 CONTAINER_CACHE_DIR="/app/cache"           # Container cache directory
 CONTAINER_OUTPUT_DIR="/app/playlists"      # Container output directory
 
+COMPOSE_FILE="-f docker-compose.test.yaml"
+
 # Create directories if they don't exist
 mkdir -p "$HOST_CACHE_DIR"
 mkdir -p "$HOST_OUTPUT_DIR"
 
 # Print mapping info
 cat <<EOF
-=== Playlist Generator: Analysis Pipeline Variants ===
+=== Playlist Generator: Analysis Pipeline Variants (TEST) ===
 
 Host paths:
   Library: $HOST_LIBRARY_DIR
@@ -39,7 +43,7 @@ Container paths (used in CLI arguments):
   Cache:   $CONTAINER_CACHE_DIR
   Output:  $CONTAINER_OUTPUT_DIR
 
-Make sure your docker-compose.yaml includes:
+Docker Compose file: docker-compose.test.yaml
   volumes:
     - $HOST_LIBRARY_DIR:$CONTAINER_LIBRARY_DIR
     - $HOST_CACHE_DIR:$CONTAINER_CACHE_DIR
@@ -60,24 +64,24 @@ read -p "Enter your choice (1-6): " choice
 case $choice in
     1)
         echo "Running standard analysis pipeline..."
-        docker compose run --rm --remove-orphans playlista --analyze --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR" --workers 2
+        docker compose $COMPOSE_FILE run --rm --remove-orphans playlista --analyze --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR" --workers 2
         ;;
     2)
         echo "Running low memory analysis pipeline..."
-        docker compose run --rm --remove-orphans playlista --analyze --low_memory --workers 1 --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR"
+        docker compose $COMPOSE_FILE run --rm --remove-orphans playlista --analyze --low_memory --workers 1 --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR"
         ;;
     3)
         echo "[Playlist generation is for future use. Uncomment below to enable.]"
-        # docker compose run --rm --remove-orphans playlista --generate_only --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR"
+        # docker compose $COMPOSE_FILE run --rm --remove-orphans playlista --generate_only --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR" --output_dir "$CONTAINER_OUTPUT_DIR"
         ;;
     4)
         echo "[Show statistics is for future use. Uncomment below to enable.]"
-        # docker compose run --rm --remove-orphans playlista --status --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR"
+        # docker compose $COMPOSE_FILE run --rm --remove-orphans playlista --status --library "$CONTAINER_LIBRARY_DIR" --cache_dir "$CONTAINER_CACHE_DIR"
         ;;
     5)
         echo "Enter your custom command:"
-        read -p "docker compose run --rm --remove-orphans playlista " custom_cmd
-        eval "docker compose run --rm --remove-orphans playlista $custom_cmd --library $CONTAINER_LIBRARY_DIR --cache_dir $CONTAINER_CACHE_DIR --output_dir $CONTAINER_OUTPUT_DIR"
+        read -p "docker compose $COMPOSE_FILE run --rm --remove-orphans playlista " custom_cmd
+        eval "docker compose $COMPOSE_FILE run --rm --remove-orphans playlista $custom_cmd --library $CONTAINER_LIBRARY_DIR --cache_dir $CONTAINER_CACHE_DIR --output_dir $CONTAINER_OUTPUT_DIR"
         ;;
     6)
         echo "Exiting..."
