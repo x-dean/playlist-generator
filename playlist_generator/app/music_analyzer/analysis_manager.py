@@ -257,11 +257,11 @@ class ParallelWorkerManager:
 
 
 class SequentialWorkerManager:
-    def __init__(self):
-        pass
+    def __init__(self, audio_analyzer=None):
+        self.audio_analyzer = audio_analyzer
 
     def process(self, files, workers, **kwargs):
-        processor = SequentialProcessor()
+        processor = SequentialProcessor(audio_analyzer=self.audio_analyzer)
         return processor.process(files, workers=workers, **kwargs)
 
 
@@ -337,6 +337,9 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
     # Run analysis on files that need it
     failed_files = []
 
+    # Create a single AudioAnalyzer instance for sequential processing
+    audio_analyzer = AudioAnalyzer(cache_file=audio_db.cache_file, library=audio_db.library, music=audio_db.music)
+
     with CLIContextManager(cli, len(files_to_analyze), f"[cyan]Analyzing {len(files_to_analyze)} files...") as (progress, task_id):
         processed_count = 0
         file_start_times = {}  # Track individual file processing times
@@ -354,7 +357,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
         if big_files:
             logger.info(
                 f"Processing {len(big_files)} big files sequentially...")
-            sequential_processor = SequentialProcessor(audio_analyzer=audio_db)
+            sequential_processor = SequentialProcessor(audio_analyzer=audio_analyzer)
             workers = 1  # Sequential processing uses 1 worker
 
             # Add a periodic update for large files
@@ -487,16 +490,14 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     next_filename = os.path.basename(next_filepath)
                     logger.info(f"SEQUENTIAL: Starting processing {next_filename}")
 
-        # Step 2: Process normal files in parallel
+        # Step 2: Process normal files sequentially (if needed)
         if normal_files:
             logger.info(
-                f"Processing {len(normal_files)} normal files in parallel...")
-            parallel_processor = ParallelProcessor()
-            workers = args.workers or max(1, mp.cpu_count())
-
-            for features, filepath, db_write_success in parallel_processor.process(normal_files, workers, force_reextract=force_reextract):
+                f"Processing {len(normal_files)} normal files sequentially...")
+            sequential_manager = SequentialWorkerManager(audio_analyzer=audio_analyzer)
+            for result in sequential_manager.process(normal_files, workers=1, force_reextract=force_reextract):
                 processed_count += 1
-                filename = os.path.basename(filepath)
+                filename = os.path.basename(result[1]) # result[1] is the filepath
                 
                 # Check for interrupt using global flag
                 try:
@@ -510,20 +511,20 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     pass
 
                 # Get status dot for result
-                status_dot = _get_status_dot(features, db_write_success)
+                status_dot = _get_status_dot(result[0], result[2]) # result[0] is features, result[1] is filepath, result[2] is db_write_success
 
                 # Update progress bar with the file that was just processed
                 _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
-                                     "[cyan]", "", status_dot, filepath, True, file_sizes)
+                                     "[cyan]", "", status_dot, result[1], True, file_sizes)
 
                 logger.debug(
                     f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
 
-                if not features or not db_write_success:
-                    failed_files.append(filepath)
-                    logger.warning(f"Analysis failed for {filepath}")
+                if not result[0] or not result[2]:
+                    failed_files.append(result[1])
+                    logger.warning(f"Analysis failed for {result[1]}")
                 else:
-                    logger.info(f"Analysis completed for {filepath}")
+                    logger.info(f"Analysis completed for {result[1]}")
         else:
             logger.debug("DISCOVERY: No normal files to process in parallel")
 
