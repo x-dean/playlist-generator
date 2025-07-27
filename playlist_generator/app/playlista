@@ -540,6 +540,8 @@ Examples:
 
         else:
             logger.info(
+                f"DEBUG: No specific mode flags set. analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}")
+            logger.info(
                 "Starting FULL PIPELINE mode - analysis and playlist generation")
             cli.update_status("Running full processing pipeline")
             file_list = get_audio_files('/music')
@@ -572,7 +574,14 @@ Examples:
                 logger.info(f"Batch size set to: {args.batch_size}")
                 
             with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
-                processor = ParallelProcessor()
+                # Choose processor based on worker count
+                if workers == 1:
+                    processor = SequentialProcessor()
+                    logger.info("Using SequentialProcessor for single-worker mode")
+                else:
+                    processor = ParallelProcessor()
+                    logger.debug(f"Using ParallelProcessor with {workers} workers")
+                
                 logger.debug(f"Using {workers} workers for analysis")
 
                 for i, result in enumerate(processor.process(file_list, workers)):
@@ -585,6 +594,10 @@ Examples:
                     filename = os.path.basename(filepath)
                     progress.update(
                         task_id, advance=1, description=f"Analyzing: {filename} ({i+1}/{len(file_list)})")
+                    
+                    # Add debug logging for first few files
+                    if i < 3:
+                        logger.info(f"Processed file {i+1}: {filename}")
 
                 failed_files.extend(processor.failed_files)
                 logger.info(
