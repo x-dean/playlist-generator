@@ -78,7 +78,11 @@ essentia.log.errorActive = True
 essentia_logger = logging.getLogger('essentia')
 essentia_logger.handlers = []  # Remove default handlers
 essentia_logger.addHandler(logging.FileHandler(log_file))  # Add file handler
-essentia_logger.setLevel(logging.INFO)
+
+# Make both TensorFlow and Essentia respect the LOG_LEVEL environment variable
+log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
+tf_logger.setLevel(getattr(logging, log_level, logging.INFO))
+essentia_logger.setLevel(getattr(logging, log_level, logging.INFO))
 
 # Setup runtime log level control
 setup_log_level_signal_handler_direct()
