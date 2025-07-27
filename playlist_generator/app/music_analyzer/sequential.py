@@ -45,6 +45,45 @@ class MemoryMonitor:
         logger.info(f"Memory after cleanup: {usage_percent:.1f}% ({used_gb:.1f}GB used, {available_gb:.1f}GB available)")
 
 
+class ThreadSafeAudioAnalyzer:
+    """Thread-safe wrapper for AudioAnalyzer that creates new connections per thread."""
+    
+    def __init__(self, cache_file: str, library: str, music: str):
+        self.cache_file = cache_file
+        self.library = library
+        self.music = music
+        self._local = threading.local()
+    
+    def _get_analyzer(self):
+        """Get or create an AudioAnalyzer instance for the current thread."""
+        if not hasattr(self._local, 'analyzer'):
+            self._local.analyzer = AudioAnalyzer(
+                cache_file=self.cache_file,
+                library=self.library,
+                music=self.music
+            )
+        return self._local.analyzer
+    
+    def extract_features(self, audio_path: str, force_reextract: bool = False):
+        """Extract features using thread-safe analyzer."""
+        try:
+            analyzer = self._get_analyzer()
+            return analyzer.extract_features(audio_path, force_reextract=force_reextract)
+        except Exception as e:
+            logger.error(f"Thread-safe analyzer failed for {audio_path}: {str(e)}")
+            return None, False, None
+    
+    def cleanup(self):
+        """Clean up thread-local resources."""
+        if hasattr(self._local, 'analyzer'):
+            try:
+                if hasattr(self._local.analyzer, 'conn'):
+                    self._local.analyzer.conn.close()
+            except:
+                pass
+            delattr(self._local, 'analyzer')
+
+
 class LargeFileProcessor:
     """Handles large files in a separate process with timeout and memory monitoring."""
     
@@ -72,13 +111,6 @@ class LargeFileProcessor:
     def _extract_features_with_timeout(self, audio_path: str, force_reextract: bool = False) -> tuple:
         """Extract features with timeout in the same process to avoid pickle issues."""
         try:
-            # Create a new AudioAnalyzer instance
-            cache_file = os.getenv('CACHE_FILE', '/app/cache/audio_analysis.db')
-            library = os.getenv('HOST_LIBRARY_PATH', '/root/music/library')
-            music = os.getenv('MUSIC_PATH', '/music')
-            
-            analyzer = AudioAnalyzer(cache_file=cache_file, library=library, music=music)
-            
             # Use threading with timeout instead of multiprocessing
             import threading
             import queue
@@ -87,11 +119,27 @@ class LargeFileProcessor:
             exception_queue = queue.Queue()
             
             def extract_worker():
+                analyzer = None
                 try:
+                    # Create a thread-safe AudioAnalyzer instance in the worker thread
+                    # This ensures SQLite connections are thread-specific
+                    cache_file = os.getenv('CACHE_FILE', '/app/cache/audio_analysis.db')
+                    library = os.getenv('HOST_LIBRARY_PATH', '/root/music/library')
+                    music = os.getenv('MUSIC_PATH', '/music')
+                    
+                    # Use thread-safe analyzer
+                    analyzer = ThreadSafeAudioAnalyzer(cache_file, library, music)
                     result = analyzer.extract_features(audio_path, force_reextract=force_reextract)
                     result_queue.put(result)
                 except Exception as e:
                     exception_queue.put(e)
+                finally:
+                    # Clean up analyzer resources
+                    if analyzer:
+                        try:
+                            analyzer.cleanup()
+                        except:
+                            pass
             
             # Start worker thread
             worker_thread = threading.Thread(target=extract_worker, daemon=True)
