@@ -544,96 +544,10 @@ Examples:
             logger.info(
                 f"DEBUG: No specific mode flags set. analyze={args.analyze}, generate_only={args.generate_only}, update={args.update}")
             logger.info(
-                "Starting FULL PIPELINE mode - analysis and playlist generation")
-            cli.update_status("Running full processing pipeline")
-            file_list = get_audio_files('/music')
-            file_list = [convert_to_host_path(
-                f, library, music) for f in file_list]
-            logger.info(f"Processing {len(file_list)} audio files")
-
-            # Analysis phase
-            logger.info("Starting analysis phase")
-            
-            # Memory management setup
-            if args.low_memory:
-                logger.info("Low memory mode enabled - reducing workers and batch size")
-                if args.workers is None:
-                    workers = max(1, mp.cpu_count() // 2)  # Use half the CPUs
-                else:
-                    workers = max(1, args.workers // 2)
-                os.environ['BATCH_SIZE'] = str(max(1, workers // 2))  # Smaller batches
-            else:
-                workers = args.workers or max(1, mp.cpu_count())
-                
-            # Set memory limit if specified
-            if args.memory_limit:
-                os.environ['MEMORY_LIMIT_PER_WORKER'] = args.memory_limit
-                logger.info(f"Memory limit per worker set to: {args.memory_limit}")
-                
-            # Set batch size if specified
-            if args.batch_size:
-                os.environ['BATCH_SIZE'] = str(args.batch_size)
-                logger.info(f"Batch size set to: {args.batch_size}")
-                
-            with CLIContextManager(cli, len(file_list), "[cyan]Analyzing audio files...") as (progress, task_id):
-                # Choose processor based on worker count
-                if workers == 1:
-                    processor = SequentialProcessor()
-                    logger.info("Using SequentialProcessor for single-worker mode")
-                else:
-                    processor = ParallelProcessor()
-                    logger.debug(f"Using ParallelProcessor with {workers} workers")
-                
-                logger.debug(f"Using {workers} workers for analysis")
-
-                for i, result in enumerate(processor.process(file_list, workers)):
-                    # Both SequentialProcessor and ParallelProcessor yield (features, filepath, db_write_success)
-                    if isinstance(result, tuple) and len(result) == 3:
-                        _, filepath, _ = result
-                    else:
-                        # Fallback
-                        filepath = file_list[i] if i < len(file_list) else ""
-                    filename = os.path.basename(filepath)
-                    progress.update(
-                        task_id, advance=1, description=f"Analyzing: {filename} ({i+1}/{len(file_list)})")
-                    
-                    # Add debug logging for first few files
-                    if i < 3:
-                        logger.info(f"Processed file {i+1}: {filename}")
-
-                failed_files.extend(processor.failed_files)
-                logger.info(
-                    f"Analysis phase completed. Processed {len(file_list)} files, {len(failed_files)} failed")
-
-
-
-            # Generation phase
-            logger.info("Starting playlist generation phase")
-            features_from_db = audio_db.get_all_features()
-            logger.info(
-                f"Retrieved {len(features_from_db)} tracks from database for playlist generation")
-
-            with CLIContextManager(cli, 3, "[green]Generating playlists...") as (progress, task_id):
-                logger.debug("Generating playlists from database features")
-                all_playlists = playlist_manager.generate_playlists(
-                    features_from_db, args.num_playlists)
-                progress.update(task_id, advance=3)
-                logger.info(f"Generated {len(all_playlists)} playlists")
-
-            # Show playlist statistics
-            logger.debug("Calculating and displaying playlist statistics")
-            cli.show_playlist_stats(playlist_manager.get_playlist_stats())
-
-            # Save playlists
-            if args.playlist_method == 'tags':
-                method_dir = os.path.join(args.output_dir, 'tags')
-            else:
-                method_dir = os.path.join(
-                    args.output_dir, args.playlist_method)
-            logger.info(f"Saving playlists to disk: {method_dir}")
-            save_playlists(all_playlists, method_dir, library, music, failed_files,
-                           playlist_method=args.playlist_method, host_library=args.library)
-            logger.info("FULL PIPELINE mode completed successfully")
+                "Starting PIPELINE mode (default) - analyze, force, then failed")
+            from music_analyzer.analysis_manager import run_pipeline
+            run_pipeline(args, audio_db, playlist_db, cli)
+            logger.info("Pipeline mode completed")
 
         # Show failed files if any
         if failed_files:
