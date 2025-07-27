@@ -25,7 +25,6 @@ from database.playlist_db import PlaylistDatabase
 from music_analyzer.feature_extractor import AudioAnalyzer
 from utils.path_converter import PathConverter
 from utils.path_utils import convert_to_host_path
-from utils.logging_setup import setup_colored_logging, setup_queue_colored_logging
 from utils.logging_setup import setup_colored_file_logging, setup_log_level_signal_handler_direct, start_log_level_monitor
 import multiprocessing as mp
 import traceback
@@ -404,10 +403,7 @@ Examples:
     os.environ["ESSENTIA_STREAM_LOGGING"] = "none"
 
     cache_dir = os.getenv('CACHE_DIR', '/app/cache')
-    logfile_path = '/app/logs/playlista.log'
-    logfile = open(logfile_path, 'a')
-    os.dup2(logfile.fileno(), 2)  # Redirect fd 2 (stderr) at the OS level
-    sys.stderr = logfile  # Also update Python's sys.stderr
+    # Logging is already set up above with daily rotation
 
     # Show configuration
     # Remove the call to cli.show_config

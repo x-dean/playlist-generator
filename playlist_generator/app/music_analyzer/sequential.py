@@ -1,9 +1,7 @@
 from tqdm import tqdm
 import logging
 from typing import List
-from utils.logging_setup import setup_colored_logging
 import os
-import logging
 import time
 import traceback
 from typing import List, Dict, Any, Optional
@@ -35,8 +33,6 @@ class SequentialProcessor:
 
     def _process_sequential(self, file_list: List[str], force_reextract: bool = False) -> iter:
         """Internal generator for sequential processing."""
-        from utils.logging_setup import setup_queue_colored_logging
-        setup_queue_colored_logging()
         import essentia
         essentia.log.infoActive = False
         essentia.log.warningActive = False

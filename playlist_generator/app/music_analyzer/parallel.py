@@ -44,8 +44,6 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     Returns:
         Optional[tuple]: (features dict, filepath, db_write_success bool) or None on failure.
     """
-    from utils.logging_setup import setup_queue_colored_logging
-    setup_queue_colored_logging()
     import essentia
     essentia.log.infoActive = False
     essentia.log.warningActive = False
@@ -53,8 +51,6 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     import os
     import traceback
     from .feature_extractor import AudioAnalyzer
-    from utils.logging_setup import setup_colored_logging
-    setup_colored_logging()
     import logging
     import os
     log_level = os.getenv('LOG_LEVEL', 'INFO')
