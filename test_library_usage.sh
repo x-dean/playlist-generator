@@ -21,85 +21,67 @@ echo "  Cache:   $CACHE_DIR"
 echo "  Output:  $OUTPUT_DIR"
 echo ""
 
-# Check if we're running in Docker or locally
-if [ -f "/.dockerenv" ] || [ -f "/app/playlista" ]; then
-    # Running in Docker container
-    echo "Running in Docker container..."
-    
-    # Example commands for different operations:
-    echo ""
-    echo "=== Available Commands ==="
-    echo ""
-    echo "1. Analyze your test library:"
-    echo "   playlista --analyze --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR --workers 2"
-    echo ""
-    echo "2. Generate playlists from existing analysis:"
-    echo "   playlista --generate_only --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
-    echo ""
-    echo "3. Show library statistics:"
-    echo "   playlista --status --library $LIBRARY_DIR --cache_dir $CACHE_DIR"
-    echo ""
-    echo "4. Analyze with specific playlist method:"
-    echo "   playlista --analyze --playlist_method tags --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
-    echo ""
-    echo "5. Force re-analyze all files:"
-    echo "   playlista --analyze --force --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
-    echo ""
-    echo "6. Re-analyze only failed files:"
-    echo "   playlista --analyze --failed --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
-    echo ""
-    echo "7. Low memory mode (for large files):"
-    echo "   playlista --analyze --low_memory --workers 1 --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
-    echo ""
-    
-    # Ask user which command to run
-    echo "Which operation would you like to perform?"
-    echo "1) Analyze library"
-    echo "2) Generate playlists only"
-    echo "3) Show statistics"
-    echo "4) Custom command"
-    echo "5) Exit"
-    echo ""
-    read -p "Enter your choice (1-5): " choice
-    
-    case $choice in
-        1)
-            echo "Running analysis..."
-            playlista --analyze --library "$LIBRARY_DIR" --cache_dir "$CACHE_DIR" --output_dir "$OUTPUT_DIR" --workers 2
-            ;;
-        2)
-            echo "Generating playlists..."
-            playlista --generate_only --library "$LIBRARY_DIR" --cache_dir "$CACHE_DIR" --output_dir "$OUTPUT_DIR"
-            ;;
-        3)
-            echo "Showing statistics..."
-            playlista --status --library "$LIBRARY_DIR" --cache_dir "$CACHE_DIR"
-            ;;
-        4)
-            echo "Enter your custom command:"
-            read -p "playlista " custom_cmd
-            eval "playlista $custom_cmd --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
-            ;;
-        5)
-            echo "Exiting..."
-            exit 0
-            ;;
-        *)
-            echo "Invalid choice. Exiting..."
-            exit 1
-            ;;
-    esac
-    
-else
-    # Running locally (outside Docker)
-    echo "Running locally (outside Docker)..."
-    echo ""
-    echo "To use custom paths, you need to run this inside the Docker container."
-    echo "Start the container first:"
-    echo "   ./run.sh"
-    echo ""
-    echo "Then run this script again from inside the container."
-fi
+# Example commands for different operations:
+echo "=== Available Commands ==="
+echo ""
+echo "1. Analyze your test library:"
+echo "   docker compose run --rm --remove-orphans playlista --analyze --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR --workers 2"
+echo ""
+echo "2. Generate playlists from existing analysis:"
+echo "   docker compose run --rm --remove-orphans playlista --generate_only --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
+echo ""
+echo "3. Show library statistics:"
+echo "   docker compose run --rm --remove-orphans playlista --status --library $LIBRARY_DIR --cache_dir $CACHE_DIR"
+echo ""
+echo "4. Analyze with specific playlist method:"
+echo "   docker compose run --rm --remove-orphans playlista --analyze --playlist_method tags --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
+echo ""
+echo "5. Force re-analyze all files:"
+echo "   docker compose run --rm --remove-orphans playlista --analyze --force --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
+echo ""
+echo "6. Re-analyze only failed files:"
+echo "   docker compose run --rm --remove-orphans playlista --analyze --failed --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
+echo ""
+echo "7. Low memory mode (for large files):"
+echo "   docker compose run --rm --remove-orphans playlista --analyze --low_memory --workers 1 --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
+echo ""
+# Ask user which command to run
+echo "Which operation would you like to perform?"
+echo "1) Analyze library"
+echo "2) Generate playlists only"
+echo "3) Show statistics"
+echo "4) Custom command"
+echo "5) Exit"
+echo ""
+read -p "Enter your choice (1-5): " choice
+
+case $choice in
+    1)
+        echo "Running analysis..."
+        docker compose run --rm --remove-orphans playlista --analyze --library "$LIBRARY_DIR" --cache_dir "$CACHE_DIR" --output_dir "$OUTPUT_DIR" --workers 2
+        ;;
+    2)
+        echo "Generating playlists..."
+        docker compose run --rm --remove-orphans playlista --generate_only --library "$LIBRARY_DIR" --cache_dir "$CACHE_DIR" --output_dir "$OUTPUT_DIR"
+        ;;
+    3)
+        echo "Showing statistics..."
+        docker compose run --rm --remove-orphans playlista --status --library "$LIBRARY_DIR" --cache_dir "$CACHE_DIR"
+        ;;
+    4)
+        echo "Enter your custom command:"
+        read -p "docker compose run --rm --remove-orphans playlista " custom_cmd
+        eval "docker compose run --rm --remove-orphans playlista $custom_cmd --library $LIBRARY_DIR --cache_dir $CACHE_DIR --output_dir $OUTPUT_DIR"
+        ;;
+    5)
+        echo "Exiting..."
+        exit 0
+        ;;
+    *)
+        echo "Invalid choice. Exiting..."
+        exit 1
+        ;;
+esac
 
 echo ""
 echo "=== Test Complete ==="
