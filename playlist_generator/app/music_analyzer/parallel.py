@@ -241,6 +241,30 @@ class ParallelProcessor:
                 enrich_later = []
                 for i in range(0, len(remaining_files), self.batch_size):
                     batch = remaining_files[i:i+self.batch_size]
+                    
+                    # Check memory before starting batch
+                    try:
+                        from utils.memory_monitor import MemoryMonitor
+                        memory_monitor = MemoryMonitor()
+                        memory_status = memory_monitor.check_memory_usage()
+                        
+                        # Store original batch size if not already stored
+                        if not hasattr(self, 'original_batch_size'):
+                            self.original_batch_size = self.workers
+                        
+                        if memory_status['is_critical']:
+                            logger.warning("Memory critical, reducing batch size")
+                            self.batch_size = max(1, self.batch_size // 2)
+                        elif memory_status['is_high']:
+                            # Keep current batch size
+                            logger.debug("Memory high, keeping current batch size")
+                        else:
+                            # Memory is good, restore original batch size
+                            if self.batch_size < self.original_batch_size:
+                                logger.info(f"Memory improved, restoring batch size from {self.batch_size} to {self.original_batch_size}")
+                                self.batch_size = self.original_batch_size
+                    except Exception as e:
+                        logger.debug(f"Could not check memory: {e}")
                     with ctx.Pool(processes=self.workers) as pool:
                         try:
                             from functools import partial
@@ -318,6 +342,23 @@ class ParallelProcessor:
                             # Always terminate and join the pool
                             pool.terminate()
                             pool.join()
+                            
+                            # Force memory cleanup after each batch
+                            import gc
+                            gc.collect()
+                            logger.debug(f"Memory cleanup completed after batch")
+                            
+                            # Check memory after cleanup
+                            try:
+                                from utils.memory_monitor import MemoryMonitor
+                                memory_monitor = MemoryMonitor()
+                                memory_status = memory_monitor.check_memory_usage()
+                                if memory_status['is_high']:
+                                    logger.warning("Memory still high after cleanup, waiting before next batch")
+                                    import time
+                                    time.sleep(5)  # Wait 5 seconds for memory to settle
+                            except Exception as e:
+                                logger.debug(f"Could not check memory after cleanup: {e}")
 
                 if enrich_later:
                     from music_analyzer.feature_extractor import AudioAnalyzer
