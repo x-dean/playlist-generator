@@ -46,6 +46,11 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     """
     import essentia
     # Essentia logging is now handled in main playlista script
+    
+    # Add parallel worker identification
+    import os
+    worker_pid = os.getpid()
+    logger.info(f"🔄 PARALLEL WORKER {worker_pid}: Starting analysis for {os.path.basename(filepath)}")
 
     import os
     import traceback
@@ -220,7 +225,8 @@ class ParallelProcessor:
             self.batch_size = self.workers
             
         logger.info(
-            f"Using {self.workers} workers with batch size {self.batch_size}")
+            f"🔄 PARALLEL: Using {self.workers} workers with batch size {self.batch_size}")
+        logger.info(f"🔄 PARALLEL: Starting multiprocessing pool for {len(file_list)} files")
         yield from self._process_parallel(file_list, status_queue, force_reextract=force_reextract)
 
     def _process_parallel(self, file_list, status_queue, force_reextract: bool = False):
@@ -229,7 +235,7 @@ class ParallelProcessor:
         while remaining_files and retries < self.max_retries:
             try:
                 logger.info(
-                    f"Starting multiprocessing with {self.workers} workers (retry {retries})")
+                    f"🔄 PARALLEL: Starting multiprocessing with {self.workers} workers (retry {retries})")
                 ctx = mp.get_context('spawn')
                 failed_in_batch = []
                 enrich_later = []

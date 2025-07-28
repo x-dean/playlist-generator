@@ -508,7 +508,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             
             if use_parallel:
                 logger.info(
-                    f"Processing {len(normal_files)} normal files in parallel with {workers} workers...")
+                    f"🔄 PARALLEL MODE: Processing {len(normal_files)} normal files with {workers} workers...")
+                logger.info(f"🔄 PARALLEL: Using multiprocessing with {workers} worker processes")
                 parallel_manager = ParallelWorkerManager()
                 for result in parallel_manager.process(normal_files, workers=workers, force_reextract=force_reextract):
                     processed_count += 1
@@ -542,7 +543,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                         logger.info(f"Analysis completed for {result[1]}")
             else:
                 logger.info(
-                    f"Processing {len(normal_files)} normal files sequentially...")
+                    f"🐌 SEQUENTIAL MODE: Processing {len(normal_files)} normal files with 1 worker...")
+                logger.info(f"🐌 SEQUENTIAL: Using single-threaded processing")
                 sequential_manager = SequentialWorkerManager(audio_analyzer=audio_analyzer)
                 for result in sequential_manager.process(normal_files, workers=1, force_reextract=force_reextract):
                     processed_count += 1
