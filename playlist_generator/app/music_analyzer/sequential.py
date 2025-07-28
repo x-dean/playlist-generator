@@ -200,7 +200,7 @@ class LargeFileProcessor:
             logger.error(f"Large file processing failed: {os.path.basename(audio_path)} - {str(e)}")
             return None, False, None
     
-    def process_large_file(self, audio_path: str, force_reextract: bool = False) -> tuple:
+    def process_large_file(self, audio_path: str, force_reextract: bool = False, rss_limit_gb: float = 6.0) -> tuple:
         """Process a large file with timeout and memory monitoring."""
         import threading
         import time
@@ -243,10 +243,10 @@ class LargeFileProcessor:
         def memory_monitor():
             logger.info(f"Starting memory monitor for large file: {os.path.basename(audio_path)}")
             while not abort_event.is_set():
-                # Check against container memory limits (80% of container limit or rss_limit_gb absolute)
-                is_over_limit, status_msg = check_memory_against_limit(user_limit_gb=self.rss_limit_gb, user_limit_percent=80.0)
+                # Use the passed-in rss_limit_gb
+                is_over_limit, status_msg = check_memory_against_limit(user_limit_gb=rss_limit_gb, user_limit_percent=80.0)
                 # Check total Python RSS as well
-                is_rss_over, rss_msg = check_total_python_rss_limit(rss_limit_gb=self.rss_limit_gb)
+                is_rss_over, rss_msg = check_total_python_rss_limit(rss_limit_gb=rss_limit_gb)
                 
                 if is_over_limit or is_rss_over:
                     if not memory_high_event.is_set():
@@ -436,7 +436,7 @@ class SequentialProcessor:
                 if is_large_file:
                     logger.info(f"Large file detected ({file_size_mb:.1f}MB), using separate process: {os.path.basename(filepath)}")
                     features, db_write_success, file_hash = self.large_file_processor.process_large_file(
-                        filepath, force_reextract=force_reextract)
+                        filepath, force_reextract=force_reextract, rss_limit_gb=self.rss_limit_gb)
                 else:
                     # Use the provided audio_analyzer or create a new one
                     logger.debug(
