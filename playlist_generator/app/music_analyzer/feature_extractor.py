@@ -355,8 +355,8 @@ class AudioAnalyzer:
         
         # Update MusiCNN status panel
         try:
-            from utils.musicnn_status import update_musicnn_status
-            update_musicnn_status(f"Starting MusiCNN for {os.path.basename(audio_path)}...")
+            from utils.musicnn_status import update_musicnn_file_status
+            update_musicnn_file_status(os.path.basename(audio_path))
         except ImportError:
             pass  # Status panel not available
         
@@ -395,8 +395,8 @@ class AudioAnalyzer:
             
             # Update status
             try:
-                from utils.musicnn_status import update_musicnn_status
-                update_musicnn_status(f"Loaded {len(tag_names)} tags from JSON...")
+                from utils.musicnn_status import update_musicnn_step_status
+                update_musicnn_step_status('loaded_json', tag_count=len(tag_names))
             except ImportError:
                 pass
 
@@ -420,9 +420,9 @@ class AudioAnalyzer:
             
             # Update status
             try:
-                from utils.musicnn_status import update_musicnn_status
+                from utils.musicnn_status import update_musicnn_step_status
                 duration = len(audio)/16000
-                update_musicnn_status(f"Loaded {duration:.1f}s audio at 16kHz...")
+                update_musicnn_step_status('loaded_audio', duration=duration)
             except ImportError:
                 pass
 
@@ -433,8 +433,8 @@ class AudioAnalyzer:
             
             # Update status
             try:
-                from utils.musicnn_status import update_musicnn_status
-                update_musicnn_status("Running MusiCNN activations...")
+                from utils.musicnn_status import update_musicnn_step_status
+                update_musicnn_step_status('activations')
             except ImportError:
                 pass
             
@@ -458,8 +458,8 @@ class AudioAnalyzer:
             
             # Update status
             try:
-                from utils.musicnn_status import update_musicnn_status
-                update_musicnn_status("Running MusiCNN embeddings...")
+                from utils.musicnn_status import update_musicnn_step_status
+                update_musicnn_step_status('embeddings')
             except ImportError:
                 pass
             
@@ -482,10 +482,10 @@ class AudioAnalyzer:
             
             # Update MusiCNN status panel with results
             try:
-                from utils.musicnn_status import update_musicnn_status
+                from utils.musicnn_status import update_musicnn_step_status
                 top_tags = sorted(tags.items(), key=lambda x: x[1], reverse=True)[:3]
                 top_tag_names = [tag for tag, _ in top_tags]
-                update_musicnn_status(f"Done: {len(tags)} tags, {len(embedding)} dims | Top: {', '.join(top_tag_names)}")
+                update_musicnn_step_status('success', tag_count=len(tags), embedding_dims=len(embedding), top_tags=', '.join(top_tag_names))
             except ImportError:
                 pass  # Status panel not available
             
@@ -499,8 +499,8 @@ class AudioAnalyzer:
             
             # Update MusiCNN status panel with error
             try:
-                from utils.musicnn_status import update_musicnn_status
-                update_musicnn_status(f"MusiCNN failed: {str(e)[:50]}...")
+                from utils.musicnn_status import update_musicnn_step_status
+                update_musicnn_step_status('failure', error=str(e)[:50])
             except ImportError:
                 pass  # Status panel not available
             return None
