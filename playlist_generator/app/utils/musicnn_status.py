@@ -9,7 +9,18 @@ from rich.console import Console
 # Shared status variable
 musicnn_status = "Waiting for MusiCNN extraction..."
 status_lock = threading.Lock()
-console = Console()
+
+# Use a shared console instance to prevent conflicts
+try:
+    # Try to get the existing console from the main script
+    import sys
+    if hasattr(sys, '_console_instance'):
+        console = sys._console_instance
+    else:
+        console = Console()
+        sys._console_instance = console
+except:
+    console = Console()
 
 # Global progress bar for MusiCNN steps
 musicnn_progress = None

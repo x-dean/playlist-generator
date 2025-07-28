@@ -461,7 +461,13 @@ Examples:
     # Set cache file environment variable after it's defined
     os.environ['CACHE_FILE'] = cache_file
 
-    console = Console()
+    # Use shared console instance
+    import sys
+    if hasattr(sys, '_console_instance'):
+        console = sys._console_instance
+    else:
+        console = Console()
+        sys._console_instance = console
     console.print(f"[bold magenta]{banner}[/bold magenta]")
 
     logger.info("Scanning music library for audio files")

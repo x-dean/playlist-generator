@@ -329,8 +329,13 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
     print()  # Add spacing before progress bar
     
     # Add extra spacing to separate from MusiCNN progress bar
-    from rich.console import Console
-    console = Console()
+    import sys
+    if hasattr(sys, '_console_instance'):
+        console = sys._console_instance
+    else:
+        from rich.console import Console
+        console = Console()
+        sys._console_instance = console
     console.print("\n" + "─"*80)  # Separator line
     console.print("[bold cyan]Main Analysis Progress:[/bold cyan]")
     console.print("─"*80)
