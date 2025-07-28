@@ -14,6 +14,18 @@ import requests
 import musicbrainzngs
 from mutagen import File as MutagenFile
 from utils.path_converter import PathConverter
+import threading
+from contextlib import contextmanager
+
+# Import new utility modules for improved functionality
+try:
+    from utils.timeout_manager import timeout_manager, timeout_context, TimeoutException
+    from utils.error_recovery import error_handler, retry_with_backoff, safe_operation
+    from utils.progress_tracker import ProgressTracker, ParallelProgressTracker
+    NEW_UTILITIES_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"New utility modules not available: {e}")
+    NEW_UTILITIES_AVAILABLE = False
 
 # Set up logger first
 logger = logging.getLogger(__name__)
@@ -99,32 +111,8 @@ def safe_json_dumps(obj):
                         converted[k] = v.tolist()
                     elif isinstance(v, dict):
                         converted[k] = safe_json_dumps(v)
-                    elif isinstance(v, list):
-                        converted[k] = [float(x) if isinstance(x, np.floating) else
-                                        int(x) if isinstance(x, np.integer) else
-                                        x.tolist() if isinstance(x, np.ndarray) else x
-                                        for x in v]
                     else:
                         converted[k] = v
-                return json.dumps(converted)
-            elif isinstance(obj, list):
-                converted = []
-                for v in obj:
-                    if isinstance(v, np.floating):
-                        converted.append(float(v))
-                    elif isinstance(v, np.integer):
-                        converted.append(int(v))
-                    elif isinstance(v, np.ndarray):
-                        converted.append(v.tolist())
-                    elif isinstance(v, dict):
-                        converted.append(safe_json_dumps(v))
-                    elif isinstance(v, list):
-                        converted.append([float(x) if isinstance(x, np.floating) else
-                                          int(x) if isinstance(x, np.integer) else
-                                          x.tolist() if isinstance(x, np.ndarray) else x
-                                          for x in v])
-                    else:
-                        converted.append(v)
                 return json.dumps(converted)
             elif isinstance(obj, np.ndarray):
                 return json.dumps(obj.tolist())
@@ -139,178 +127,147 @@ def safe_json_dumps(obj):
 
 
 def convert_to_python_types(obj):
-    """Convert NumPy types to Python native types for database storage."""
-    if obj is None:
-        return None
-    import numpy as np
-    if isinstance(obj, np.floating):
-        return float(obj)
-    elif isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif isinstance(obj, dict):
+    """Convert NumPy types to Python native types."""
+    if isinstance(obj, dict):
         return {k: convert_to_python_types(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [convert_to_python_types(v) for v in obj]
+    elif hasattr(obj, 'dtype'):  # NumPy array or scalar
+        if hasattr(obj, 'tolist'):
+            return obj.tolist()
+        else:
+            return obj.item()
     else:
         return obj
 
 
 def validate_and_convert_features(features):
-    """Validate and convert all features to proper Python types for database storage."""
+    """Validate and convert features to ensure they're JSON serializable."""
     if not isinstance(features, dict):
-        logger.error(f"Features must be a dictionary, got {type(features)}")
-        return {}
+        return None
 
-    validated_features = {}
-
-    # Define expected types for each feature
-    feature_types = {
-        'duration': float,
-        'bpm': float,
-        'beat_confidence': float,
-        'centroid': float,
-        'loudness': float,
-        'danceability': float,
-        'key': str,  # Changed from int to str - keys are strings like 'C', 'Ab'
-        'scale': str,  # Changed from int to str - scales are strings like 'major', 'minor'
-        'key_strength': float,
-        'onset_rate': float,
-        'zcr': float,
-        'mfcc': list,
-        'chroma': list,
-        'spectral_contrast': float,
-        'spectral_flatness': float,
-        'spectral_rolloff': float,
-        # Changed to accept list as well
-        'musicnn_embedding': (list, dict, type(None)),
-        'musicnn_tags': (dict, type(None)),
-        'metadata': dict
-    }
-
-    for feature_name, expected_type in feature_types.items():
-        if feature_name in features:
-            value = features[feature_name]
-            try:
-                if value is None:
-                    if expected_type == float:
-                        validated_features[feature_name] = 0.0
-                    elif expected_type == int:
-                        validated_features[feature_name] = 0
-                    elif expected_type == str:
-                        validated_features[feature_name] = ''
-                    elif expected_type == list:
-                        validated_features[feature_name] = []
-                    elif expected_type == dict:
-                        validated_features[feature_name] = {}
-                    else:
-                        validated_features[feature_name] = None
-                elif isinstance(expected_type, tuple):
-                    # Handle multiple acceptable types (like musicnn_embedding)
-                    if any(isinstance(value, t) for t in expected_type):
-                        validated_features[feature_name] = convert_to_python_types(
-                            value)
-                    else:
-                        logger.warning(
-                            f"Feature {feature_name} has unexpected type {type(value)}, expected {expected_type}")
-                        validated_features[feature_name] = None
-                elif isinstance(value, expected_type):
-                    validated_features[feature_name] = convert_to_python_types(
-                        value)
-                else:
-                    # Try to convert to expected type
-                    if expected_type == float:
-                        validated_features[feature_name] = float(value)
-                    elif expected_type == int:
-                        validated_features[feature_name] = int(value)
-                    elif expected_type == str:
-                        validated_features[feature_name] = str(value)
-                    elif expected_type == list:
-                        if isinstance(value, (list, np.ndarray)):
-                            validated_features[feature_name] = convert_to_python_types(
-                                value)
-                        else:
-                            validated_features[feature_name] = [
-                                convert_to_python_types(value)]
-                    elif expected_type == dict:
-                        if isinstance(value, dict):
-                            validated_features[feature_name] = convert_to_python_types(
-                                value)
-                        else:
-                            validated_features[feature_name] = {}
-                    else:
-                        validated_features[feature_name] = convert_to_python_types(
-                            value)
-            except (ValueError, TypeError) as e:
-                logger.warning(
-                    f"Failed to convert {feature_name} from {type(value)} to {expected_type}: {e}")
-                # Set appropriate default value
-                if expected_type == float:
-                    validated_features[feature_name] = 0.0
-                elif expected_type == int:
-                    validated_features[feature_name] = 0
-                elif expected_type == str:
-                    validated_features[feature_name] = ''
-                elif expected_type == list:
-                    validated_features[feature_name] = []
-                elif expected_type == dict:
-                    validated_features[feature_name] = {}
-                else:
-                    validated_features[feature_name] = None
-        else:
-            # Set default value for missing feature
-            if expected_type == float:
-                validated_features[feature_name] = 0.0
-            elif expected_type == int:
-                validated_features[feature_name] = 0
-            elif expected_type == str:
-                validated_features[feature_name] = ''
-            elif expected_type == list:
-                validated_features[feature_name] = []
-            elif expected_type == dict:
-                validated_features[feature_name] = {}
+    converted = {}
+    for key, value in features.items():
+        try:
+            # Convert NumPy types to Python native types
+            converted_value = convert_to_python_types(value)
+            
+            # Test JSON serialization
+            json.dumps(converted_value)
+            converted[key] = converted_value
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Feature {key} failed validation: {e}")
+            # Use a safe default value
+            if isinstance(value, (list, tuple)):
+                converted[key] = []
+            elif isinstance(value, (int, float)):
+                converted[key] = 0.0
             else:
-                validated_features[feature_name] = None
+                converted[key] = None
 
-    return validated_features
+    return converted
+
+
+class DatabaseConnectionPool:
+    """Thread-safe database connection pool for SQLite."""
+    
+    def __init__(self, db_path: str, max_connections: int = 10):
+        self.db_path = db_path
+        self.max_connections = max_connections
+        self._connections = []
+        self._lock = threading.Lock()
+        self._initialized = False
+        
+    def _initialize_pool(self):
+        """Initialize the connection pool."""
+        if self._initialized:
+            return
+            
+        with self._lock:
+            if self._initialized:
+                return
+                
+            logger.debug(f"Initializing database connection pool with {self.max_connections} connections")
+            for _ in range(self.max_connections):
+                conn = sqlite3.connect(self.db_path, timeout=600)
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=30000")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA cache_size=10000")
+                conn.execute("PRAGMA temp_store=MEMORY")
+                self._connections.append(conn)
+            self._initialized = True
+            logger.debug("Database connection pool initialized")
+    
+    @contextmanager
+    def get_connection(self):
+        """Get a database connection from the pool."""
+        self._initialize_pool()
+        
+        with self._lock:
+            if not self._connections:
+                # Create a new connection if pool is empty
+                conn = sqlite3.connect(self.db_path, timeout=600)
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=30000")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA cache_size=10000")
+                conn.execute("PRAGMA temp_store=MEMORY")
+                yield conn
+                conn.close()
+            else:
+                conn = self._connections.pop()
+                try:
+                    yield conn
+                finally:
+                    # Return connection to pool
+                    with self._lock:
+                        self._connections.append(conn)
+    
+    def close_all(self):
+        """Close all connections in the pool."""
+        with self._lock:
+            for conn in self._connections:
+                try:
+                    conn.close()
+                except:
+                    pass
+            self._connections.clear()
+            self._initialized = False
 
 
 class TimeoutException(Exception):
+    """Custom exception for timeout errors."""
     pass
 
 
 def timeout(seconds=60, error_message="Processing timed out"):
+    """Timeout decorator for long-running operations."""
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             def _handle_timeout(signum, frame):
                 raise TimeoutException(error_message)
-
-            signal.signal(signal.SIGALRM, _handle_timeout)
+            
+            import signal
+            old_handler = signal.signal(signal.SIGALRM, _handle_timeout)
             signal.alarm(seconds)
             try:
                 result = func(*args, **kwargs)
             finally:
                 signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
             return result
         return wrapper
     return decorator
 
 
 def safe_essentia_call(func, *args, **kwargs):
-    """Safely call Essentia functions with error handling for NumPy indexing issues."""
+    """Safely call Essentia functions with error handling."""
     try:
         return func(*args, **kwargs)
-    except (IndexError, ValueError, TypeError) as e:
-        if "only integers, slices" in str(e) or "valid indices" in str(e):
-            logger.warning(
-                f"Essentia NumPy indexing error in {func.__name__}: {e}")
-            return None
-        else:
-            raise e
     except Exception as e:
-        logger.warning(f"Essentia call error in {func.__name__}: {e}")
+        logger.warning(f"Essentia call failed: {str(e)}")
         return None
 
 
@@ -334,6 +291,9 @@ class AudioAnalyzer:
         self.cache_file = cache_file or os.path.join(
             cache_dir, 'audio_analysis.db')
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
+        
+        # Initialize connection pool instead of single connection
+        self.db_pool = DatabaseConnectionPool(self.cache_file)
         self._init_db()
         self.cleanup_database()  # Clean up immediately on init
         # Set MusicBrainz user agent
@@ -511,11 +471,9 @@ class AudioAnalyzer:
             return None
 
     def _init_db(self):
-        self.conn = sqlite3.connect(self.cache_file, timeout=600)
-        with self.conn:
-            self.conn.execute("PRAGMA journal_mode=WAL")
-            self.conn.execute("PRAGMA busy_timeout=30000")
-            self.conn.execute("""
+        """Initialize database tables using connection pool."""
+        with self.db_pool.get_connection() as conn:
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS audio_features (
                 file_hash TEXT PRIMARY KEY,
                 file_path TEXT NOT NULL,
@@ -546,15 +504,15 @@ class AudioAnalyzer:
             """)
             
             # Check if musicnn_skipped column exists, if not add it
-            cursor = self.conn.execute("PRAGMA table_info(audio_features)")
+            cursor = conn.execute("PRAGMA table_info(audio_features)")
             columns = [row[1] for row in cursor.fetchall()]
             if 'musicnn_skipped' not in columns:
                 logger.info("Adding missing 'musicnn_skipped' column to audio_features table")
-                self.conn.execute("ALTER TABLE audio_features ADD COLUMN musicnn_skipped INTEGER DEFAULT 0")
+                conn.execute("ALTER TABLE audio_features ADD COLUMN musicnn_skipped INTEGER DEFAULT 0")
                 logger.debug("Added musicnn_skipped column to audio_features table")
 
             # Create file discovery state table
-            self.conn.execute("""
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS file_discovery_state (
                 file_path TEXT PRIMARY KEY,
                 file_hash TEXT,
@@ -566,7 +524,7 @@ class AudioAnalyzer:
             )
             """)
 
-            self.conn.execute(
+            conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_file_path ON audio_features(file_path)")
 
     def _ensure_float(self, value):
@@ -1983,41 +1941,43 @@ class AudioAnalyzer:
             return None, False, None
 
     def _get_cached_features(self, file_info):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-        SELECT duration, bpm, beat_confidence, centroid,
-               loudness, danceability, key, scale, onset_rate, zcr,
-               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, musicnn_tags, musicnn_skipped, metadata
-        FROM audio_features
-        WHERE file_hash = ? AND last_modified >= ?
-        """, (file_info['file_hash'], file_info['last_modified']))
+        """Get cached features using connection pool."""
+        with self.db_pool.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            SELECT duration, bpm, beat_confidence, centroid,
+                   loudness, danceability, key, scale, onset_rate, zcr,
+                   mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, musicnn_tags, musicnn_skipped, metadata
+            FROM audio_features
+            WHERE file_hash = ? AND last_modified >= ?
+            """, (file_info['file_hash'], file_info['last_modified']))
 
-        row = cursor.fetchone()
-        if row:
-            logger.debug(f"Using cached features for {file_info['file_path']}")
-            return {
-                'duration': row[0],
-                'bpm': row[1],
-                'beat_confidence': row[2],
-                'centroid': row[3],
-                'loudness': row[4],
-                'danceability': row[5],
-                'key': row[6],
-                'scale': row[7],
-                'onset_rate': row[8],
-                'zcr': row[9],
-                'mfcc': json.loads(row[10]) if row[10] else [0.0] * 13,
-                'chroma': json.loads(row[11]) if row[11] else [0.0] * 12,
-                'spectral_contrast': row[12],
-                'spectral_flatness': row[13],
-                'spectral_rolloff': row[14],
-                'musicnn_embedding': json.loads(row[15]) if row[15] else None,
-                'musicnn_tags': json.loads(row[16]) if row[16] else {},
-                'musicnn_skipped': row[17],
-                'metadata': json.loads(row[18]) if row[18] else {},
-                'filepath': file_info['file_path'],
-                'filename': os.path.basename(file_info['file_path'])
-            }
+            row = cursor.fetchone()
+            if row:
+                logger.debug(f"Using cached features for {file_info['file_path']}")
+                return {
+                    'duration': row[0],
+                    'bpm': row[1],
+                    'beat_confidence': row[2],
+                    'centroid': row[3],
+                    'loudness': row[4],
+                    'danceability': row[5],
+                    'key': row[6],
+                    'scale': row[7],
+                    'onset_rate': row[8],
+                    'zcr': row[9],
+                    'mfcc': json.loads(row[10]) if row[10] else [0.0] * 13,
+                    'chroma': json.loads(row[11]) if row[11] else [0.0] * 12,
+                    'spectral_contrast': row[12],
+                    'spectral_flatness': row[13],
+                    'spectral_rolloff': row[14],
+                    'musicnn_embedding': json.loads(row[15]) if row[15] else None,
+                    'musicnn_tags': json.loads(row[16]) if row[16] else {},
+                    'musicnn_skipped': row[17],
+                    'metadata': json.loads(row[18]) if row[18] else {},
+                    'filepath': file_info['file_path'],
+                    'filename': os.path.basename(file_info['file_path'])
+                }
         return None
 
     def _extract_all_features(self, audio_path, audio):
@@ -2354,20 +2314,22 @@ class AudioAnalyzer:
         return features
 
     def _mark_failed(self, file_info):
+        """Mark file as failed using connection pool."""
         # Ensure file_path is container path
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_library_path(
             file_info['file_path'])
         logging.getLogger().warning(
             f"Marking file as failed: {file_info['file_path']} (hash: {file_info['file_hash']})")
-        with self.conn:
-            self.conn.execute(
+        with self.db_pool.get_connection() as conn:
+            conn.execute(
                 "INSERT OR REPLACE INTO audio_features (file_hash, file_path, last_modified, metadata, failed) VALUES (?, ?, ?, ?, 1)",
                 (file_info['file_hash'], file_info['file_path'],
                  file_info['last_modified'], '{}')
             )
 
     def _save_features_to_db(self, file_info, features, failed=0):
+        """Save features to database using connection pool."""
         # Ensure file_path is container path
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_library_path(
@@ -2378,12 +2340,6 @@ class AudioAnalyzer:
             features = validate_and_convert_features(features)
             logger.debug(
                 f"Validated features for {file_info['file_path']}: {len(features)} features")
-
-            # Debug: check database schema first
-            cursor = self.conn.execute("PRAGMA table_info(audio_features)")
-            columns = cursor.fetchall()
-            logger.debug(f"Database columns: {[col[1] for col in columns]}")
-            logger.debug(f"Number of columns: {len(columns)}")
 
             # Prepare values with proper type conversion
             values_tuple = (
@@ -2419,8 +2375,8 @@ class AudioAnalyzer:
             for i, val in enumerate(values_tuple):
                 logger.debug(f"Value {i}: {type(val)} = {val}")
 
-            with self.conn:
-                self.conn.execute(
+            with self.db_pool.get_connection() as conn:
+                conn.execute(
                     """
                     INSERT OR REPLACE INTO audio_features (
                         file_hash, file_path, duration, bpm, beat_confidence, centroid, loudness, danceability, key, scale, key_strength, onset_rate, zcr,
@@ -2443,35 +2399,37 @@ class AudioAnalyzer:
             return False
 
     def get_all_features(self, include_failed=False):
+        """Get all features using connection pool."""
         try:
-            cursor = self.conn.cursor()
-            if include_failed:
-                cursor.execute("""
-                SELECT file_path, duration, bpm, beat_confidence, centroid,
-                       loudness, danceability, key, scale, onset_rate, zcr, metadata, failed
-                FROM audio_features
-                """)
-            else:
-                cursor.execute("""
-                SELECT file_path, duration, bpm, beat_confidence, centroid,
-                       loudness, danceability, key, scale, onset_rate, zcr, metadata, failed
-                FROM audio_features WHERE failed=0
-                """)
-            return [{
-                'filepath': row[0],
-                'duration': row[1],
-                'bpm': row[2],
-                'beat_confidence': row[3],
-                'centroid': row[4],
-                'loudness': row[5],
-                'danceability': row[6],
-                'key': row[7],
-                'scale': row[8],
-                'onset_rate': row[9],
-                'zcr': row[10],
-                'metadata': json.loads(row[11]) if row[11] else {},
-                'failed': row[12]
-            } for row in cursor.fetchall()]
+            with self.db_pool.get_connection() as conn:
+                cursor = conn.cursor()
+                if include_failed:
+                    cursor.execute("""
+                    SELECT file_path, duration, bpm, beat_confidence, centroid,
+                           loudness, danceability, key, scale, onset_rate, zcr, metadata, failed
+                    FROM audio_features
+                    """)
+                else:
+                    cursor.execute("""
+                    SELECT file_path, duration, bpm, beat_confidence, centroid,
+                           loudness, danceability, key, scale, onset_rate, zcr, metadata, failed
+                    FROM audio_features WHERE failed=0
+                    """)
+                return [{
+                    'filepath': row[0],
+                    'duration': row[1],
+                    'bpm': row[2],
+                    'beat_confidence': row[3],
+                    'centroid': row[4],
+                    'loudness': row[5],
+                    'danceability': row[6],
+                    'key': row[7],
+                    'scale': row[8],
+                    'onset_rate': row[9],
+                    'zcr': row[10],
+                    'metadata': json.loads(row[11]) if row[11] else {},
+                    'failed': row[12]
+                } for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error fetching features: {str(e)}")
             return []
@@ -2486,10 +2444,11 @@ class AudioAnalyzer:
     def get_all_tracks(self):
         """Get all tracks from the database (non-failed)."""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute(
-                "SELECT COUNT(*) FROM audio_features WHERE failed=0")
-            return cursor.fetchone()[0]
+            with self.db_pool.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT COUNT(*) FROM audio_features WHERE failed=0")
+                return cursor.fetchone()[0]
         except Exception as e:
             logger.error(f"Error getting track count: {str(e)}")
             return 0
@@ -2501,22 +2460,22 @@ class AudioAnalyzer:
             List[str]: List of file paths that were removed from the database.
         """
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT file_path FROM audio_features")
-            db_files = [row[0] for row in cursor.fetchall()]
+            with self.db_pool.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT file_path FROM audio_features")
+                db_files = [row[0] for row in cursor.fetchall()]
 
-            missing_files = [f for f in db_files if not os.path.exists(f)]
+                missing_files = [f for f in db_files if not os.path.exists(f)]
 
-            if missing_files:
-                logger.info(
-                    f"Cleaning up {len(missing_files)} missing files from database")
-                placeholders = ','.join(['?'] * len(missing_files))
-                cursor.execute(
-                    f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
-                    missing_files
-                )
-                self.conn.commit()
-            return missing_files
+                if missing_files:
+                    logger.info(
+                        f"Cleaning up {len(missing_files)} missing files from database")
+                    placeholders = ','.join(['?'] * len(missing_files))
+                    cursor.execute(
+                        f"DELETE FROM audio_features WHERE file_path IN ({placeholders})",
+                        missing_files
+                    )
+                return missing_files
         except Exception as e:
             logger.error(f"Database cleanup failed: {str(e)}")
             return []
@@ -2556,8 +2515,8 @@ class AudioAnalyzer:
                         updated_fields.append(f"lastfm:{field}")
         # Update only the metadata column, keep failed=1
         try:
-            with self.conn:
-                self.conn.execute(
+            with self.db_pool.get_connection() as conn:
+                conn.execute(
                     "UPDATE audio_features SET metadata = ?, failed = 1 WHERE file_hash = ?",
                     (json.dumps(meta), file_info['file_hash'])
                 )
@@ -2737,23 +2696,24 @@ class AudioAnalyzer:
         """Phase 2: Analysis Selection - Check discovery state for files to process"""
         logger.info(f"DISCOVERY: Phase 2 - Analysis Selection")
 
-        # Get files that were added or changed in discovery phase
-        cursor = self.conn.execute("""
-            SELECT file_path, file_size, last_modified 
-            FROM file_discovery_state 
-            WHERE status = 'active'
-        """)
+        with self.db_pool.get_connection() as conn:
+            # Get files that were added or changed in discovery phase
+            cursor = conn.execute("""
+                SELECT file_path, file_size, last_modified 
+                FROM file_discovery_state 
+                WHERE status = 'active'
+            """)
 
-        discovery_files = {row[0]: (row[1], row[2])
-                           for row in cursor.fetchall()}
+            discovery_files = {row[0]: (row[1], row[2])
+                               for row in cursor.fetchall()}
 
-        # Get files already analyzed in audio_features table
-        cursor = self.conn.execute("""
-            SELECT file_path, last_modified 
-            FROM audio_features 
-            WHERE failed = 0
-        """)
-        analyzed_files = {row[0]: row[1] for row in cursor.fetchall()}
+            # Get files already analyzed in audio_features table
+            cursor = conn.execute("""
+                SELECT file_path, last_modified 
+                FROM audio_features 
+                WHERE failed = 0
+            """)
+            analyzed_files = {row[0]: row[1] for row in cursor.fetchall()}
 
         logger.debug(
             f"DISCOVERY: Found {len(analyzed_files)} files in audio_features table")
@@ -2799,16 +2759,16 @@ class AudioAnalyzer:
         try:
             current_file_set = set(current_files)
 
-            # Get all files in audio_features table
-            cursor = self.conn.execute("SELECT file_path FROM audio_features")
-            db_files = [row[0] for row in cursor.fetchall()]
+            with self.db_pool.get_connection() as conn:
+                # Get all files in audio_features table
+                cursor = conn.execute("SELECT file_path FROM audio_features")
+                db_files = [row[0] for row in cursor.fetchall()]
 
-            removed_count = 0
-            with self.conn:
+                removed_count = 0
                 for db_file in db_files:
                     if db_file not in current_file_set:
                         # File no longer exists - remove from analysis table
-                        self.conn.execute(
+                        conn.execute(
                             "DELETE FROM audio_features WHERE file_path = ?", (db_file,))
                         removed_count += 1
                         logger.debug(
@@ -2824,37 +2784,38 @@ class AudioAnalyzer:
         """Quick validation of all cached files"""
         logger.info("Validating cached features...")
 
-        cursor = self.conn.execute("""
-            SELECT file_path, duration, bpm, centroid, loudness, danceability, 
-                   key, scale, onset_rate, zcr, mfcc, chroma, 
-                   spectral_flatness, spectral_rolloff, spectral_contrast
-            FROM audio_features 
-            WHERE failed = 0
-        """)
+        with self.db_pool.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT file_path, duration, bpm, centroid, loudness, danceability, 
+                       key, scale, onset_rate, zcr, mfcc, chroma, 
+                       spectral_flatness, spectral_rolloff, spectral_contrast
+                FROM audio_features 
+                WHERE failed = 0
+            """)
 
-        invalid_files = []
-        for row in cursor.fetchall():
-            file_path = row[0]
-            features = {
-                'duration': row[1],
-                'bpm': row[2],
-                'centroid': row[3],
-                'loudness': row[4],
-                'danceability': row[5],
-                'key': row[6],
-                'scale': row[7],
-                'onset_rate': row[8],
-                'zcr': row[9],
-                'mfcc': json.loads(row[10]) if row[10] else [],
-                'chroma': json.loads(row[11]) if row[11] else [],
-                'spectral_flatness': row[12],
-                'spectral_rolloff': row[13],
-                'spectral_contrast': row[14]
-            }
+            invalid_files = []
+            for row in cursor.fetchall():
+                file_path = row[0]
+                features = {
+                    'duration': row[1],
+                    'bpm': row[2],
+                    'centroid': row[3],
+                    'loudness': row[4],
+                    'danceability': row[5],
+                    'key': row[6],
+                    'scale': row[7],
+                    'onset_rate': row[8],
+                    'zcr': row[9],
+                    'mfcc': json.loads(row[10]) if row[10] else [],
+                    'chroma': json.loads(row[11]) if row[11] else [],
+                    'spectral_flatness': row[12],
+                    'spectral_rolloff': row[13],
+                    'spectral_contrast': row[14]
+                }
 
-            # Quick validation
-            if not self.is_valid_feature_set(features):
-                invalid_files.append(file_path)
+                # Quick validation
+                if not self.is_valid_feature_set(features):
+                    invalid_files.append(file_path)
 
         logger.info(
             f"Found {len(invalid_files)} files with invalid cached features")
@@ -2883,26 +2844,27 @@ class AudioAnalyzer:
         """Get all failed files from database"""
         from .file_discovery import FileDiscovery
 
-        cursor = self.conn.execute("""
-            SELECT file_path, last_analyzed 
-            FROM audio_features 
-            WHERE failed = 1
-        """)
+        with self.db_pool.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT file_path, last_analyzed 
+                FROM audio_features 
+                WHERE failed = 1
+            """)
 
-        failed_files = []
-        file_discovery = FileDiscovery(audio_db=self)
+            failed_files = []
+            file_discovery = FileDiscovery(audio_db=self)
 
-        for row in cursor.fetchall():
-            file_path, last_analyzed = row
-            if os.path.exists(file_path):
-                # Use file discovery to validate the file
-                if not file_discovery._is_in_excluded_directory(file_path):
-                    failed_files.append(file_path)
+            for row in cursor.fetchall():
+                file_path, last_analyzed = row
+                if os.path.exists(file_path):
+                    # Use file discovery to validate the file
+                    if not file_discovery._is_in_excluded_directory(file_path):
+                        failed_files.append(file_path)
+                    else:
+                        logger.debug(
+                            f"Skipping file already in failed directory: {file_path}")
                 else:
-                    logger.debug(
-                        f"Skipping file already in failed directory: {file_path}")
-            else:
-                logger.warning(f"Failed file no longer exists: {file_path}")
+                    logger.warning(f"Failed file no longer exists: {file_path}")
 
         logger.info(f"Found {len(failed_files)} failed files to retry")
         return failed_files
@@ -2910,20 +2872,21 @@ class AudioAnalyzer:
     def get_files_with_skipped_musicnn(self):
         """Get all files that had MusicNN extraction skipped."""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT file_path, file_hash, last_modified, metadata
-                FROM audio_features
-                WHERE musicnn_skipped = 1 AND failed = 0
-            """)
-            return [{
-                'file_path': row[0],
-                'file_hash': row[1],
-                'last_modified': row[2],
-                'metadata': json.loads(row[3]) if row[3] else {}
-            } for row in cursor.fetchall()]
+            with self.db_pool.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT file_path, file_hash, last_modified, metadata
+                    FROM audio_features
+                    WHERE musicnn_skipped = 1 AND failed = 0
+                """)
+                return [{
+                    'file_path': row[0],
+                    'file_hash': row[1],
+                    'last_modified': row[2],
+                    'metadata': json.loads(row[3]) if row[3] else {}
+                } for row in cursor.fetchall()]
         except Exception as e:
-            logger.error(f"Error getting files with skipped MusicNN from DB: {str(e)}")
+            logger.error(f"Error getting files with skipped MusicNN: {e}")
             return []
 
     def get_invalid_files_from_db(self):
@@ -2962,18 +2925,19 @@ class AudioAnalyzer:
     def get_only_failed_files_from_db(self):
         """Get only files that are marked as failed (excluding MusicNN skipped files)."""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT file_path, file_hash, last_modified, metadata
-                FROM audio_features
-                WHERE failed = 1
-            """)
-            return [{
-                'file_path': row[0],
-                'file_hash': row[1],
-                'last_modified': row[2],
-                'metadata': json.loads(row[3]) if row[3] else {}
-            } for row in cursor.fetchall()]
+            with self.db_pool.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT file_path, file_hash, last_modified, metadata
+                    FROM audio_features
+                    WHERE failed = 1
+                """)
+                return [{
+                    'file_path': row[0],
+                    'file_hash': row[1],
+                    'last_modified': row[2],
+                    'metadata': json.loads(row[3]) if row[3] else {}
+                } for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"Error getting only failed files from DB: {str(e)}")
             return []
@@ -3006,8 +2970,8 @@ class AudioAnalyzer:
     def unmark_as_failed(self, file_path):
         """Remove failed status from a file"""
         try:
-            with self.conn:
-                self.conn.execute("""
+            with self.db_pool.get_connection() as conn:
+                conn.execute("""
                     UPDATE audio_features 
                     SET failed = 0, last_analyzed = CURRENT_TIMESTAMP 
                     WHERE file_path = ?
@@ -3021,8 +2985,8 @@ class AudioAnalyzer:
     def unmark_musicnn_skipped(self, file_path):
         """Remove MusicNN skipped status from a file"""
         try:
-            with self.conn:
-                self.conn.execute("""
+            with self.db_pool.get_connection() as conn:
+                conn.execute("""
                     UPDATE audio_features 
                     SET musicnn_skipped = 0, last_analyzed = CURRENT_TIMESTAMP 
                     WHERE file_path = ?
@@ -3054,8 +3018,8 @@ class AudioAnalyzer:
             logger.info(f"Moved {file_path} to {failed_path}")
 
             # Update database to reflect the move
-            with self.conn:
-                self.conn.execute("""
+            with self.db_pool.get_connection() as conn:
+                conn.execute("""
                     UPDATE audio_features 
                     SET file_path = ?, failed = 1 
                     WHERE file_path = ?
@@ -3071,9 +3035,9 @@ class AudioAnalyzer:
         logger.debug(
             f"DISCOVERY: Starting file discovery state update for {len(file_paths)} files")
         try:
-            with self.conn:
+            with self.db_pool.get_connection() as conn:
                 # Get existing files from database
-                cursor = self.conn.execute("""
+                cursor = conn.execute("""
                     SELECT file_path, file_hash, file_size, last_modified 
                     FROM file_discovery_state 
                     WHERE status = 'active'
@@ -3102,7 +3066,7 @@ class AudioAnalyzer:
                                     current_size != old_size or
                                         current_mtime != old_mtime):
                                     # File changed - update it
-                                    self.conn.execute("""
+                                    conn.execute("""
                                         UPDATE file_discovery_state 
                                         SET file_hash = ?, file_size = ?, last_modified = ?, last_seen_at = CURRENT_TIMESTAMP
                                         WHERE file_path = ?
@@ -3112,7 +3076,7 @@ class AudioAnalyzer:
                                         f"DISCOVERY: Updated {file_path}")
                                 else:
                                     # File unchanged - just update last_seen_at
-                                    self.conn.execute("""
+                                    conn.execute("""
                                         UPDATE file_discovery_state 
                                         SET last_seen_at = CURRENT_TIMESTAMP
                                         WHERE file_path = ?
@@ -3120,7 +3084,7 @@ class AudioAnalyzer:
                                     unchanged_count += 1
                             else:
                                 # New file - insert it
-                                self.conn.execute("""
+                                conn.execute("""
                                     INSERT INTO file_discovery_state 
                                     (file_path, file_hash, file_size, last_modified, last_seen_at, status)
                                     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'active')
@@ -3137,7 +3101,7 @@ class AudioAnalyzer:
                 removed_count = 0
                 for existing_file in existing_files:
                     if existing_file not in current_file_set:
-                        self.conn.execute("""
+                        conn.execute("""
                             UPDATE file_discovery_state 
                             SET status = 'removed', last_seen_at = CURRENT_TIMESTAMP
                             WHERE file_path = ?
@@ -3149,11 +3113,12 @@ class AudioAnalyzer:
                 f"DISCOVERY: File discovery state updated - Added: {added_count}, Updated: {updated_count}, Unchanged: {unchanged_count}, Removed: {removed_count}")
 
             # Verify the update worked
-            cursor = self.conn.execute(
-                "SELECT COUNT(*) FROM file_discovery_state WHERE status = 'active'")
-            active_count = cursor.fetchone()[0]
-            logger.debug(
-                f"DISCOVERY: Active files in discovery state: {active_count}")
+            with self.db_pool.get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT COUNT(*) FROM file_discovery_state WHERE status = 'active'")
+                active_count = cursor.fetchone()[0]
+                logger.debug(
+                    f"DISCOVERY: Active files in discovery state: {active_count}")
 
         except Exception as e:
             logger.error(
@@ -3164,21 +3129,22 @@ class AudioAnalyzer:
     def get_file_discovery_changes(self) -> Tuple[List[str], List[str], List[str]]:
         """Get added, removed, and unchanged files from database."""
         try:
-            cursor = self.conn.execute("""
-                SELECT file_path, status 
-                FROM file_discovery_state 
-                WHERE status IN ('active', 'removed')
-            """)
+            with self.db_pool.get_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT file_path, status 
+                    FROM file_discovery_state 
+                    WHERE status IN ('active', 'removed')
+                """)
 
-            active_files = []
-            removed_files = []
+                active_files = []
+                removed_files = []
 
-            for row in cursor.fetchall():
-                file_path, status = row
-                if status == 'active':
-                    active_files.append(file_path)
-                elif status == 'removed':
-                    removed_files.append(file_path)
+                for row in cursor.fetchall():
+                    file_path, status = row
+                    if status == 'active':
+                        active_files.append(file_path)
+                    elif status == 'removed':
+                        removed_files.append(file_path)
 
             # Get unchanged files (active files that still exist on disk)
             unchanged_files = []
@@ -3202,15 +3168,15 @@ class AudioAnalyzer:
     def cleanup_file_discovery_state(self):
         """Remove entries for files that no longer exist."""
         try:
-            cursor = self.conn.execute(
-                "SELECT file_path FROM file_discovery_state")
-            files_to_check = [row[0] for row in cursor.fetchall()]
+            with self.db_pool.get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT file_path FROM file_discovery_state")
+                files_to_check = [row[0] for row in cursor.fetchall()]
 
-            removed_count = 0
-            with self.conn:
+                removed_count = 0
                 for file_path in files_to_check:
                     if not os.path.exists(file_path):
-                        self.conn.execute(
+                        conn.execute(
                             "DELETE FROM file_discovery_state WHERE file_path = ?", (file_path,))
                         removed_count += 1
 
@@ -3228,31 +3194,32 @@ class AudioAnalyzer:
             f"DISCOVERY: Requesting file sizes for {len(file_paths)} files from database")
         try:
             # First check if there's any data in the table
-            cursor = self.conn.execute(
-                "SELECT COUNT(*) FROM file_discovery_state")
-            total_count = cursor.fetchone()[0]
-            logger.debug(
-                f"DISCOVERY: Total records in file_discovery_state: {total_count}")
+            with self.db_pool.get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT COUNT(*) FROM file_discovery_state")
+                total_count = cursor.fetchone()[0]
+                logger.debug(
+                    f"DISCOVERY: Total records in file_discovery_state: {total_count}")
 
-            if total_count == 0:
-                logger.warning(
-                    "DISCOVERY: No data in file_discovery_state table")
-                return {}
+                if total_count == 0:
+                    logger.warning(
+                        "DISCOVERY: No data in file_discovery_state table")
+                    return {}
 
-            cursor = self.conn.execute("""
-                SELECT file_path, file_size 
-                FROM file_discovery_state 
-                WHERE file_path IN ({})
-            """.format(','.join(['?' for _ in file_paths])), file_paths)
+                cursor = conn.execute("""
+                    SELECT file_path, file_size 
+                    FROM file_discovery_state 
+                    WHERE file_path IN ({})
+                """.format(','.join(['?' for _ in file_paths])), file_paths)
 
-            file_sizes = {}
-            for row in cursor.fetchall():
-                file_path, file_size = row
-                file_sizes[file_path] = file_size
+                file_sizes = {}
+                for row in cursor.fetchall():
+                    file_path, file_size = row
+                    file_sizes[file_path] = file_size
 
-            logger.debug(
-                f"DISCOVERY: Retrieved file sizes for {len(file_sizes)} files from database")
-            return file_sizes
+                logger.debug(
+                    f"DISCOVERY: Retrieved file sizes for {len(file_sizes)} files from database")
+                return file_sizes
 
         except Exception as e:
             logger.error(
@@ -3260,6 +3227,19 @@ class AudioAnalyzer:
             import traceback
             logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
             return {}
+    
+    def cleanup(self):
+        """Clean up resources, including database connection pool."""
+        try:
+            if hasattr(self, 'db_pool'):
+                self.db_pool.close_all()
+                logger.debug("Database connection pool closed")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {str(e)}")
+    
+    def __del__(self):
+        """Destructor to ensure cleanup."""
+        self.cleanup()
 
 
 audio_analyzer = AudioAnalyzer()
