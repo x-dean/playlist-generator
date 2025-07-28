@@ -308,6 +308,13 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
 
     # Create a combined list that matches the processing order (big files first, then normal files)
     files_to_analyze = big_files + normal_files
+    
+    # Debug logging for file distribution
+    logger.info(f"🔍 DEBUG: File distribution - normal_files={len(normal_files)}, big_files={len(big_files)}")
+    if normal_files:
+        logger.info(f"🔍 DEBUG: Sample normal files: {normal_files[:3]}")
+    if big_files:
+        logger.info(f"🔍 DEBUG: Sample big files: {big_files[:3]}")
 
     logger.debug(f"DISCOVERY: Files needing analysis: {len(files_to_analyze)}")
 
@@ -504,12 +511,30 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
         if normal_files:
             # Determine if we should use parallel processing
             workers = getattr(args, 'workers', None)
-            use_parallel = workers is not None and workers > 1
+            
+            # If no workers specified, use automatic memory-aware selection
+            if workers is None:
+                try:
+                    from music_analyzer.parallel import get_memory_aware_worker_count
+                    workers = get_memory_aware_worker_count()
+                    logger.info(f"🔄 AUTO: Using memory-aware worker count: {workers}")
+                except Exception as e:
+                    logger.warning(f"Could not determine memory-aware worker count: {e}")
+                    workers = 1  # Fallback to sequential
+            
+            use_parallel = workers > 1
+            
+            # Debug logging
+            logger.info(f"🔍 DEBUG: workers={workers}, use_parallel={use_parallel}")
+            logger.info(f"🔍 DEBUG: args.workers={getattr(args, 'workers', 'NOT_SET')}")
+            logger.info(f"🔍 DEBUG: type(workers)={type(workers)}")
             
             if use_parallel:
                 logger.info(
                     f"🔄 PARALLEL MODE: Processing {len(normal_files)} normal files with {workers} workers...")
                 logger.info(f"🔄 PARALLEL: Using multiprocessing with {workers} worker processes")
+                if getattr(args, 'workers', None) is None:
+                    logger.info(f"🔄 AUTO: Automatically selected {workers} workers based on memory")
                 parallel_manager = ParallelWorkerManager()
                 for result in parallel_manager.process(normal_files, workers=workers, force_reextract=force_reextract):
                     processed_count += 1
@@ -545,6 +570,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 logger.info(
                     f"🐌 SEQUENTIAL MODE: Processing {len(normal_files)} normal files with 1 worker...")
                 logger.info(f"🐌 SEQUENTIAL: Using single-threaded processing")
+                if getattr(args, 'workers', None) is None:
+                    logger.info(f"🐌 AUTO: Automatically selected sequential processing based on memory")
                 sequential_manager = SequentialWorkerManager(audio_analyzer=audio_analyzer)
                 for result in sequential_manager.process(normal_files, workers=1, force_reextract=force_reextract):
                     processed_count += 1
