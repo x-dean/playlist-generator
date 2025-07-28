@@ -229,9 +229,12 @@ class LargeFileProcessor:
 
         def memory_monitor(proc):
             logger.info(f"Starting memory monitor for large file: {os.path.basename(audio_path)}")
+            system_mem_warning_logged = [False]
             while proc.is_alive():
                 is_over_limit, status_msg = check_memory_against_limit(user_limit_gb=rss_limit_gb, user_limit_percent=80.0)
                 is_rss_over, rss_msg = check_total_python_rss_limit(rss_limit_gb=rss_limit_gb)
+                total_rss_gb = get_total_python_rss_gb()
+                rss_threshold = 0.8 * rss_limit_gb
                 if is_rss_over:
                     if not memory_high_event.is_set():
                         memory_high_event.set()
@@ -245,8 +248,13 @@ class LargeFileProcessor:
                         proc.terminate()
                         break
                 else:
-                    if is_over_limit:
-                        logger.warning(f"System/cgroup memory is high: {status_msg}, but RSS is within limit. Not aborting.")
+                    if is_over_limit and total_rss_gb > rss_threshold:
+                        if not system_mem_warning_logged[0]:
+                            logger.warning(f"System/cgroup memory is high: {status_msg}, and RSS is near limit ({total_rss_gb:.2f}GB/{rss_limit_gb:.2f}GB). Not aborting yet.")
+                            system_mem_warning_logged[0] = True
+                    elif system_mem_warning_logged[0]:
+                        logger.info("System/cgroup memory/RSS warning cleared.")
+                        system_mem_warning_logged[0] = False
                     if memory_high_event.is_set():
                         logger.info(f"Memory usage dropped below limits during analysis of {os.path.basename(audio_path)}. Resetting timer.")
                         memory_high_event.clear()
