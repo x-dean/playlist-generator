@@ -10,7 +10,7 @@ from utils.path_converter import PathConverter
 import psutil
 import threading
 import gc
-from utils.memory_monitor import MemoryMonitor, log_detailed_memory_info, check_memory_against_limit
+from utils.memory_monitor import MemoryMonitor, log_detailed_memory_info, check_memory_against_limit, check_total_python_rss_limit
 
 logger = logging.getLogger(__name__)
 
@@ -245,22 +245,24 @@ class LargeFileProcessor:
             while not abort_event.is_set():
                 # Check against container memory limits (80% of container limit or 6GB absolute)
                 is_over_limit, status_msg = check_memory_against_limit(user_limit_gb=6.0, user_limit_percent=80.0)
+                # Check total Python RSS as well
+                is_rss_over, rss_msg = check_total_python_rss_limit(rss_limit_gb=6.0)
                 
-                if is_over_limit:
+                if is_over_limit or is_rss_over:
                     if not memory_high_event.is_set():
                         memory_high_event.set()
                         memory_high_start[0] = time.time()
-                        logger.warning(f"Container memory limit exceeded while analyzing {os.path.basename(audio_path)}: {status_msg}. Starting 20s timer.")
+                        logger.warning(f"Memory limit exceeded while analyzing {os.path.basename(audio_path)}: {status_msg}; {rss_msg}. Starting 20s timer.")
                         # Log detailed memory when it goes high
                         log_detailed_memory_info("MEMORY HIGH")
                     elif time.time() - memory_high_start[0] > 20:
-                        logger.error(f"Container memory limit exceeded for >20s. Aborting analysis of {os.path.basename(audio_path)}: {status_msg}")
+                        logger.error(f"Memory limit exceeded for >20s. Aborting analysis of {os.path.basename(audio_path)}: {status_msg}; {rss_msg}")
                         log_detailed_memory_info("ABORTING DUE TO MEMORY")
                         abort_event.set()
                         break
                 else:
                     if memory_high_event.is_set():
-                        logger.info(f"Container memory usage dropped below limits during analysis of {os.path.basename(audio_path)}. Resetting timer.")
+                        logger.info(f"Memory usage dropped below limits during analysis of {os.path.basename(audio_path)}. Resetting timer.")
                         memory_high_event.clear()
                         memory_high_start[0] = None
                 time.sleep(1)

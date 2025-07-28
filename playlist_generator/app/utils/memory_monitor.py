@@ -278,3 +278,22 @@ def log_detailed_memory_info(context: str = ""):
         logger.info(f"  Available: {info['system']['available_gb']:.1f}GB")
     
     logger.info("=" * 40) 
+
+def get_total_python_rss_gb():
+    """Sum the RSS of all Python processes and return total in GB."""
+    import psutil
+    total_rss = 0
+    for proc in psutil.process_iter(['name', 'memory_info']):
+        try:
+            if 'python' in proc.info['name']:
+                total_rss += proc.info['memory_info'].rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return total_rss / (1024 ** 3)
+
+def check_total_python_rss_limit(rss_limit_gb=6.0):
+    """Check if total RSS of all Python processes exceeds the given limit (in GB)."""
+    total_rss_gb = get_total_python_rss_gb()
+    if total_rss_gb > rss_limit_gb:
+        return True, f"Total Python RSS {total_rss_gb:.2f}GB exceeds limit {rss_limit_gb}GB"
+    return False, f"Total Python RSS {total_rss_gb:.2f}GB within limit {rss_limit_gb}GB" 
