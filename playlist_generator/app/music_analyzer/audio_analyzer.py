@@ -69,6 +69,12 @@ class AudioAnalyzer:
         self.library = library or os.getenv('HOST_LIBRARY_PATH', '/root/music/library')
         self.music = music or os.getenv('MUSIC_PATH', '/music')
         
+        # Ensure cache directory exists
+        cache_dir = os.path.dirname(self.cache_file)
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir, exist_ok=True)
+            logger.info(f"Created cache directory: {cache_dir}")
+        
         # Initialize components
         self.db_manager = AudioDatabaseManager(self.cache_file)
         self.metadata_enricher = MetadataEnricher()
@@ -464,4 +470,65 @@ class AudioAnalyzer:
         Returns:
             List[str]: List of failed file paths.
         """
-        return self.db_manager.get_failed_files() 
+        return self.db_manager.get_failed_files()
+    
+    def get_files_needing_analysis(self) -> List[Tuple[str, Any]]:
+        """Get list of files that need analysis.
+        
+        This method compares the current file system state with the database
+        to determine which files need to be analyzed.
+        
+        Returns:
+            List[Tuple[str, Any]]: List of (filepath, metadata) tuples that need analysis.
+        """
+        try:
+            # Get file discovery changes
+            new_files, modified_files, _ = self.db_manager.get_file_discovery_changes()
+            
+            # Combine new and modified files
+            files_needing_analysis = []
+            
+            # Add new files with metadata
+            for filepath in new_files:
+                try:
+                    file_info = self._get_file_info(filepath)
+                    files_needing_analysis.append((filepath, file_info))
+                except Exception as e:
+                    logger.warning(f"Could not get file info for {filepath}: {e}")
+                    files_needing_analysis.append((filepath, {}))
+            
+            # Add modified files with metadata
+            for filepath in modified_files:
+                try:
+                    file_info = self._get_file_info(filepath)
+                    files_needing_analysis.append((filepath, file_info))
+                except Exception as e:
+                    logger.warning(f"Could not get file info for {filepath}: {e}")
+                    files_needing_analysis.append((filepath, {}))
+            
+            # Also include failed files that should be retried
+            failed_files = self.db_manager.get_failed_files()
+            for filepath in failed_files:
+                try:
+                    file_info = self._get_file_info(filepath)
+                    files_needing_analysis.append((filepath, file_info))
+                except Exception as e:
+                    logger.warning(f"Could not get file info for failed file {filepath}: {e}")
+                    files_needing_analysis.append((filepath, {}))
+            
+            return files_needing_analysis
+            
+        except Exception as e:
+            logger.error(f"Failed to get files needing analysis: {e}")
+            return []
+    
+    def get_file_sizes_from_db(self, file_paths: List[str]) -> Dict[str, int]:
+        """Get file sizes from the database.
+        
+        Args:
+            file_paths (List[str]): List of file paths.
+            
+        Returns:
+            Dict[str, int]: Dictionary mapping file paths to their sizes in bytes.
+        """
+        return self.db_manager.get_file_sizes_from_db(file_paths) 

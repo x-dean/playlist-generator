@@ -8,6 +8,7 @@ import sys
 import time
 import logging
 import multiprocessing as mp
+import traceback
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 

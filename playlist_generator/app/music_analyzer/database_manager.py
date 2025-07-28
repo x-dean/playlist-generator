@@ -29,6 +29,12 @@ class AudioDatabaseManager:
         """Initialize the database with required tables."""
         logger.debug(f"Initializing audio database: {self.cache_file}")
         try:
+            # Ensure the database directory exists
+            db_dir = os.path.dirname(self.cache_file)
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+                logger.info(f"Created database directory: {db_dir}")
+            
             with sqlite3.connect(self.cache_file) as conn:
                 cursor = conn.cursor()
                 
@@ -153,8 +159,14 @@ class AudioDatabaseManager:
             List[Dict[str, Any]]: List of feature dictionaries.
         """
         try:
+            logger.debug(f"Getting all features from database: {self.cache_file}")
             with sqlite3.connect(self.cache_file) as conn:
                 cursor = conn.cursor()
+                
+                # First, let's check if the table exists and what columns it has
+                cursor.execute("PRAGMA table_info(audio_features)")
+                columns = cursor.fetchall()
+                logger.debug(f"Audio_features table columns: {[col[1] for col in columns]}")
                 
                 if include_failed:
                     cursor.execute("""
@@ -183,10 +195,13 @@ class AudioDatabaseManager:
                     
                     results.append(features)
                 
+                logger.debug(f"Retrieved {len(results)} features from database")
                 return results
                 
         except Exception as e:
             logger.error(f"Failed to get all features: {e}")
+            import traceback
+            logger.error(f"Get all features error traceback: {traceback.format_exc()}")
             return []
     
     def mark_as_failed(self, filepath: str) -> bool:
@@ -344,8 +359,14 @@ class AudioDatabaseManager:
             List[str]: List of removed file paths.
         """
         try:
+            logger.debug(f"Cleaning up database: {self.cache_file}")
             with sqlite3.connect(self.cache_file) as conn:
                 cursor = conn.cursor()
+                
+                # First, let's check if the table exists and what columns it has
+                cursor.execute("PRAGMA table_info(audio_features)")
+                columns = cursor.fetchall()
+                logger.debug(f"Audio_features table columns: {[col[1] for col in columns]}")
                 
                 # Get all filepaths from database
                 cursor.execute("SELECT filepath FROM audio_features")
@@ -372,6 +393,8 @@ class AudioDatabaseManager:
                 
         except Exception as e:
             logger.error(f"Failed to cleanup database: {e}")
+            import traceback
+            logger.error(f"Cleanup database error traceback: {traceback.format_exc()}")
             return []
     
     def update_file_discovery_state(self, file_paths: List[str]) -> None:
