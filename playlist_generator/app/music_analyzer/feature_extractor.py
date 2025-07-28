@@ -32,9 +32,6 @@ except ImportError as e:
     logger.warning(f"Robustness utility modules not available: {e}")
     ROBUSTNESS_UTILITIES_AVAILABLE = False
 
-# Set up logger first
-logger = logging.getLogger(__name__)
-
 # Check if Essentia was built with TensorFlow support (only once)
 _essentia_tf_support_checked = False
 
@@ -77,8 +74,6 @@ try:
     tf.get_logger().setLevel('ERROR')
 except ImportError:
     pass
-
-logger = logging.getLogger(__name__)
 
 # Lean metadata fields for playlisting
 LEAN_FIELDS = [
