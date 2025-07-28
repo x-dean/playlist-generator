@@ -358,11 +358,6 @@ class AudioAnalyzer:
             import json
             import sys
             
-            # Check Python version compatibility
-            if sys.version_info < (3, 6):
-                logger.warning("Python version < 3.6 detected, MusicNN may have compatibility issues")
-                return {'skipped': True, 'reason': 'python_version_too_old'}
-            
             # Check TensorFlow availability
             try:
                 import tensorflow as tf
