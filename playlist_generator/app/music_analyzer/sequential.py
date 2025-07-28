@@ -207,29 +207,13 @@ class LargeFileProcessor:
         import threading
         import time
         import queue
-
         file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
         logger.info(f"Processing large file ({file_size_mb:.1f}MB) with timeout: {os.path.basename(audio_path)}")
-
-        # Log detailed memory before starting
         log_detailed_memory_info("BEFORE large file processing")
-
         abort_event = threading.Event()
         memory_high_event = threading.Event()
         memory_high_start = [None]
         result_queue = multiprocessing.Queue()
-
-        def analyze_file_worker(audio_path, force_reextract, result_queue):
-            import essentia.standard as es
-            import tensorflow as tf
-            from music_analyzer.feature_extractor import AudioAnalyzer
-            cache_file = os.getenv('CACHE_FILE', '/app/cache/audio_analysis.db')
-            library = os.getenv('HOST_LIBRARY_PATH', '/root/music/library')
-            music = os.getenv('MUSIC_PATH', '/music')
-            analyzer = AudioAnalyzer(cache_file=cache_file, library=library, music=music)
-            result = analyzer.extract_features(audio_path, force_reextract=force_reextract)
-            result_queue.put(result)
-
         def memory_monitor(proc):
             logger.info(f"Starting memory monitor for large file: {os.path.basename(audio_path)}")
             system_mem_warning_logged = [False]
@@ -263,13 +247,10 @@ class LargeFileProcessor:
                         memory_high_event.clear()
                         memory_high_start[0] = None
                 time.sleep(1)
-
-        # Start the analysis subprocess
         proc = multiprocessing.Process(target=analyze_file_worker, args=(audio_path, force_reextract, result_queue))
         proc.start()
         monitor_thread = threading.Thread(target=memory_monitor, args=(proc,), daemon=True)
         monitor_thread.start()
-
         result = None
         try:
             proc.join(timeout=self.timeout_seconds)
