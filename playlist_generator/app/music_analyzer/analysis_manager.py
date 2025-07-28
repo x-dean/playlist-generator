@@ -407,7 +407,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                         if current_file_size >= threshold_mb and file_processing_time < max_time_for_large_file:
                             logger.debug(f"Large file processing ({current_file_size:.1f}MB) for {file_processing_time:.1f}s - not stuck yet")
                         else:
-                            logger.warning(f"SEQUENTIAL: No progress for 20 minutes - file may be stuck (current file: {current_file_size:.1f}MB, processing for {file_processing_time:.1f}s)")
+                            logger.warning(f"PROCESSING: No progress for 20 minutes - file may be stuck (current file: {current_file_size:.1f}MB, processing for {file_processing_time:.1f}s)")
                     
                     # Check memory usage
                     try:
