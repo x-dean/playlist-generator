@@ -27,6 +27,15 @@ musicnn_progress = None
 musicnn_task = None
 _initialized = False
 
+# MusiCNN step definitions
+MUSICNN_STEPS = [
+    "Loading JSON metadata",
+    "Loading audio file", 
+    "Running activations",
+    "Running embeddings",
+    "Finalizing results"
+]
+
 def init_musicnn_progress():
     """Initialize the MusiCNN progress bar only once."""
     global musicnn_progress, musicnn_task, _initialized
@@ -57,7 +66,7 @@ def init_musicnn_progress():
         console=console,
         transient=False
     )
-    musicnn_task = musicnn_progress.add_task("Waiting for files...", total=5)
+    musicnn_task = musicnn_progress.add_task("Waiting for files...", total=len(MUSICNN_STEPS))
     musicnn_progress.start()
     _initialized = True
 
@@ -81,9 +90,9 @@ def update_musicnn_file_status(filename):
         init_musicnn_progress()
     
     if musicnn_progress and musicnn_task:
-        # Reset progress for new file and set total to 5 steps
+        # Reset progress for new file
         musicnn_progress.reset(musicnn_task)
-        musicnn_progress.update(musicnn_task, total=5, completed=0, description=f"Processing: {filename}")
+        musicnn_progress.update(musicnn_task, description=f"Starting: {filename}")
 
 def update_musicnn_step_status(step, **kwargs):
     """Update status for a specific step with dynamic values."""
@@ -109,6 +118,22 @@ def update_musicnn_step_status(step, **kwargs):
         if step in ['loaded_json', 'loaded_audio', 'activations', 'embeddings']:
             if musicnn_progress and musicnn_task:
                 musicnn_progress.advance(musicnn_task)
+
+def update_musicnn_step_progress(step_index, description=None):
+    """Update progress for a specific MusiCNN step."""
+    global musicnn_progress, musicnn_task, _initialized
+    
+    # Initialize if not already done
+    if not _initialized:
+        init_musicnn_progress()
+    
+    if musicnn_progress and musicnn_task:
+        if step_index < len(MUSICNN_STEPS):
+            step_name = MUSICNN_STEPS[step_index]
+            if description:
+                step_name = f"{step_name}: {description}"
+            musicnn_progress.update(musicnn_task, description=step_name)
+            musicnn_progress.advance(musicnn_task)
 
 def finish_musicnn_processing():
     """Call this when all MusiCNN processing is complete."""

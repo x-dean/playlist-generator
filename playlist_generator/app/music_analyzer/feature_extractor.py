@@ -355,9 +355,8 @@ class AudioAnalyzer:
         
         # Update MusiCNN status panel
         try:
-            from utils.musicnn_status import update_musicnn_file_status, update_musicnn_step_status
+            from utils.musicnn_status import update_musicnn_file_status, update_musicnn_step_progress
             update_musicnn_file_status(os.path.basename(audio_path))
-            update_musicnn_step_status('start')
         except ImportError:
             pass  # Status panel not available
         
@@ -396,8 +395,8 @@ class AudioAnalyzer:
             
             # Update status
             try:
-                from utils.musicnn_status import update_musicnn_step_status
-                update_musicnn_step_status('loaded_json', tag_count=len(tag_names))
+                from utils.musicnn_status import update_musicnn_step_progress
+                update_musicnn_step_progress(0, f"{len(tag_names)} tags")
             except ImportError:
                 pass
 
@@ -421,9 +420,9 @@ class AudioAnalyzer:
             
             # Update status
             try:
-                from utils.musicnn_status import update_musicnn_step_status
+                from utils.musicnn_status import update_musicnn_step_progress
                 duration = len(audio)/16000
-                update_musicnn_step_status('loaded_audio', duration=duration)
+                update_musicnn_step_progress(1, f"{duration:.1f}s")
             except ImportError:
                 pass
 
@@ -434,8 +433,8 @@ class AudioAnalyzer:
             
             # Update status
             try:
-                from utils.musicnn_status import update_musicnn_step_status
-                update_musicnn_step_status('activations')
+                from utils.musicnn_status import update_musicnn_step_progress
+                update_musicnn_step_progress(2)
             except ImportError:
                 pass
             
@@ -459,8 +458,8 @@ class AudioAnalyzer:
             
             # Update status
             try:
-                from utils.musicnn_status import update_musicnn_step_status
-                update_musicnn_step_status('embeddings')
+                from utils.musicnn_status import update_musicnn_step_progress
+                update_musicnn_step_progress(3)
             except ImportError:
                 pass
             
@@ -486,7 +485,7 @@ class AudioAnalyzer:
                 from utils.musicnn_status import update_musicnn_step_status, clear_musicnn_status
                 top_tags = sorted(tags.items(), key=lambda x: x[1], reverse=True)[:3]
                 top_tag_names = [tag for tag, _ in top_tags]
-                update_musicnn_step_status('success', tag_count=len(tags), embedding_dims=len(embedding), top_tags=', '.join(top_tag_names))
+                update_musicnn_step_progress(4, f"{len(tags)} tags, {len(embedding)} dims | {', '.join(top_tag_names)}")
                 # Don't clear the progress bar - let it continue for next file
             except ImportError:
                 pass
