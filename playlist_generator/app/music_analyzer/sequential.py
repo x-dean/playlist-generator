@@ -373,8 +373,11 @@ class SequentialProcessor:
                         else:
                             logger.warning(f"Large file analysis failed or hung for {filepath}, retrying ({attempt+1}/{max_retries})...")
                     else:
-                        logger.error(f"Large file analysis failed after {max_retries} attempts for {filepath}. Skipping file.")
+                        logger.error(f"Large file analysis failed after {max_retries} attempts for {filepath}. Skipping file and marking as failed in DB.")
                         self.failed_files.append(filepath)
+                        if self.audio_analyzer:
+                            file_info = self.audio_analyzer._get_file_info(filepath)
+                            self.audio_analyzer._mark_failed(file_info)
                         yield None, filepath, False
                         continue
                 else:
