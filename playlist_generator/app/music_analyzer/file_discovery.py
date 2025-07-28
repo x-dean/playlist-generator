@@ -23,12 +23,20 @@ class FileDiscovery:
 
         # Use provided audio_db or create new one
         if audio_db is None:
-            from .feature_extractor import AudioAnalyzer
-            self.audio_db = AudioAnalyzer()
+            # Lazy import to avoid circular dependency
+            self._audio_db = None
         else:
-            self.audio_db = audio_db
+            self._audio_db = audio_db
 
         self.current_files = set()
+
+    @property
+    def audio_db(self):
+        """Lazy load AudioAnalyzer to avoid circular import."""
+        if self._audio_db is None:
+            from .feature_extractor import AudioAnalyzer
+            self._audio_db = AudioAnalyzer()
+        return self._audio_db
 
     def _get_file_hash(self, filepath: str) -> str:
         """Generate a hash for a file based on path and modification time."""
