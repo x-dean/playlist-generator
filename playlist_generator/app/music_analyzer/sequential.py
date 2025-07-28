@@ -11,7 +11,7 @@ from music_analyzer.feature_extractor import AudioAnalyzer
 import multiprocessing
 import threading
 import gc
-from utils.memory_monitor import log_detailed_memory_info, check_memory_against_limit
+from utils.memory_monitor import log_detailed_memory_info, check_memory_against_limit, check_total_python_rss_limit, get_total_python_rss_gb
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,6 @@ class MemoryMonitor:
         time.sleep(1)  # Give system time to free memory
         
         # Log memory after cleanup (use total Python RSS)
-        from utils.memory_monitor import get_total_python_rss_gb
         total_rss_gb = get_total_python_rss_gb()
         logger.info(f"Total Python RSS after cleanup: {total_rss_gb:.2f}GB")
 
