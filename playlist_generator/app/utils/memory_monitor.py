@@ -71,7 +71,7 @@ class MemoryMonitor:
         """Calculate optimal worker count based on available memory."""
         try:
             current = self._get_memory_info()
-            
+            logger.info(f"🔄 [MemoryMonitor] get_optimal_worker_count called: max_workers={max_workers}, available_gb={current['available_gb']:.2f}")
             # Conservative estimate: 2GB per worker
             memory_per_worker_gb = 2.0
             
