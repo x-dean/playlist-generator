@@ -22,11 +22,11 @@ logger = logging.getLogger(__name__)
 
 # Import new robustness utility modules
 try:
-    from utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, circuit_breaker
+    from utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, circuit_breaker, register_circuit_breaker
     from utils.adaptive_timeout import AdaptiveTimeoutManager, get_timeout_manager, calculate_timeout
     from utils.error_classifier import ErrorClassifier, classify_error, ErrorType, ErrorSeverity, get_error_classifier
     from utils.smart_retry import SmartRetryManager, RetryStrategy, get_retry_manager, smart_retry
-    from utils.timeout_manager import timeout_manager, timeout_context, TimeoutException
+    from utils.timeout_manager import timeout_context, TimeoutException
     from utils.error_recovery import error_handler, retry_with_backoff, safe_operation
     from utils.progress_tracker import ProgressTracker, ParallelProgressTracker
     ROBUSTNESS_UTILITIES_AVAILABLE = True
@@ -78,6 +78,68 @@ except ImportError as e:
     
     def classify_error(*args, **kwargs):
         return None
+    
+    def register_circuit_breaker(name, breaker):
+        """Fallback function for circuit breaker registration."""
+        pass
+    
+    # Additional fallback functions for timeout and error recovery
+    def timeout_context(timeout_seconds, error_message="Processing timed out"):
+        """Fallback timeout context manager."""
+        import signal
+        import threading
+        
+        class TimeoutContext:
+            def __init__(self, timeout_seconds, error_message):
+                self.timeout_seconds = timeout_seconds
+                self.error_message = error_message
+                self.timer = None
+            
+            def __enter__(self):
+                def timeout_handler():
+                    raise TimeoutException(self.error_message)
+                self.timer = threading.Timer(self.timeout_seconds, timeout_handler)
+                self.timer.start()
+                return self
+            
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if self.timer:
+                    self.timer.cancel()
+                return False
+        
+        return TimeoutContext(timeout_seconds, error_message)
+    
+    def error_handler(operation_name="operation", default_value=None):
+        """Fallback error handler decorator."""
+        def decorator(func):
+            def wrapper(*args, **kwargs):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    logger.warning(f"Error in {operation_name}: {e}")
+                    return default_value
+            return wrapper
+        return decorator
+    
+    def retry_with_backoff(retry_config=None):
+        """Fallback retry decorator."""
+        def decorator(func):
+            def wrapper(*args, **kwargs):
+                return func(*args, **kwargs)
+            return wrapper
+        return decorator
+    
+    def safe_operation(operation_name="operation", default_value=None):
+        """Fallback safe operation decorator."""
+        def decorator(func):
+            def wrapper(*args, **kwargs):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    logger.warning(f"Error in {operation_name}: {e}")
+                    return default_value
+            return wrapper
+        return decorator
 
 # Check if Essentia was built with TensorFlow support (only once)
 _essentia_tf_support_checked = False
