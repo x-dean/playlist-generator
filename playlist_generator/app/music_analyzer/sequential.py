@@ -25,6 +25,7 @@ class MemoryMonitor:
     def get_memory_usage(self):
         """Get current memory usage percentage."""
         try:
+            import psutil
             memory = psutil.virtual_memory()
             return memory.percent, memory.used / (1024**3), memory.available / (1024**3)
         except:
@@ -41,9 +42,10 @@ class MemoryMonitor:
         gc.collect()
         time.sleep(1)  # Give system time to free memory
         
-        # Log memory after cleanup
-        usage_percent, used_gb, available_gb = self.get_memory_usage()
-        logger.info(f"Memory after cleanup: {usage_percent:.1f}% ({used_gb:.1f}GB used, {available_gb:.1f}GB available)")
+        # Log memory after cleanup (use total Python RSS)
+        from utils.memory_monitor import get_total_python_rss_gb
+        total_rss_gb = get_total_python_rss_gb()
+        logger.info(f"Total Python RSS after cleanup: {total_rss_gb:.2f}GB")
 
 
 class ThreadSafeAudioAnalyzer:
@@ -355,13 +357,6 @@ class SequentialProcessor:
                     is_large_file = file_size_mb > threshold_mb
                 except:
                     is_large_file = False
-
-                # Additional memory check for large files
-                if is_large_file and (available_gb < 2.0 or usage_percent > 85):
-                    logger.warning(f"Skipping large file due to low memory: {os.path.basename(filepath)} ({file_size_mb:.1f}MB), available: {available_gb:.1f}GB, usage: {usage_percent:.1f}%")
-                    self.skipped_files_due_to_memory.append(filepath)
-                    yield None, filepath, False
-                    continue
 
                 if is_large_file:
                     logger.info(f"Large file detected ({file_size_mb:.1f}MB), using separate process: {os.path.basename(filepath)}")
