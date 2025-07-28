@@ -384,20 +384,30 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     if current_time - last_update_time > 1200:  # 20 minutes without update
                         # Check if we're currently processing a large file
                         current_file_size = 0
+                        current_file_start_time = 0
                         try:
                             if isinstance(file_start_times, dict) and len(file_start_times) > 0:
                                 # Get the most recently started file
                                 current_file = max(file_start_times.items(), key=lambda x: x[1])
                                 current_filepath = current_file[0]
+                                current_file_start_time = current_file[1]
                                 if os.path.exists(current_filepath):
                                     current_file_size = os.path.getsize(current_filepath) / (1024 * 1024)  # MB
                         except Exception as e:
                             logger.debug(f"Could not check current file size: {e}")
                         
+                        # Calculate how long the current file has been processing
+                        file_processing_time = current_time - current_file_start_time
+                        
                         # Only warn if it's not a large file (>50MB) or if it's been too long even for a large file
                         threshold_mb = int(os.getenv('LARGE_FILE_THRESHOLD', '50'))
-                        if current_file_size < threshold_mb or current_time - last_update_time > 2400:  # 40 minutes max
-                            logger.warning(f"SEQUENTIAL: No progress for 20 minutes - file may be stuck (current file: {current_file_size:.1f}MB)")
+                        max_time_for_large_file = 3600  # 1 hour for large files
+                        
+                        # Don't warn if we're processing a large file and it hasn't been too long
+                        if current_file_size >= threshold_mb and file_processing_time < max_time_for_large_file:
+                            logger.debug(f"Large file processing ({current_file_size:.1f}MB) for {file_processing_time:.1f}s - not stuck yet")
+                        else:
+                            logger.warning(f"SEQUENTIAL: No progress for 20 minutes - file may be stuck (current file: {current_file_size:.1f}MB, processing for {file_processing_time:.1f}s)")
                     
                     # Check memory usage
                     try:
