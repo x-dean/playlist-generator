@@ -98,10 +98,23 @@ essentia_logger.setLevel(getattr(logging, log_level, logging.INFO))
 # Setup interrupt handling FIRST (before logging setup)
 import threading
 _interrupt_requested = threading.Event()
+_parallel_processing_active = threading.Event()
 
 def signal_handler(signum, frame):
     """Handle interrupt signals gracefully."""
-    logger.warning(f"Received signal {signum}, initiating graceful shutdown...")
+    import os
+    
+    # Check if this is a worker process (not the main process)
+    if os.getpid() != 1:
+        logger.debug(f"Child process {os.getpid()} received signal {signum}, exiting quietly")
+        sys.exit(130)
+    
+    # Check if we're in parallel processing mode - if so, ignore the signal
+    if _parallel_processing_active.is_set():
+        logger.debug(f"Main process received signal {signum} during parallel processing, ignoring (likely from pool termination)")
+        return  # Don't shutdown, just ignore the signal
+    
+    logger.warning(f"Main process received signal {signum}, initiating graceful shutdown...")
     print("\n🛑 Interrupt received! Initiating graceful shutdown...")
     
     # Set the interrupt flag
@@ -132,6 +145,14 @@ signal.signal(signal.SIGTERM, signal_handler)
 def is_interrupt_requested():
     """Check if an interrupt has been requested."""
     return _interrupt_requested.is_set()
+
+def set_parallel_processing_active():
+    """Mark that parallel processing is active."""
+    _parallel_processing_active.set()
+
+def clear_parallel_processing_active():
+    """Mark that parallel processing is inactive."""
+    _parallel_processing_active.clear()
 
 # Setup runtime log level control AFTER interrupt handlers
 setup_log_level_signal_handler_direct()

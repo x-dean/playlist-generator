@@ -548,6 +548,14 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 logger.info(f"🔄 PARALLEL: Using multiprocessing with {workers} worker processes")
                 if getattr(args, 'workers', None) is None:
                     logger.info(f"🔄 AUTO: Automatically selected {workers} workers based on memory")
+                
+                # Set parallel processing flag to prevent signal handler from triggering during pool termination
+                try:
+                    from playlista import set_parallel_processing_active, clear_parallel_processing_active
+                    set_parallel_processing_active()
+                except ImportError:
+                    pass
+                
                 parallel_manager = ParallelWorkerManager()
                 for result in parallel_manager.process(normal_files, workers=workers, force_reextract=force_reextract):
                     processed_count += 1
@@ -579,6 +587,12 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                         logger.warning(f"Analysis failed for {result[1]}")
                     else:
                         logger.info(f"Analysis completed for {result[1]}")
+                
+                # Clear parallel processing flag
+                try:
+                    clear_parallel_processing_active()
+                except NameError:
+                    pass
             else:
                 logger.info(
                     f"🐌 SEQUENTIAL MODE: Processing {len(normal_files)} normal files with 1 worker...")

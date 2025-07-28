@@ -42,7 +42,7 @@ change_log_level() {
             signal="SIGUSR2"
             ;;
         "warning"|"WARNING")
-            signal="SIGTERM"
+            signal="SIGUSR1"  # Use SIGUSR1 for warning too, since SIGTERM is for shutdown
             ;;
         *)
             print_error "Invalid log level: $level"
