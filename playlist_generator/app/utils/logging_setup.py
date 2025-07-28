@@ -111,7 +111,8 @@ def setup_log_level_signal_handler_direct():
     # Use different signals for different levels
     signal.signal(signal.SIGUSR1, debug_handler)    # DEBUG
     signal.signal(signal.SIGUSR2, info_handler)     # INFO  
-    signal.signal(signal.SIGTERM, warning_handler)   # WARNING (if not used for shutdown)
+    # Note: SIGTERM is reserved for shutdown handling in playlista
+    # signal.signal(signal.SIGTERM, warning_handler)   # WARNING (if not used for shutdown)
     
     _log_level_setup_done = True
 

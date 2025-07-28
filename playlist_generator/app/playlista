@@ -95,11 +95,7 @@ log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
 tf_logger.setLevel(getattr(logging, log_level, logging.INFO))
 essentia_logger.setLevel(getattr(logging, log_level, logging.INFO))
 
-# Setup runtime log level control
-setup_log_level_signal_handler_direct()
-start_log_level_monitor()
-
-# Setup interrupt handling
+# Setup interrupt handling FIRST (before logging setup)
 import threading
 _interrupt_requested = threading.Event()
 
@@ -128,7 +124,7 @@ def signal_handler(signum, frame):
     
     sys.exit(130)
 
-# Register the signal handler
+# Register the signal handler FIRST
 import signal
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
@@ -136,6 +132,10 @@ signal.signal(signal.SIGTERM, signal_handler)
 def is_interrupt_requested():
     """Check if an interrupt has been requested."""
     return _interrupt_requested.is_set()
+
+# Setup runtime log level control AFTER interrupt handlers
+setup_log_level_signal_handler_direct()
+start_log_level_monitor()
 
 logger = logging.getLogger(__name__)
 
