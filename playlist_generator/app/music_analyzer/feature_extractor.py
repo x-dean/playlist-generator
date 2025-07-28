@@ -204,25 +204,36 @@ class DatabaseConnectionPool:
         """Get a database connection from the pool."""
         self._initialize_pool()
         
-        with self._lock:
-            if not self._connections:
-                # Create a new connection if pool is empty
-                conn = sqlite3.connect(self.db_path, timeout=600)
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA busy_timeout=30000")
-                conn.execute("PRAGMA synchronous=NORMAL")
-                conn.execute("PRAGMA cache_size=10000")
-                conn.execute("PRAGMA temp_store=MEMORY")
-                yield conn
-                conn.close()
-            else:
-                conn = self._connections.pop()
+        conn = None
+        try:
+            with self._lock:
+                if not self._connections:
+                    # Create a new connection if pool is empty
+                    conn = sqlite3.connect(self.db_path, timeout=600)
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.execute("PRAGMA busy_timeout=30000")
+                    conn.execute("PRAGMA synchronous=NORMAL")
+                    conn.execute("PRAGMA cache_size=10000")
+                    conn.execute("PRAGMA temp_store=MEMORY")
+                else:
+                    conn = self._connections.pop()
+            
+            yield conn
+        finally:
+            if conn:
+                # Return connection to pool (outside the lock to prevent deadlock)
                 try:
-                    yield conn
-                finally:
-                    # Return connection to pool
                     with self._lock:
-                        self._connections.append(conn)
+                        if len(self._connections) < self.max_connections:
+                            self._connections.append(conn)
+                        else:
+                            conn.close()
+                except Exception as e:
+                    logger.debug(f"Error returning connection to pool: {e}")
+                    try:
+                        conn.close()
+                    except:
+                        pass
     
     def close_all(self):
         """Close all connections in the pool."""
@@ -3242,4 +3253,5 @@ class AudioAnalyzer:
         self.cleanup()
 
 
-audio_analyzer = AudioAnalyzer()
+# Remove module-level instantiation to prevent deadlock during import
+# audio_analyzer = AudioAnalyzer()
