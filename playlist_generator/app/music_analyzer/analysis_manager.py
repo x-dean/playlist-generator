@@ -500,41 +500,80 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     next_filename = os.path.basename(next_filepath)
                     logger.info(f"SEQUENTIAL: Starting processing {next_filename}")
 
-        # Step 2: Process normal files sequentially (if needed)
+        # Step 2: Process normal files (parallel or sequential based on workers)
         if normal_files:
-            logger.info(
-                f"Processing {len(normal_files)} normal files sequentially...")
-            sequential_manager = SequentialWorkerManager(audio_analyzer=audio_analyzer)
-            for result in sequential_manager.process(normal_files, workers=1, force_reextract=force_reextract):
-                processed_count += 1
-                filename = os.path.basename(result[1]) # result[1] is the filepath
-                
-                # Check for interrupt using global flag
-                try:
-                    from playlista import is_interrupt_requested
-                    if is_interrupt_requested():
-                        logger.warning("Interrupt received after completing file")
-                        print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
-                        return failed_files
-                except ImportError:
-                    # If we can't import the function, continue normally
-                    pass
+            # Determine if we should use parallel processing
+            workers = getattr(args, 'workers', None)
+            use_parallel = workers is not None and workers > 1
+            
+            if use_parallel:
+                logger.info(
+                    f"Processing {len(normal_files)} normal files in parallel with {workers} workers...")
+                parallel_manager = ParallelWorkerManager()
+                for result in parallel_manager.process(normal_files, workers=workers, force_reextract=force_reextract):
+                    processed_count += 1
+                    filename = os.path.basename(result[1]) # result[1] is the filepath
+                    
+                    # Check for interrupt using global flag
+                    try:
+                        from playlista import is_interrupt_requested
+                        if is_interrupt_requested():
+                            logger.warning("Interrupt received after completing file")
+                            print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
+                            return failed_files
+                    except ImportError:
+                        # If we can't import the function, continue normally
+                        pass
 
-                # Get status dot for result
-                status_dot = _get_status_dot(result[0], result[2]) # result[0] is features, result[1] is filepath, result[2] is db_write_success
+                    # Get status dot for result
+                    status_dot = _get_status_dot(result[0], result[2]) # result[0] is features, result[1] is filepath, result[2] is db_write_success
 
-                # Update progress bar with the file that was just processed
-                _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
-                                     "[cyan]", "", status_dot, result[1], True, file_sizes)
+                    # Update progress bar with the file that was just processed
+                    _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
+                                         "[cyan]", "", status_dot, result[1], True, file_sizes)
 
-                logger.debug(
-                    f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
+                    logger.debug(
+                        f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
 
-                if not result[0] or not result[2]:
-                    failed_files.append(result[1])
-                    logger.warning(f"Analysis failed for {result[1]}")
-                else:
-                    logger.info(f"Analysis completed for {result[1]}")
+                    if not result[0] or not result[2]:
+                        failed_files.append(result[1])
+                        logger.warning(f"Analysis failed for {result[1]}")
+                    else:
+                        logger.info(f"Analysis completed for {result[1]}")
+            else:
+                logger.info(
+                    f"Processing {len(normal_files)} normal files sequentially...")
+                sequential_manager = SequentialWorkerManager(audio_analyzer=audio_analyzer)
+                for result in sequential_manager.process(normal_files, workers=1, force_reextract=force_reextract):
+                    processed_count += 1
+                    filename = os.path.basename(result[1]) # result[1] is the filepath
+                    
+                    # Check for interrupt using global flag
+                    try:
+                        from playlista import is_interrupt_requested
+                        if is_interrupt_requested():
+                            logger.warning("Interrupt received after completing file")
+                            print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
+                            return failed_files
+                    except ImportError:
+                        # If we can't import the function, continue normally
+                        pass
+
+                    # Get status dot for result
+                    status_dot = _get_status_dot(result[0], result[2]) # result[0] is features, result[1] is filepath, result[2] is db_write_success
+
+                    # Update progress bar with the file that was just processed
+                    _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
+                                         "[cyan]", "", status_dot, result[1], True, file_sizes)
+
+                    logger.debug(
+                        f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
+
+                    if not result[0] or not result[2]:
+                        failed_files.append(result[1])
+                        logger.warning(f"Analysis failed for {result[1]}")
+                    else:
+                        logger.info(f"Analysis completed for {result[1]}")
         else:
             logger.debug("DISCOVERY: No normal files to process in parallel")
 
