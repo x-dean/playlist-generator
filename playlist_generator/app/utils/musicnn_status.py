@@ -18,16 +18,22 @@ musicnn_task = None
 def init_musicnn_progress():
     """Initialize the MusiCNN progress bar."""
     global musicnn_progress, musicnn_task
+    
+    # Print a separator line to create space
+    console.print("\n" + "="*80)
+    console.print("[bold blue]MusiCNN Processing Status:[/bold blue]")
+    console.print("="*80)
+    
     musicnn_progress = Progress(
         SpinnerColumn(),
-        TextColumn("[bold blue]MusiCNN:"),
+        TextColumn("[bold blue]Step:"),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TimeElapsedColumn(),
         console=console,
-        transient=True
+        transient=False
     )
-    musicnn_task = musicnn_progress.add_task("Waiting...", total=5)
+    musicnn_task = musicnn_progress.add_task("Waiting for files...", total=5)
     musicnn_progress.start()
 
 def update_musicnn_status(new_status):
@@ -69,6 +75,8 @@ def clear_musicnn_status():
     global musicnn_progress
     if musicnn_progress:
         musicnn_progress.stop()
+        # Print a completion message
+        console.print("[bold green]✓ MusiCNN processing completed[/bold green]\n")
 
 def get_musicnn_status():
     """Get the current MusiCNN status text."""
