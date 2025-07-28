@@ -201,18 +201,20 @@ class LargeFileProcessor:
     
     def process_large_file(self, audio_path: str, force_reextract: bool = False) -> tuple:
         """Process a large file with timeout and memory monitoring."""
-        
+        import threading
+        import time
+
         file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
         logger.info(f"Processing large file ({file_size_mb:.1f}MB) with timeout: {os.path.basename(audio_path)}")
-        
+
         # Check memory before starting
         usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
         logger.info(f"Memory before processing: {usage_percent:.1f}% ({used_gb:.1f}GB used, {available_gb:.1f}GB available)")
-        
+
         if self.memory_monitor.is_memory_critical():
             logger.error(f"Memory usage too high ({usage_percent:.1f}%) to process large file safely")
             return None, False, None
-        
+
         # Adjust timeout based on file size and available memory
         if file_size_mb > 200:
             timeout = 1200  # 20 minutes for very large files
@@ -220,27 +222,121 @@ class LargeFileProcessor:
             timeout = 900   # 15 minutes for large files
         else:
             timeout = 600   # 10 minutes for medium files
-        
+
         # Reduce timeout if memory is limited
         if available_gb < 2.0:  # Less than 2GB available
             timeout = min(timeout, 300)  # Max 5 minutes
             logger.warning(f"Limited memory available ({available_gb:.1f}GB), reducing timeout to {timeout}s")
-        
+
         # Set timeout for this processing session
         self.timeout_seconds = timeout
-        
+
+        # --- Memory monitoring logic ---
+        abort_event = threading.Event()
+        memory_high_event = threading.Event()
+        memory_high_start = [None]  # Use list for mutability in closure
+
+        def memory_monitor():
+            logger.info(f"Starting memory monitor for large file: {os.path.basename(audio_path)}")
+            while not abort_event.is_set():
+                usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
+                if usage_percent > 85:
+                    if not memory_high_event.is_set():
+                        memory_high_event.set()
+                        memory_high_start[0] = time.time()
+                        logger.warning(f"Memory usage over 85% while analyzing {os.path.basename(audio_path)}. Starting 20s timer.")
+                    elif time.time() - memory_high_start[0] > 20:
+                        logger.error(f"Memory usage over 85% for >20s. Aborting analysis of {os.path.basename(audio_path)}.")
+                        abort_event.set()
+                        break
+                else:
+                    if memory_high_event.is_set():
+                        logger.info(f"Memory usage dropped below 85% during analysis of {os.path.basename(audio_path)}. Resetting timer.")
+                        memory_high_event.clear()
+                        memory_high_start[0] = None
+                time.sleep(1)
+
+        monitor_thread = threading.Thread(target=memory_monitor, daemon=True)
+        monitor_thread.start()
+
+        # --- Analysis logic with abort support ---
+        result = None
         try:
             # Use the threading-based approach to avoid pickle issues
-            result = self._extract_features_with_timeout(audio_path, force_reextract)
+            result = self._extract_features_with_timeout_abort(audio_path, force_reextract, abort_event)
+            if abort_event.is_set():
+                logger.error(f"Aborted large file analysis due to sustained high memory: {os.path.basename(audio_path)}")
+                return None, False, None
             if result and result[0] and result[1]:
                 logger.info(f"Large file processing completed: {os.path.basename(audio_path)}")
-            
-            # Note: Interrupt checking is handled in the main analysis loop
-            # This allows the current file to complete but stops the next one
-            
             return result
         except Exception as e:
             logger.error(f"Large file processing failed: {os.path.basename(audio_path)} - {str(e)}")
+            return None, False, None
+        finally:
+            abort_event.set()  # Ensure monitor thread exits
+            monitor_thread.join(timeout=2.0)
+
+    def _extract_features_with_timeout_abort(self, audio_path: str, force_reextract: bool, abort_event) -> tuple:
+        """Extract features with timeout and abort support."""
+        import threading
+        import queue
+        import time
+
+        result_queue = queue.Queue()
+        exception_queue = queue.Queue()
+        timeout_occurred = threading.Event()
+
+        def extract_worker():
+            analyzer = None
+            try:
+                if timeout_occurred.is_set() or abort_event.is_set():
+                    logger.debug(f"Timeout or abort occurred before worker started for {os.path.basename(audio_path)}")
+                    return
+                cache_file = os.getenv('CACHE_FILE', '/app/cache/audio_analysis.db')
+                library = os.getenv('HOST_LIBRARY_PATH', '/root/music/library')
+                music = os.getenv('MUSIC_PATH', '/music')
+                analyzer = ThreadSafeAudioAnalyzer(cache_file, library, music)
+                # Extraction loop with abort check
+                result = None
+                extraction_thread = threading.Thread(
+                    target=lambda: result_queue.put(analyzer.extract_features(audio_path, force_reextract=force_reextract)),
+                    daemon=True
+                )
+                extraction_thread.start()
+                while extraction_thread.is_alive():
+                    if abort_event.is_set():
+                        logger.error(f"Aborting feature extraction for {os.path.basename(audio_path)} due to memory pressure.")
+                        return
+                    time.sleep(0.5)
+                # If not aborted, get result
+                if not abort_event.is_set():
+                    result = result_queue.get()
+                    result_queue.put(result)  # Put it back for main thread
+            except Exception as e:
+                if not timeout_occurred.is_set() and not abort_event.is_set():
+                    exception_queue.put(e)
+            finally:
+                if analyzer:
+                    try:
+                        analyzer.cleanup()
+                    except:
+                        pass
+
+        worker_thread = threading.Thread(target=extract_worker, daemon=True)
+        worker_thread.start()
+        try:
+            result = result_queue.get(timeout=self.timeout_seconds)
+            return result
+        except queue.Empty:
+            timeout_occurred.set()
+            logger.error(f"Large file processing timed out after {self.timeout_seconds}s: {os.path.basename(audio_path)}")
+            worker_thread.join(timeout=2.0)
+            try:
+                result = result_queue.get_nowait()
+                logger.warning(f"Received late result after timeout for {os.path.basename(audio_path)}, discarding")
+            except queue.Empty:
+                pass
             return None, False, None
 
 
