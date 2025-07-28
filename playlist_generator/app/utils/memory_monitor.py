@@ -17,18 +17,35 @@ class MemoryMonitor:
         self.initial_memory = self._get_memory_info()
         
     def _get_memory_info(self) -> Dict[str, Any]:
-        """Get current memory information."""
+        """Get current memory information (prefer container limits over host memory)."""
         try:
-            memory = psutil.virtual_memory()
-            return {
-                'total_gb': memory.total / (1024**3),
-                'available_gb': memory.available / (1024**3),
-                'used_gb': memory.used / (1024**3),
-                'percent': memory.percent
-            }
+            # First try to get container memory info
+            container_info = get_container_memory_info()
+            
+            if container_info and container_info['is_limited']:
+                # Use container memory limits
+                logger.debug(f"Using container memory limits: {container_info['usage_gb']:.1f}GB/{container_info['limit_gb']:.1f}GB")
+                return {
+                    'total_gb': container_info['limit_gb'],
+                    'available_gb': container_info['available_gb'],
+                    'used_gb': container_info['usage_gb'],
+                    'percent': container_info['usage_percent'],
+                    'is_container': True
+                }
+            else:
+                # Fall back to host memory if no container limits
+                logger.debug("No container memory limits found, using host memory")
+                memory = psutil.virtual_memory()
+                return {
+                    'total_gb': memory.total / (1024**3),
+                    'available_gb': memory.available / (1024**3),
+                    'used_gb': memory.used / (1024**3),
+                    'percent': memory.percent,
+                    'is_container': False
+                }
         except Exception as e:
             logger.warning(f"Could not get memory info: {e}")
-            return {'total_gb': 0, 'available_gb': 0, 'used_gb': 0, 'percent': 0}
+            return {'total_gb': 0, 'available_gb': 0, 'used_gb': 0, 'percent': 0, 'is_container': False}
     
     def check_memory_usage(self) -> Dict[str, Any]:
         """Check current memory usage and return status."""
@@ -84,7 +101,8 @@ class MemoryMonitor:
             # Ensure we don't go below minimum
             optimal_workers = max(min_workers, optimal_workers)
             
-            logger.info(f"Memory-aware worker calculation:")
+            memory_source = "container" if current.get('is_container', False) else "host"
+            logger.info(f"Memory-aware worker calculation ({memory_source}):")
             logger.info(f"  Available memory: {current['available_gb']:.1f}GB")
             logger.info(f"  Memory per worker: {memory_per_worker_gb}GB")
             logger.info(f"  Workers by memory: {workers_by_memory}")
