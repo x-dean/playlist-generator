@@ -17,6 +17,9 @@ from utils.path_converter import PathConverter
 import threading
 from contextlib import contextmanager
 
+# Set up logger first (before any imports that might use it)
+logger = logging.getLogger(__name__)
+
 # Import new robustness utility modules
 try:
     from utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, circuit_breaker
