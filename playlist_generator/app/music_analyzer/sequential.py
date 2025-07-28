@@ -5,12 +5,9 @@ import os
 import time
 import traceback
 from typing import List, Dict, Any, Optional
-from .feature_extractor import AudioAnalyzer
-from utils.path_converter import PathConverter
-import psutil
-import threading
-import gc
-from utils.memory_monitor import MemoryMonitor, log_detailed_memory_info, check_memory_against_limit, check_total_python_rss_limit, get_total_python_rss_gb
+import essentia.standard as es
+import tensorflow as tf
+from music_analyzer.feature_extractor import AudioAnalyzer
 import multiprocessing
 
 logger = logging.getLogger(__name__)
@@ -219,6 +216,8 @@ class LargeFileProcessor:
         result_queue = multiprocessing.Queue()
 
         def analyze_file_worker(audio_path, force_reextract, result_queue):
+            import essentia.standard as es
+            import tensorflow as tf
             from music_analyzer.feature_extractor import AudioAnalyzer
             cache_file = os.getenv('CACHE_FILE', '/app/cache/audio_analysis.db')
             library = os.getenv('HOST_LIBRARY_PATH', '/root/music/library')

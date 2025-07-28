@@ -44,7 +44,6 @@ from playlist_generator.time_based import TimeBasedScheduler
 from music_analyzer.sequential import SequentialProcessor
 from music_analyzer.parallel import ParallelProcessor
 from database.playlist_db import PlaylistDatabase
-from music_analyzer.feature_extractor import AudioAnalyzer
 from utils.path_converter import PathConverter
 from utils.path_utils import convert_to_host_path
 from utils.logging_setup import setup_colored_file_logging, setup_log_level_signal_handler_direct, start_log_level_monitor
