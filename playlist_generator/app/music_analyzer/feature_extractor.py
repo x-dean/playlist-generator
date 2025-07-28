@@ -2015,7 +2015,7 @@ class AudioAnalyzer:
 
         # Extract rhythm features (skip for extremely large files)
         if is_extremely_large_for_processing:
-            logger.info("Skipping rhythm extraction for extremely large file")
+            logger.warning("Skipping rhythm extraction for extremely large file")
             features['bpm'] = -1.0  # Special marker for failed BPM extraction
         else:
             try:
@@ -2051,7 +2051,7 @@ class AudioAnalyzer:
 
         # Extract spectral features (skip for extremely large files)
         if is_extremely_large_for_processing:
-            logger.info("Skipping spectral extraction for extremely large file")
+            logger.warning("Skipping spectral extraction for extremely large file")
             features['centroid'] = 0.0
         else:
             try:
@@ -2067,7 +2067,7 @@ class AudioAnalyzer:
 
         # Extract loudness (skip for extremely large files)
         if is_extremely_large_for_processing:
-            logger.info("Skipping loudness extraction for extremely large file")
+            logger.warning("Skipping loudness extraction for extremely large file")
             features['loudness'] = 0.0
         else:
             try:
@@ -2125,9 +2125,9 @@ class AudioAnalyzer:
         # Extract MFCC (skip for extremely large files or when memory is critical)
         if is_extremely_large or is_too_large_for_mfcc or is_memory_critical:
             if is_memory_critical:
-                logger.info("Skipping MFCC extraction due to critical memory usage")
+                logger.warning("Skipping MFCC extraction due to critical memory usage")
             else:
-                logger.info("Skipping MFCC extraction for extremely large file to avoid memory issues")
+                logger.warning("Skipping MFCC extraction for extremely large file to avoid memory issues")
             features['mfcc'] = [0.0] * 13
         else:
             try:
@@ -2186,9 +2186,9 @@ class AudioAnalyzer:
         else:
             # For extremely large files or when memory is critical, use default values for skipped features
             if is_memory_critical:
-                logger.info("Skipping chroma, spectral contrast, flatness, and rolloff due to critical memory usage")
+                logger.warning("Skipping chroma, spectral contrast, flatness, and rolloff due to critical memory usage")
             else:
-                logger.info("Skipping chroma, spectral contrast, flatness, and rolloff for extremely large file")
+                logger.warning("Skipping chroma, spectral contrast, flatness, and rolloff for extremely large file")
             features['chroma'] = [0.0] * 12
             features['spectral_contrast'] = 0.0
             features['spectral_flatness'] = 0.0
@@ -2260,7 +2260,7 @@ class AudioAnalyzer:
                 else:
                     logger.info("Last.fm: no additional data found")
             else:
-                logger.info(f"Skipping Last.fm enrichment - no artist/title available")
+                logger.warning(f"Skipping Last.fm enrichment - no artist/title available")
 
             features['metadata'] = metadata
             logger.info(
