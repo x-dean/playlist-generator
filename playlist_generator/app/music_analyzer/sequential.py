@@ -16,6 +16,19 @@ from utils.memory_monitor import log_detailed_memory_info, check_memory_against_
 logger = logging.getLogger(__name__)
 
 
+def analyze_file_worker(audio_path, force_reextract, result_queue):
+    """Worker function for analyzing audio files in a separate process."""
+    import essentia.standard as es
+    import tensorflow as tf
+    from music_analyzer.feature_extractor import AudioAnalyzer
+    cache_file = os.getenv('CACHE_FILE', '/app/cache/audio_analysis.db')
+    library = os.getenv('HOST_LIBRARY_PATH', '/root/music/library')
+    music = os.getenv('MUSIC_PATH', '/music')
+    analyzer = AudioAnalyzer(cache_file=cache_file, library=library, music=music)
+    result = analyzer.extract_features(audio_path, force_reextract=force_reextract)
+    result_queue.put(result)
+
+
 class MemoryMonitor:
     """Monitor system memory and trigger cleanup when needed."""
     
@@ -247,7 +260,7 @@ class LargeFileProcessor:
                         memory_high_event.clear()
                         memory_high_start[0] = None
                 time.sleep(1)
-        proc = multiprocessing.Process(target=analyze_file_worker, args=(audio_path, force_reextract, result_queue))
+        proc = multiprocessing.Process(target=globals()['analyze_file_worker'], args=(audio_path, force_reextract, result_queue))
         proc.start()
         monitor_thread = threading.Thread(target=memory_monitor, args=(proc,), daemon=True)
         monitor_thread.start()
