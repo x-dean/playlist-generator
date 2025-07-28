@@ -252,13 +252,14 @@ class LargeFileProcessor:
                         proc.terminate()
                         break
                 else:
+                    # Only warn about system/cgroup memory if RSS is also near the limit
                     if is_over_limit and total_rss_gb > rss_threshold:
                         if not system_mem_warning_logged[0] or (current_time - last_warning_time[0] > warning_interval):
-                            logger.warning(f"System/cgroup memory is high: {status_msg}, and RSS is near limit ({total_rss_gb:.2f}GB/{rss_limit_gb:.2f}GB). Not aborting yet.")
+                            logger.warning(f"RSS near limit ({total_rss_gb:.2f}GB/{rss_limit_gb:.2f}GB) and system memory high: {status_msg}")
                             system_mem_warning_logged[0] = True
                             last_warning_time[0] = current_time
                     elif system_mem_warning_logged[0]:
-                        logger.info("System/cgroup memory/RSS warning cleared.")
+                        logger.info("Memory warning cleared - RSS and system memory back to normal levels.")
                         system_mem_warning_logged[0] = False
                         last_warning_time[0] = 0  # Reset timer when warning clears
                     if memory_high_event.is_set():
