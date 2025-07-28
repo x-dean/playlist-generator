@@ -231,7 +231,7 @@ class LargeFileProcessor:
             logger.info(f"Starting memory monitor for large file: {os.path.basename(audio_path)}")
             system_mem_warning_logged = [False]
             last_warning_time = [0]
-            warning_interval = 30  # Only log warnings every 30 seconds
+            warning_interval = 60  # Only log warnings every 60 seconds
             while proc.is_alive():
                 is_over_limit, status_msg = check_memory_against_limit(user_limit_gb=rss_limit_gb, user_limit_percent=80.0)
                 is_rss_over, rss_msg = check_total_python_rss_limit(rss_limit_gb=rss_limit_gb)
@@ -258,7 +258,7 @@ class LargeFileProcessor:
                             logger.warning(f"RSS near limit ({total_rss_gb:.2f}GB/{rss_limit_gb:.2f}GB) and system memory high: {status_msg}")
                             system_mem_warning_logged[0] = True
                             last_warning_time[0] = current_time
-                    elif system_mem_warning_logged[0]:
+                    elif system_mem_warning_logged[0] and total_rss_gb < (rss_threshold * 0.9):  # Only clear when RSS drops significantly
                         logger.info("Memory warning cleared - RSS and system memory back to normal levels.")
                         system_mem_warning_logged[0] = False
                         last_warning_time[0] = 0  # Reset timer when warning clears
