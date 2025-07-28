@@ -249,6 +249,7 @@ class SequentialProcessor:
 
     def __init__(self, audio_analyzer: AudioAnalyzer = None) -> None:
         self.failed_files: List[str] = []
+        self.skipped_files_due_to_memory: List[str] = []  # Track skipped files
         self.audio_analyzer = audio_analyzer
         self.large_file_processor = LargeFileProcessor()
         self.memory_monitor = MemoryMonitor()
@@ -276,17 +277,24 @@ class SequentialProcessor:
                 logger.debug(
                     f"SEQUENTIAL: Processing file {i+1}/{len(file_list)}: {filepath}")
 
+                # Log file size before processing
+                try:
+                    file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                except Exception as e:
+                    file_size_mb = 0
+                logger.info(f"Preparing to analyze file: {os.path.basename(filepath)} ({file_size_mb:.1f}MB)")
+
                 # Check memory before processing each file
                 usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
+                logger.info(f"Memory before processing: {usage_percent:.1f}% used, {used_gb:.1f}GB used, {available_gb:.1f}GB available")
                 if self.memory_monitor.is_memory_critical():
                     logger.warning(f"Memory usage critical ({usage_percent:.1f}%), forcing cleanup before processing")
                     self.memory_monitor.force_cleanup()
-                    
                     # Check again after cleanup
                     usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
                     if self.memory_monitor.is_memory_critical():
-                        logger.error(f"Memory still critical after cleanup ({usage_percent:.1f}%), skipping file")
-                        self.failed_files.append(filepath)
+                        logger.error(f"Memory still critical after cleanup ({usage_percent:.1f}%), skipping file: {filepath}")
+                        self.skipped_files_due_to_memory.append(filepath)
                         yield None, filepath, False
                         continue
 
@@ -301,13 +309,18 @@ class SequentialProcessor:
 
                 # Check if this is a large file that should be processed separately
                 try:
-                    file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-                    # Get threshold from environment or use default
                     threshold_mb = int(os.getenv('LARGE_FILE_THRESHOLD', '50'))
                     is_large_file = file_size_mb > threshold_mb
                 except:
                     is_large_file = False
-                
+
+                # Additional memory check for large files
+                if is_large_file and (available_gb < 2.0 or usage_percent > 85):
+                    logger.warning(f"Skipping large file due to low memory: {os.path.basename(filepath)} ({file_size_mb:.1f}MB), available: {available_gb:.1f}GB, usage: {usage_percent:.1f}%")
+                    self.skipped_files_due_to_memory.append(filepath)
+                    yield None, filepath, False
+                    continue
+
                 if is_large_file:
                     logger.info(f"Large file detected ({file_size_mb:.1f}MB), using separate process: {os.path.basename(filepath)}")
                     features, db_write_success, file_hash = self.large_file_processor.process_large_file(
@@ -320,13 +333,15 @@ class SequentialProcessor:
                         analyzer = self.audio_analyzer
                     else:
                         analyzer = AudioAnalyzer()
-                    
                     # Log that we're starting the extraction
                     logger.info(f"SEQUENTIAL: Starting feature extraction for {os.path.basename(filepath)}")
-                    
                     features, db_write_success, file_hash = analyzer.extract_features(
                         filepath, force_reextract=force_reextract)
-                
+
+                # Log memory after processing
+                usage_percent_after, used_gb_after, available_gb_after = self.memory_monitor.get_memory_usage()
+                logger.info(f"Memory after processing: {usage_percent_after:.1f}% used, {used_gb_after:.1f}GB used, {available_gb_after:.1f}GB available")
+
                 logger.debug(
                     f"SEQUENTIAL: extract_features result - features: {features is not None}, db_write: {db_write_success}")
 
@@ -349,3 +364,9 @@ class SequentialProcessor:
             
             # Force cleanup after each file to prevent memory buildup
             gc.collect()
+
+        # At the end, log a summary of skipped files due to memory
+        if self.skipped_files_due_to_memory:
+            logger.warning(f"Summary: {len(self.skipped_files_due_to_memory)} files were skipped due to low memory:")
+            for skipped in self.skipped_files_due_to_memory:
+                logger.warning(f"  Skipped: {skipped}")
