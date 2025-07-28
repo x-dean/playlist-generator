@@ -576,8 +576,10 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     status_dot = _get_status_dot(result[0], result[2]) # result[0] is features, result[1] is filepath, result[2] is db_write_success
 
                     # Update progress bar with the file that was just processed
+                    logger.debug(f"PROGRESS: About to update progress bar for {filename}")
                     _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
                                          "[cyan]", "", status_dot, result[1], True, file_sizes)
+                    logger.debug(f"PROGRESS: Progress bar updated for {filename}")
 
                     logger.debug(
                         f"Processed {processed_count}/{len(files_to_analyze)}: {filename} ({status_dot})")
@@ -587,11 +589,22 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                         logger.warning(f"Analysis failed for {result[1]}")
                     else:
                         logger.info(f"Analysis completed for {result[1]}")
+                        logger.debug(f"PROGRESS: About to process next file in batch")
+                
+                # Log memory status after each file
+                try:
+                    from utils.memory_monitor import MemoryMonitor
+                    memory_monitor = MemoryMonitor()
+                    memory_monitor.log_memory_status(f"after {filename}")
+                except Exception as e:
+                    logger.debug(f"Could not log memory status: {e}")
                 
                 # Clear parallel processing flag
                 try:
                     clear_parallel_processing_active()
+                    logger.debug("Parallel processing flag cleared")
                 except NameError:
+                    logger.debug("clear_parallel_processing_active not available")
                     pass
             else:
                 logger.info(
