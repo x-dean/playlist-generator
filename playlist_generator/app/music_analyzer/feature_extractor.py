@@ -3290,7 +3290,9 @@ class AudioAnalyzer:
         """Update file discovery state in database - only changed files."""
         logger.debug(
             f"DISCOVERY: Starting file discovery state update for {len(file_paths)} files")
-        try:
+        
+        def _update_discovery_operation():
+            """Inner function for database operation with error handling."""
             with self.db_pool.get_connection() as conn:
                 # Get existing files from database
                 cursor = conn.execute("""
@@ -3365,26 +3367,55 @@ class AudioAnalyzer:
                         removed_count += 1
                         logger.debug(f"DISCOVERY: Removed {existing_file}")
 
-            logger.info(
-                f"DISCOVERY: File discovery state updated - Added: {added_count}, Updated: {updated_count}, Unchanged: {unchanged_count}, Removed: {removed_count}")
+                logger.info(
+                    f"DISCOVERY: File discovery state updated - Added: {added_count}, Updated: {updated_count}, Unchanged: {unchanged_count}, Removed: {removed_count}")
 
-            # Verify the update worked
-            with self.db_pool.get_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT COUNT(*) FROM file_discovery_state WHERE status = 'active'")
-                active_count = cursor.fetchone()[0]
-                logger.debug(
-                    f"DISCOVERY: Active files in discovery state: {active_count}")
+                # Verify the update worked
+                with self.db_pool.get_connection() as conn:
+                    cursor = conn.execute(
+                        "SELECT COUNT(*) FROM file_discovery_state WHERE status = 'active'")
+                    active_count = cursor.fetchone()[0]
+                    logger.debug(
+                        f"DISCOVERY: Active files in discovery state: {active_count}")
 
+        # Use robust error handling with circuit breaker and retry logic
+        try:
+            if ROBUSTNESS_UTILITIES_AVAILABLE:
+                # Use circuit breaker for database operations
+                result = self.circuit_breakers['database_operations'].call(_update_discovery_operation)
+                
+                # Classify any errors that occurred
+                if hasattr(self, 'error_classifier'):
+                    error_info = self.error_classifier.classify_error(Exception("Database operation completed"), "file_discovery_update")
+                    if error_info and error_info.severity == ErrorSeverity.HIGH:
+                        logger.warning(f"DISCOVERY: High severity error detected: {error_info.error_type}")
+            else:
+                # Fallback without robustness features
+                _update_discovery_operation()
+                
+        except CircuitBreakerOpenError:
+            logger.error("DISCOVERY: Circuit breaker open for database operations, skipping file discovery update")
         except Exception as e:
-            logger.error(
-                f"DISCOVERY: Error updating file discovery state: {e}")
-            import traceback
-            logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
+            logger.error(f"DISCOVERY: Error updating file discovery state: {e}")
+            if ROBUSTNESS_UTILITIES_AVAILABLE and hasattr(self, 'retry_manager'):
+                # Try to retry with exponential backoff
+                retry_result = self.retry_manager.exponential_backoff(
+                    _update_discovery_operation, 
+                    max_attempts=3, 
+                    timeout=30
+                )
+                if not retry_result.success:
+                    logger.error("DISCOVERY: File discovery update failed after retries")
+            else:
+                # Fallback error handling
+                import traceback
+                logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
 
     def get_file_discovery_changes(self) -> Tuple[List[str], List[str], List[str]]:
         """Get added, removed, and unchanged files from database."""
-        try:
+        
+        def _get_discovery_changes_operation():
+            """Inner function for getting discovery changes with error handling."""
             with self.db_pool.get_connection() as conn:
                 cursor = conn.execute("""
                     SELECT file_path, status 
@@ -3416,14 +3447,51 @@ class AudioAnalyzer:
                 f"DISCOVERY: File discovery changes: Added={len(added_files)}, Removed={len(removed_files)}, Unchanged={len(unchanged_files)}")
             return added_files, removed_files, unchanged_files
 
-        except Exception as e:
-            logger.error(
-                f"DISCOVERY: Error getting file discovery changes: {e}")
+        # Use robust error handling with circuit breaker and retry logic
+        try:
+            if ROBUSTNESS_UTILITIES_AVAILABLE:
+                # Use circuit breaker for database operations
+                result = self.circuit_breakers['database_operations'].call(_get_discovery_changes_operation)
+                
+                # Classify any errors that occurred
+                if hasattr(self, 'error_classifier'):
+                    error_info = self.error_classifier.classify_error(Exception("Database operation completed"), "file_discovery_changes")
+                    if error_info and error_info.severity == ErrorSeverity.HIGH:
+                        logger.warning(f"DISCOVERY: High severity error detected: {error_info.error_type}")
+                
+                return result
+            else:
+                # Fallback without robustness features
+                return _get_discovery_changes_operation()
+                
+        except CircuitBreakerOpenError:
+            logger.error("DISCOVERY: Circuit breaker open for database operations, skipping file discovery changes lookup")
             return [], [], []
+        except Exception as e:
+            logger.error(f"DISCOVERY: Error getting file discovery changes: {e}")
+            if ROBUSTNESS_UTILITIES_AVAILABLE and hasattr(self, 'retry_manager'):
+                # Try to retry with exponential backoff
+                retry_result = self.retry_manager.exponential_backoff(
+                    _get_discovery_changes_operation, 
+                    max_attempts=3, 
+                    timeout=30
+                )
+                if retry_result.success:
+                    return retry_result.result
+                else:
+                    logger.error("DISCOVERY: File discovery changes lookup failed after retries")
+                    return [], [], []
+            else:
+                # Fallback error handling
+                import traceback
+                logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
+                return [], [], []
 
     def cleanup_file_discovery_state(self):
         """Remove entries for files that no longer exist."""
-        try:
+        
+        def _cleanup_discovery_operation():
+            """Inner function for cleanup operation with error handling."""
             with self.db_pool.get_connection() as conn:
                 cursor = conn.execute(
                     "SELECT file_path FROM file_discovery_state")
@@ -3436,21 +3504,52 @@ class AudioAnalyzer:
                             "DELETE FROM file_discovery_state WHERE file_path = ?", (file_path,))
                         removed_count += 1
 
-            if removed_count > 0:
-                logger.info(
-                    f"DISCOVERY: Cleaned up {removed_count} non-existent files from discovery state")
+                if removed_count > 0:
+                    logger.info(
+                        f"DISCOVERY: Cleaned up {removed_count} non-existent files from discovery state")
 
+        # Use robust error handling with circuit breaker and retry logic
+        try:
+            if ROBUSTNESS_UTILITIES_AVAILABLE:
+                # Use circuit breaker for database operations
+                result = self.circuit_breakers['database_operations'].call(_cleanup_discovery_operation)
+                
+                # Classify any errors that occurred
+                if hasattr(self, 'error_classifier'):
+                    error_info = self.error_classifier.classify_error(Exception("Database operation completed"), "file_discovery_cleanup")
+                    if error_info and error_info.severity == ErrorSeverity.HIGH:
+                        logger.warning(f"DISCOVERY: High severity error detected: {error_info.error_type}")
+            else:
+                # Fallback without robustness features
+                _cleanup_discovery_operation()
+                
+        except CircuitBreakerOpenError:
+            logger.error("DISCOVERY: Circuit breaker open for database operations, skipping file discovery cleanup")
         except Exception as e:
-            logger.error(
-                f"DISCOVERY: Error cleaning up file discovery state: {e}")
+            logger.error(f"DISCOVERY: Error cleaning up file discovery state: {e}")
+            if ROBUSTNESS_UTILITIES_AVAILABLE and hasattr(self, 'retry_manager'):
+                # Try to retry with exponential backoff
+                retry_result = self.retry_manager.exponential_backoff(
+                    _cleanup_discovery_operation, 
+                    max_attempts=3, 
+                    timeout=30
+                )
+                if not retry_result.success:
+                    logger.error("DISCOVERY: File discovery cleanup failed after retries")
+            else:
+                # Fallback error handling
+                import traceback
+                logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
 
     def get_file_sizes_from_db(self, file_paths: List[str]) -> Dict[str, int]:
         """Get file sizes from database for the given file paths."""
         logger.debug(
             f"DISCOVERY: Requesting file sizes for {len(file_paths)} files from database")
-        try:
-            # First check if there's any data in the table
+        
+        def _get_file_sizes_operation():
+            """Inner function for getting file sizes with error handling."""
             with self.db_pool.get_connection() as conn:
+                # First check if there's any data in the table
                 cursor = conn.execute(
                     "SELECT COUNT(*) FROM file_discovery_state")
                 total_count = cursor.fetchone()[0]
@@ -3477,12 +3576,45 @@ class AudioAnalyzer:
                     f"DISCOVERY: Retrieved file sizes for {len(file_sizes)} files from database")
                 return file_sizes
 
-        except Exception as e:
-            logger.error(
-                f"DISCOVERY: Error getting file sizes from database: {e}")
-            import traceback
-            logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
+        # Use robust error handling with circuit breaker and retry logic
+        try:
+            if ROBUSTNESS_UTILITIES_AVAILABLE:
+                # Use circuit breaker for database operations
+                result = self.circuit_breakers['database_operations'].call(_get_file_sizes_operation)
+                
+                # Classify any errors that occurred
+                if hasattr(self, 'error_classifier'):
+                    error_info = self.error_classifier.classify_error(Exception("Database operation completed"), "file_sizes_lookup")
+                    if error_info and error_info.severity == ErrorSeverity.HIGH:
+                        logger.warning(f"DISCOVERY: High severity error detected: {error_info.error_type}")
+                
+                return result
+            else:
+                # Fallback without robustness features
+                return _get_file_sizes_operation()
+                
+        except CircuitBreakerOpenError:
+            logger.error("DISCOVERY: Circuit breaker open for database operations, skipping file sizes lookup")
             return {}
+        except Exception as e:
+            logger.error(f"DISCOVERY: Error getting file sizes from database: {e}")
+            if ROBUSTNESS_UTILITIES_AVAILABLE and hasattr(self, 'retry_manager'):
+                # Try to retry with exponential backoff
+                retry_result = self.retry_manager.exponential_backoff(
+                    _get_file_sizes_operation, 
+                    max_attempts=3, 
+                    timeout=30
+                )
+                if retry_result.success:
+                    return retry_result.result
+                else:
+                    logger.error("DISCOVERY: File sizes lookup failed after retries")
+                    return {}
+            else:
+                # Fallback error handling
+                import traceback
+                logger.error(f"DISCOVERY: Traceback: {traceback.format_exc()}")
+                return {}
     
     def cleanup(self):
         """Clean up resources, including database connection pool."""
