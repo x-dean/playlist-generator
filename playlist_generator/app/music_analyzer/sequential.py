@@ -402,23 +402,31 @@ class SequentialProcessor:
 
                 if features and db_write_success:
                     logger.debug(f"SEQUENTIAL: Success for {filepath}")
+                    logger.debug(f"SEQUENTIAL: About to yield success result for {filepath}")
                     yield features, filepath, db_write_success
+                    logger.debug(f"SEQUENTIAL: Successfully yielded result for {filepath}")
                 else:
                     logger.warning(
                         f"SEQUENTIAL: Failed for {filepath} - features: {features is not None}, db_write: {db_write_success}")
                     self.failed_files.append(filepath)
+                    logger.debug(f"SEQUENTIAL: About to yield failure result for {filepath}")
                     yield None, filepath, False
+                    logger.debug(f"SEQUENTIAL: Successfully yielded failure result for {filepath}")
 
             except Exception as e:
                 self.failed_files.append(filepath)
                 logger.error(f"Error processing {filepath}: {str(e)}")
+                logger.debug(f"SEQUENTIAL: About to yield exception result for {filepath}")
                 yield None, filepath, False
+                logger.debug(f"SEQUENTIAL: Successfully yielded exception result for {filepath}")
             
             # Note: Interrupt checking is handled in the main analysis loop
             # This allows the current file to complete but stops the next one
             
             # Force cleanup after each file to prevent memory buildup
+            logger.debug(f"SEQUENTIAL: Running garbage collection after {filepath}")
             gc.collect()
+            logger.debug(f"SEQUENTIAL: Garbage collection completed for {filepath}")
 
         # At the end, log a summary of skipped files due to memory
         if self.skipped_files_due_to_memory:

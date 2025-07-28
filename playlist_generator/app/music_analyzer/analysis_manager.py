@@ -34,7 +34,10 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
                          mode_color="[cyan]", mode_text="Processing", status_dot="",
                          current_filepath=None, is_parallel=True, file_sizes=None):
     """Update progress bar with current file info and next file preview."""
+    logger.debug(f"PROGRESS: Updating progress bar - current_index={current_index}, total_count={total_count}")
+    
     if current_index >= len(files_list):
+        logger.debug(f"PROGRESS: current_index {current_index} >= len(files_list) {len(files_list)}, returning")
         return
 
     # Use the actual filepath being processed if provided, otherwise fall back to list lookup
@@ -78,6 +81,8 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
     # Calculate percentage
     percentage = (current_index / total_count * 100) if total_count > 0 else 0
 
+    logger.debug(f"PROGRESS: Updating progress bar for {display_name} - {processing_mode} mode, {percentage:.1f}%")
+
     # Update progress bar
     if current_index < len(files_list) - 1:
         # Show next file being processed
@@ -95,6 +100,8 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
             description=f"{mode_color}Completed: {display_name} ({file_size_info}) ({current_index}/{total_count}) {status_dot}",
             trackinfo=f"{percentage:.1f}%"
         )
+    
+    logger.debug(f"PROGRESS: Progress bar update completed")
 
 
 def _get_status_dot(features, db_write_success):
@@ -474,8 +481,10 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 status_dot = _get_status_dot(features, db_write_success)
 
                 # Update progress bar with the file that was just processed
+                logger.debug(f"PROGRESS: About to update progress bar for completed file {filename}")
                 _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
                                      "[cyan]", "", status_dot, filepath, True, file_sizes)
+                logger.debug(f"PROGRESS: Progress bar updated for {filename}")
                 
                 # Log completion with timing info
                 logger.info(f"SEQUENTIAL: Completed processing {filename} ({file_processing_time:.1f}s)")
@@ -500,12 +509,16 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     logger.info(f"Analysis completed for {filepath}")
                 
                 # Start timing the next file
+                logger.debug(f"PROGRESS: Checking if there's a next file to process")
                 if processed_count < len(files_to_analyze) and isinstance(file_start_times, dict):
                     next_file = files_to_analyze[processed_count]
                     next_filepath = next_file[0] if isinstance(next_file, tuple) else next_file
                     file_start_times[next_filepath] = time.time()
                     next_filename = os.path.basename(next_filepath)
                     logger.info(f"SEQUENTIAL: Starting processing {next_filename}")
+                    logger.debug(f"PROGRESS: Next file timing started for {next_filename}")
+                else:
+                    logger.debug(f"PROGRESS: No next file to process - processed_count={processed_count}, total_files={len(files_to_analyze)}")
 
         # Step 2: Process normal files (parallel or sequential based on workers)
         if normal_files:
