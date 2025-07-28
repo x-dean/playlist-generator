@@ -11,7 +11,7 @@ from music_analyzer.feature_extractor import AudioAnalyzer
 import multiprocessing
 import threading
 import gc
-from utils.memory_monitor import log_detailed_memory_info
+from utils.memory_monitor import log_detailed_memory_info, check_memory_against_limit
 
 logger = logging.getLogger(__name__)
 
