@@ -563,11 +563,19 @@ def run_force_mode(args, audio_db, cli):
     total_files = len(audio_db.get_all_audio_files())
     total_in_db = len(audio_db.get_all_tracks())
     files_to_retry = len(invalid_files)
+    
+    # Get breakdown of invalid files
+    failed_files = audio_db.get_failed_files_from_db()
+    skipped_musicnn_files = audio_db.get_files_with_skipped_musicnn()
+    failed_count = len(failed_files)
+    skipped_musicnn_count = len(skipped_musicnn_files)
 
     print(f"\n📊 Force Mode Statistics:")
     print(f"   📁 Total music files: {total_files:,}")
     print(f"   💾 Tracks in database: {total_in_db:,}")
     print(f"   🔄 Files to retry: {files_to_retry:,}")
+    print(f"   ❌ Failed files: {failed_count:,}")
+    print(f"   ⏭️  MusicNN skipped: {skipped_musicnn_count:,}")
     print(
         f"   📈 Database health: {total_in_db}/{total_files} ({total_in_db/total_files*100:.1f}% valid)")
     print()  # Add spacing before progress bar
@@ -607,13 +615,27 @@ def run_force_mode(args, audio_db, cli):
 
             if success:
                 logger.info(f"Retry successful for {file_path}")
+                # Unmark both failed and MusicNN skipped status
                 audio_db.unmark_as_failed(file_path)
+                audio_db.unmark_musicnn_skipped(file_path)
             else:
-                logger.error(
-                    f"Retry failed for {file_path} - marking as failed")
-                file_info = audio_db._get_file_info(file_path)
-                audio_db._mark_failed(file_info)
-                failed_files.append(file_path)
+                # Check if this was originally a failed file or just MusicNN skipped
+                # Only mark as failed if it was originally a failed file
+                cursor = audio_db.conn.cursor()
+                cursor.execute("SELECT failed FROM audio_features WHERE file_path = ?", (file_path,))
+                result = cursor.fetchone()
+                was_failed = result and result[0] == 1 if result else False
+                
+                if was_failed:
+                    logger.error(
+                        f"Retry failed for {file_path} - marking as failed")
+                    file_info = audio_db._get_file_info(file_path)
+                    audio_db._mark_failed(file_info)
+                    failed_files.append(file_path)
+                else:
+                    logger.warning(
+                        f"Retry failed for {file_path} but was only MusicNN skipped - keeping as skipped")
+                    # Don't mark as failed, just leave it as MusicNN skipped
 
             logger.debug(f"Retry result for {filename}: {status_dot}")
 

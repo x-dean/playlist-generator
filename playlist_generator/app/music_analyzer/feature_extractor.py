@@ -371,11 +371,11 @@ class AudioAnalyzer:
 
             if not os.path.exists(model_path):
                 logger.warning(f"MusiCNN model not found at {model_path}")
-                return None
+                return {'skipped': True, 'reason': 'model_missing'}
             if not os.path.exists(json_path):
                 logger.warning(
                     f"MusiCNN JSON metadata not found at {json_path}")
-                return None
+                return {'skipped': True, 'reason': 'json_missing'}
 
             logger.info("Loading MusiCNN tag names from JSON metadata")
             # Load tag names from JSON
@@ -476,6 +476,7 @@ class AudioAnalyzer:
                 spectral_rolloff REAL,
                 musicnn_embedding JSON,
                 musicnn_tags JSON,
+                musicnn_skipped INTEGER DEFAULT 0,
                 last_modified REAL,
                 last_analyzed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 metadata JSON,
@@ -1916,7 +1917,7 @@ class AudioAnalyzer:
         cursor.execute("""
         SELECT duration, bpm, beat_confidence, centroid,
                loudness, danceability, key, scale, onset_rate, zcr,
-               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, musicnn_tags, metadata
+               mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, musicnn_tags, musicnn_skipped, metadata
         FROM audio_features
         WHERE file_hash = ? AND last_modified >= ?
         """, (file_info['file_hash'], file_info['last_modified']))
@@ -1942,7 +1943,8 @@ class AudioAnalyzer:
                 'spectral_rolloff': row[14],
                 'musicnn_embedding': json.loads(row[15]) if row[15] else None,
                 'musicnn_tags': json.loads(row[16]) if row[16] else {},
-                'metadata': json.loads(row[17]) if row[17] else {},
+                'musicnn_skipped': row[17],
+                'metadata': json.loads(row[18]) if row[18] else {},
                 'filepath': file_info['file_path'],
                 'filename': os.path.basename(file_info['file_path'])
             }
@@ -2197,19 +2199,26 @@ class AudioAnalyzer:
         # Extract MusiCNN embedding (if available)
         try:
             musicnn_result = self._extract_musicnn_embedding(audio_path)
-            if musicnn_result:
+            if musicnn_result and not musicnn_result.get('skipped'):
                 features['musicnn_embedding'] = musicnn_result['embedding']
                 features['musicnn_tags'] = musicnn_result['tags']
+                features['musicnn_skipped'] = 0
                 logger.info(
                     f"MusiCNN: {len(features['musicnn_embedding'])} dimensions, {len(features['musicnn_tags'])} tags")
             else:
-                logger.info("MusiCNN: not available (models missing)")
+                if musicnn_result and musicnn_result.get('skipped'):
+                    logger.info(f"MusiCNN: skipped ({musicnn_result.get('reason', 'unknown')})")
+                    features['musicnn_skipped'] = 1
+                else:
+                    logger.info("MusiCNN: not available (models missing)")
+                    features['musicnn_skipped'] = 1
                 features['musicnn_embedding'] = []
                 features['musicnn_tags'] = {}
         except Exception as e:
             logger.warning(f"MusiCNN extraction failed: {str(e)}")
             features['musicnn_embedding'] = []
             features['musicnn_tags'] = {}
+            features['musicnn_skipped'] = 1
 
         # Metadata enrichment
         logger.info("Enriching metadata...")
@@ -2329,6 +2338,7 @@ class AudioAnalyzer:
                 safe_json_dumps(features.get('musicnn_embedding')),
                 # Added musicnn_tags
                 safe_json_dumps(features.get('musicnn_tags', {})),
+                features.get('musicnn_skipped', 0),
                 file_info['last_modified'],
                 safe_json_dumps(features.get('metadata', {})),
                 failed
@@ -2344,9 +2354,9 @@ class AudioAnalyzer:
                     """
                     INSERT OR REPLACE INTO audio_features (
                         file_hash, file_path, duration, bpm, beat_confidence, centroid, loudness, danceability, key, scale, key_strength, onset_rate, zcr,
-                        mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, musicnn_tags,
+                        mfcc, chroma, spectral_contrast, spectral_flatness, spectral_rolloff, musicnn_embedding, musicnn_tags, musicnn_skipped,
                         last_modified, metadata, failed
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     values_tuple
                 )
@@ -2827,6 +2837,102 @@ class AudioAnalyzer:
         logger.info(f"Found {len(failed_files)} failed files to retry")
         return failed_files
 
+    def get_files_with_skipped_musicnn(self):
+        """Get all files that had MusicNN extraction skipped."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT file_path, file_hash, last_modified, metadata
+                FROM audio_features
+                WHERE musicnn_skipped = 1 AND failed = 0
+            """)
+            return [{
+                'file_path': row[0],
+                'file_hash': row[1],
+                'last_modified': row[2],
+                'metadata': json.loads(row[3]) if row[3] else {}
+            } for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error getting files with skipped MusicNN from DB: {str(e)}")
+            return []
+
+    def get_invalid_files_from_db(self):
+        """Get all files that need to be reanalyzed (failed files + files with skipped MusicNN)."""
+        try:
+            # Get failed files
+            failed_files = self.get_failed_files_from_db()
+            
+            # Get files with skipped MusicNN
+            skipped_musicnn_files = self.get_files_with_skipped_musicnn()
+            
+            # Combine and deduplicate
+            all_invalid_files = set()
+            
+            # Add failed files
+            for file_path in failed_files:
+                all_invalid_files.add(file_path)
+            
+            # Add files with skipped MusicNN
+            for file_info in skipped_musicnn_files:
+                all_invalid_files.add(file_info['file_path'])
+            
+            logger.info(f"Found {len(failed_files)} failed files and {len(skipped_musicnn_files)} files with skipped MusicNN")
+            logger.info(f"Total invalid files to reanalyze: {len(all_invalid_files)}")
+            
+            # Check if MusicNN models are available for reanalysis
+            musicnn_available = self._check_musicnn_availability()
+            if skipped_musicnn_files and not musicnn_available:
+                logger.warning("MusicNN models are not available - files with skipped MusicNN will remain skipped")
+            
+            return list(all_invalid_files)
+        except Exception as e:
+            logger.error(f"Error getting invalid files from DB: {str(e)}")
+            return []
+
+    def get_only_failed_files_from_db(self):
+        """Get only files that are marked as failed (excluding MusicNN skipped files)."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT file_path, file_hash, last_modified, metadata
+                FROM audio_features
+                WHERE failed = 1
+            """)
+            return [{
+                'file_path': row[0],
+                'file_hash': row[1],
+                'last_modified': row[2],
+                'metadata': json.loads(row[3]) if row[3] else {}
+            } for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error getting only failed files from DB: {str(e)}")
+            return []
+
+    def _check_musicnn_availability(self):
+        """Check if MusicNN models are available."""
+        try:
+            model_path = os.getenv(
+                'MUSICNN_MODEL_PATH',
+                '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb'
+            )
+            json_path = os.getenv(
+                'MUSICNN_JSON_PATH',
+                '/app/feature_extraction/models/musicnn/msd-musicnn-1.json'
+            )
+            
+            model_exists = os.path.exists(model_path)
+            json_exists = os.path.exists(json_path)
+            
+            if model_exists and json_exists:
+                logger.debug("MusicNN models are available")
+                return True
+            else:
+                logger.debug(f"MusicNN models missing - model: {model_exists}, json: {json_exists}")
+                return False
+        except Exception as e:
+            logger.debug(f"Error checking MusicNN availability: {str(e)}")
+            return False
+
     def unmark_as_failed(self, file_path):
         """Remove failed status from a file"""
         try:
@@ -2840,6 +2946,21 @@ class AudioAnalyzer:
             return True
         except Exception as e:
             logger.error(f"Error unmarking {file_path} as failed: {e}")
+            return False
+
+    def unmark_musicnn_skipped(self, file_path):
+        """Remove MusicNN skipped status from a file"""
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    UPDATE audio_features 
+                    SET musicnn_skipped = 0, last_analyzed = CURRENT_TIMESTAMP 
+                    WHERE file_path = ?
+                """, (file_path,))
+            logger.info(f"Unmarked {file_path} as MusicNN skipped")
+            return True
+        except Exception as e:
+            logger.error(f"Error unmarking {file_path} as MusicNN skipped: {e}")
             return False
 
     def move_to_failed_directory(self, file_path):
