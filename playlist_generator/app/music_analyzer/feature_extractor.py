@@ -350,7 +350,7 @@ class AudioAnalyzer:
 
     def _extract_musicnn_embedding(self, audio_path):
         """Extract MusiCNN embedding and auto-tags using Essentia's TensorflowPredictMusiCNN and MonoLoader, matching the official tutorial."""
-        logger.debug(
+        logger.info(
             f"Starting MusiCNN embedding extraction for {os.path.basename(audio_path)}")
         try:
             import essentia.standard as es
@@ -366,8 +366,8 @@ class AudioAnalyzer:
                 '/app/feature_extraction/models/musicnn/msd-musicnn-1.json'
             )
 
-            logger.debug(f"MusiCNN model path: {model_path}")
-            logger.debug(f"MusiCNN JSON metadata path: {json_path}")
+            logger.info(f"MusiCNN model path: {model_path}")
+            logger.info(f"MusiCNN JSON metadata path: {json_path}")
 
             if not os.path.exists(model_path):
                 logger.warning(f"MusiCNN model not found at {model_path}")
@@ -377,60 +377,60 @@ class AudioAnalyzer:
                     f"MusiCNN JSON metadata not found at {json_path}")
                 return None
 
-            logger.debug("Loading MusiCNN tag names from JSON metadata")
+            logger.info("Loading MusiCNN tag names from JSON metadata")
             # Load tag names from JSON
             with open(json_path, 'r') as json_file:
                 metadata = json.load(json_file)
             tag_names = metadata.get('classes', [])
-            logger.debug(
+            logger.info(
                 f"Loaded {len(tag_names)} tag names from MusiCNN metadata")
 
             # Get output layer for embeddings
             output_layer = 'model/dense_1/BiasAdd'
-            logger.debug(f"Default MusiCNN output layer: {output_layer}")
+            logger.info(f"Default MusiCNN output layer: {output_layer}")
             if 'schema' in metadata and 'outputs' in metadata['schema']:
-                logger.debug("Searching for embeddings output layer in schema")
+                logger.info("Searching for embeddings output layer in schema")
                 for output in metadata['schema']['outputs']:
                     if 'description' in output and output['description'] == 'embeddings':
                         output_layer = output['name']
-                        logger.debug(
+                        logger.info(
                             f"Found embeddings output layer: {output_layer}")
                         break
 
-            logger.debug("Loading audio using Essentia MonoLoader at 16kHz")
+            logger.info("Loading audio using Essentia MonoLoader at 16kHz")
             # Load audio using MonoLoader at 16kHz (tutorial pattern)
             audio = es.MonoLoader(filename=audio_path, sampleRate=16000)()
-            logger.debug(
+            logger.info(
                 f"Loaded audio: {len(audio)} samples at 16kHz ({len(audio)/16000:.2f}s)")
 
-            logger.debug("Initializing MusiCNN for activations (auto-tagging)")
+            logger.info("Initializing MusiCNN for activations (auto-tagging)")
             # Run MusiCNN for activations (auto-tagging)
             musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
-            logger.debug("Running MusiCNN activations analysis")
+            logger.info("Running MusiCNN activations analysis")
             activations = musicnn(audio)  # shape: [time, tags]
-            logger.debug(f"MusiCNN activations shape: {activations.shape}")
+            logger.info(f"MusiCNN activations shape: {activations.shape}")
 
             tag_probs = activations.mean(axis=0)
-            logger.debug(
+            logger.info(
                 f"Calculated tag probabilities: {len(tag_probs)} tags")
             # Convert NumPy types to Python native types for JSON serialization
             tags = dict(zip(tag_names, [float(prob) for prob in tag_probs]))
-            logger.debug(
+            logger.info(
                 f"Top 5 predicted tags: {sorted(tags.items(), key=lambda x: x[1], reverse=True)[:5]}")
 
-            logger.debug(
+            logger.info(
                 f"Initializing MusiCNN for embeddings using output layer: {output_layer}")
             # Run MusiCNN for embeddings (using correct output layer)
             musicnn_emb = es.TensorflowPredictMusiCNN(
                 graphFilename=model_path, output=output_layer)
-            logger.debug("Running MusiCNN embeddings analysis")
+            logger.info("Running MusiCNN embeddings analysis")
             embeddings = musicnn_emb(audio)
-            logger.debug(f"MusiCNN embeddings shape: {embeddings.shape}")
+            logger.info(f"MusiCNN embeddings shape: {embeddings.shape}")
 
             embedding = np.mean(embeddings, axis=0)
-            logger.debug(
+            logger.info(
                 f"Calculated mean embedding: {len(embedding)} dimensions")
-            logger.debug(
+            logger.info(
                 f"Embedding statistics: min={embedding.min():.3f}, max={embedding.max():.3f}, mean={embedding.mean():.3f}")
 
             result = {
@@ -438,7 +438,7 @@ class AudioAnalyzer:
                 'tags': tags
             }
             logger.info("Successfully extracted MusiCNN embedding and tags")
-            logger.debug(
+            logger.info(
                 f"MusiCNN extraction completed: {len(tags)} tags, {len(embedding)} embedding dimensions")
             return result
         except Exception as e:
