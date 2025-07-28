@@ -102,18 +102,18 @@ class MemoryMonitor:
             
             logger.info(f"🔄 [MemoryMonitor] get_optimal_worker_count called: max_workers={max_workers}, available_gb={current['available_gb']:.2f}, current_rss_gb={total_rss_gb:.2f}")
             
-            # Use CLI memory limit if provided, otherwise default to 2GB
+            # Use CLI memory limit if provided, otherwise default to 1GB (reduced from 2GB)
             if memory_limit_str:
                 memory_per_worker_gb = parse_memory_limit(memory_limit_str)
                 if memory_per_worker_gb is None:
-                    memory_per_worker_gb = 2.0
-                    logger.warning(f"Invalid memory limit '{memory_limit_str}', using default 2GB")
+                    memory_per_worker_gb = 1.0  # Reduced from 2.0
+                    logger.warning(f"Invalid memory limit '{memory_limit_str}', using default 1GB")
             else:
-                memory_per_worker_gb = 2.0
+                memory_per_worker_gb = 1.0  # Reduced from 2.0
             
             # Calculate available memory considering current RSS usage
-            # Reserve some memory for the system and other processes
-            reserved_memory_gb = 1.0  # Reserve 1GB for system
+            # Reserve less memory for the system and other processes (reduced from 1.0GB)
+            reserved_memory_gb = 0.5  # Reduced from 1.0
             available_for_workers = current['available_gb'] - total_rss_gb - reserved_memory_gb
             
             # Calculate how many workers we can support
@@ -167,8 +167,8 @@ def parse_memory_limit(memory_str: str) -> Optional[float]:
 
 def get_memory_aware_batch_size(worker_count: int, available_memory_gb: float) -> int:
     """Calculate optimal batch size based on available memory."""
-    # Conservative estimate: each batch item needs ~1GB
-    memory_per_item_gb = 1.0
+    # More aggressive estimate: each batch item needs ~500MB (reduced from 1GB)
+    memory_per_item_gb = 0.5  # Reduced from 1.0
     
     # Calculate how many items we can process in a batch
     items_by_memory = int(available_memory_gb / memory_per_item_gb)
@@ -179,12 +179,12 @@ def get_memory_aware_batch_size(worker_count: int, available_memory_gb: float) -
     # Ensure at least 1 item per batch
     optimal_batch_size = max(1, optimal_batch_size)
     
-    logger.info(f"Memory-aware batch size calculation:")
-    logger.info(f"  Available memory: {available_memory_gb:.1f}GB")
-    logger.info(f"  Memory per item: {memory_per_item_gb}GB")
-    logger.info(f"  Items by memory: {items_by_memory}")
-    logger.info(f"  Worker count: {worker_count}")
-    logger.info(f"  Optimal batch size: {optimal_batch_size}")
+    logger.debug(f"Memory-aware batch size calculation:")
+    logger.debug(f"  Available memory: {available_memory_gb:.1f}GB")
+    logger.debug(f"  Memory per item: {memory_per_item_gb}GB")
+    logger.debug(f"  Items by memory: {items_by_memory}")
+    logger.debug(f"  Worker count: {worker_count}")
+    logger.debug(f"  Optimal batch size: {optimal_batch_size}")
     
     return optimal_batch_size 
 
@@ -401,7 +401,7 @@ def get_total_python_rss_gb():
             continue
     return total_rss / (1024 ** 3)
 
-def check_total_python_rss_limit(rss_limit_gb=6.0):
+def check_total_python_rss_limit(rss_limit_gb=8.0):  # Increased from 6.0
     """Check if total RSS of all Python processes exceeds the given limit (in GB)."""
     total_rss_gb = get_total_python_rss_gb()
     if total_rss_gb > rss_limit_gb:
