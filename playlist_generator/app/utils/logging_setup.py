@@ -68,10 +68,7 @@ def start_log_level_monitor():
             name="LogLevelMonitor"
         )
         log_level_monitor_thread.start()
-        if not _log_level_setup_done:
-            print("📝 Log level monitor started - export LOG_LEVEL inside Docker to change level on the fly")
-            print("   Example: docker exec -it <container> export LOG_LEVEL=DEBUG")
-            _log_level_setup_done = True
+        _log_level_setup_done = True
 
 
 def setup_log_level_signal_handler():
@@ -116,14 +113,7 @@ def setup_log_level_signal_handler_direct():
     signal.signal(signal.SIGUSR2, info_handler)     # INFO  
     signal.signal(signal.SIGTERM, warning_handler)   # WARNING (if not used for shutdown)
     
-    # Only show this once at startup, not on every signal
-    if not _log_level_setup_done:
-        print("📝 Direct log level control:")
-        print("   SIGUSR1 -> DEBUG")
-        print("   SIGUSR2 -> INFO") 
-        print("   SIGTERM -> WARNING")
-        print("   Example: docker compose exec playlista bash -c 'kill -SIGUSR1 1'")
-        _log_level_setup_done = True
+    _log_level_setup_done = True
 
 
 def setup_colored_file_logging(logfile_path=None):
