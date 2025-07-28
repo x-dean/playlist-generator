@@ -408,7 +408,7 @@ def check_total_python_rss_limit(rss_limit_gb=6.0):
         return True, f"Total Python RSS {total_rss_gb:.2f}GB exceeds limit {rss_limit_gb}GB"
     return False, f"Total Python RSS {total_rss_gb:.2f}GB within limit {rss_limit_gb}GB" 
 
-def should_pause_between_batches() -> tuple[bool, str]:
+def should_pause_between_batches() -> tuple:
     """Check if system should pause between batches to prevent halting."""
     try:
         # Get current memory status
