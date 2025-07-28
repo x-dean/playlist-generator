@@ -3351,32 +3351,98 @@ class AudioAnalyzer:
                                 logger.debug(f"DISCOVERY: Added {file_path}")
 
                         except Exception as e:
-                            logger.warning(
-                                f"DISCOVERY: Could not update state for {file_path}: {e}")
+                            # Use robust error handling for individual file operations
+                            if ROBUSTNESS_UTILITIES_AVAILABLE and hasattr(self, 'retry_manager'):
+                                # Try to retry this specific file operation
+                                def retry_file_operation():
+                                    try:
+                                        if file_path in existing_files:
+                                            conn.execute("""
+                                                UPDATE file_discovery_state 
+                                                SET file_hash = ?, file_size = ?, last_modified = ?, last_seen_at = CURRENT_TIMESTAMP
+                                                WHERE file_path = ?
+                                            """, (current_hash, current_size, current_mtime, file_path))
+                                        else:
+                                            conn.execute("""
+                                                INSERT INTO file_discovery_state 
+                                                (file_path, file_hash, file_size, last_modified, last_seen_at, status)
+                                                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, 'active')
+                                            """, (file_path, current_hash, current_size, current_mtime))
+                                        return True
+                                    except Exception as retry_e:
+                                        logger.debug(f"DISCOVERY: Retry failed for {file_path}: {retry_e}")
+                                        return False
+                                
+                                retry_result = self.retry_manager.exponential_backoff(
+                                    retry_file_operation, 
+                                    max_attempts=2, 
+                                    timeout=10
+                                )
+                                if retry_result.success:
+                                    logger.debug(f"DISCOVERY: Successfully retried update for {file_path}")
+                                    if file_path in existing_files:
+                                        updated_count += 1
+                                    else:
+                                        added_count += 1
+                                else:
+                                    logger.warning(f"DISCOVERY: Could not update state for {file_path} after retries: {e}")
+                            else:
+                                logger.warning(f"DISCOVERY: Could not update state for {file_path}: {e}")
 
                 # Mark files that no longer exist as removed
                 current_file_set = set(file_paths)
                 removed_count = 0
                 for existing_file in existing_files:
                     if existing_file not in current_file_set:
-                        conn.execute("""
-                            UPDATE file_discovery_state 
-                            SET status = 'removed', last_seen_at = CURRENT_TIMESTAMP
-                            WHERE file_path = ?
-                        """, (existing_file,))
-                        removed_count += 1
-                        logger.debug(f"DISCOVERY: Removed {existing_file}")
+                        try:
+                            conn.execute("""
+                                UPDATE file_discovery_state 
+                                SET status = 'removed', last_seen_at = CURRENT_TIMESTAMP
+                                WHERE file_path = ?
+                            """, (existing_file,))
+                            removed_count += 1
+                            logger.debug(f"DISCOVERY: Removed {existing_file}")
+                        except Exception as e:
+                            # Use robust error handling for removal operations
+                            if ROBUSTNESS_UTILITIES_AVAILABLE and hasattr(self, 'retry_manager'):
+                                def retry_removal_operation():
+                                    try:
+                                        conn.execute("""
+                                            UPDATE file_discovery_state 
+                                            SET status = 'removed', last_seen_at = CURRENT_TIMESTAMP
+                                            WHERE file_path = ?
+                                        """, (existing_file,))
+                                        return True
+                                    except Exception as retry_e:
+                                        logger.debug(f"DISCOVERY: Retry failed for removal of {existing_file}: {retry_e}")
+                                        return False
+                                
+                                retry_result = self.retry_manager.exponential_backoff(
+                                    retry_removal_operation, 
+                                    max_attempts=2, 
+                                    timeout=10
+                                )
+                                if retry_result.success:
+                                    logger.debug(f"DISCOVERY: Successfully retried removal for {existing_file}")
+                                    removed_count += 1
+                                else:
+                                    logger.warning(f"DISCOVERY: Could not remove {existing_file} after retries: {e}")
+                            else:
+                                logger.warning(f"DISCOVERY: Could not remove {existing_file}: {e}")
 
                 logger.info(
                     f"DISCOVERY: File discovery state updated - Added: {added_count}, Updated: {updated_count}, Unchanged: {unchanged_count}, Removed: {removed_count}")
 
                 # Verify the update worked
-                with self.db_pool.get_connection() as conn:
-                    cursor = conn.execute(
-                        "SELECT COUNT(*) FROM file_discovery_state WHERE status = 'active'")
-                    active_count = cursor.fetchone()[0]
-                    logger.debug(
-                        f"DISCOVERY: Active files in discovery state: {active_count}")
+                try:
+                    with self.db_pool.get_connection() as conn:
+                        cursor = conn.execute(
+                            "SELECT COUNT(*) FROM file_discovery_state WHERE status = 'active'")
+                        active_count = cursor.fetchone()[0]
+                        logger.debug(
+                            f"DISCOVERY: Active files in discovery state: {active_count}")
+                except Exception as e:
+                    logger.debug(f"DISCOVERY: Could not verify update (non-critical): {e}")
 
         # Use robust error handling with circuit breaker and retry logic
         try:
