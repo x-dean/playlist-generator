@@ -10,6 +10,7 @@ from utils.path_converter import PathConverter
 import psutil
 import threading
 import gc
+from utils.memory_monitor import MemoryMonitor, log_detailed_memory_info, check_memory_against_limit
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +208,9 @@ class LargeFileProcessor:
         file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
         logger.info(f"Processing large file ({file_size_mb:.1f}MB) with timeout: {os.path.basename(audio_path)}")
 
+        # Log detailed memory before starting
+        log_detailed_memory_info("BEFORE large file processing")
+
         # Check memory before starting
         usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
         logger.info(f"Memory before processing: {usage_percent:.1f}% ({used_gb:.1f}GB used, {available_gb:.1f}GB available)")
@@ -239,19 +243,24 @@ class LargeFileProcessor:
         def memory_monitor():
             logger.info(f"Starting memory monitor for large file: {os.path.basename(audio_path)}")
             while not abort_event.is_set():
-                usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
-                if usage_percent > 85:
+                # Check against container memory limits (80% of container limit or 6GB absolute)
+                is_over_limit, status_msg = check_memory_against_limit(user_limit_gb=6.0, user_limit_percent=80.0)
+                
+                if is_over_limit:
                     if not memory_high_event.is_set():
                         memory_high_event.set()
                         memory_high_start[0] = time.time()
-                        logger.warning(f"Memory usage over 85% while analyzing {os.path.basename(audio_path)}. Starting 20s timer.")
+                        logger.warning(f"Container memory limit exceeded while analyzing {os.path.basename(audio_path)}: {status_msg}. Starting 20s timer.")
+                        # Log detailed memory when it goes high
+                        log_detailed_memory_info("MEMORY HIGH")
                     elif time.time() - memory_high_start[0] > 20:
-                        logger.error(f"Memory usage over 85% for >20s. Aborting analysis of {os.path.basename(audio_path)}.")
+                        logger.error(f"Container memory limit exceeded for >20s. Aborting analysis of {os.path.basename(audio_path)}: {status_msg}")
+                        log_detailed_memory_info("ABORTING DUE TO MEMORY")
                         abort_event.set()
                         break
                 else:
                     if memory_high_event.is_set():
-                        logger.info(f"Memory usage dropped below 85% during analysis of {os.path.basename(audio_path)}. Resetting timer.")
+                        logger.info(f"Container memory usage dropped below limits during analysis of {os.path.basename(audio_path)}. Resetting timer.")
                         memory_high_event.clear()
                         memory_high_start[0] = None
                 time.sleep(1)
@@ -269,6 +278,10 @@ class LargeFileProcessor:
                 return None, False, None
             if result and result[0] and result[1]:
                 logger.info(f"Large file processing completed: {os.path.basename(audio_path)}")
+            
+            # Log detailed memory after processing
+            log_detailed_memory_info("AFTER large file processing")
+            
             return result
         except Exception as e:
             logger.error(f"Large file processing failed: {os.path.basename(audio_path)} - {str(e)}")

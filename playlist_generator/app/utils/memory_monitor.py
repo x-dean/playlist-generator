@@ -142,3 +142,139 @@ def get_memory_aware_batch_size(worker_count: int, available_memory_gb: float) -
     logger.info(f"  Optimal batch size: {optimal_batch_size}")
     
     return optimal_batch_size 
+
+
+def get_container_memory_info():
+    """Get container memory usage and limits."""
+    try:
+        # Try to get container memory from cgroup
+        with open('/sys/fs/cgroup/memory/memory.usage_in_bytes', 'r') as f:
+            usage_bytes = int(f.read().strip())
+        
+        with open('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'r') as f:
+            limit_bytes = int(f.read().strip())
+        
+        # Check if limit is set (not unlimited)
+        if limit_bytes != 9223372036854771712:  # Not unlimited
+            usage_gb = usage_bytes / (1024**3)
+            limit_gb = limit_bytes / (1024**3)
+            usage_percent = (usage_bytes / limit_bytes) * 100
+            
+            return {
+                'usage_bytes': usage_bytes,
+                'limit_bytes': limit_bytes,
+                'usage_gb': usage_gb,
+                'limit_gb': limit_gb,
+                'usage_percent': usage_percent,
+                'available_gb': limit_gb - usage_gb,
+                'is_limited': True
+            }
+        else:
+            # No limit set, fall back to system memory
+            return None
+    except Exception as e:
+        logger.debug(f"Could not get container memory info: {e}")
+        return None
+
+def check_memory_against_limit(user_limit_gb: float = None, user_limit_percent: float = None):
+    """Check if memory usage exceeds user-defined limits."""
+    try:
+        # First try container memory
+        container_info = get_container_memory_info()
+        
+        if container_info and container_info['is_limited']:
+            # Use container memory limits
+            usage_gb = container_info['usage_gb']
+            limit_gb = container_info['limit_gb']
+            usage_percent = container_info['usage_percent']
+            
+            # Check against user limits
+            if user_limit_gb and usage_gb > user_limit_gb:
+                return True, f"Container memory usage ({usage_gb:.1f}GB) exceeds user limit ({user_limit_gb:.1f}GB)"
+            
+            if user_limit_percent and usage_percent > user_limit_percent:
+                return True, f"Container memory usage ({usage_percent:.1f}%) exceeds user limit ({user_limit_percent:.1f}%)"
+            
+            return False, f"Container memory: {usage_gb:.1f}GB/{limit_gb:.1f}GB ({usage_percent:.1f}%)"
+        
+        else:
+            # Fall back to system memory
+            memory = psutil.virtual_memory()
+            usage_gb = memory.used / (1024**3)
+            total_gb = memory.total / (1024**3)
+            usage_percent = memory.percent
+            
+            # Check against user limits
+            if user_limit_gb and usage_gb > user_limit_gb:
+                return True, f"System memory usage ({usage_gb:.1f}GB) exceeds user limit ({user_limit_gb:.1f}GB)"
+            
+            if user_limit_percent and usage_percent > user_limit_percent:
+                return True, f"System memory usage ({usage_percent:.1f}%) exceeds user limit ({user_limit_percent:.1f}%)"
+            
+            return False, f"System memory: {usage_gb:.1f}GB/{total_gb:.1f}GB ({usage_percent:.1f}%)"
+    
+    except Exception as e:
+        logger.error(f"Error checking memory against limits: {e}")
+        return False, "Could not check memory limits"
+
+def get_detailed_memory_info():
+    """Get detailed memory information for current process and container."""
+    try:
+        import psutil
+        import os
+        
+        # Get current process info
+        current_process = psutil.Process(os.getpid())
+        process_memory = current_process.memory_info()
+        
+        # Get container memory (primary)
+        container_info = get_container_memory_info()
+        
+        # Get system memory (fallback)
+        system_memory = psutil.virtual_memory()
+        
+        return {
+            'process': {
+                'rss_mb': process_memory.rss / (1024**2),
+                'vms_mb': process_memory.vms / (1024**2),
+                'percent': current_process.memory_percent(),
+                'pid': os.getpid()
+            },
+            'container': container_info,
+            'system': {
+                'total_gb': system_memory.total / (1024**3),
+                'available_gb': system_memory.available / (1024**3),
+                'used_gb': system_memory.used / (1024**3),
+                'percent': system_memory.percent
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting detailed memory info: {e}")
+        return None
+
+def log_detailed_memory_info(context: str = ""):
+    """Log detailed memory information."""
+    info = get_detailed_memory_info()
+    if not info:
+        return
+    
+    logger.info(f"=== Detailed Memory Info {context} ===")
+    logger.info(f"Process Memory:")
+    logger.info(f"  RSS: {info['process']['rss_mb']:.1f}MB")
+    logger.info(f"  VMS: {info['process']['vms_mb']:.1f}MB")
+    logger.info(f"  Percent: {info['process']['percent']:.1f}%")
+    logger.info(f"  PID: {info['process']['pid']}")
+    
+    if info['container'] and info['container']['is_limited']:
+        logger.info(f"Container Memory:")
+        logger.info(f"  Used: {info['container']['usage_gb']:.1f}GB")
+        logger.info(f"  Limit: {info['container']['limit_gb']:.1f}GB")
+        logger.info(f"  Percent: {info['container']['usage_percent']:.1f}%")
+        logger.info(f"  Available: {info['container']['available_gb']:.1f}GB")
+    else:
+        logger.info(f"System Memory (no container limits):")
+        logger.info(f"  Total: {info['system']['total_gb']:.1f}GB")
+        logger.info(f"  Used: {info['system']['used_gb']:.1f}GB ({info['system']['percent']:.1f}%)")
+        logger.info(f"  Available: {info['system']['available_gb']:.1f}GB")
+    
+    logger.info("=" * 40) 
