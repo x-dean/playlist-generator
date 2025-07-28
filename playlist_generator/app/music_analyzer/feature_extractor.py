@@ -200,6 +200,11 @@ class DatabaseConnectionPool:
                 conn.execute("PRAGMA synchronous=NORMAL")
                 conn.execute("PRAGMA cache_size=10000")
                 conn.execute("PRAGMA temp_store=MEMORY")
+                conn.execute("PRAGMA mmap_size=268435456")  # 256MB memory mapping
+                conn.execute("PRAGMA page_size=4096")
+                conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+                conn.execute("PRAGMA locking_mode=EXCLUSIVE")  # Better for concurrent access
+                conn.execute("PRAGMA foreign_keys=OFF")  # Disable for performance
                 self._connections.append(conn)
             self._initialized = True
             logger.debug("Database connection pool initialized")
@@ -220,6 +225,11 @@ class DatabaseConnectionPool:
                     conn.execute("PRAGMA synchronous=NORMAL")
                     conn.execute("PRAGMA cache_size=10000")
                     conn.execute("PRAGMA temp_store=MEMORY")
+                    conn.execute("PRAGMA mmap_size=268435456")  # 256MB memory mapping
+                    conn.execute("PRAGMA page_size=4096")
+                    conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+                    conn.execute("PRAGMA locking_mode=EXCLUSIVE")  # Better for concurrent access
+                    conn.execute("PRAGMA foreign_keys=OFF")  # Disable for performance
                 else:
                     conn = self._connections.pop()
             
@@ -2379,28 +2389,71 @@ class AudioAnalyzer:
         return features
 
     def _mark_failed(self, file_info):
-        """Mark file as failed using connection pool."""
+        """Mark file as failed using connection pool with robust error handling."""
         # Ensure file_path is container path
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_library_path(
             file_info['file_path'])
-        logging.getLogger().warning(
+        logger.warning(
             f"Marking file as failed: {file_info['file_path']} (hash: {file_info['file_hash']})")
-        with self.db_pool.get_connection() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO audio_features (file_hash, file_path, last_modified, metadata, failed) VALUES (?, ?, ?, ?, 1)",
-                (file_info['file_hash'], file_info['file_path'],
-                 file_info['last_modified'], '{}')
-            )
+        
+        def _mark_failed_operation():
+            """Inner function for the mark failed operation that can be retried."""
+            with self.db_pool.get_connection() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO audio_features (file_hash, file_path, last_modified, metadata, failed) VALUES (?, ?, ?, ?, 1)",
+                    (file_info['file_hash'], file_info['file_path'],
+                     file_info['last_modified'], '{}')
+                )
+            return True
+        
+        # Use robust error handling with retry logic
+        if ROBUSTNESS_UTILITIES_AVAILABLE:
+            try:
+                # Use circuit breaker for database operations
+                result = self.circuit_breakers['database_operations'].call(_mark_failed_operation)
+                return result
+            except CircuitBreakerOpenError:
+                logger.error(f"Database circuit breaker is OPEN for marking failed: {file_info['file_path']}")
+                return False
+            except Exception as e:
+                # Classify the error
+                error_info = self.error_classifier.classify_error(e, {
+                    'file_path': file_info['file_path'],
+                    'operation': 'mark_failed',
+                    'file_size_mb': os.path.getsize(file_info['file_path']) / (1024 * 1024) if os.path.exists(file_info['file_path']) else 0
+                })
+                
+                logger.warning(f"Mark failed error classified as {error_info.error_type.value} "
+                             f"(severity: {error_info.severity.value})")
+                
+                # Apply retry strategy if retryable
+                if error_info.retryable and self.error_classifier.should_retry(error_info, 0):
+                    logger.info(f"Retrying mark failed for {file_info['file_path']}")
+                    retry_result = self.retry_manager.exponential_backoff(
+                        _mark_failed_operation, max_attempts=3, timeout=15
+                    )
+                    return retry_result.success
+                else:
+                    logger.error(f"Mark failed operation failed and is not retryable: {str(e)}")
+                    return False
+        else:
+            # Fallback to original implementation without robustness features
+            try:
+                return _mark_failed_operation()
+            except Exception as e:
+                logger.error(f"Error marking file as failed: {str(e)}")
+                return False
 
     def _save_features_to_db(self, file_info, features, failed=0):
-        """Save features to database using connection pool."""
+        """Save features to database using connection pool with robust error handling."""
         # Ensure file_path is container path
         file_info = dict(file_info)
         file_info['file_path'] = self._normalize_to_library_path(
             file_info['file_path'])
 
-        try:
+        def _save_operation():
+            """Inner function for the save operation that can be retried."""
             # Validate and convert all features to proper Python types
             features = validate_and_convert_features(features)
             logger.debug(
@@ -2456,12 +2509,46 @@ class AudioAnalyzer:
             logger.info(
                 f"Database save completed successfully for {file_info['file_path']}")
             return True
-        except Exception as e:
-            logger.error(f"Error saving features to DB: {str(e)}")
-            import traceback
-            logger.error(
-                f"Database save error traceback: {traceback.format_exc()}")
-            return False
+
+        # Use robust error handling with retry logic
+        if ROBUSTNESS_UTILITIES_AVAILABLE:
+            try:
+                # Use circuit breaker for database operations
+                result = self.circuit_breakers['database_operations'].call(_save_operation)
+                return result
+            except CircuitBreakerOpenError:
+                logger.error(f"Database circuit breaker is OPEN for {file_info['file_path']}")
+                return False
+            except Exception as e:
+                # Classify the error
+                error_info = self.error_classifier.classify_error(e, {
+                    'file_path': file_info['file_path'],
+                    'operation': 'database_save',
+                    'file_size_mb': os.path.getsize(file_info['file_path']) / (1024 * 1024) if os.path.exists(file_info['file_path']) else 0
+                })
+                
+                logger.warning(f"Database save error classified as {error_info.error_type.value} "
+                             f"(severity: {error_info.severity.value})")
+                
+                # Apply retry strategy if retryable
+                if error_info.retryable and self.error_classifier.should_retry(error_info, 0):
+                    logger.info(f"Retrying database save for {file_info['file_path']}")
+                    retry_result = self.retry_manager.exponential_backoff(
+                        _save_operation, max_attempts=3, timeout=30
+                    )
+                    return retry_result.success
+                else:
+                    logger.error(f"Database save failed and is not retryable: {str(e)}")
+                    return False
+        else:
+            # Fallback to original implementation without robustness features
+            try:
+                return _save_operation()
+            except Exception as e:
+                logger.error(f"Error saving features to DB: {str(e)}")
+                import traceback
+                logger.error(f"Database save error traceback: {traceback.format_exc()}")
+                return False
 
     def get_all_features(self, include_failed=False):
         """Get all features using connection pool."""
