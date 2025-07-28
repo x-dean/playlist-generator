@@ -482,10 +482,14 @@ class AudioAnalyzer:
             
             # Update MusiCNN status panel with results
             try:
-                from utils.musicnn_status import update_musicnn_step_status
+                from utils.musicnn_status import update_musicnn_step_status, clear_musicnn_status
                 top_tags = sorted(tags.items(), key=lambda x: x[1], reverse=True)[:3]
                 top_tag_names = [tag for tag, _ in top_tags]
                 update_musicnn_step_status('success', tag_count=len(tags), embedding_dims=len(embedding), top_tags=', '.join(top_tag_names))
+                # Clear the status after a short delay to let user see the result
+                import time
+                time.sleep(1)
+                clear_musicnn_status()
             except ImportError:
                 pass  # Status panel not available
             
