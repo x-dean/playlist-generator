@@ -14,10 +14,14 @@ console = Console()
 # Global progress bar for MusiCNN steps
 musicnn_progress = None
 musicnn_task = None
+_initialized = False
 
 def init_musicnn_progress():
-    """Initialize the MusiCNN progress bar."""
-    global musicnn_progress, musicnn_task
+    """Initialize the MusiCNN progress bar only once."""
+    global musicnn_progress, musicnn_task, _initialized
+    
+    if _initialized:
+        return  # Already initialized
     
     # Print a separator line to create space
     console.print("\n" + "="*80)
@@ -35,6 +39,7 @@ def init_musicnn_progress():
     )
     musicnn_task = musicnn_progress.add_task("Waiting for files...", total=5)
     musicnn_progress.start()
+    _initialized = True
 
 def update_musicnn_status(new_status):
     """Update the MusiCNN status in the progress bar."""
@@ -72,11 +77,12 @@ def update_musicnn_step_status(step, **kwargs):
 
 def clear_musicnn_status():
     """Clear the MusiCNN progress bar."""
-    global musicnn_progress
+    global musicnn_progress, _initialized
     if musicnn_progress:
         musicnn_progress.stop()
         # Print a completion message
         console.print("[bold green]✓ MusiCNN processing completed[/bold green]\n")
+        _initialized = False
 
 def get_musicnn_status():
     """Get the current MusiCNN status text."""

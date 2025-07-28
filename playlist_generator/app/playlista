@@ -103,11 +103,6 @@ start_log_level_monitor()
 from utils.musicnn_status import init_musicnn_progress
 init_musicnn_progress()
 
-# Add some spacing after MusiCNN bar initialization
-from rich.console import Console
-console = Console()
-console.print()  # Add extra line for spacing
-
 # Setup interrupt handling
 import threading
 _interrupt_requested = threading.Event()
