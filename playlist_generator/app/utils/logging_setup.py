@@ -10,6 +10,7 @@ from colorlog import ColoredFormatter
 log_queue = None
 log_consumer_thread = None
 log_level_monitor_thread = None
+_log_level_setup_done = False
 
 
 def change_log_level(new_level):
@@ -58,7 +59,7 @@ def monitor_log_level_changes():
 
 def start_log_level_monitor():
     """Start the background thread that monitors LOG_LEVEL changes."""
-    global log_level_monitor_thread
+    global log_level_monitor_thread, _log_level_setup_done
     
     if log_level_monitor_thread is None or not log_level_monitor_thread.is_alive():
         log_level_monitor_thread = threading.Thread(
@@ -67,8 +68,10 @@ def start_log_level_monitor():
             name="LogLevelMonitor"
         )
         log_level_monitor_thread.start()
-        print("📝 Log level monitor started - export LOG_LEVEL inside Docker to change level on the fly")
-        print("   Example: docker exec -it <container> export LOG_LEVEL=DEBUG")
+        if not _log_level_setup_done:
+            print("📝 Log level monitor started - export LOG_LEVEL inside Docker to change level on the fly")
+            print("   Example: docker exec -it <container> export LOG_LEVEL=DEBUG")
+            _log_level_setup_done = True
 
 
 def setup_log_level_signal_handler():
@@ -97,6 +100,8 @@ def setup_log_level_signal_handler():
 
 def setup_log_level_signal_handler_direct():
     """Setup signal handlers for direct log level control."""
+    global _log_level_setup_done
+    
     def debug_handler(signum, frame):
         change_log_level('DEBUG')
     
@@ -112,11 +117,13 @@ def setup_log_level_signal_handler_direct():
     signal.signal(signal.SIGTERM, warning_handler)   # WARNING (if not used for shutdown)
     
     # Only show this once at startup, not on every signal
-    print("📝 Direct log level control:")
-    print("   SIGUSR1 -> DEBUG")
-    print("   SIGUSR2 -> INFO") 
-    print("   SIGTERM -> WARNING")
-    print("   Example: docker compose exec playlista bash -c 'kill -SIGUSR1 1'")
+    if not _log_level_setup_done:
+        print("📝 Direct log level control:")
+        print("   SIGUSR1 -> DEBUG")
+        print("   SIGUSR2 -> INFO") 
+        print("   SIGTERM -> WARNING")
+        print("   Example: docker compose exec playlista bash -c 'kill -SIGUSR1 1'")
+        _log_level_setup_done = True
 
 
 def setup_colored_file_logging(logfile_path=None):
