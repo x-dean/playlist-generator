@@ -10,7 +10,7 @@ from utils.path_converter import PathConverter
 import psutil
 import threading
 import gc
-from utils.memory_monitor import MemoryMonitor, log_detailed_memory_info, check_memory_against_limit, check_total_python_rss_limit
+from utils.memory_monitor import MemoryMonitor, log_detailed_memory_info, check_memory_against_limit, check_total_python_rss_limit, get_total_python_rss_gb
 
 logger = logging.getLogger(__name__)
 
@@ -243,10 +243,10 @@ class LargeFileProcessor:
         def memory_monitor():
             logger.info(f"Starting memory monitor for large file: {os.path.basename(audio_path)}")
             while not abort_event.is_set():
-                # Check against container memory limits (80% of container limit or 6GB absolute)
-                is_over_limit, status_msg = check_memory_against_limit(user_limit_gb=6.0, user_limit_percent=80.0)
+                # Check against container memory limits (80% of container limit or rss_limit_gb absolute)
+                is_over_limit, status_msg = check_memory_against_limit(user_limit_gb=self.rss_limit_gb, user_limit_percent=80.0)
                 # Check total Python RSS as well
-                is_rss_over, rss_msg = check_total_python_rss_limit(rss_limit_gb=6.0)
+                is_rss_over, rss_msg = check_total_python_rss_limit(rss_limit_gb=self.rss_limit_gb)
                 
                 if is_over_limit or is_rss_over:
                     if not memory_high_event.is_set():
@@ -358,12 +358,13 @@ class LargeFileProcessor:
 class SequentialProcessor:
     """Sequential processor for audio analysis (single-threaded)."""
 
-    def __init__(self, audio_analyzer: AudioAnalyzer = None) -> None:
+    def __init__(self, audio_analyzer: AudioAnalyzer = None, rss_limit_gb: float = 6.0) -> None:
         self.failed_files: List[str] = []
         self.skipped_files_due_to_memory: List[str] = []  # Track skipped files
         self.audio_analyzer = audio_analyzer
         self.large_file_processor = LargeFileProcessor()
         self.memory_monitor = MemoryMonitor()
+        self.rss_limit_gb = rss_limit_gb
 
     def process(self, file_list: List[str], workers: int = None, force_reextract: bool = False) -> iter:
         """Process a list of files sequentially.
