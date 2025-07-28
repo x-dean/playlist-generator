@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 try:
     from utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, circuit_breaker
     from utils.adaptive_timeout import AdaptiveTimeoutManager, get_timeout_manager, calculate_timeout
-    from utils.error_classifier import ErrorClassifier, classify_error, ErrorType, ErrorSeverity
+    from utils.error_classifier import ErrorClassifier, classify_error, ErrorType, ErrorSeverity, get_error_classifier
     from utils.smart_retry import SmartRetryManager, RetryStrategy, get_retry_manager, smart_retry
     from utils.timeout_manager import timeout_manager, timeout_context, TimeoutException
     from utils.error_recovery import error_handler, retry_with_backoff, safe_operation
@@ -34,6 +34,50 @@ try:
 except ImportError as e:
     logger.warning(f"Robustness utility modules not available: {e}")
     ROBUSTNESS_UTILITIES_AVAILABLE = False
+    
+    # Fallback definitions for when robustness utilities are not available
+    class CircuitBreaker:
+        def __init__(self, *args, **kwargs):
+            pass
+        def call(self, func, *args, **kwargs):
+            return func(*args, **kwargs)
+    
+    class CircuitBreakerOpenError(Exception):
+        pass
+    
+    class AdaptiveTimeoutManager:
+        def __init__(self, *args, **kwargs):
+            pass
+        def calculate_timeout(self, *args, **kwargs):
+            return 60.0
+    
+    class ErrorClassifier:
+        def __init__(self, *args, **kwargs):
+            pass
+        def classify_error(self, *args, **kwargs):
+            return None
+    
+    class SmartRetryManager:
+        def __init__(self, *args, **kwargs):
+            pass
+        def exponential_backoff(self, func, *args, **kwargs):
+            return type('RetryResult', (), {'success': True, 'result': func()})()
+    
+    # Fallback functions
+    def get_timeout_manager():
+        return AdaptiveTimeoutManager()
+    
+    def get_error_classifier():
+        return ErrorClassifier()
+    
+    def get_retry_manager():
+        return SmartRetryManager()
+    
+    def calculate_timeout(*args, **kwargs):
+        return 60.0
+    
+    def classify_error(*args, **kwargs):
+        return None
 
 # Check if Essentia was built with TensorFlow support (only once)
 _essentia_tf_support_checked = False
