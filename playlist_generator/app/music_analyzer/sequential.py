@@ -10,6 +10,7 @@ import tensorflow as tf
 from music_analyzer.feature_extractor import AudioAnalyzer
 import multiprocessing
 import threading
+import gc
 
 logger = logging.getLogger(__name__)
 
@@ -336,19 +337,8 @@ class SequentialProcessor:
                     file_size_mb = 0
                 logger.info(f"Preparing to analyze file: {os.path.basename(filepath)} ({file_size_mb:.1f}MB)")
 
-                # Check memory before processing each file
-                usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
-                logger.info(f"Memory before processing: {usage_percent:.1f}% used, {used_gb:.1f}GB used, {available_gb:.1f}GB available")
-                if self.memory_monitor.is_memory_critical():
-                    logger.warning(f"Memory usage critical ({usage_percent:.1f}%), forcing cleanup before processing")
-                    self.memory_monitor.force_cleanup()
-                    # Check again after cleanup
-                    usage_percent, used_gb, available_gb = self.memory_monitor.get_memory_usage()
-                    if self.memory_monitor.is_memory_critical():
-                        logger.error(f"Memory still critical after cleanup ({usage_percent:.1f}%), skipping file: {filepath}")
-                        self.skipped_files_due_to_memory.append(filepath)
-                        yield None, filepath, False
-                        continue
+                # Remove/relax the pre-check for memory before processing each file
+                # (Let the memory monitor during processing handle abort/skip)
 
                 # Use file discovery to check if file should be excluded
                 from .file_discovery import FileDiscovery
