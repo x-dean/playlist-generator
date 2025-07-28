@@ -529,8 +529,12 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
             if workers is None:
                 try:
                     from music_analyzer.parallel import get_memory_aware_worker_count
-                    workers = get_memory_aware_worker_count()
+                    # Get memory limit from args if provided
+                    memory_limit = getattr(args, 'memory_limit', None)
+                    workers = get_memory_aware_worker_count(memory_limit_str=memory_limit)
                     logger.info(f"🔄 AUTO: Using memory-aware worker count: {workers}")
+                    if memory_limit:
+                        logger.info(f"🔄 AUTO: Using memory limit: {memory_limit} per worker")
                 except Exception as e:
                     logger.warning(f"Could not determine memory-aware worker count: {e}")
                     workers = 1  # Fallback to sequential

@@ -36,13 +36,15 @@ class MemoryMonitor:
                 # Fall back to host memory if no container limits
                 logger.debug("No container memory limits found, using host memory")
                 memory = psutil.virtual_memory()
-                return {
+                host_memory = {
                     'total_gb': memory.total / (1024**3),
                     'available_gb': memory.available / (1024**3),
                     'used_gb': memory.used / (1024**3),
                     'percent': memory.percent,
                     'is_container': False
                 }
+                logger.debug(f"Host memory info: {host_memory}")
+                return host_memory
         except Exception as e:
             logger.warning(f"Could not get memory info: {e}")
             return {'total_gb': 0, 'available_gb': 0, 'used_gb': 0, 'percent': 0, 'is_container': False}
@@ -82,18 +84,40 @@ class MemoryMonitor:
     def should_reduce_workers(self) -> bool:
         """Determine if worker count should be reduced based on memory usage."""
         status = self.check_memory_usage()
+        
+        # Also check RSS limits
+        rss_over_limit, rss_msg = check_total_python_rss_limit()
+        if rss_over_limit:
+            logger.warning(f"RSS limit exceeded: {rss_msg}")
+            return True
+            
         return status['is_high']
     
-    def get_optimal_worker_count(self, max_workers: int, min_workers: int = 1) -> int:
+    def get_optimal_worker_count(self, max_workers: int, min_workers: int = 1, memory_limit_str: str = None) -> int:
         """Calculate optimal worker count based on available memory."""
         try:
+            # Use RSS-based calculation for better container memory management
+            total_rss_gb = get_total_python_rss_gb()
             current = self._get_memory_info()
-            logger.info(f"🔄 [MemoryMonitor] get_optimal_worker_count called: max_workers={max_workers}, available_gb={current['available_gb']:.2f}")
-            # Conservative estimate: 2GB per worker
-            memory_per_worker_gb = 2.0
+            
+            logger.info(f"🔄 [MemoryMonitor] get_optimal_worker_count called: max_workers={max_workers}, available_gb={current['available_gb']:.2f}, current_rss_gb={total_rss_gb:.2f}")
+            
+            # Use CLI memory limit if provided, otherwise default to 2GB
+            if memory_limit_str:
+                memory_per_worker_gb = parse_memory_limit(memory_limit_str)
+                if memory_per_worker_gb is None:
+                    memory_per_worker_gb = 2.0
+                    logger.warning(f"Invalid memory limit '{memory_limit_str}', using default 2GB")
+            else:
+                memory_per_worker_gb = 2.0
+            
+            # Calculate available memory considering current RSS usage
+            # Reserve some memory for the system and other processes
+            reserved_memory_gb = 1.0  # Reserve 1GB for system
+            available_for_workers = current['available_gb'] - total_rss_gb - reserved_memory_gb
             
             # Calculate how many workers we can support
-            workers_by_memory = int(current['available_gb'] / memory_per_worker_gb)
+            workers_by_memory = int(available_for_workers / memory_per_worker_gb)
             
             # Use the minimum of CPU-based and memory-based limits
             optimal_workers = min(max_workers, workers_by_memory)
@@ -102,8 +126,11 @@ class MemoryMonitor:
             optimal_workers = max(min_workers, optimal_workers)
             
             memory_source = "container" if current.get('is_container', False) else "host"
-            logger.info(f"Memory-aware worker calculation ({memory_source}):")
-            logger.info(f"  Available memory: {current['available_gb']:.1f}GB")
+            logger.info(f"RSS-aware worker calculation ({memory_source}):")
+            logger.info(f"  Total available: {current['available_gb']:.1f}GB")
+            logger.info(f"  Current RSS: {total_rss_gb:.1f}GB")
+            logger.info(f"  Reserved: {reserved_memory_gb:.1f}GB")
+            logger.info(f"  Available for workers: {available_for_workers:.1f}GB")
             logger.info(f"  Memory per worker: {memory_per_worker_gb}GB")
             logger.info(f"  Workers by memory: {workers_by_memory}")
             logger.info(f"  Max workers: {max_workers}")
@@ -165,31 +192,96 @@ def get_memory_aware_batch_size(worker_count: int, available_memory_gb: float) -
 def get_container_memory_info():
     """Get container memory usage and limits."""
     try:
-        # Try to get container memory from cgroup
-        with open('/sys/fs/cgroup/memory/memory.usage_in_bytes', 'r') as f:
-            usage_bytes = int(f.read().strip())
+        # Try multiple cgroup paths for different container runtimes
+        cgroup_paths = [
+            '/sys/fs/cgroup/memory/memory.usage_in_bytes',
+            '/sys/fs/cgroup/memory.current',
+            '/sys/fs/cgroup/memory.max',
+            '/sys/fs/cgroup/memory.usage_in_bytes',
+            '/sys/fs/cgroup/memory.limit_in_bytes'
+        ]
         
-        with open('/sys/fs/cgroup/memory/memory.limit_in_bytes', 'r') as f:
-            limit_bytes = int(f.read().strip())
+        usage_bytes = None
+        limit_bytes = None
         
-        # Check if limit is set (not unlimited)
-        if limit_bytes != 9223372036854771712:  # Not unlimited
-            usage_gb = usage_bytes / (1024**3)
-            limit_gb = limit_bytes / (1024**3)
-            usage_percent = (usage_bytes / limit_bytes) * 100
-            
-            return {
-                'usage_bytes': usage_bytes,
-                'limit_bytes': limit_bytes,
-                'usage_gb': usage_gb,
-                'limit_gb': limit_gb,
-                'usage_percent': usage_percent,
-                'available_gb': limit_gb - usage_gb,
-                'is_limited': True
-            }
-        else:
-            # No limit set, fall back to system memory
-            return None
+        # Try to find the correct cgroup path
+        for path in cgroup_paths:
+            try:
+                if 'usage' in path or 'current' in path:
+                    with open(path, 'r') as f:
+                        usage_bytes = int(f.read().strip())
+                elif 'limit' in path or 'max' in path:
+                    with open(path, 'r') as f:
+                        limit_bytes = int(f.read().strip())
+            except (FileNotFoundError, ValueError):
+                continue
+        
+        # If we found usage but no limit, try the standard paths
+        if usage_bytes is not None and limit_bytes is None:
+            try:
+                with open('/sys/fs/cgroup/memory.limit_in_bytes', 'r') as f:
+                    limit_bytes = int(f.read().strip())
+            except (FileNotFoundError, ValueError):
+                pass
+        
+        # Check if we found both usage and limit
+        if usage_bytes is not None and limit_bytes is not None:
+            # Check if limit is set (not unlimited)
+            if limit_bytes != 9223372036854771712:  # Not unlimited
+                usage_gb = usage_bytes / (1024**3)
+                limit_gb = limit_bytes / (1024**3)
+                usage_percent = (usage_bytes / limit_bytes) * 100
+                
+                return {
+                    'usage_bytes': usage_bytes,
+                    'limit_bytes': limit_bytes,
+                    'usage_gb': usage_gb,
+                    'limit_gb': limit_gb,
+                    'usage_percent': usage_percent,
+                    'available_gb': limit_gb - usage_gb,
+                    'is_limited': True
+                }
+        
+        # Try to get memory limit from environment variables (Docker/LXC)
+        try:
+            import os
+            memory_limit_str = os.getenv('MEMORY_LIMIT') or os.getenv('CONTAINER_MEMORY_LIMIT')
+            if memory_limit_str:
+                # Parse memory limit (e.g., "8G", "8192M")
+                import re
+                match = re.match(r'(\d+)([GMK])?', memory_limit_str.upper())
+                if match:
+                    value = int(match.group(1))
+                    unit = match.group(2) or 'B'
+                    
+                    if unit == 'G':
+                        limit_gb = value
+                    elif unit == 'M':
+                        limit_gb = value / 1024
+                    elif unit == 'K':
+                        limit_gb = value / (1024 * 1024)
+                    else:
+                        limit_gb = value / (1024**3)
+                    
+                    # Get current usage from psutil
+                    import psutil
+                    usage_gb = psutil.virtual_memory().used / (1024**3)
+                    usage_percent = (usage_gb / limit_gb) * 100
+                    
+                    return {
+                        'usage_bytes': int(usage_gb * (1024**3)),
+                        'limit_bytes': int(limit_gb * (1024**3)),
+                        'usage_gb': usage_gb,
+                        'limit_gb': limit_gb,
+                        'usage_percent': usage_percent,
+                        'available_gb': limit_gb - usage_gb,
+                        'is_limited': True
+                    }
+        except Exception as e:
+            logger.debug(f"Could not get memory limit from environment: {e}")
+        
+        # No container limits found, fall back to system memory
+        return None
     except Exception as e:
         logger.debug(f"Could not get container memory info: {e}")
         return None

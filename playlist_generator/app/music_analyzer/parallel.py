@@ -22,12 +22,12 @@ class TimeoutException(Exception):
     pass
 
 
-def get_memory_aware_worker_count(max_workers: int = None) -> int:
+def get_memory_aware_worker_count(max_workers: int = None, memory_limit_str: str = None) -> int:
     """Calculate optimal worker count based on available memory."""
     try:
         from utils.memory_monitor import MemoryMonitor
         monitor = MemoryMonitor()
-        return monitor.get_optimal_worker_count(max_workers or mp.cpu_count())
+        return monitor.get_optimal_worker_count(max_workers or mp.cpu_count(), memory_limit_str=memory_limit_str)
     except Exception as e:
         logger.warning(f"Could not determine memory-aware worker count: {e}")
         return max(1, min(max_workers or mp.cpu_count(), mp.cpu_count()))
