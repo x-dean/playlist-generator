@@ -544,6 +544,14 @@ class AudioAnalyzer:
                 failed INTEGER DEFAULT 0
             )
             """)
+            
+            # Check if musicnn_skipped column exists, if not add it
+            cursor = self.conn.execute("PRAGMA table_info(audio_features)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'musicnn_skipped' not in columns:
+                logger.info("Adding missing 'musicnn_skipped' column to audio_features table")
+                self.conn.execute("ALTER TABLE audio_features ADD COLUMN musicnn_skipped INTEGER DEFAULT 0")
+                logger.debug("Added musicnn_skipped column to audio_features table")
 
             # Create file discovery state table
             self.conn.execute("""
@@ -1969,6 +1977,7 @@ class AudioAnalyzer:
             return None, False, None
         except Exception as e:
             logger.error(f"Error processing {audio_path}: {str(e)}")
+            import traceback
             logger.warning(traceback.format_exc())
             self._mark_failed(self._get_file_info(audio_path))
             return None, False, None
