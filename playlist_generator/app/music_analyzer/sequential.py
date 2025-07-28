@@ -9,6 +9,7 @@ import essentia.standard as es
 import tensorflow as tf
 from music_analyzer.feature_extractor import AudioAnalyzer
 import multiprocessing
+import threading
 
 logger = logging.getLogger(__name__)
 
