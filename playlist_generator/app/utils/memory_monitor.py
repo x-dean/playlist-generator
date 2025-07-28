@@ -407,3 +407,62 @@ def check_total_python_rss_limit(rss_limit_gb=6.0):
     if total_rss_gb > rss_limit_gb:
         return True, f"Total Python RSS {total_rss_gb:.2f}GB exceeds limit {rss_limit_gb}GB"
     return False, f"Total Python RSS {total_rss_gb:.2f}GB within limit {rss_limit_gb}GB" 
+
+def should_pause_between_batches() -> tuple[bool, str]:
+    """Check if system should pause between batches to prevent halting."""
+    try:
+        # Get current memory status
+        memory_monitor = MemoryMonitor()
+        memory_status = memory_monitor.check_memory_usage()
+        
+        # Get RSS information
+        rss_over_limit, rss_msg = check_total_python_rss_limit()
+        
+        # Check various conditions that might cause halting
+        should_pause = False
+        reason = ""
+        
+        if memory_status['is_critical']:
+            should_pause = True
+            reason = f"Memory critical ({memory_status['current']['percent']:.1f}%)"
+        elif memory_status['is_high']:
+            should_pause = True
+            reason = f"Memory high ({memory_status['current']['percent']:.1f}%)"
+        elif rss_over_limit:
+            should_pause = True
+            reason = f"RSS limit exceeded: {rss_msg}"
+        
+        # Check if memory has increased significantly since start
+        memory_increase_gb = memory_status['increase_gb']
+        if memory_increase_gb > 2.0:  # More than 2GB increase
+            should_pause = True
+            reason = f"Memory increased by {memory_increase_gb:.1f}GB since start"
+        
+        return should_pause, reason
+        
+    except Exception as e:
+        logger.warning(f"Could not check pause conditions: {e}")
+        return False, "Could not check memory status"
+
+def get_pause_duration_seconds() -> int:
+    """Get recommended pause duration between batches based on memory pressure."""
+    try:
+        memory_monitor = MemoryMonitor()
+        memory_status = memory_monitor.check_memory_usage()
+        
+        # Base pause duration
+        base_pause = 5
+        
+        # Increase pause time based on memory pressure
+        if memory_status['is_critical']:
+            return 15  # 15 seconds for critical memory
+        elif memory_status['is_high']:
+            return 10  # 10 seconds for high memory
+        elif memory_status['current']['percent'] > 70:
+            return 8   # 8 seconds for moderate memory pressure
+        else:
+            return base_pause  # 5 seconds for normal conditions
+            
+    except Exception as e:
+        logger.debug(f"Could not calculate pause duration: {e}")
+        return 5  # Default 5 seconds 

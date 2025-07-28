@@ -172,15 +172,10 @@ class ParallelProcessor:
     def _process_parallel(self, file_list, status_queue, force_reextract: bool = False, fast_mode: bool = False):
         retries = 0
         remaining_files = file_list[:]
+        total_batches = (len(remaining_files) + self.batch_size - 1) // self.batch_size
+        current_batch = 0
         
-        # Initialize memory monitoring once at the start
-        memory_monitor = None
-        try:
-            from utils.memory_monitor import MemoryMonitor
-            memory_monitor = MemoryMonitor()
-            logger.debug("Memory monitor initialized for parallel processing")
-        except Exception as e:
-            logger.debug(f"Could not initialize memory monitor: {e}")
+        logger.info(f"🔄 PARALLEL: Processing {len(remaining_files)} files in {total_batches} batches")
         
         while remaining_files and retries < self.max_retries:
             try:
@@ -190,161 +185,180 @@ class ParallelProcessor:
                 failed_in_batch = []
                 enrich_later = []
                 
-                # Process files in batches with improved continuation logic
-                batch_start = 0
-                while batch_start < len(remaining_files):
-                    batch_end = min(batch_start + self.batch_size, len(remaining_files))
-                    batch = remaining_files[batch_start:batch_end]
+                for i in range(0, len(remaining_files), self.batch_size):
+                    current_batch += 1
+                    batch = remaining_files[i:i+self.batch_size]
                     
-                    logger.info(f"🔄 PARALLEL: Processing batch {batch_start//self.batch_size + 1} ({len(batch)} files)")
+                    logger.info(f"🔄 PARALLEL: Starting batch {current_batch}/{total_batches} with {len(batch)} files")
                     
-                    # Quick memory check before starting batch (less frequent)
-                    if memory_monitor and batch_start % (self.batch_size * 2) == 0:
-                        try:
-                            memory_status = memory_monitor.check_memory_usage()
-                            
-                            # Store original batch size if not already stored
-                            if not hasattr(self, 'original_batch_size'):
-                                self.original_batch_size = self.workers
-                            
-                            if memory_status['is_critical']:
-                                logger.warning("Memory critical, reducing batch size")
-                                self.batch_size = max(1, self.batch_size // 2)
-                            elif memory_status['is_high']:
-                                # Keep current batch size
-                                logger.debug("Memory high, keeping current batch size")
-                            else:
-                                # Memory is good, restore original batch size
-                                if self.batch_size < self.original_batch_size:
-                                    logger.info(f"Memory improved, restoring batch size from {self.batch_size} to {self.original_batch_size}")
-                                    self.batch_size = self.original_batch_size
-                        except Exception as e:
-                            logger.debug(f"Could not check memory: {e}")
+                    # Check memory before starting batch
+                    try:
+                        from utils.memory_monitor import MemoryMonitor
+                        memory_monitor = MemoryMonitor()
+                        memory_status = memory_monitor.check_memory_usage()
+                        
+                        # Store original batch size if not already stored
+                        if not hasattr(self, 'original_batch_size'):
+                            self.original_batch_size = self.workers
+                        
+                        if memory_status['is_critical']:
+                            logger.warning("Memory critical, reducing batch size")
+                            self.batch_size = max(1, self.batch_size // 2)
+                        elif memory_status['is_high']:
+                            # Keep current batch size
+                            logger.debug("Memory high, keeping current batch size")
+                        else:
+                            # Memory is good, restore original batch size
+                            if self.batch_size < self.original_batch_size:
+                                logger.info(f"Memory improved, restoring batch size from {self.batch_size} to {self.original_batch_size}")
+                                self.batch_size = self.original_batch_size
+                    except Exception as e:
+                        logger.debug(f"Could not check memory: {e}")
                     
                     # Create pool for this batch
-                    with ctx.Pool(processes=self.workers) as pool:
-                        try:
-                            logger.debug(f"🔄 PARALLEL: Pool created with {self.workers} workers for batch of {len(batch)} files")
-                            
-                            # Check if workers are actually running
-                            import psutil
+                    pool = None
+                    try:
+                        pool = ctx.Pool(processes=self.workers)
+                        logger.debug(f"🔄 PARALLEL: Pool created with {self.workers} workers for batch of {len(batch)} files")
+                        
+                        # Check if workers are actually running
+                        import psutil
+                        pool_pids = [p.pid for p in pool._pool]
+                        logger.debug(f"🔄 PARALLEL: Worker PIDs: {pool_pids}")
+                        
+                        # Verify pool is healthy
+                        if not pool_pids:
+                            logger.error("🔄 PARALLEL: Pool has no workers, recreating pool")
+                            pool.terminate()
+                            pool.join()
+                            pool = ctx.Pool(processes=self.workers)
                             pool_pids = [p.pid for p in pool._pool]
-                            logger.debug(f"🔄 PARALLEL: Worker PIDs: {pool_pids}")
-                            
-                            from functools import partial
-                            worker_func = partial(
-                                process_file_worker, status_queue=status_queue, force_reextract=force_reextract, fast_mode=fast_mode)
+                            logger.debug(f"🔄 PARALLEL: New worker PIDs: {pool_pids}")
+                        
+                        from functools import partial
+                        worker_func = partial(
+                            process_file_worker, status_queue=status_queue, force_reextract=force_reextract, fast_mode=fast_mode)
 
-                            # Process results from the batch with timeout
-                            logger.debug(f"🔄 PARALLEL: Starting to process batch results")
-                            processed_in_batch = 0
-                            batch_results = []
+                        # Process results from the batch
+                        logger.debug(f"🔄 PARALLEL: Starting to process batch results")
+                        processed_in_batch = 0
+                        batch_start_time = time.time()
+                        
+                        for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
+                            processed_in_batch += 1
+                            logger.debug(f"🔄 PARALLEL: Got result {processed_in_batch}/{len(batch)} for {os.path.basename(filepath)}")
                             
-                            # Use imap_unordered with timeout to prevent hanging
-                            import time
-                            batch_start_time = time.time()
-                            batch_timeout = 300  # 5 minutes per batch
-                            
-                            try:
-                                for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
-                                    processed_in_batch += 1
-                                    batch_results.append((features, filepath, db_write_success))
-                                    
-                                    # Check for timeout
-                                    if time.time() - batch_start_time > batch_timeout:
-                                        logger.warning(f"Batch timeout reached, stopping batch processing")
-                                        break
-                                    
-                                    logger.debug(f"🔄 PARALLEL: Got result {processed_in_batch}/{len(batch)} for {os.path.basename(filepath)}")
-                                    
-                                    # Process result immediately
-                                    if self.enforce_fail_limit:
-                                        # Use in-memory retry counter
-                                        count = self.retry_counter.get(filepath, 0)
-                                        if count >= 3:
-                                            # Mark as failed in DB
-                                            import sqlite3
-                                            conn = sqlite3.connect(
-                                                os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                                            cur = conn.cursor()
-                                            cur.execute(
-                                                "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                                            conn.commit()
-                                            conn.close()
-                                            logger.warning(
-                                                f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
-                                            continue
-
+                            if self.enforce_fail_limit:
+                                # Use in-memory retry counter
+                                count = self.retry_counter.get(filepath, 0)
+                                if count >= 3:
+                                    # Mark as failed in DB
                                     import sqlite3
                                     conn = sqlite3.connect(
                                         os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
                                     cur = conn.cursor()
                                     cur.execute(
-                                        "PRAGMA table_info(audio_features)")
-                                    columns = [row[1] for row in cur.fetchall()]
-                                    if features and db_write_success:
-                                        # On success, reset failed
-                                        cur.execute(
-                                            "UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
-                                        conn.commit()
-                                        conn.close()
-                                        yield features, filepath, db_write_success
-                                    else:
-                                        if self.enforce_fail_limit:
-                                            count = self.retry_counter.get(
-                                                filepath, 0) + 1
-                                            self.retry_counter[filepath] = count
-                                            logger.warning(
-                                                f"Retrying file {filepath} (retry count: {count})")
-                                            if count >= 3:
-                                                cur.execute(
-                                                    "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                                            conn.commit()
-                                            conn.close()
-                                            enrich_later.append(filepath)
-                                            logger.warning(
-                                                f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
-                                            continue
-                                        else:
-                                            cur.execute(
-                                                "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                                            conn.commit()
-                                            conn.close()
-                                            yield None, filepath, False
-                                            
-                            except Exception as e:
-                                logger.error(f"Error processing batch results: {e}")
-                                # Continue with next batch instead of failing completely
-                                break
+                                        "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                                    conn.commit()
+                                    conn.close()
+                                    logger.warning(
+                                        f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                    continue
 
-                        except KeyboardInterrupt:
-                            logger.debug(
-                                "KeyboardInterrupt received, terminating pool and exiting cleanly...")
+                            import sqlite3
+                            conn = sqlite3.connect(
+                                os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
+                            cur = conn.cursor()
+                            cur.execute(
+                                "PRAGMA table_info(audio_features)")
+                            columns = [row[1] for row in cur.fetchall()]
+                            if features and db_write_success:
+                                # On success, reset failed
+                                cur.execute(
+                                    "UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
+                                conn.commit()
+                                conn.close()
+                                yield features, filepath, db_write_success
+                            else:
+                                if self.enforce_fail_limit:
+                                    count = self.retry_counter.get(
+                                        filepath, 0) + 1
+                                    self.retry_counter[filepath] = count
+                                    logger.warning(
+                                        f"Retrying file {filepath} (retry count: {count})")
+                                    if count >= 3:
+                                        cur.execute(
+                                            "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                                    conn.commit()
+                                    conn.close()
+                                    enrich_later.append(filepath)
+                                    logger.warning(
+                                        f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                    continue
+                                else:
+                                    cur.execute(
+                                        "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                                    conn.commit()
+                                    conn.close()
+                                    yield None, filepath, False
+                        
+                        batch_time = time.time() - batch_start_time
+                        logger.info(f"🔄 PARALLEL: Batch {current_batch}/{total_batches} completed in {batch_time:.1f}s")
+                        
+                    except KeyboardInterrupt:
+                        logger.debug(
+                            "KeyboardInterrupt received, terminating pool and exiting cleanly...")
+                        if pool:
                             pool.terminate()
                             pool.join()
-                            raise
-                        except Exception as e:
-                            logger.error(f"Error in parallel processing: {e}")
+                        raise
+                    except Exception as e:
+                        logger.error(f"Error in parallel processing batch {current_batch}: {e}")
+                        if pool:
                             pool.terminate()
                             pool.join()
-                            # Don't raise here, continue with next batch
-                            break
-                        finally:
-                            # Always terminate and join the pool
+                        raise
+                    finally:
+                        # Always terminate and join the pool
+                        if pool:
                             pool.terminate()
                             pool.join()
+                            logger.debug(f"🔄 PARALLEL: Pool terminated for batch {current_batch}")
                             
-                            # Light memory cleanup after each batch
+                            # Force memory cleanup after each batch
                             import gc
                             gc.collect()
-                            logger.debug(f"Memory cleanup completed after batch")
+                            logger.debug(f"🔄 PARALLEL: Memory cleanup completed after batch {current_batch}")
+                            
+                            # Check memory after cleanup and decide if we should pause
+                            try:
+                                from utils.memory_monitor import should_pause_between_batches, get_pause_duration_seconds
+                                should_pause, reason = should_pause_between_batches()
+                                
+                                if should_pause:
+                                    pause_duration = get_pause_duration_seconds()
+                                    logger.warning(f"🔄 PARALLEL: Pausing {pause_duration}s between batches: {reason}")
+                                    import time
+                                    time.sleep(pause_duration)
+                                else:
+                                    logger.debug("🔄 PARALLEL: Memory status good, no pause needed")
+                            except Exception as e:
+                                logger.debug(f"Could not check memory after cleanup: {e}")
+                                # Default pause if we can't check memory
+                                import time
+                                time.sleep(3)
                     
-                    # Move to next batch
-                    batch_start = batch_end
+                    # Log batch transition
+                    logger.info(f"🔄 PARALLEL: Batch {current_batch}/{total_batches} transition complete")
                     
-                    # Small delay between batches to prevent overwhelming the system
-                    import time
-                    time.sleep(0.1)
+                    # Check for interrupt between batches
+                    try:
+                        from playlista import is_interrupt_requested
+                        if is_interrupt_requested():
+                            logger.warning("🔄 PARALLEL: Interrupt received between batches, stopping processing")
+                            return
+                    except ImportError:
+                        pass  # If we can't import the function, continue normally
 
                 if enrich_later:
                     from music_analyzer.feature_extractor import AudioAnalyzer
@@ -353,7 +367,6 @@ class ParallelProcessor:
                     for filepath in enrich_later:
                         file_info = analyzer._get_file_info(filepath)
                         analyzer.enrich_metadata_for_failed_file(file_info)
-                        
                 if failed_in_batch:
                     logger.info(
                         f"Retrying {len(failed_in_batch)} failed files in next round")
@@ -369,7 +382,6 @@ class ParallelProcessor:
                     logger.info(
                         f"Batch processing complete: {len(file_list)} files processed, {len(self.failed_files)} failed in total.")
                     return
-                    
             except (mp.TimeoutError, BrokenPipeError, ConnectionResetError) as e:
                 logger.error(f"Multiprocessing error: {str(e)}")
                 retries += 1

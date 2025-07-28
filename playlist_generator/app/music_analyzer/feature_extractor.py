@@ -690,18 +690,35 @@ class AudioAnalyzer:
         """Extract rhythm features from audio with fallback to external APIs."""
         logger.info("Extracting rhythm features...")
         
+        # Track BPM extraction state
+        bpm_extraction_state = {
+            'local_attempted': False,
+            'local_succeeded': False,
+            'local_skipped': False,
+            'external_attempted': False,
+            'external_succeeded': False,
+            'final_bpm': None
+        }
+        
         # Check if file is too large for Essentia rhythm extraction
         # Files larger than 150M samples (~5.7 hours at 44kHz) often cause buffer overflow
         if len(audio) > 150000000:
             logger.warning(f"File too large for rhythm extraction ({len(audio)} samples), skipping to external BPM lookup")
+            bpm_extraction_state['local_skipped'] = True
             external_bpm = self._get_external_bpm(audio_path, metadata)
+            bpm_extraction_state['external_attempted'] = True
             if external_bpm is not None:
                 logger.info(f"Using external BPM for large file: {external_bpm:.1f}")
-                return {'bpm': float(external_bpm)}
+                bpm_extraction_state['external_succeeded'] = True
+                bpm_extraction_state['final_bpm'] = float(external_bpm)
+                return {'bpm': float(external_bpm), 'bpm_state': bpm_extraction_state}
             else:
                 logger.warning("No external BPM available for large file, using failed marker -1.0")
-                return {'bpm': -1.0}
+                bpm_extraction_state['final_bpm'] = -1.0
+                return {'bpm': -1.0, 'bpm_state': bpm_extraction_state}
         
+        # Attempt local BPM extraction
+        bpm_extraction_state['local_attempted'] = True
         try:
             logger.debug("Initializing Essentia RhythmExtractor algorithm")
             rhythm_algo = es.RhythmExtractor2013()
@@ -759,6 +776,8 @@ class AudioAnalyzer:
                 if not np.isfinite(bpm) or bpm <= 0:
                     logger.warning(f"Invalid BPM value: {bpm}, using failed marker")
                     bpm = -1.0  # Special marker for failed BPM extraction
+                else:
+                    bpm_extraction_state['local_succeeded'] = True
             except (ValueError, TypeError):
                 logger.warning(
                     f"Could not convert BPM to float: {bpm}, using failed marker")
@@ -766,7 +785,8 @@ class AudioAnalyzer:
 
             logger.debug(f"Final BPM: {bpm}")
             logger.info(f"Rhythm extraction completed: BPM = {bpm:.1f}")
-            return {'bpm': float(bpm)}
+            bpm_extraction_state['final_bpm'] = float(bpm)
+            return {'bpm': float(bpm), 'bpm_state': bpm_extraction_state}
         except TimeoutException as te:
             logger.error(f"Rhythm extraction timed out: {str(te)}")
             raise  # Re-raise to be caught by the main extraction function
@@ -779,13 +799,17 @@ class AudioAnalyzer:
                 f"Rhythm extraction full traceback: {traceback.format_exc()}")
             
             # Try to get BPM from external APIs as fallback
+            bpm_extraction_state['external_attempted'] = True
             external_bpm = self._get_external_bpm(audio_path, metadata)
             if external_bpm is not None:
                 logger.info(f"Using external BPM fallback: {external_bpm:.1f}")
-                return {'bpm': float(external_bpm)}
+                bpm_extraction_state['external_succeeded'] = True
+                bpm_extraction_state['final_bpm'] = float(external_bpm)
+                return {'bpm': float(external_bpm), 'bpm_state': bpm_extraction_state}
             else:
                 logger.warning("No external BPM available, using failed marker -1.0")
-                return {'bpm': -1.0}  # Special marker for failed BPM extraction
+                bpm_extraction_state['final_bpm'] = -1.0
+                return {'bpm': -1.0, 'bpm_state': bpm_extraction_state}
 
     def _get_external_bpm(self, audio_path, metadata):
         """Get BPM from external APIs when local extraction fails."""
@@ -2123,6 +2147,11 @@ class AudioAnalyzer:
                 
                 rhythm_result = self._extract_rhythm_features(audio, audio_path, metadata)
                 features['bpm'] = rhythm_result['bpm']
+                
+                # Log BPM extraction statistics if available
+                if 'bpm_state' in rhythm_result:
+                    self._log_bpm_extraction_stats(rhythm_result['bpm_state'], os.path.basename(audio_path))
+                
                 logger.info(f"Rhythm: BPM = {features['bpm']:.1f}")
             except TimeoutException as te:
                 logger.error(f"Rhythm extraction timed out, skipping file: {str(te)}")
@@ -3489,6 +3518,29 @@ class AudioAnalyzer:
 
         logger.info(f"FAST MODE: Extracted {len(features)} essential features")
         return features
+
+    def _log_bpm_extraction_stats(self, bpm_state, filename):
+        """Log BPM extraction statistics for debugging."""
+        if not bpm_state:
+            return
+            
+        logger.info(f"BPM Extraction Stats for {filename}:")
+        logger.info(f"  Local attempted: {bpm_state.get('local_attempted', False)}")
+        logger.info(f"  Local succeeded: {bpm_state.get('local_succeeded', False)}")
+        logger.info(f"  Local skipped: {bpm_state.get('local_skipped', False)}")
+        logger.info(f"  External attempted: {bpm_state.get('external_attempted', False)}")
+        logger.info(f"  External succeeded: {bpm_state.get('external_succeeded', False)}")
+        logger.info(f"  Final BPM: {bpm_state.get('final_bpm', 'None')}")
+        
+        # Log specific scenarios
+        if bpm_state.get('local_skipped') and bpm_state.get('external_succeeded'):
+            logger.info(f"  ✓ BPM extraction skipped due to file size, but found via external API")
+        elif bpm_state.get('local_attempted') and not bpm_state.get('local_succeeded') and bpm_state.get('external_succeeded'):
+            logger.info(f"  ✓ Local BPM extraction failed, but found via external API")
+        elif bpm_state.get('local_succeeded'):
+            logger.info(f"  ✓ Local BPM extraction succeeded")
+        else:
+            logger.warning(f"  ✗ BPM extraction failed - no valid BPM found")
 
 
 audio_analyzer = AudioAnalyzer()
