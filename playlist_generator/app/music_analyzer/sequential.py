@@ -375,8 +375,19 @@ class SequentialProcessor:
 
                 if is_large_file:
                     logger.info(f"Large file detected ({file_size_mb:.1f}MB), using separate process: {os.path.basename(filepath)}")
-                    features, db_write_success, file_hash = self.large_file_processor.process_large_file(
-                        filepath, force_reextract=force_reextract, rss_limit_gb=self.rss_limit_gb)
+                    max_retries = 2
+                    for attempt in range(max_retries):
+                        features, db_write_success, file_hash = self.large_file_processor.process_large_file(
+                            filepath, force_reextract=force_reextract, rss_limit_gb=self.rss_limit_gb)
+                        if features is not None and db_write_success:
+                            break  # Success!
+                        else:
+                            logger.warning(f"Large file analysis failed or hung for {filepath}, retrying ({attempt+1}/{max_retries})...")
+                    else:
+                        logger.error(f"Large file analysis failed after {max_retries} attempts for {filepath}. Skipping file.")
+                        self.failed_files.append(filepath)
+                        yield None, filepath, False
+                        continue
                 else:
                     # Use the provided audio_analyzer or create a new one
                     logger.debug(
