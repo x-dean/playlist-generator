@@ -83,13 +83,14 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
 
     logger.debug(f"PROGRESS: Updating progress bar for {display_name} - {processing_mode} mode, {percentage:.1f}%")
 
-    # Update progress bar
+    # Update progress bar with persistent timing
+    # Use advance=1 to maintain timing estimation across batches
     if current_index < len(files_list) - 1:
         # Show next file being processed
         progress.update(
             task_id,
-            advance=1 if current_index > 0 else 0,
-            description=f"{mode_color}{processing_mode}: {display_name} ({file_size_info}) ({current_index}/{total_count}) {status_dot}",
+            advance=1,  # Always advance to maintain timing
+            description=f"{mode_color}{processing_mode}: {display_name} ({file_size_info}) ({current_index + 1}/{total_count}) {status_dot}",
             trackinfo=f"{percentage:.1f}%"
         )
     else:
@@ -97,7 +98,7 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
         progress.update(
             task_id,
             advance=1,
-            description=f"{mode_color}Completed: {display_name} ({file_size_info}) ({current_index}/{total_count}) {status_dot}",
+            description=f"{mode_color}Completed: {display_name} ({file_size_info}) ({current_index + 1}/{total_count}) {status_dot}",
             trackinfo=f"{percentage:.1f}%"
         )
     
