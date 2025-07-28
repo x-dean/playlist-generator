@@ -465,6 +465,7 @@ Examples:
     logger.debug("Initializing database connections")
     playlist_db = PlaylistDatabase(cache_file)
     # AudioAnalyzer needs host library path for database storage, container music path for conversion
+    from music_analyzer.feature_extractor import AudioAnalyzer
     audio_db = AudioAnalyzer(cache_file, library=args.library, music='/music')
     logger.debug("Database connections initialized")
 
