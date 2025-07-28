@@ -79,7 +79,6 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
     # Set a timeout for processing each file (e.g., 5 minutes = 300 seconds)
     signal.signal(signal.SIGALRM, timeout_handler)
     signal.alarm(300)
-    
     try:
         size_mb = os.path.getsize(filepath) / (1024 * 1024)
     except Exception:
@@ -201,53 +200,6 @@ class ParallelProcessor:
         else:
             self.retry_counter = retry_counter
 
-    def _monitor_worker_processes(self, pool, batch_size):
-        """Monitor worker processes to detect stuck workers."""
-        import psutil
-        import time
-        
-        start_time = time.time()
-        last_activity = start_time
-        
-        while True:
-            time.sleep(10)  # Check every 10 seconds
-            current_time = time.time()
-            
-            # Check if any workers are stuck
-            if pool._pool:
-                for process in pool._pool:
-                    try:
-                        # Check if process is still alive
-                        if not process.is_alive():
-                            logger.warning(f"🔄 PARALLEL: Worker process {process.pid} is dead")
-                            continue
-                        
-                        # Check process CPU usage
-                        try:
-                            proc = psutil.Process(process.pid)
-                            cpu_percent = proc.cpu_percent(interval=1)
-                            
-                            # If process has been using high CPU for too long, it might be stuck
-                            if cpu_percent > 90:  # High CPU usage
-                                logger.warning(f"🔄 PARALLEL: Worker {process.pid} using {cpu_percent}% CPU")
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            pass
-                            
-                    except Exception as e:
-                        logger.debug(f"🔄 PARALLEL: Error monitoring worker {process.pid}: {e}")
-            
-            # Check for overall timeout (5 minutes without activity)
-            if current_time - last_activity > 300:  # 5 minutes
-                logger.error("🔄 PARALLEL: No activity for 5 minutes, possible deadlock")
-                return False
-            
-            # Update activity time if we're still processing
-            if hasattr(self, '_last_result_time'):
-                if current_time - self._last_result_time < 60:  # Activity in last minute
-                    last_activity = current_time
-        
-        return True
-
     def process(self, file_list: List[str], workers: int = None, status_queue: Optional[object] = None, force_reextract: bool = False, enforce_fail_limit: bool = None, retry_counter=None) -> iter:
         if enforce_fail_limit is not None:
             self.enforce_fail_limit = enforce_fail_limit
@@ -287,7 +239,6 @@ class ParallelProcessor:
                 ctx = mp.get_context('spawn')
                 failed_in_batch = []
                 enrich_later = []
-                
                 for i in range(0, len(remaining_files), self.batch_size):
                     batch = remaining_files[i:i+self.batch_size]
                     
@@ -314,137 +265,94 @@ class ParallelProcessor:
                                 self.batch_size = self.original_batch_size
                     except Exception as e:
                         logger.debug(f"Could not check memory: {e}")
-                    
-                    pool = None
-                    try:
-                        logger.debug(f"🔄 PARALLEL: Creating pool with {self.workers} workers for batch of {len(batch)} files")
-                        pool = ctx.Pool(processes=self.workers)
-                        
-                        # Check if workers are actually running
-                        import psutil
-                        pool_pids = [p.pid for p in pool._pool]
-                        logger.debug(f"🔄 PARALLEL: Worker PIDs: {pool_pids}")
-                        
-                        from functools import partial
-                        worker_func = partial(
-                            process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
+                    with ctx.Pool(processes=self.workers) as pool:
+                        try:
+                            logger.debug(f"🔄 PARALLEL: Pool created with {self.workers} workers for batch of {len(batch)} files")
+                            
+                            # Check if workers are actually running
+                            import psutil
+                            pool_pids = [p.pid for p in pool._pool]
+                            logger.debug(f"🔄 PARALLEL: Worker PIDs: {pool_pids}")
+                            from functools import partial
+                            worker_func = partial(
+                                process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
 
-                        # Process results from the batch with timeout
-                        logger.debug(f"🔄 PARALLEL: Starting to process batch results")
-                        processed_in_batch = 0
-                        batch_failed_files = []  # Track failed files in this batch
-                        
-                        # Use imap_unordered with timeout to prevent hanging
-                        results_iterator = pool.imap_unordered(worker_func, batch)
-                        
-                        # Process results with timeout
-                        import time
-                        start_time = time.time()
-                        timeout_seconds = 600  # 10 minutes timeout per batch
-                        
-                        for result in results_iterator:
-                            processed_in_batch += 1
-                            current_time = time.time()
-                            
-                            # Update last result time for monitoring
-                            self._last_result_time = current_time
-                            
-                            # Check for timeout
-                            if current_time - start_time > timeout_seconds:
-                                logger.error(f"🔄 PARALLEL: Batch timeout after {timeout_seconds}s, terminating pool")
-                                break
-                            
-                            logger.debug(f"🔄 PARALLEL: Got result {processed_in_batch}/{len(batch)} for {os.path.basename(result[1])}")
-                            logger.debug(f"🔄 PARALLEL: Got result for {os.path.basename(result[1])}")
-                            
-                            if self.enforce_fail_limit:
-                                # Use in-memory retry counter
-                                count = self.retry_counter.get(result[1], 0)
-                                if count >= 3:
-                                    # Mark as failed in DB
-                                    import sqlite3
-                                    conn = sqlite3.connect(
-                                        os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                                    cur = conn.cursor()
+                            # Process results from the batch
+                            logger.debug(f"🔄 PARALLEL: Starting to process batch results")
+                            processed_in_batch = 0
+                            for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
+                                processed_in_batch += 1
+                                logger.debug(f"🔄 PARALLEL: Got result {processed_in_batch}/{len(batch)} for {os.path.basename(filepath)}")
+                                logger.debug(f"🔄 PARALLEL: Got result for {os.path.basename(filepath)}")
+                                if self.enforce_fail_limit:
+                                    # Use in-memory retry counter
+                                    count = self.retry_counter.get(filepath, 0)
+                                    if count >= 3:
+                                        # Mark as failed in DB
+                                        import sqlite3
+                                        conn = sqlite3.connect(
+                                            os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
+                                        cur = conn.cursor()
+                                        cur.execute(
+                                            "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                                        conn.commit()
+                                        conn.close()
+                                        logger.warning(
+                                            f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                        continue
+
+                                import sqlite3
+                                conn = sqlite3.connect(
+                                    os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
+                                cur = conn.cursor()
+                                cur.execute(
+                                    "PRAGMA table_info(audio_features)")
+                                columns = [row[1] for row in cur.fetchall()]
+                                if features and db_write_success:
+                                    # On success, reset failed
                                     cur.execute(
-                                        "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (result[1],))
+                                        "UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
                                     conn.commit()
                                     conn.close()
-                                    logger.warning(
-                                        f"File {result[1]} failed 3 times in parallel mode. Skipping for the rest of this run.")
-                                    batch_failed_files.append(result[1])
-                                    continue
-
-                            import sqlite3
-                            conn = sqlite3.connect(
-                                os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                            cur = conn.cursor()
-                            cur.execute(
-                                "PRAGMA table_info(audio_features)")
-                            columns = [row[1] for row in cur.fetchall()]
-                            if result[0] and result[2]:
-                                # On success, reset failed
-                                cur.execute(
-                                    "UPDATE audio_features SET failed = 0 WHERE file_path = ?", (result[1],))
-                                conn.commit()
-                                conn.close()
-                                yield result[0], result[1], result[2]
-                            else:
-                                if self.enforce_fail_limit:
-                                    count = self.retry_counter.get(
-                                        result[1], 0) + 1
-                                    self.retry_counter[result[1]] = count
-                                    logger.warning(
-                                        f"Retrying file {result[1]} (retry count: {count})")
-                                    if count >= 3:
+                                    yield features, filepath, db_write_success
+                                else:
+                                    if self.enforce_fail_limit:
+                                        count = self.retry_counter.get(
+                                            filepath, 0) + 1
+                                        self.retry_counter[filepath] = count
+                                        logger.warning(
+                                            f"Retrying file {filepath} (retry count: {count})")
+                                        if count >= 3:
+                                            cur.execute(
+                                                "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                                        conn.commit()
+                                        conn.close()
+                                        enrich_later.append(filepath)
+                                        logger.warning(
+                                            f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                        continue
+                                    else:
                                         cur.execute(
-                                            "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (result[1],))
-                                conn.commit()
-                                conn.close()
-                                enrich_later.append(result[1])
-                                batch_failed_files.append(result[1])
-                                logger.warning(
-                                    f"File {result[1]} failed 3 times in parallel mode. Skipping for the rest of this run.")
-                                continue
-                        
-                        # Add failed files from this batch to the main failed list
-                        failed_in_batch.extend(batch_failed_files)
-                        
-                        # Check if we processed all files in the batch
-                        if processed_in_batch < len(batch):
-                            logger.warning(f"🔄 PARALLEL: Only processed {processed_in_batch}/{len(batch)} files in batch, possible timeout or error")
-                            
-                    except KeyboardInterrupt:
-                        logger.debug(
-                            "KeyboardInterrupt received, terminating pool and exiting cleanly...")
-                        if pool:
+                                            "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
+                                        conn.commit()
+                                        conn.close()
+                                        yield None, filepath, False
+
+                        except KeyboardInterrupt:
+                            logger.debug(
+                                "KeyboardInterrupt received, terminating pool and exiting cleanly...")
                             pool.terminate()
                             pool.join()
-                        raise
-                    except Exception as e:
-                        logger.error(f"Error in parallel processing: {e}")
-                        if pool:
+                            raise
+                        except Exception as e:
+                            logger.error(f"Error in parallel processing: {e}")
                             pool.terminate()
                             pool.join()
-                        raise
-                    finally:
-                        # Always terminate and join the pool with timeout
-                        if pool:
-                            try:
-                                logger.debug(f"🔄 PARALLEL: Terminating pool for batch")
-                                pool.terminate()
-                                pool.join(timeout=30)  # 30 second timeout for join
-                                
-                                # Force cleanup if join didn't complete
-                                if pool._pool:
-                                    logger.warning("🔄 PARALLEL: Pool join timeout, forcing cleanup")
-                                    for process in pool._pool:
-                                        try:
-                                            process.kill()
-                                        except:
-                                            pass
-                            except Exception as e:
-                                logger.error(f"🔄 PARALLEL: Error during pool cleanup: {e}")
+                            raise
+                        finally:
+                            # Always terminate and join the pool
+                            pool.terminate()
+                            pool.join()
                             
                             # Force memory cleanup after each batch
                             import gc
@@ -470,11 +378,9 @@ class ParallelProcessor:
                     for filepath in enrich_later:
                         file_info = analyzer._get_file_info(filepath)
                         analyzer.enrich_metadata_for_failed_file(file_info)
-                
-                # Update remaining files for next iteration
                 if failed_in_batch:
                     logger.info(
-                        f"🔄 PARALLEL: Retrying {len(failed_in_batch)} failed files in next round")
+                        f"Retrying {len(failed_in_batch)} failed files in next round")
                     files_to_retry = []
                     for filepath in failed_in_batch:
                         if self.enforce_fail_limit:
@@ -483,32 +389,9 @@ class ParallelProcessor:
                                 files_to_retry.append(filepath)
                     remaining_files = files_to_retry if self.enforce_fail_limit else []
                     self.failed_files.extend(files_to_retry)
-                    logger.info(f"🔄 PARALLEL: Will retry {len(remaining_files)} files in next iteration")
-                else:
-                    # All files in this batch were processed successfully
-                    # Remove processed files from remaining_files
-                    processed_files = set()
-                    for i in range(0, len(remaining_files), self.batch_size):
-                        batch = remaining_files[i:i+self.batch_size]
-                        processed_files.update(batch)
-                    
-                    # Remove processed files from remaining_files
-                    remaining_files = [f for f in remaining_files if f not in processed_files]
-                    logger.info(f"🔄 PARALLEL: Processed batch successfully. Remaining files: {len(remaining_files)}")
-                    
-                    # If no more files to process, we're done
-                    if not remaining_files:
-                        logger.info(
-                            f"🔄 PARALLEL: All files processed successfully. Total processed: {len(file_list)}, failed: {len(self.failed_files)}")
-                        return
-                
-                # Continue to next iteration if there are still files to process
-                if remaining_files:
-                    logger.info(f"🔄 PARALLEL: Continuing to next batch with {len(remaining_files)} remaining files")
-                    continue
                 else:
                     logger.info(
-                        f"🔄 PARALLEL: All files processed. Total processed: {len(file_list)}, failed: {len(self.failed_files)}")
+                        f"Batch processing complete: {len(file_list)} files processed, {len(self.failed_files)} failed in total.")
                     return
             except (mp.TimeoutError, BrokenPipeError, ConnectionResetError) as e:
                 logger.error(f"Multiprocessing error: {str(e)}")

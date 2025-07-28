@@ -434,8 +434,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                         
                         logger.info(f"Memory usage: {memory_percent:.1f}% ({used_gb:.1f}GB used, {available_gb:.1f}GB available)")
                         
-                        # If memory is critical (>95%), force cleanup (increased from 90%)
-                        if memory_percent > 95:  # Increased from 90%
+                        # If memory is critical (>90%), force cleanup
+                        if memory_percent > 90:
                             logger.error(f"CRITICAL: Memory usage at {memory_percent:.1f}% - forcing cleanup")
                             import gc
                             gc.collect()
