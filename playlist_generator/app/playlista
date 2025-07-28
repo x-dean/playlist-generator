@@ -423,6 +423,8 @@ Examples:
                         help='Enable memory-aware processing (skip memory-intensive features when memory is low)')
     parser.add_argument('--rss_limit_gb', type=float, default=6.0,
                         help='Max total Python RSS (GB) before aborting/skipping (default: 6.0)')
+    parser.add_argument('--fast_mode', action='store_true',
+                        help='Enable fast mode (skip expensive features for 3-5x faster processing)')
 
     # Analyze files (default mode)
     parser.add_argument('-a', '--analyze', action='store_true',

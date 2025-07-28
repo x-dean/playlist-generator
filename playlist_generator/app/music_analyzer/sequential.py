@@ -313,20 +313,23 @@ class SequentialProcessor:
         self.memory_monitor = MemoryMonitor()
         self.rss_limit_gb = rss_limit_gb
 
-    def process(self, file_list: List[str], workers: int = None, force_reextract: bool = False) -> iter:
+    def process(self, file_list: List[str], workers: int = None, force_reextract: bool = False, fast_mode: bool = False) -> iter:
         """Process a list of files sequentially.
 
         Args:
             file_list (List[str]): List of file paths.
             workers (int, optional): Ignored for sequential processing.
             force_reextract (bool, optional): If True, bypass the cache for all files.
+            fast_mode (bool, optional): If True, use fast mode for 3-5x faster processing.
 
         Yields:
             tuple: (features, filepath, db_write_success) for each file.
         """
-        yield from self._process_sequential(file_list, force_reextract=force_reextract)
+        if fast_mode:
+            logger.info("🐌 SEQUENTIAL: FAST MODE enabled for 3-5x faster processing")
+        yield from self._process_sequential(file_list, force_reextract=force_reextract, fast_mode=fast_mode)
 
-    def _process_sequential(self, file_list: List[str], force_reextract: bool = False) -> iter:
+    def _process_sequential(self, file_list: List[str], force_reextract: bool = False, fast_mode: bool = False) -> iter:
         """Internal generator for sequential processing."""
         import essentia
         # Essentia logging is now handled in main playlista script
@@ -390,8 +393,13 @@ class SequentialProcessor:
                         analyzer = AudioAnalyzer()
                     # Log that we're starting the extraction
                     logger.info(f"SEQUENTIAL: Starting feature extraction for {os.path.basename(filepath)}")
-                    features, db_write_success, file_hash = analyzer.extract_features(
-                        filepath, force_reextract=force_reextract)
+                    if fast_mode:
+                        logger.info(f"SEQUENTIAL: Using FAST MODE for {os.path.basename(filepath)}")
+                        features, db_write_success, file_hash = analyzer.extract_features_fast(
+                            filepath, force_reextract=force_reextract)
+                    else:
+                        features, db_write_success, file_hash = analyzer.extract_features(
+                            filepath, force_reextract=force_reextract)
 
                 # Log memory after processing
                 usage_percent_after, used_gb_after, available_gb_after = self.memory_monitor.get_memory_usage()

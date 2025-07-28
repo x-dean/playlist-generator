@@ -562,7 +562,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     pass
                 
                 parallel_manager = ParallelWorkerManager()
-                for result in parallel_manager.process(normal_files, workers=workers, force_reextract=force_reextract):
+                fast_mode = getattr(args, 'fast_mode', False)
+                for result in parallel_manager.process(normal_files, workers=workers, force_reextract=force_reextract, fast_mode=fast_mode):
                     processed_count += 1
                     filename = os.path.basename(result[1]) # result[1] is the filepath
                     
@@ -618,7 +619,8 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 if getattr(args, 'workers', None) is None:
                     logger.info(f"🐌 AUTO: Automatically selected sequential processing based on memory")
                 sequential_manager = SequentialWorkerManager(audio_analyzer=audio_analyzer)
-                for result in sequential_manager.process(normal_files, workers=1, force_reextract=force_reextract):
+                fast_mode = getattr(args, 'fast_mode', False)
+                for result in sequential_manager.process(normal_files, workers=1, force_reextract=force_reextract, fast_mode=fast_mode):
                     processed_count += 1
                     filename = os.path.basename(result[1]) # result[1] is the filepath
                     

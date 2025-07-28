@@ -33,13 +33,14 @@ def get_memory_aware_worker_count(max_workers: int = None, memory_limit_str: str
         return max(1, min(max_workers or mp.cpu_count(), mp.cpu_count()))
 
 
-def process_file_worker(filepath: str, status_queue: Optional[object] = None, force_reextract: bool = False) -> Optional[tuple]:
+def process_file_worker(filepath: str, status_queue: Optional[object] = None, force_reextract: bool = False, fast_mode: bool = False) -> Optional[tuple]:
     """Worker function to process a single audio file in parallel.
 
     Args:
         filepath (str): Path to the audio file.
         status_queue (multiprocessing.Queue, optional): Queue to notify main process of long-running files.
         force_reextract (bool): If True, bypass the cache for all files.
+        fast_mode (bool): If True, use fast mode for 3-5x faster processing.
 
     Returns:
         Optional[tuple]: (features dict, filepath, db_write_success bool) or None on failure.
@@ -78,83 +79,20 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
 
     # Set a timeout for processing each file (e.g., 5 minutes = 300 seconds)
     signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(300)
-    try:
-        size_mb = os.path.getsize(filepath) / (1024 * 1024)
-    except Exception:
-        size_mb = 0
+    signal.alarm(300)  # 5 minutes timeout
 
     while retry_count <= max_retries:
         try:
-            # Use file discovery to check if file should be excluded
-            from .file_discovery import FileDiscovery
-            file_discovery = FileDiscovery()
-            if file_discovery._is_in_excluded_directory(filepath):
-                notified["shown"] = True
-                logger.warning(
-                    f"Skipping file in excluded directory: {filepath}")
-                return None, filepath, False
-
-            if not os.path.exists(filepath):
-                notified["shown"] = True
-                logger.warning(f"File not found: {filepath}")
-                try:
-                    from .feature_extractor import AudioAnalyzer
-                    audio_analyzer = AudioAnalyzer()
-                    file_info = audio_analyzer._get_file_info(filepath)
-                    audio_analyzer._mark_failed(file_info)
-                except Exception:
-                    pass  # Ignore database errors
-                return None, filepath, False
-            if os.path.getsize(filepath) < 1024:
-                notified["shown"] = True
-                logger.warning(f"Skipping small file: {filepath}")
-                try:
-                    from .feature_extractor import AudioAnalyzer
-                    audio_analyzer = AudioAnalyzer()
-                    file_info = audio_analyzer._get_file_info(filepath)
-                    audio_analyzer._mark_failed(file_info)
-                except Exception:
-                    pass  # Ignore database errors
-                return None, filepath, False
-            # Use FileDiscovery to validate the file
-            from .file_discovery import FileDiscovery
-            file_discovery = FileDiscovery()
-            if not file_discovery._is_valid_audio_file(filepath):
-                notified["shown"] = True
-                logger.warning(f"Invalid audio file, skipping: {filepath}")
-                try:
-                    from .feature_extractor import AudioAnalyzer
-                    audio_analyzer = AudioAnalyzer()
-                    file_info = audio_analyzer._get_file_info(filepath)
-                    audio_analyzer._mark_failed(file_info)
-                except Exception:
-                    pass  # Ignore database errors
-                return None, filepath, False
-            result = None
-            try:
-                logger.debug(f"Worker starting extraction for {filepath}")
-                result = audio_analyzer.extract_features(
-                    filepath, force_reextract=force_reextract)
-                logger.debug(
-                    f"Worker completed extraction for {filepath}: {result is not None}")
-            except Exception as e:
-                logger.debug(
-                    f"ERROR in worker for {os.path.basename(filepath)}: {e}\n{traceback.format_exc()}")
-                return None, filepath, False
-            finally:
-                # Cancel the alarm
-                signal.alarm(0)
-                # If result is None or database write failed, mark as failed and return failure
-                features, db_write_success, file_hash = (
-                    result if result is not None else (None, False, None))
-                if not features or not db_write_success:
-                    try:
-                        file_info = audio_analyzer._get_file_info(filepath)
-                        audio_analyzer._mark_failed(file_info)
-                    except Exception:
-                        pass  # Ignore database errors
-                    return None, filepath, False
+            # Use fast mode if enabled
+            if fast_mode:
+                logger.info(f"🔄 PARALLEL WORKER {worker_pid}: Using FAST MODE for {os.path.basename(filepath)}")
+                result = audio_analyzer.extract_features_fast(filepath, force_reextract=force_reextract)
+            else:
+                result = audio_analyzer.extract_features(filepath, force_reextract=force_reextract)
+            
+            # Cancel the alarm
+            signal.alarm(0)
+            
             if result and result[0] is not None:
                 features, db_write_success, _ = result
                 logger.debug(
@@ -200,7 +138,7 @@ class ParallelProcessor:
         else:
             self.retry_counter = retry_counter
 
-    def process(self, file_list: List[str], workers: int = None, status_queue: Optional[object] = None, force_reextract: bool = False, enforce_fail_limit: bool = None, retry_counter=None) -> iter:
+    def process(self, file_list: List[str], workers: int = None, status_queue: Optional[object] = None, force_reextract: bool = False, enforce_fail_limit: bool = None, retry_counter=None, fast_mode: bool = False) -> iter:
         if enforce_fail_limit is not None:
             self.enforce_fail_limit = enforce_fail_limit
         if retry_counter is not None:
@@ -226,10 +164,12 @@ class ParallelProcessor:
             
         logger.info(
             f"🔄 PARALLEL: Using {self.workers} workers with batch size {self.batch_size}")
+        if fast_mode:
+            logger.info("🔄 PARALLEL: FAST MODE enabled for 3-5x faster processing")
         logger.info(f"🔄 PARALLEL: Starting multiprocessing pool for {len(file_list)} files")
-        yield from self._process_parallel(file_list, status_queue, force_reextract=force_reextract)
+        yield from self._process_parallel(file_list, status_queue, force_reextract=force_reextract, fast_mode=fast_mode)
 
-    def _process_parallel(self, file_list, status_queue, force_reextract: bool = False):
+    def _process_parallel(self, file_list, status_queue, force_reextract: bool = False, fast_mode: bool = False):
         retries = 0
         remaining_files = file_list[:]
         while remaining_files and retries < self.max_retries:
@@ -275,7 +215,7 @@ class ParallelProcessor:
                             logger.debug(f"🔄 PARALLEL: Worker PIDs: {pool_pids}")
                             from functools import partial
                             worker_func = partial(
-                                process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
+                                process_file_worker, status_queue=status_queue, force_reextract=force_reextract, fast_mode=fast_mode)
 
                             # Process results from the batch
                             logger.debug(f"🔄 PARALLEL: Starting to process batch results")

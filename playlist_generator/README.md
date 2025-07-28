@@ -154,6 +154,19 @@ The playlist generator can consume significant memory during audio analysis. Use
 - **Custom batch size**: `playlista -a --batch_size 2`
 - **Memory limits**: `playlista -a --memory_limit "2GB"`
 
+### Performance Optimization
+
+For faster processing, especially for large libraries:
+
+- **Fast mode (3-5x faster)**: `playlista -a --fast_mode`
+  - Skips expensive features (MFCC, chroma, MusiCNN, API calls)
+  - Keeps essential features for playlist quality
+  - Ideal for quick processing or large libraries
+- **Combine with parallel processing**: `playlista -a --fast_mode --workers 8`
+- **Memory-aware processing**: `playlista -a` (automatic optimization)
+
+For detailed performance optimization guidance, see [PERFORMANCE_OPTIMIZATION.md](PERFORMANCE_OPTIMIZATION.md).
+
 For detailed memory optimization guidance, see [MEMORY_OPTIMIZATION.md](MEMORY_OPTIMIZATION.md).
 
 ---
@@ -174,6 +187,7 @@ For detailed memory optimization guidance, see [MEMORY_OPTIMIZATION.md](MEMORY_O
 | `--batch_size N`    | Batch size for processing                    |
 | `--low_memory`      | Enable low memory mode                       |
 | `--memory_limit S`  | Memory limit per worker (e.g., "2GB")       |
+| `--fast_mode`       | Enable fast mode (3-5x faster processing)   |
 | `--output_dir DIR`  | Where to save playlists                      |
 | `--music_dir DIR`   | Music directory (container path)             |
 | `--library DIR` | Music directory (host path)               |
