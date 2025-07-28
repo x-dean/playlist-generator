@@ -81,9 +81,9 @@ def update_musicnn_file_status(filename):
         init_musicnn_progress()
     
     if musicnn_progress and musicnn_task:
-        # Reset progress for new file
+        # Reset progress for new file and set total to 5 steps
         musicnn_progress.reset(musicnn_task)
-        musicnn_progress.update(musicnn_task, description=f"Processing: {filename}")
+        musicnn_progress.update(musicnn_task, total=5, completed=0, description=f"Processing: {filename}")
 
 def update_musicnn_step_status(step, **kwargs):
     """Update status for a specific step with dynamic values."""

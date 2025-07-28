@@ -355,8 +355,9 @@ class AudioAnalyzer:
         
         # Update MusiCNN status panel
         try:
-            from utils.musicnn_status import update_musicnn_file_status
+            from utils.musicnn_status import update_musicnn_file_status, update_musicnn_step_status
             update_musicnn_file_status(os.path.basename(audio_path))
+            update_musicnn_step_status('start')
         except ImportError:
             pass  # Status panel not available
         
