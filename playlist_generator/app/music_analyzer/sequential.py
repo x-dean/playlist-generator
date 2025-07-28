@@ -254,10 +254,13 @@ class LargeFileProcessor:
                 else:
                     # Only warn about system/cgroup memory if RSS is also near the limit
                     if is_over_limit and total_rss_gb > rss_threshold:
-                        if not system_mem_warning_logged[0] or (current_time - last_warning_time[0] > warning_interval):
-                            logger.warning(f"RSS near limit ({total_rss_gb:.2f}GB/{rss_limit_gb:.2f}GB) and system memory high: {status_msg}")
-                            system_mem_warning_logged[0] = True
+                        if not system_mem_warning_logged[0]:
+                            # Start timing when we first exceed the threshold
                             last_warning_time[0] = current_time
+                            system_mem_warning_logged[0] = True
+                        elif (current_time - last_warning_time[0] > 5):  # Only warn after 5 seconds
+                            logger.warning(f"RSS near limit ({total_rss_gb:.2f}GB/{rss_limit_gb:.2f}GB) and system memory high: {status_msg}")
+                            last_warning_time[0] = current_time  # Reset timer for next warning
                     elif system_mem_warning_logged[0] and total_rss_gb < (rss_threshold * 0.9):  # Only clear when RSS drops significantly
                         logger.info("Memory warning cleared - RSS and system memory back to normal levels.")
                         system_mem_warning_logged[0] = False
