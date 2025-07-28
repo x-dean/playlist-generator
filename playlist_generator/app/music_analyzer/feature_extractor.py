@@ -352,16 +352,6 @@ class AudioAnalyzer:
         """Extract MusiCNN embedding and auto-tags using Essentia's TensorflowPredictMusiCNN and MonoLoader, matching the official tutorial."""
         logger.info(
             f"Starting MusiCNN embedding extraction for {os.path.basename(audio_path)}")
-        
-        # Update MusiCNN status panel
-        try:
-            from utils.musicnn_status import update_musicnn_file_status, update_musicnn_step_progress
-            update_musicnn_file_status(os.path.basename(audio_path))
-            # Start with step 0 (Loading JSON metadata)
-            update_musicnn_step_progress(0, "Starting...")
-        except ImportError:
-            pass  # Status panel not available
-        
         try:
             import essentia.standard as es
             import numpy as np
@@ -394,13 +384,6 @@ class AudioAnalyzer:
             tag_names = metadata.get('classes', [])
             logger.info(
                 f"Loaded {len(tag_names)} tag names from MusiCNN metadata")
-            
-            # Update status
-            try:
-                from utils.musicnn_status import update_musicnn_step_progress
-                update_musicnn_step_progress(0, f"{len(tag_names)} tags")
-            except ImportError:
-                pass
 
             # Get output layer for embeddings
             output_layer = 'model/dense_1/BiasAdd'
@@ -419,27 +402,11 @@ class AudioAnalyzer:
             audio = es.MonoLoader(filename=audio_path, sampleRate=16000)()
             logger.info(
                 f"Loaded audio: {len(audio)} samples at 16kHz ({len(audio)/16000:.2f}s)")
-            
-            # Update status
-            try:
-                from utils.musicnn_status import update_musicnn_step_progress
-                duration = len(audio)/16000
-                update_musicnn_step_progress(1, f"{duration:.1f}s")
-            except ImportError:
-                pass
 
             logger.info("Initializing MusiCNN for activations (auto-tagging)")
             # Run MusiCNN for activations (auto-tagging)
             musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
             logger.info("Running MusiCNN activations analysis")
-            
-            # Update status
-            try:
-                from utils.musicnn_status import update_musicnn_step_progress
-                update_musicnn_step_progress(2)
-            except ImportError:
-                pass
-            
             activations = musicnn(audio)  # shape: [time, tags]
             logger.info(f"MusiCNN activations shape: {activations.shape}")
 
@@ -457,14 +424,6 @@ class AudioAnalyzer:
             musicnn_emb = es.TensorflowPredictMusiCNN(
                 graphFilename=model_path, output=output_layer)
             logger.info("Running MusiCNN embeddings analysis")
-            
-            # Update status
-            try:
-                from utils.musicnn_status import update_musicnn_step_progress
-                update_musicnn_step_progress(3)
-            except ImportError:
-                pass
-            
             embeddings = musicnn_emb(audio)
             logger.info(f"MusiCNN embeddings shape: {embeddings.shape}")
 
@@ -481,17 +440,6 @@ class AudioAnalyzer:
             logger.info("Successfully extracted MusiCNN embedding and tags")
             logger.info(
                 f"MusiCNN extraction completed: {len(tags)} tags, {len(embedding)} embedding dimensions")
-            
-            # Update MusiCNN status panel with results
-            try:
-                from utils.musicnn_status import update_musicnn_step_status, clear_musicnn_status
-                top_tags = sorted(tags.items(), key=lambda x: x[1], reverse=True)[:3]
-                top_tag_names = [tag for tag, _ in top_tags]
-                update_musicnn_step_progress(4, f"{len(tags)} tags, {len(embedding)} dims | {', '.join(top_tag_names)}")
-                # Don't clear the progress bar - let it continue for next file
-            except ImportError:
-                pass
-            
             return result
         except Exception as e:
             logger.warning(
@@ -499,13 +447,6 @@ class AudioAnalyzer:
             logger.warning(f"Exception type: {type(e).__name__}")
             import traceback
             logger.warning(f"Full traceback: {traceback.format_exc()}")
-            
-            # Update MusiCNN status panel with error
-            try:
-                from utils.musicnn_status import update_musicnn_step_status
-                update_musicnn_step_status('failure', error=str(e)[:50])
-            except ImportError:
-                pass  # Status panel not available
             return None
 
     def _init_db(self):

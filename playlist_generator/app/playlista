@@ -99,8 +99,6 @@ essentia_logger.setLevel(getattr(logging, log_level, logging.INFO))
 setup_log_level_signal_handler_direct()
 start_log_level_monitor()
 
-# MusiCNN progress bar will be initialized when first needed
-
 # Setup interrupt handling
 import threading
 _interrupt_requested = threading.Event()
@@ -459,13 +457,7 @@ Examples:
     # Set cache file environment variable after it's defined
     os.environ['CACHE_FILE'] = cache_file
 
-    # Use shared console instance
-    import sys
-    if hasattr(sys, '_console_instance'):
-        console = sys._console_instance
-    else:
-        console = Console()
-        sys._console_instance = console
+    console = Console()
     console.print(f"[bold magenta]{banner}[/bold magenta]")
 
     logger.info("Scanning music library for audio files")
@@ -605,13 +597,6 @@ Examples:
                 args, audio_db, playlist_db, cli, force_reextract=args.no_cache)
             logger.info(
                 f"Analysis completed with {len(failed_files)} failed files")
-            
-            # Finish MusiCNN processing
-            try:
-                from utils.musicnn_status import finish_musicnn_processing
-                finish_musicnn_processing()
-            except ImportError:
-                pass
 
         elif args.generate_only:
             logger.info(
