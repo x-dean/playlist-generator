@@ -17,15 +17,20 @@ from utils.path_converter import PathConverter
 import threading
 from contextlib import contextmanager
 
-# Import new utility modules for improved functionality
+# Import new robustness utility modules
 try:
+    from utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, circuit_breaker
+    from utils.adaptive_timeout import AdaptiveTimeoutManager, get_timeout_manager, calculate_timeout
+    from utils.error_classifier import ErrorClassifier, classify_error, ErrorType, ErrorSeverity
+    from utils.smart_retry import SmartRetryManager, RetryStrategy, get_retry_manager, smart_retry
     from utils.timeout_manager import timeout_manager, timeout_context, TimeoutException
     from utils.error_recovery import error_handler, retry_with_backoff, safe_operation
     from utils.progress_tracker import ProgressTracker, ParallelProgressTracker
-    NEW_UTILITIES_AVAILABLE = True
+    ROBUSTNESS_UTILITIES_AVAILABLE = True
+    logger.debug("Robustness utilities loaded successfully")
 except ImportError as e:
-    logger.warning(f"New utility modules not available: {e}")
-    NEW_UTILITIES_AVAILABLE = False
+    logger.warning(f"Robustness utility modules not available: {e}")
+    ROBUSTNESS_UTILITIES_AVAILABLE = False
 
 # Set up logger first
 logger = logging.getLogger(__name__)
@@ -307,6 +312,11 @@ class AudioAnalyzer:
         self.db_pool = DatabaseConnectionPool(self.cache_file)
         self._init_db()
         self.cleanup_database()  # Clean up immediately on init
+        
+        # Initialize robustness features
+        if ROBUSTNESS_UTILITIES_AVAILABLE:
+            self._init_robustness_features()
+        
         # Set MusicBrainz user agent
         musicbrainzngs.set_useragent(
             "PlaylistGenerator", "1.0", "noreply@example.com")
@@ -314,6 +324,50 @@ class AudioAnalyzer:
         self.music = music
         # Load TensorFlow models
         # self.vggish_model = self._load_vggish_model() # Removed VGGish model loading
+
+    def _init_robustness_features(self):
+        """Initialize robustness features for enhanced error handling and recovery."""
+        logger.info("Initializing robustness features")
+        
+        # Initialize circuit breakers for different operations
+        self.circuit_breakers = {
+            'audio_processing': CircuitBreaker(
+                failure_threshold=3,
+                recovery_timeout=30,
+                name='audio_processing'
+            ),
+            'database_operations': CircuitBreaker(
+                failure_threshold=5,
+                recovery_timeout=60,
+                name='database_operations'
+            ),
+            'network_operations': CircuitBreaker(
+                failure_threshold=3,
+                recovery_timeout=120,
+                name='network_operations'
+            ),
+            'feature_extraction': CircuitBreaker(
+                failure_threshold=2,
+                recovery_timeout=45,
+                name='feature_extraction'
+            )
+        }
+        
+        # Initialize timeout manager
+        self.timeout_manager = get_timeout_manager()
+        
+        # Initialize error classifier
+        self.error_classifier = get_error_classifier()
+        
+        # Initialize retry manager
+        self.retry_manager = get_retry_manager()
+        
+        # Register circuit breakers globally
+        for name, breaker in self.circuit_breakers.items():
+            register_circuit_breaker(name, breaker)
+        
+        logger.info(f"Initialized {len(self.circuit_breakers)} circuit breakers")
+        logger.debug("Robustness features initialized successfully")
 
     # Removed _load_vggish_model
 
