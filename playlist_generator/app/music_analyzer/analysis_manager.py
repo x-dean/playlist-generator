@@ -13,7 +13,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.console import Console
 from music_analyzer.parallel import ParallelProcessor
 from music_analyzer.sequential import SequentialProcessor
-from music_analyzer.feature_extractor import AudioAnalyzer
+from music_analyzer.audio_analyzer import AudioAnalyzer
 import psutil
 import threading
 from typing import List, Tuple, Optional

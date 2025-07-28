@@ -5,7 +5,7 @@ import sys
 from tqdm import tqdm
 import logging
 import time
-from .feature_extractor import AudioAnalyzer
+from .audio_analyzer import AudioAnalyzer
 from typing import Optional, List
 import threading
 import signal
@@ -54,7 +54,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
 
     import os
     import traceback
-    from .feature_extractor import AudioAnalyzer
+    from .audio_analyzer import AudioAnalyzer
     import logging
     import os
     log_level = os.getenv('LOG_LEVEL', 'INFO')
@@ -99,7 +99,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 notified["shown"] = True
                 logger.warning(f"File not found: {filepath}")
                 try:
-                    from .feature_extractor import AudioAnalyzer
+                    from .audio_analyzer import AudioAnalyzer
                     audio_analyzer = AudioAnalyzer()
                     file_info = audio_analyzer._get_file_info(filepath)
                     audio_analyzer._mark_failed(file_info)
@@ -110,7 +110,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 notified["shown"] = True
                 logger.warning(f"Skipping small file: {filepath}")
                 try:
-                    from .feature_extractor import AudioAnalyzer
+                    from .audio_analyzer import AudioAnalyzer
                     audio_analyzer = AudioAnalyzer()
                     file_info = audio_analyzer._get_file_info(filepath)
                     audio_analyzer._mark_failed(file_info)
@@ -124,7 +124,7 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
                 notified["shown"] = True
                 logger.warning(f"Invalid audio file, skipping: {filepath}")
                 try:
-                    from .feature_extractor import AudioAnalyzer
+                    from .audio_analyzer import AudioAnalyzer
                     audio_analyzer = AudioAnalyzer()
                     file_info = audio_analyzer._get_file_info(filepath)
                     audio_analyzer._mark_failed(file_info)
@@ -372,7 +372,7 @@ class ParallelProcessor:
                                 logger.debug(f"Could not check memory after cleanup: {e}")
 
                 if enrich_later:
-                    from music_analyzer.feature_extractor import AudioAnalyzer
+                    from music_analyzer.audio_analyzer import AudioAnalyzer
                     analyzer = AudioAnalyzer(
                         os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
                     for filepath in enrich_later:

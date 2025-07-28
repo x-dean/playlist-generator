@@ -23,7 +23,7 @@ class FileDiscovery:
 
         # Use provided audio_db or create new one
         if audio_db is None:
-            from .feature_extractor import AudioAnalyzer
+            from .audio_analyzer import AudioAnalyzer
             self.audio_db = AudioAnalyzer()
         else:
             self.audio_db = audio_db
