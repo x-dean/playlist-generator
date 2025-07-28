@@ -267,12 +267,23 @@ class ParallelProcessor:
                         logger.debug(f"Could not check memory: {e}")
                     with ctx.Pool(processes=self.workers) as pool:
                         try:
+                            logger.debug(f"🔄 PARALLEL: Pool created with {self.workers} workers for batch of {len(batch)} files")
+                            
+                            # Check if workers are actually running
+                            import psutil
+                            pool_pids = [p.pid for p in pool._pool]
+                            logger.debug(f"🔄 PARALLEL: Worker PIDs: {pool_pids}")
                             from functools import partial
                             worker_func = partial(
                                 process_file_worker, status_queue=status_queue, force_reextract=force_reextract)
 
                             # Process results from the batch
+                            logger.debug(f"🔄 PARALLEL: Starting to process batch results")
+                            processed_in_batch = 0
                             for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
+                                processed_in_batch += 1
+                                logger.debug(f"🔄 PARALLEL: Got result {processed_in_batch}/{len(batch)} for {os.path.basename(filepath)}")
+                                logger.debug(f"🔄 PARALLEL: Got result for {os.path.basename(filepath)}")
                                 if self.enforce_fail_limit:
                                     # Use in-memory retry counter
                                     count = self.retry_counter.get(filepath, 0)
