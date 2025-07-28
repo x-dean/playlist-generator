@@ -486,9 +486,7 @@ class AudioAnalyzer:
                 top_tags = sorted(tags.items(), key=lambda x: x[1], reverse=True)[:3]
                 top_tag_names = [tag for tag, _ in top_tags]
                 update_musicnn_step_status('success', tag_count=len(tags), embedding_dims=len(embedding), top_tags=', '.join(top_tag_names))
-                # Clear the status after a short delay to let user see the result
-                import time
-                time.sleep(1)
+                # Clear the progress bar after completion
                 clear_musicnn_status()
             except ImportError:
                 pass  # Status panel not available

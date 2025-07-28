@@ -99,7 +99,9 @@ essentia_logger.setLevel(getattr(logging, log_level, logging.INFO))
 setup_log_level_signal_handler_direct()
 start_log_level_monitor()
 
-# MusiCNN status updates will be printed directly when they occur
+# Initialize MusiCNN progress bar
+from utils.musicnn_status import init_musicnn_progress
+init_musicnn_progress()
 
 # Setup interrupt handling
 import threading
