@@ -26,19 +26,19 @@ The playlist generator can consume significant memory during audio analysis, esp
 **Default Behavior**: Uses all CPU cores
 ```bash
 # Use all available CPUs (default)
-docker compose run --rm playlista --analyze
+playlista -a
 
 # Limit to specific number of workers
-docker compose run --rm playlista --analyze --workers 4
+playlista -a --workers 4
 
 # Use sequential processing (lowest memory usage)
-docker compose run --rm playlista --analyze --workers 1
+playlista -a --workers 1
 ```
 
 **Memory-Aware Mode**: Automatically calculates optimal workers based on available RAM
 ```bash
 # Let the system decide based on available memory
-docker compose run --rm playlista --analyze  # No --workers flag = automatic memory-aware calculation
+playlista -a  # No --workers flag = automatic memory-aware calculation
 ```
 
 ### 2. Batch Size Control
@@ -46,10 +46,10 @@ docker compose run --rm playlista --analyze  # No --workers flag = automatic mem
 **Default**: Batch size equals number of workers
 ```bash
 # Set custom batch size
-docker compose run --rm playlista --analyze --batch_size 2
+playlista -a --batch_size 2
 
 # Use environment variable
-BATCH_SIZE=2 docker compose run --rm playlista --analyze
+BATCH_SIZE=2 playlista -a
 ```
 
 ### 3. Low Memory Mode
@@ -57,7 +57,7 @@ BATCH_SIZE=2 docker compose run --rm playlista --analyze
 **Automatic memory reduction**:
 ```bash
 # Reduces workers and batch size automatically
-docker compose run --rm playlista --analyze --low_memory
+playlista -a --low_memory
 ```
 
 This mode:
@@ -70,8 +70,8 @@ This mode:
 **Set memory constraints**:
 ```bash
 # Limit memory per worker
-docker compose run --rm playlista --analyze --memory_limit "2GB"
-docker compose run --rm playlista --analyze --memory_limit "512MB"
+playlista -a --memory_limit "2GB"
+playlista -a --memory_limit "512MB"
 ```
 
 ### 5. Environment Variables
@@ -88,7 +88,7 @@ export BATCH_SIZE=2
 export MEMORY_LIMIT_PER_WORKER="2GB"
 
 # Run with environment variables
-docker compose run --rm playlista --analyze
+playlista -a
 ```
 
 ## Memory Monitoring
@@ -115,28 +115,28 @@ Memory-aware worker calculation:
 ### For Low Memory Systems (<8GB RAM)
 ```bash
 # Conservative approach
-docker compose run --rm playlista --analyze --workers 2 --batch_size 1
+playlista -a --workers 2 --batch_size 1
 
 # Or use low memory mode
-docker compose run --rm playlista --analyze --low_memory
+playlista -a --low_memory
 ```
 
 ### For Medium Memory Systems (8-16GB RAM)
 ```bash
 # Balanced approach
-docker compose run --rm playlista --analyze --workers 4 --batch_size 2
+playlista -a --workers 4 --batch_size 2
 
 # Or let system decide
-docker compose run --rm playlista --analyze
+playlista -a
 ```
 
 ### For High Memory Systems (>16GB RAM)
 ```bash
 # Maximum performance
-docker compose run --rm playlista --analyze --workers 8 --batch_size 4
+playlista -a --workers 8 --batch_size 4
 
 # Or use all available resources
-docker compose run --rm playlista --analyze
+playlista -a
 ```
 
 ## Troubleshooting
@@ -148,9 +148,9 @@ docker compose run --rm playlista --analyze
 - System becomes unresponsive
 
 **Solutions**:
-1. Use sequential processing: `docker compose run --rm playlista --analyze --workers 1`
-2. Enable low memory mode: `docker compose run --rm playlista --analyze --low_memory`
-3. Reduce batch size: `docker compose run --rm playlista --analyze --batch_size 1`
+1. Use sequential processing: `--workers 1`
+2. Enable low memory mode: `--low_memory`
+3. Reduce batch size: `--batch_size 1`
 4. Process files in smaller batches
 
 ### Memory Leaks
@@ -171,7 +171,7 @@ docker compose run --rm playlista --analyze
 export MAX_WORKERS=4
 export BATCH_SIZE=2
 export MEMORY_LIMIT_PER_WORKER="1.5GB"
-docker compose run --rm playlista --analyze
+playlista -a
 ```
 
 ### Docker Memory Limits

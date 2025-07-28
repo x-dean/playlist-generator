@@ -7,7 +7,7 @@ import traceback
 from typing import List, Dict, Any, Optional
 import essentia.standard as es
 import tensorflow as tf
-from music_analyzer.audio_analyzer import AudioAnalyzer
+from music_analyzer.feature_extractor import AudioAnalyzer
 import multiprocessing
 import threading
 import gc
@@ -20,7 +20,7 @@ def analyze_file_worker(audio_path, force_reextract, result_queue):
     """Worker function for analyzing audio files in a separate process."""
     import essentia.standard as es
     import tensorflow as tf
-    from music_analyzer.audio_analyzer import AudioAnalyzer
+    from music_analyzer.feature_extractor import AudioAnalyzer
     cache_file = os.getenv('CACHE_FILE', '/app/cache/audio_analysis.db')
     library = os.getenv('HOST_LIBRARY_PATH', '/root/music/library')
     music = os.getenv('MUSIC_PATH', '/music')

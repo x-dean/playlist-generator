@@ -2,7 +2,7 @@ services:
   playlista:
     container_name: playlista
     build: .
-    entrypoint: ["main.py"]
+    entrypoint: ["playlista"]
     volumes:
       - /root/music/library:/music
       - /root/music/library/playlists/auto:/app/playlists

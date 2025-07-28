@@ -46,8 +46,8 @@ COPY app /app
 # Create directories with proper permissions
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics
 
-# Make main.py executable and add to PATH
-RUN chmod +x /app/main.py
+# Make playlista executable and add to PATH
+RUN chmod +x /app/playlista
 ENV PATH="${PATH}:/app"
 
 # Set environment variables
@@ -56,5 +56,5 @@ ENV PYTHONUNBUFFERED=1 \
     CACHE_DIR=/app/cache \
     MODEL_DIR=/app/feature_extraction/models
 
-# Default command - use the executable directly
-CMD ["main.py"]
+# Default command
+CMD ["playlista"]
