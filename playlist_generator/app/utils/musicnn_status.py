@@ -80,20 +80,28 @@ def update_musicnn_step_status(step, **kwargs):
     
     if step in step_messages:
         update_musicnn_status(step_messages[step])
-        # Advance progress for completed steps
+        # Advance progress for completed steps (but not for success/failure)
         if step in ['loaded_json', 'loaded_audio', 'activations', 'embeddings']:
             global musicnn_progress, musicnn_task
             if musicnn_progress and musicnn_task:
                 musicnn_progress.advance(musicnn_task)
 
-def clear_musicnn_status():
-    """Clear the MusiCNN progress bar."""
+def finish_musicnn_processing():
+    """Call this when all MusiCNN processing is complete."""
     global musicnn_progress, _initialized
     if musicnn_progress:
         musicnn_progress.stop()
         # Print a completion message
         console.print("[bold green]✓ MusiCNN processing completed[/bold green]\n")
         _initialized = False
+
+def clear_musicnn_status():
+    """Clear the MusiCNN progress bar (for individual file failures)."""
+    global musicnn_progress, musicnn_task
+    if musicnn_progress and musicnn_task:
+        # Just reset the progress bar for the next file
+        musicnn_progress.reset(musicnn_task)
+        musicnn_progress.update(musicnn_task, description="Waiting for next file...")
 
 def get_musicnn_status():
     """Get the current MusiCNN status text."""

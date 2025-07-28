@@ -607,6 +607,13 @@ Examples:
                 args, audio_db, playlist_db, cli, force_reextract=args.no_cache)
             logger.info(
                 f"Analysis completed with {len(failed_files)} failed files")
+            
+            # Finish MusiCNN processing
+            try:
+                from utils.musicnn_status import finish_musicnn_processing
+                finish_musicnn_processing()
+            except ImportError:
+                pass
 
         elif args.generate_only:
             logger.info(
