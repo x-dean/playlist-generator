@@ -356,6 +356,23 @@ class AudioAnalyzer:
             import essentia.standard as es
             import numpy as np
             import json
+            import sys
+            
+            # Check Python version compatibility
+            if sys.version_info < (3, 6):
+                logger.warning("Python version < 3.6 detected, MusicNN may have compatibility issues")
+                return {'skipped': True, 'reason': 'python_version_too_old'}
+            
+            # Check TensorFlow availability
+            try:
+                import tensorflow as tf
+                logger.debug(f"TensorFlow version: {tf.__version__}")
+            except ImportError:
+                logger.warning("TensorFlow not available, MusicNN will be skipped")
+                return {'skipped': True, 'reason': 'tensorflow_not_available'}
+            except Exception as e:
+                logger.warning(f"TensorFlow import error: {str(e)}")
+                return {'skipped': True, 'reason': 'tensorflow_import_error'}
 
             model_path = os.getenv(
                 'MUSICNN_MODEL_PATH',
@@ -405,10 +422,29 @@ class AudioAnalyzer:
 
             logger.info("Initializing MusiCNN for activations (auto-tagging)")
             # Run MusiCNN for activations (auto-tagging)
-            musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
-            logger.info("Running MusiCNN activations analysis")
-            activations = musicnn(audio)  # shape: [time, tags]
-            logger.info(f"MusiCNN activations shape: {activations.shape}")
+            try:
+                musicnn = es.TensorflowPredictMusiCNN(graphFilename=model_path)
+                logger.info("Running MusiCNN activations analysis")
+                activations = musicnn(audio)  # shape: [time, tags]
+            except Exception as e:
+                logger.warning(f"MusiCNN activations initialization failed: {str(e)}")
+                return {'skipped': True, 'reason': 'musicnn_initialization_failed'}
+            
+            # Handle different return types from MusicNN
+            if isinstance(activations, list):
+                logger.info(f"MusiCNN activations returned as list with {len(activations)} elements")
+                # Convert list to numpy array if needed
+                activations = np.array(activations)
+            elif hasattr(activations, 'shape'):
+                logger.info(f"MusiCNN activations shape: {activations.shape}")
+            else:
+                logger.warning(f"Unexpected activations type: {type(activations)}")
+                return {'skipped': True, 'reason': 'unexpected_activations_type'}
+            
+            # Validate activations shape
+            if len(activations.shape) != 2:
+                logger.warning(f"Unexpected activations shape: {activations.shape}, expected 2D array")
+                return {'skipped': True, 'reason': 'invalid_activations_shape'}
 
             tag_probs = activations.mean(axis=0)
             logger.info(
@@ -421,11 +457,30 @@ class AudioAnalyzer:
             logger.info(
                 f"Initializing MusiCNN for embeddings using output layer: {output_layer}")
             # Run MusiCNN for embeddings (using correct output layer)
-            musicnn_emb = es.TensorflowPredictMusiCNN(
-                graphFilename=model_path, output=output_layer)
-            logger.info("Running MusiCNN embeddings analysis")
-            embeddings = musicnn_emb(audio)
-            logger.info(f"MusiCNN embeddings shape: {embeddings.shape}")
+            try:
+                musicnn_emb = es.TensorflowPredictMusiCNN(
+                    graphFilename=model_path, output=output_layer)
+                logger.info("Running MusiCNN embeddings analysis")
+                embeddings = musicnn_emb(audio)
+            except Exception as e:
+                logger.warning(f"MusiCNN embeddings initialization failed: {str(e)}")
+                return {'skipped': True, 'reason': 'musicnn_embeddings_failed'}
+            
+            # Handle different return types from MusicNN for embeddings
+            if isinstance(embeddings, list):
+                logger.info(f"MusiCNN embeddings returned as list with {len(embeddings)} elements")
+                # Convert list to numpy array if needed
+                embeddings = np.array(embeddings)
+            elif hasattr(embeddings, 'shape'):
+                logger.info(f"MusiCNN embeddings shape: {embeddings.shape}")
+            else:
+                logger.warning(f"Unexpected embeddings type: {type(embeddings)}")
+                return {'skipped': True, 'reason': 'unexpected_embeddings_type'}
+            
+            # Validate embeddings shape
+            if len(embeddings.shape) != 2:
+                logger.warning(f"Unexpected embeddings shape: {embeddings.shape}, expected 2D array")
+                return {'skipped': True, 'reason': 'invalid_embeddings_shape'}
 
             embedding = np.mean(embeddings, axis=0)
             logger.info(
@@ -445,6 +500,12 @@ class AudioAnalyzer:
             logger.warning(
                 f"MusiCNN embedding/tag extraction failed: {str(e)}")
             logger.warning(f"Exception type: {type(e).__name__}")
+            
+            # Handle specific Python version compatibility issues
+            if "flush" in str(e) and "print()" in str(e):
+                logger.warning("Detected Python version compatibility issue with print() flush argument")
+                return {'skipped': True, 'reason': 'python_version_compatibility'}
+            
             import traceback
             logger.warning(f"Full traceback: {traceback.format_exc()}")
             return None
