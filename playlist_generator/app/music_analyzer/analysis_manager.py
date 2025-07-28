@@ -462,7 +462,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 
                 # Check for interrupt using global flag
                 try:
-                    from playlista import is_interrupt_requested
+                    from signal_handlers import is_interrupt_requested
                     if is_interrupt_requested():
                         logger.warning("Interrupt received after completing file")
                         print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
@@ -556,7 +556,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 
                 # Set parallel processing flag to prevent signal handler from triggering during pool termination
                 try:
-                    from playlista import set_parallel_processing_active, clear_parallel_processing_active
+                    from signal_handlers import set_parallel_processing_active, clear_parallel_processing_active
                     set_parallel_processing_active()
                 except ImportError:
                     pass
@@ -568,7 +568,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     
                     # Check for interrupt using global flag
                     try:
-                        from playlista import is_interrupt_requested
+                        from signal_handlers import is_interrupt_requested
                         if is_interrupt_requested():
                             logger.warning("Interrupt received after completing file")
                             print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")
@@ -624,7 +624,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     
                     # Check for interrupt using global flag
                     try:
-                        from playlista import is_interrupt_requested
+                        from signal_handlers import is_interrupt_requested
                         if is_interrupt_requested():
                             logger.warning("Interrupt received after completing file")
                             print(f"\n🛑 Interrupt received! Completed {filename}, stopping analysis...")

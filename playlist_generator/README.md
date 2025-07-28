@@ -38,37 +38,37 @@ Choose with `-m` or `--playlist_method`:
 
 ### A. Analyze Your Music Library
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
+docker compose run --rm playlista --analyze
 ```
 - Scans all audio files, extracts features, and updates the database.
 
 ### B. Generate Playlists (from DB, no re-analysis)
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
+docker compose run --rm playlista --generate_only
 ```
 - Uses cached features to generate playlists (default: feature-group method).
 
 ### C. Update All Playlists (regenerate from DB)
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
+docker compose run --rm playlista --update
 ```
 - Regenerates all playlists from the database and updates the DB tables.
 
 ### D. Generate Time-Based Playlists
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
+docker compose run --rm playlista --analyze --playlist_method time
 ```
 - Creates playlists for each time slot (e.g., Morning, Afternoon), splitting if the total duration exceeds the slot.
 
 ### E. Generate KMeans Playlists
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
+docker compose run --rm playlista --analyze --playlist_method kmeans
 ```
 - Clusters tracks by features, always assigns all tracks, fallback to “Mixed_Collection” if needed.
 
 ### F. Generate Cache-Based Playlists
 ```sh
-./run.sh --analyze --music_dir=/path/to/music --library=/path/to/music --output_dir=/path/to/playlists
+docker compose run --rm playlista --analyze --playlist_method cache
 ```
 - Groups tracks by feature bins (legacy/alternative to “all”).
 
@@ -81,7 +81,7 @@ When using the tag-based playlist method (`-m tags`), you can control the minimu
 - **Usage Example:**
 
 ```sh
-./run.sh --analyze --music_dir=/music --library=/music --output_dir=/playlists
+docker compose run --rm playlista --analyze --playlist_method tags --min_tracks_per_genre 15
 ```
 
 This will only create genre+decade playlists for genres that have at least 15 tracks in your library.
@@ -149,10 +149,10 @@ You can adjust the threshold as needed. Genres with fewer tracks will be ignored
 
 The playlist generator can consume significant memory during audio analysis. Use these options to control RAM usage:
 
-- **Low memory mode**: `playlista -a --low_memory`
-- **Sequential processing**: `playlista -a --workers 1`
-- **Custom batch size**: `playlista -a --batch_size 2`
-- **Memory limits**: `playlista -a --memory_limit "2GB"`
+- **Low memory mode**: `docker compose run --rm playlista --analyze --low_memory`
+- **Sequential processing**: `docker compose run --rm playlista --analyze --workers 1`
+- **Custom batch size**: `docker compose run --rm playlista --analyze --batch_size 2`
+- **Memory limits**: `docker compose run --rm playlista --analyze --memory_limit "2GB"`
 
 For detailed memory optimization guidance, see [MEMORY_OPTIMIZATION.md](MEMORY_OPTIMIZATION.md).
 
