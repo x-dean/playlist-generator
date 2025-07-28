@@ -533,6 +533,28 @@ class AudioAnalyzer:
         """
         return self.db_manager.get_file_sizes_from_db(file_paths)
     
+    def recreate_database(self) -> bool:
+        """Force recreate the database with correct schema.
+        
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            logger.warning("Recreating database with correct schema")
+            import os
+            if os.path.exists(self.cache_file):
+                os.remove(self.cache_file)
+                logger.info(f"Removed existing database: {self.cache_file}")
+            
+            # Reinitialize the database manager
+            self.db_manager = AudioDatabaseManager(self.cache_file)
+            logger.info("Database recreated successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to recreate database: {e}")
+            return False
+    
     def _mark_failed(self, file_info: Dict[str, Any]) -> bool:
         """Mark a file as failed in the database.
         

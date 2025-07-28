@@ -24,6 +24,7 @@ class AudioDatabaseManager:
         """
         self.cache_file = cache_file
         self._init_db()
+        self._check_and_fix_schema()
     
     def _init_db(self):
         """Initialize the database with required tables."""
@@ -37,6 +38,11 @@ class AudioDatabaseManager:
             
             with sqlite3.connect(self.cache_file) as conn:
                 cursor = conn.cursor()
+                
+                # Check if tables exist and have correct schema
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                existing_tables = [row[0] for row in cursor.fetchall()]
+                logger.debug(f"Existing tables: {existing_tables}")
                 
                 # Create audio_features table
                 cursor.execute("""
@@ -65,6 +71,15 @@ class AudioDatabaseManager:
                     )
                 """)
                 
+                # Verify table structure
+                cursor.execute("PRAGMA table_info(audio_features)")
+                audio_features_columns = [row[1] for row in cursor.fetchall()]
+                logger.debug(f"Audio_features table columns: {audio_features_columns}")
+                
+                cursor.execute("PRAGMA table_info(file_discovery_state)")
+                file_discovery_columns = [row[1] for row in cursor.fetchall()]
+                logger.debug(f"File_discovery_state table columns: {file_discovery_columns}")
+                
                 conn.commit()
                 logger.info("Audio database initialization completed successfully")
                 
@@ -73,6 +88,59 @@ class AudioDatabaseManager:
             import traceback
             logger.error(f"Audio database init error traceback: {traceback.format_exc()}")
             raise
+    
+    def _check_and_fix_schema(self):
+        """Check and fix database schema if needed."""
+        try:
+            with sqlite3.connect(self.cache_file) as conn:
+                cursor = conn.cursor()
+                
+                # Check audio_features table
+                cursor.execute("PRAGMA table_info(audio_features)")
+                audio_features_columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'filepath' not in audio_features_columns:
+                    logger.warning("Audio_features table missing 'filepath' column, recreating table")
+                    cursor.execute("DROP TABLE IF EXISTS audio_features")
+                    cursor.execute("""
+                        CREATE TABLE audio_features (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            filepath TEXT UNIQUE NOT NULL,
+                            file_hash TEXT,
+                            file_size INTEGER,
+                            features TEXT NOT NULL,
+                            metadata TEXT,
+                            failed INTEGER DEFAULT 0,
+                            musicnn_skipped INTEGER DEFAULT 0,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                
+                # Check file_discovery_state table
+                cursor.execute("PRAGMA table_info(file_discovery_state)")
+                file_discovery_columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'filepath' not in file_discovery_columns:
+                    logger.warning("File_discovery_state table missing 'filepath' column, recreating table")
+                    cursor.execute("DROP TABLE IF EXISTS file_discovery_state")
+                    cursor.execute("""
+                        CREATE TABLE file_discovery_state (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            filepath TEXT UNIQUE NOT NULL,
+                            file_size INTEGER,
+                            last_modified REAL,
+                            discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
+                
+                conn.commit()
+                logger.info("Database schema check completed")
+                
+        except Exception as e:
+            logger.error(f"Schema check failed: {e}")
+            import traceback
+            logger.error(f"Schema check error traceback: {traceback.format_exc()}")
     
     def save_features(self, file_info: Dict[str, Any], features: Dict[str, Any], failed: int = 0) -> bool:
         """Save features to the database.
@@ -319,17 +387,27 @@ class AudioDatabaseManager:
             List[str]: List of failed file paths.
         """
         try:
+            logger.debug(f"Getting failed files from database: {self.cache_file}")
             with sqlite3.connect(self.cache_file) as conn:
                 cursor = conn.cursor()
+                
+                # First, let's check if the table exists and what columns it has
+                cursor.execute("PRAGMA table_info(audio_features)")
+                columns = cursor.fetchall()
+                logger.debug(f"Audio_features table columns: {[col[1] for col in columns]}")
                 
                 cursor.execute("""
                     SELECT filepath FROM audio_features WHERE failed = 1
                 """)
                 
-                return [row[0] for row in cursor.fetchall()]
+                failed_files = [row[0] for row in cursor.fetchall()]
+                logger.debug(f"Retrieved {len(failed_files)} failed files from database")
+                return failed_files
                 
         except Exception as e:
             logger.error(f"Failed to get failed files: {e}")
+            import traceback
+            logger.error(f"Get failed files error traceback: {traceback.format_exc()}")
             return []
     
     def get_files_with_skipped_musicnn(self) -> List[str]:
@@ -436,8 +514,14 @@ class AudioDatabaseManager:
             Tuple[List[str], List[str], List[str]]: (new_files, modified_files, removed_files)
         """
         try:
+            logger.debug(f"Getting file discovery changes from database: {self.cache_file}")
             with sqlite3.connect(self.cache_file) as conn:
                 cursor = conn.cursor()
+                
+                # First, let's check if the table exists and what columns it has
+                cursor.execute("PRAGMA table_info(file_discovery_state)")
+                columns = cursor.fetchall()
+                logger.debug(f"File_discovery_state table columns: {[col[1] for col in columns]}")
                 
                 # Get all files in discovery state
                 cursor.execute("SELECT filepath, file_size, last_modified FROM file_discovery_state")
@@ -505,8 +589,14 @@ class AudioDatabaseManager:
             Dict[str, int]: Dictionary mapping file paths to sizes.
         """
         try:
+            logger.debug(f"Getting file sizes from database: {self.cache_file}")
             with sqlite3.connect(self.cache_file) as conn:
                 cursor = conn.cursor()
+                
+                # First, let's check if the table exists and what columns it has
+                cursor.execute("PRAGMA table_info(audio_features)")
+                columns = cursor.fetchall()
+                logger.debug(f"Audio_features table columns: {[col[1] for col in columns]}")
                 
                 placeholders = ','.join(['?' for _ in file_paths])
                 cursor.execute(f"""
@@ -514,8 +604,12 @@ class AudioDatabaseManager:
                     WHERE filepath IN ({placeholders})
                 """, file_paths)
                 
-                return {row[0]: row[1] for row in cursor.fetchall()}
+                result = {row[0]: row[1] for row in cursor.fetchall()}
+                logger.debug(f"Retrieved file sizes for {len(result)} files from database")
+                return result
                 
         except Exception as e:
             logger.error(f"Failed to get file sizes from database: {e}")
+            import traceback
+            logger.error(f"Get file sizes error traceback: {traceback.format_exc()}")
             return {} 
