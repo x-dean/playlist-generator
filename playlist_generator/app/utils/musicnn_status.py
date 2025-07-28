@@ -31,8 +31,17 @@ def init_musicnn_progress():
     """Initialize the MusiCNN progress bar only once."""
     global musicnn_progress, musicnn_task, _initialized
     
-    if _initialized:
-        return  # Already initialized
+    if _initialized and musicnn_progress is not None:
+        return  # Already initialized and running
+    
+    # If we have a progress bar but it's not initialized, stop it first
+    if musicnn_progress is not None and not _initialized:
+        try:
+            musicnn_progress.stop()
+        except:
+            pass
+        musicnn_progress = None
+        musicnn_task = None
     
     # Print a separator line to create space
     console.print("\n" + "="*80)
@@ -54,13 +63,23 @@ def init_musicnn_progress():
 
 def update_musicnn_status(new_status):
     """Update the MusiCNN status in the progress bar."""
-    global musicnn_progress, musicnn_task
+    global musicnn_progress, musicnn_task, _initialized
+    
+    # Initialize if not already done
+    if not _initialized:
+        init_musicnn_progress()
+    
     if musicnn_progress and musicnn_task:
         musicnn_progress.update(musicnn_task, description=new_status)
 
 def update_musicnn_file_status(filename):
     """Update status for a new file being processed."""
-    global musicnn_progress, musicnn_task
+    global musicnn_progress, musicnn_task, _initialized
+    
+    # Initialize if not already done
+    if not _initialized:
+        init_musicnn_progress()
+    
     if musicnn_progress and musicnn_task:
         # Reset progress for new file
         musicnn_progress.reset(musicnn_task)
@@ -68,6 +87,12 @@ def update_musicnn_file_status(filename):
 
 def update_musicnn_step_status(step, **kwargs):
     """Update status for a specific step with dynamic values."""
+    global musicnn_progress, musicnn_task, _initialized
+    
+    # Initialize if not already done
+    if not _initialized:
+        init_musicnn_progress()
+    
     step_messages = {
         'start': "Starting...",
         'loaded_json': f"JSON: {kwargs.get('tag_count', 0)} tags",
@@ -82,7 +107,6 @@ def update_musicnn_step_status(step, **kwargs):
         update_musicnn_status(step_messages[step])
         # Advance progress for completed steps (but not for success/failure)
         if step in ['loaded_json', 'loaded_audio', 'activations', 'embeddings']:
-            global musicnn_progress, musicnn_task
             if musicnn_progress and musicnn_task:
                 musicnn_progress.advance(musicnn_task)
 
