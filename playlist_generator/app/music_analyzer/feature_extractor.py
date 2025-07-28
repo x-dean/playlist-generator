@@ -357,6 +357,8 @@ class AudioAnalyzer:
         try:
             from utils.musicnn_status import update_musicnn_file_status, update_musicnn_step_progress
             update_musicnn_file_status(os.path.basename(audio_path))
+            # Start with step 0 (Loading JSON metadata)
+            update_musicnn_step_progress(0, "Starting...")
         except ImportError:
             pass  # Status panel not available
         

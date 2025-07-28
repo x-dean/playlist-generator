@@ -62,6 +62,7 @@ def init_musicnn_progress():
         TextColumn("[bold blue]Step:"),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         TimeElapsedColumn(),
         console=console,
         transient=False
@@ -94,31 +95,6 @@ def update_musicnn_file_status(filename):
         musicnn_progress.reset(musicnn_task)
         musicnn_progress.update(musicnn_task, description=f"Starting: {filename}")
 
-def update_musicnn_step_status(step, **kwargs):
-    """Update status for a specific step with dynamic values."""
-    global musicnn_progress, musicnn_task, _initialized
-    
-    # Initialize if not already done
-    if not _initialized:
-        init_musicnn_progress()
-    
-    step_messages = {
-        'start': "Starting...",
-        'loaded_json': f"JSON: {kwargs.get('tag_count', 0)} tags",
-        'loaded_audio': f"Audio: {kwargs.get('duration', 0):.1f}s",
-        'activations': "Activations...",
-        'embeddings': "Embeddings...",
-        'success': f"✓ {kwargs.get('tag_count', 0)} tags, {kwargs.get('embedding_dims', 0)} dims | {kwargs.get('top_tags', '')}",
-        'failure': f"✗ {kwargs.get('error', 'Unknown error')}"
-    }
-    
-    if step in step_messages:
-        update_musicnn_status(step_messages[step])
-        # Advance progress for completed steps (but not for success/failure)
-        if step in ['loaded_json', 'loaded_audio', 'activations', 'embeddings']:
-            if musicnn_progress and musicnn_task:
-                musicnn_progress.advance(musicnn_task)
-
 def update_musicnn_step_progress(step_index, description=None):
     """Update progress for a specific MusiCNN step."""
     global musicnn_progress, musicnn_task, _initialized
@@ -132,7 +108,9 @@ def update_musicnn_step_progress(step_index, description=None):
             step_name = MUSICNN_STEPS[step_index]
             if description:
                 step_name = f"{step_name}: {description}"
+            # Update the description and advance the progress bar
             musicnn_progress.update(musicnn_task, description=step_name)
+            # Advance to the next step (this fills the progress bar)
             musicnn_progress.advance(musicnn_task)
 
 def finish_musicnn_processing():
