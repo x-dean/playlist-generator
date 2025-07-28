@@ -531,4 +531,22 @@ class AudioAnalyzer:
         Returns:
             Dict[str, int]: Dictionary mapping file paths to their sizes in bytes.
         """
-        return self.db_manager.get_file_sizes_from_db(file_paths) 
+        return self.db_manager.get_file_sizes_from_db(file_paths)
+    
+    def _mark_failed(self, file_info: Dict[str, Any]) -> bool:
+        """Mark a file as failed in the database.
+        
+        Args:
+            file_info (Dict[str, Any]): File information dictionary.
+            
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            filepath = file_info.get('filepath', '')
+            if filepath:
+                return self.db_manager.mark_as_failed(filepath)
+            return False
+        except Exception as e:
+            logger.error(f"Failed to mark file as failed: {e}")
+            return False 
