@@ -61,7 +61,7 @@ class ErrorCategory(Enum):
 
 
 @dataclass
-class ProcessingError:
+class ProcessingErrorInfo:
     """Represents a processing error with context."""
     error_type: str
     message: str
@@ -110,34 +110,34 @@ class ProcessingError:
 @dataclass
 class ErrorAggregator:
     """Aggregates and manages processing errors."""
-    errors: List[ProcessingError] = field(default_factory=list)
-    warnings: List[ProcessingError] = field(default_factory=list)
+    errors: List[ProcessingErrorInfo] = field(default_factory=list)
+    warnings: List[ProcessingErrorInfo] = field(default_factory=list)
     
-    def add_error(self, error: ProcessingError) -> None:
+    def add_error(self, error: ProcessingErrorInfo) -> None:
         """Add an error to the aggregator."""
         self.errors.append(error)
     
-    def add_warning(self, warning: ProcessingError) -> None:
+    def add_warning(self, warning: ProcessingErrorInfo) -> None:
         """Add a warning to the aggregator."""
         self.warnings.append(warning)
     
-    def get_errors_by_category(self, category: ErrorCategory) -> List[ProcessingError]:
+    def get_errors_by_category(self, category: ErrorCategory) -> List[ProcessingErrorInfo]:
         """Get all errors of a specific category."""
         return [error for error in self.errors if error.category == category]
     
-    def get_errors_by_service(self, service: str) -> List[ProcessingError]:
+    def get_errors_by_service(self, service: str) -> List[ProcessingErrorInfo]:
         """Get all errors from a specific service."""
         return [error for error in self.errors if error.service == service]
     
-    def get_errors_by_severity(self, severity: ErrorSeverity) -> List[ProcessingError]:
+    def get_errors_by_severity(self, severity: ErrorSeverity) -> List[ProcessingErrorInfo]:
         """Get all errors of a specific severity."""
         return [error for error in self.errors if error.severity == severity]
     
-    def get_retryable_errors(self) -> List[ProcessingError]:
+    def get_retryable_errors(self) -> List[ProcessingErrorInfo]:
         """Get all errors that can be retried."""
         return [error for error in self.errors if error.can_retry()]
     
-    def get_critical_errors(self) -> List[ProcessingError]:
+    def get_critical_errors(self) -> List[ProcessingErrorInfo]:
         """Get all critical errors."""
         return [error for error in self.errors if error.severity == ErrorSeverity.CRITICAL]
     
@@ -211,9 +211,9 @@ class UnifiedErrorHandler:
                     file_path: Optional[str] = None,
                     service: Optional[str] = None,
                     operation: Optional[str] = None,
-                    context: Optional[Dict[str, Any]] = None) -> ProcessingError:
+                    context: Optional[Dict[str, Any]] = None) -> ProcessingErrorInfo:
         """Handle an error and add it to the aggregator."""
-        error = ProcessingError(
+        error = ProcessingErrorInfo(
             error_type=error_type,
             message=message,
             severity=severity,
@@ -250,9 +250,9 @@ class UnifiedErrorHandler:
                       file_path: Optional[str] = None,
                       service: Optional[str] = None,
                       operation: Optional[str] = None,
-                      context: Optional[Dict[str, Any]] = None) -> ProcessingError:
+                      context: Optional[Dict[str, Any]] = None) -> ProcessingErrorInfo:
         """Handle a warning and add it to the aggregator."""
-        warning = ProcessingError(
+        warning = ProcessingErrorInfo(
             error_type=warning_type,
             message=message,
             severity=ErrorSeverity.LOW,
