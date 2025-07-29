@@ -86,6 +86,9 @@
    - Added 30-minute timeout per batch (increased for larger batches)
    - Automatic pool termination if batch takes too long
    - Individual file timeout of 10 minutes in parallel mode
+   - **Fixed batch progression**: Properly remove successfully processed files from remaining_files list
+   - **Progress tracking**: Track successful files per batch and prevent infinite loops
+   - **Stuck detection**: Break out of batch loop if no files are processed successfully
 
 3. **Retry Logic for Stuck Files**:
    - Files stuck for >5 minutes are marked for retry

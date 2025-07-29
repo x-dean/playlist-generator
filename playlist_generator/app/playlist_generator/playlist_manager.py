@@ -7,6 +7,7 @@ from .cache import CacheBasedGenerator
 from .time_based import TimeBasedScheduler
 from .tag_based import TagBasedPlaylistGenerator
 from .feature_group import FeatureGroupPlaylistGenerator
+from .advanced_playlist_models import AdvancedPlaylistModels
 from collections import defaultdict
 import numpy as np
 from sklearn.preprocessing import StandardScaler
@@ -36,6 +37,7 @@ class PlaylistManager:
         self.cache_generator = CacheBasedGenerator(cache_file)
         self.tag_generator = TagBasedPlaylistGenerator(
             min_tracks_per_genre=min_tracks_per_genre, db_file=cache_file)
+        self.advanced_models = AdvancedPlaylistModels(cache_file)
         self.playlist_stats = defaultdict(dict)
         logger.debug("PlaylistManager initialization complete")
 
@@ -134,6 +136,75 @@ class PlaylistManager:
                 logger.info(
                     f"Finalized {len(balanced)} playlists after merging/splitting")
                 return balanced
+
+            # Enhanced playlist methods
+            if self.playlist_method == 'ensemble':
+                logger.info("Generating ensemble playlists")
+                ensemble_playlists = self.advanced_models.generate_hybrid_playlists(
+                    features, num_playlists, method='ensemble')
+                logger.debug(
+                    f"Generated {len(ensemble_playlists)} ensemble playlists")
+                for name, data in ensemble_playlists.items():
+                    if len(data['tracks']) >= 3:
+                        final_playlists[name] = data
+                        used_tracks.update(data['tracks'])
+                        logger.debug(
+                            f"Added ensemble playlist '{name}' with {len(data['tracks'])} tracks")
+                final_playlists = _finalize_playlists(
+                    final_playlists, features)
+                self._calculate_playlist_stats(final_playlists, features)
+                return final_playlists
+
+            if self.playlist_method == 'hierarchical':
+                logger.info("Generating hierarchical playlists")
+                hierarchical_playlists = self.advanced_models.generate_hybrid_playlists(
+                    features, num_playlists, method='hierarchical')
+                logger.debug(
+                    f"Generated {len(hierarchical_playlists)} hierarchical playlists")
+                for name, data in hierarchical_playlists.items():
+                    if len(data['tracks']) >= 3:
+                        final_playlists[name] = data
+                        used_tracks.update(data['tracks'])
+                        logger.debug(
+                            f"Added hierarchical playlist '{name}' with {len(data['tracks'])} tracks")
+                final_playlists = _finalize_playlists(
+                    final_playlists, features)
+                self._calculate_playlist_stats(final_playlists, features)
+                return final_playlists
+
+            if self.playlist_method == 'recommendation':
+                logger.info("Generating recommendation-based playlists")
+                recommendation_playlists = self.advanced_models.generate_hybrid_playlists(
+                    features, num_playlists, method='recommendation')
+                logger.debug(
+                    f"Generated {len(recommendation_playlists)} recommendation playlists")
+                for name, data in recommendation_playlists.items():
+                    if len(data['tracks']) >= 3:
+                        final_playlists[name] = data
+                        used_tracks.update(data['tracks'])
+                        logger.debug(
+                            f"Added recommendation playlist '{name}' with {len(data['tracks'])} tracks")
+                final_playlists = _finalize_playlists(
+                    final_playlists, features)
+                self._calculate_playlist_stats(final_playlists, features)
+                return final_playlists
+
+            if self.playlist_method == 'mood_based':
+                logger.info("Generating mood-based playlists")
+                mood_playlists = self.advanced_models.generate_hybrid_playlists(
+                    features, num_playlists, method='mood_based')
+                logger.debug(
+                    f"Generated {len(mood_playlists)} mood-based playlists")
+                for name, data in mood_playlists.items():
+                    if len(data['tracks']) >= 3:
+                        final_playlists[name] = data
+                        used_tracks.update(data['tracks'])
+                        logger.debug(
+                            f"Added mood-based playlist '{name}' with {len(data['tracks'])} tracks")
+                final_playlists = _finalize_playlists(
+                    final_playlists, features)
+                self._calculate_playlist_stats(final_playlists, features)
+                return final_playlists
 
             # Tag-based playlists (genre + decade)
             if self.playlist_method == 'tags':

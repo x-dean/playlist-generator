@@ -185,6 +185,13 @@ class ParallelProcessor:
         logger.info(f"🔄 PARALLEL: Processing {len(remaining_files)} files in {total_batches} batches")
         
         while remaining_files and retries < self.max_retries:
+            # Check if we're stuck (no progress in previous iteration)
+            if hasattr(self, '_previous_remaining_count') and len(remaining_files) >= self._previous_remaining_count:
+                logger.warning(f"🔄 PARALLEL: No progress made - {len(remaining_files)} files remain (same as before)")
+                if retries >= self.max_retries - 1:  # Last retry
+                    logger.error("🔄 PARALLEL: No progress in final retry, switching to sequential processing")
+                    break
+            self._previous_remaining_count = len(remaining_files)
             try:
                 logger.info(
                     f"🔄 PARALLEL: Starting multiprocessing with {self.workers} workers (retry {retries})")
@@ -253,6 +260,7 @@ class ParallelProcessor:
                         logger.debug(f"🔄 PARALLEL: Starting to process batch results")
                         processed_in_batch = 0
                         batch_start_time = time.time()
+                        successful_files = []  # Track successfully processed files
                         
                         # Add timeout for batch processing
                         batch_timeout = 1800  # 30 minutes per batch (increased for larger batches)
@@ -305,6 +313,7 @@ class ParallelProcessor:
                                     "UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
                                 conn.commit()
                                 conn.close()
+                                successful_files.append(filepath)  # Track successful files
                                 yield features, filepath, db_write_success
                             else:
                                 if self.enforce_fail_limit:
@@ -327,10 +336,23 @@ class ParallelProcessor:
                                         "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
                                     conn.commit()
                                     conn.close()
+                                    # Don't remove failed files from remaining_files - they'll be retried
                                     yield None, filepath, False
                         
                         batch_time = time.time() - batch_start_time
                         logger.info(f"🔄 PARALLEL: Batch {current_batch}/{total_batches} completed in {batch_time:.1f}s")
+                        
+                        # Remove successfully processed files from remaining_files
+                        for successful_file in successful_files:
+                            if successful_file in remaining_files:
+                                remaining_files.remove(successful_file)
+                        logger.debug(f"🔄 PARALLEL: Remaining files after batch {current_batch}: {len(remaining_files)} (processed {len(successful_files)} successfully)")
+                        
+                        # Check if we're making progress
+                        if len(successful_files) == 0 and len(remaining_files) > 0:
+                            logger.warning(f"🔄 PARALLEL: No files processed successfully in batch {current_batch}, but {len(remaining_files)} files remain")
+                            # If we're not making progress, break out of the batch loop
+                            break
                         
                     except KeyboardInterrupt:
                         logger.debug(

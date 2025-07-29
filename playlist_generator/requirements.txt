@@ -14,4 +14,7 @@ musicbrainzngs
 mutagen
 requests
 questionary
-librosa 
+librosa
+redis
+spotipy
+discogs-client 

@@ -465,8 +465,8 @@ Examples:
     parser.add_argument('--status', action='store_true',
                         help='Show library/database statistics and exit')
     # Playlist generation method
-    parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags'], default='all',
-                        help='Playlist generation method: all (feature-group, default), time, kmeans, cache, or tags (genre+decade)')
+    parser.add_argument('-m', '--playlist_method', choices=['all', 'time', 'kmeans', 'cache', 'tags', 'ensemble', 'hierarchical', 'recommendation', 'mood_based'], default='all',
+                        help='Playlist generation method: all (feature-group, default), time, kmeans, cache, tags (genre+decade), ensemble, hierarchical, recommendation, mood_based')
     # Minimum number of tracks required for a genre to create a playlist (tags method only)
     parser.add_argument('--min_tracks_per_genre', type=int, default=10,
                         help='Minimum number of tracks required for a genre to create a playlist (tags method only)')

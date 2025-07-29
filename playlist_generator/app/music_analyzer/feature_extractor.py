@@ -2329,6 +2329,25 @@ class AudioAnalyzer:
             features['musicnn_tags'] = {}
             features['musicnn_skipped'] = 1
 
+        # Extract advanced emotional and aesthetic features
+        try:
+            from .advanced_models import AdvancedAudioModels
+            advanced_models = AdvancedAudioModels()
+            emotional_features = advanced_models.extract_emotional_features(audio_path)
+            features.update(emotional_features)
+            logger.info(f"Advanced features: valence={features.get('valence', 0):.3f}, arousal={features.get('arousal', 0):.3f}, mood={features.get('primary_mood', 'unknown')}")
+        except Exception as e:
+            logger.warning(f"Advanced feature extraction failed: {str(e)}")
+            # Add default emotional features
+            features.update({
+                'valence': 0.5,
+                'arousal': 0.5,
+                'primary_mood': 'unknown',
+                'mood_confidence': 0.2,
+                'energy_level': 0.5,
+                'complexity_score': 0.5
+            })
+
         # Metadata enrichment
         logger.info("Enriching metadata...")
         try:

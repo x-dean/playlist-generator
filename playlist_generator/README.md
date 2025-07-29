@@ -30,7 +30,12 @@ Choose with `-m` or `--playlist_method`:
 | all (default)  | Feature-grouping: robust, musically meaningful playlists (recommended for most users)      |
 | time           | Playlists for each time slot (Morning, Afternoon, etc.), split if too long                 |
 | kmeans         | Clusters tracks by audio features using k-means, always assigns all tracks                 |
-| cache          | Rule-based grouping by feature bins (similar to “all”, fallback for legacy compatibility)  |
+| cache          | Rule-based grouping by feature bins (similar to "all", fallback for legacy compatibility)  |
+| tags           | Genre and decade-based playlists using MusicBrainz and Last.fm metadata                    |
+| ensemble       | **NEW**: Combines multiple clustering algorithms (K-means, DBSCAN, Hierarchical) for robust playlists |
+| hierarchical   | **NEW**: Creates nested playlists grouped by mood, then by musical features                |
+| recommendation | **NEW**: Recommendation-based playlists using similarity matrices and diverse seed selection |
+| mood_based     | **NEW**: Playlists organized by emotional characteristics (happy, sad, energetic, calm, etc.) |
 
 ---
 
@@ -233,18 +238,57 @@ The playlist generator can enrich your music metadata using the MusicBrainz and 
   export LASTFM_API_KEY="your_real_lastfm_api_key"
   ```
 
-### Dependencies
+---
 
-- The `requests` library is required for Last.fm API calls. It is now included in `requirements.txt`.
+## Advanced Features & Models
 
-### Usage Example
+### Emotional & Aesthetic Analysis
 
-```sh
-# Enrich only missing tags (recommended for most users)
-playlista --enrich_tags
+The system now includes advanced audio analysis for emotional and aesthetic characteristics:
 
-# Force re-enrichment and overwrite all tags in the database
-playlista --enrich_tags --force_enrich_tags
+- **Valence & Arousal**: Measures positive/negative emotion and calm/excited energy
+- **Mood Classification**: Automatically classifies tracks as happy, sad, energetic, calm, aggressive, or melancholic
+- **Energy Level**: Calculates overall energy based on BPM, danceability, loudness, and spectral features
+- **Complexity Score**: Measures musical complexity using onset rate, zero crossing rate, and spectral contrast
+
+### Additional API Integrations
+
+- **Spotify API**: For acoustic features, popularity, and enhanced metadata
+- **Discogs API**: For detailed release information and genre classification
+- **Redis Caching**: For improved API response times and reduced rate limiting
+
+### Machine Learning Models
+
+- **Ensemble Clustering**: Combines K-means, DBSCAN, and Hierarchical clustering for robust playlist generation
+- **Similarity-Based Recommendations**: Uses cosine similarity matrices for track recommendations
+- **Hierarchical Organization**: Creates nested playlists with mood-based primary grouping
+- **Mood-Based Playlists**: Organizes tracks by emotional characteristics
+
+### Usage Examples
+
+```bash
+# Generate ensemble playlists using multiple clustering algorithms
+playlista -g -m ensemble --num_playlists 10
+
+# Create mood-based playlists
+playlista -g -m mood_based
+
+# Generate recommendation-based playlists
+playlista -g -m recommendation --num_playlists 8
+
+# Create hierarchical playlists (mood → musical features)
+playlista -g -m hierarchical
 ```
 
-You can use these flags with any playlist method (e.g., `--playlist_method tags`). 
+### Environment Variables for Advanced Features
+
+```bash
+# Spotify API (optional)
+export SPOTIFY_API_KEY="your_spotify_api_key"
+
+# Redis for caching (optional)
+export REDIS_URL="redis://localhost:6379"
+
+# Discogs API (optional)
+export DISCOGS_API_KEY="your_discogs_api_key"
+``` 
