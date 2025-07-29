@@ -178,37 +178,64 @@ class LargeFileProcessor:
         """Process large file with special handling."""
         start_time = time.time()
         
+        # Get file size and initial memory
+        file_size_mb = file_path.stat().st_size / (1024 * 1024)
+        initial_memory = self._get_memory_usage_mb()
+        
+        self.logger.info(f"Processing large file: {file_path.name} ({file_size_mb:.1f}MB)")
+        self.logger.info(f"  - Initial process memory: {initial_memory:.1f}MB")
+        self.logger.info(f"  - Timeout: {self.timeout_handler.timeout_seconds}s")
+        
         try:
-            self.logger.info(f"Processing large file: {file_path}")
-            
             # Use timeout handler for large files
             result = self.timeout_handler.process_with_timeout(
                 processor_func, file_path, *args, **kwargs
             )
             
             processing_time = time.time() - start_time
-            memory_usage = self._get_memory_usage_mb()
+            final_memory = self._get_memory_usage_mb()
+            memory_delta = final_memory - initial_memory
+            
+            self.logger.info(f"Large file processing completed: {file_path.name}")
+            self.logger.info(f"  - Processing time: {processing_time:.1f}s")
+            self.logger.info(f"  - Process memory: {initial_memory:.1f}MB → {final_memory:.1f}MB (Δ{memory_delta:+.1f}MB)")
+            self.logger.info(f"  - Memory efficiency: {memory_delta/file_size_mb:.2f}MB memory per MB of file")
             
             return ProcessingResult(
                 success=True,
                 data=result,
                 processing_time=processing_time,
-                memory_usage_mb=memory_usage
+                memory_usage_mb=final_memory
             )
             
         except CustomTimeoutError as e:
-            self.logger.error(f"Large file processing timed out: {file_path}")
+            processing_time = time.time() - start_time
+            final_memory = self._get_memory_usage_mb()
+            memory_delta = final_memory - initial_memory
+            
+            self.logger.error(f"Large file processing timed out: {file_path.name}")
+            self.logger.error(f"  - Processing time: {processing_time:.1f}s")
+            self.logger.error(f"  - Process memory: {initial_memory:.1f}MB → {final_memory:.1f}MB (Δ{memory_delta:+.1f}MB)")
+            self.logger.error(f"  - Timeout limit: {self.timeout_handler.timeout_seconds}s")
+            
             return ProcessingResult(
                 success=False,
                 error=f"Timeout: {e}",
-                processing_time=time.time() - start_time
+                processing_time=processing_time
             )
         except Exception as e:
-            self.logger.error(f"Large file processing failed: {file_path} - {e}")
+            processing_time = time.time() - start_time
+            final_memory = self._get_memory_usage_mb()
+            memory_delta = final_memory - initial_memory
+            
+            self.logger.error(f"Large file processing failed: {file_path.name} - {e}")
+            self.logger.error(f"  - Processing time: {processing_time:.1f}s")
+            self.logger.error(f"  - Process memory: {initial_memory:.1f}MB → {final_memory:.1f}MB (Δ{memory_delta:+.1f}MB)")
+            
             return ProcessingResult(
                 success=False,
                 error=str(e),
-                processing_time=time.time() - start_time
+                processing_time=processing_time
             )
     
     def _get_memory_usage_mb(self) -> float:
@@ -507,26 +534,61 @@ class SequentialProcessor:
         """Process files sequentially with memory monitoring."""
         
         if not file_paths:
+            self.logger.info("No files to process sequentially")
             return []
         
         self.logger.info(f"Starting sequential processing of {len(file_paths)} files")
+        self.logger.info(f"Memory monitoring enabled: {self.memory_config.memory_aware}")
+        self.logger.info(f"Memory pressure threshold: {self.memory_config.memory_pressure_threshold * 100:.1f}%")
         
         results = []
+        successful_count = 0
+        failed_count = 0
         
         for i, file_path in enumerate(file_paths):
-            self.logger.info(f"Processing file {i + 1}/{len(file_paths)}: {file_path.name}")
+            # Get file size
+            file_size_mb = file_path.stat().st_size / (1024 * 1024)
+            self.logger.info(f"Processing file {i + 1}/{len(file_paths)}: {file_path.name} ({file_size_mb:.1f}MB)")
             
             # Check memory before each file
-            if self.memory_monitor.is_memory_critical():
-                self.logger.warning("Memory usage critical, pausing processing")
-                time.sleep(self.memory_config.memory_pressure_pause_seconds)
+            memory_usage = self.memory_monitor.get_memory_usage()
+            self.logger.info(f"Memory before processing: {memory_usage[0]:.1f}% ({memory_usage[1]:.1f}GB used, {memory_usage[2]:.1f}GB available)")
             
+            if self.memory_monitor.is_memory_critical():
+                self.logger.warning(f"Memory usage critical ({memory_usage[0]:.1f}%), pausing {self.memory_config.memory_pressure_pause_seconds}s")
+                time.sleep(self.memory_config.memory_pressure_pause_seconds)
+                
+                # Check memory again after pause
+                memory_after_pause = self.memory_monitor.get_memory_usage()
+                self.logger.info(f"Memory after pause: {memory_after_pause[0]:.1f}% ({memory_after_pause[1]:.1f}GB used, {memory_after_pause[2]:.1f}GB available)")
+            
+            # Process the file
+            start_time = time.time()
             result = self._process_single_file(file_path, processor_func, **kwargs)
+            processing_time = time.time() - start_time
+            
+            # Check memory after processing
+            memory_after = self.memory_monitor.get_memory_usage()
+            self.logger.info(f"Memory after processing: {memory_after[0]:.1f}% ({memory_after[1]:.1f}GB used, {memory_after[2]:.1f}GB available)")
+            self.logger.info(f"Processing time: {processing_time:.1f}s")
+            
+            if result.success:
+                successful_count += 1
+                self.logger.info(f"File completed successfully: {file_path.name}")
+            else:
+                failed_count += 1
+                self.logger.warning(f"File failed: {file_path.name} - {result.error}")
+            
             results.append(result)
             
-            # Log progress
+            # Log progress every 10 files
             if (i + 1) % 10 == 0:
-                self.logger.info(f"Processed {i + 1}/{len(file_paths)} files")
+                self.logger.info(f"Progress: {i + 1}/{len(file_paths)} files processed ({successful_count} successful, {failed_count} failed)")
+        
+        self.logger.info(f"Sequential processing completed:")
+        self.logger.info(f"  - Total files: {len(file_paths)}")
+        self.logger.info(f"  - Successful: {successful_count}")
+        self.logger.info(f"  - Failed: {failed_count}")
         
         return results
     
@@ -540,32 +602,61 @@ class SequentialProcessor:
         
         start_time = time.time()
         
+        # Get initial memory state
+        initial_memory = self._get_memory_usage_mb()
+        system_memory = self.memory_monitor.get_memory_usage()
+        self.logger.debug(f"Starting file processing: {file_path.name}")
+        self.logger.debug(f"  - Initial process memory: {initial_memory:.1f}MB")
+        self.logger.debug(f"  - Initial system memory: {system_memory[0]:.1f}% ({system_memory[1]:.1f}GB used)")
+        
         try:
             # Check if this is a large file
             if self.large_file_processor.is_large_file(file_path):
+                self.logger.info(f"Large file detected: {file_path.name} - using large file processor")
                 return self.large_file_processor.process_large_file(
                     file_path, processor_func, **kwargs
                 )
             
             # Regular processing
+            self.logger.debug(f"Processing file with regular processor: {file_path.name}")
             result = processor_func(file_path, **kwargs)
             
             processing_time = time.time() - start_time
-            memory_usage = self._get_memory_usage_mb()
+            final_memory = self._get_memory_usage_mb()
+            final_system_memory = self.memory_monitor.get_memory_usage()
+            
+            memory_delta = final_memory - initial_memory
+            system_memory_delta = final_system_memory[1] - system_memory[1]
+            
+            self.logger.info(f"File processing completed: {file_path.name}")
+            self.logger.info(f"  - Processing time: {processing_time:.1f}s")
+            self.logger.info(f"  - Process memory: {initial_memory:.1f}MB → {final_memory:.1f}MB (Δ{memory_delta:+.1f}MB)")
+            self.logger.info(f"  - System memory: {system_memory[0]:.1f}% → {final_system_memory[0]:.1f}% (Δ{system_memory_delta:+.1f}GB)")
             
             return ProcessingResult(
                 success=True,
                 data=result,
                 processing_time=processing_time,
-                memory_usage_mb=memory_usage
+                memory_usage_mb=final_memory
             )
             
         except Exception as e:
-            self.logger.error(f"Processing failed for {file_path}: {e}")
+            processing_time = time.time() - start_time
+            final_memory = self._get_memory_usage_mb()
+            final_system_memory = self.memory_monitor.get_memory_usage()
+            
+            memory_delta = final_memory - initial_memory
+            system_memory_delta = final_system_memory[1] - system_memory[1]
+            
+            self.logger.error(f"Processing failed for {file_path.name}: {e}")
+            self.logger.error(f"  - Processing time: {processing_time:.1f}s")
+            self.logger.error(f"  - Process memory: {initial_memory:.1f}MB → {final_memory:.1f}MB (Δ{memory_delta:+.1f}MB)")
+            self.logger.error(f"  - System memory: {system_memory[0]:.1f}% → {final_system_memory[0]:.1f}% (Δ{system_memory_delta:+.1f}GB)")
+            
             return ProcessingResult(
                 success=False,
                 error=str(e),
-                processing_time=time.time() - start_time
+                processing_time=processing_time
             )
     
     def _get_memory_usage_mb(self) -> float:

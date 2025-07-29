@@ -79,31 +79,31 @@ class MetadataEnrichmentService:
             successful_enrichments = 0
             failed_enrichments = 0
             
-                for i, audio_file_id in enumerate(request.audio_file_ids):
-                    self.logger.info(f"Enriching metadata {i+1}/{len(request.audio_file_ids)} for file {audio_file_id}")
+            for i, audio_file_id in enumerate(request.audio_file_ids):
+                self.logger.info(f"Enriching metadata {i+1}/{len(request.audio_file_ids)} for file {audio_file_id}")
+                
+                try:
+                    # Create a mock metadata object for testing
+                    # In a real implementation, this would be retrieved from a database
+                    mock_metadata = Metadata(
+                        audio_file_id=audio_file_id,
+                        title="Creep",
+                        artist="Radiohead",
+                        album="Pablo Honey",
+                        genre="Alternative Rock",
+                        year=1993
+                    )
                     
-                    try:
-                        # Create a mock metadata object for testing
-                        # In a real implementation, this would be retrieved from a database
-                        mock_metadata = Metadata(
-                            audio_file_id=audio_file_id,
-                            title="Creep",
-                            artist="Radiohead",
-                            album="Pablo Honey",
-                            genre="Alternative Rock",
-                            year=1993
-                        )
-                        
-                        self.logger.debug(f"Original metadata: {mock_metadata.title} - {mock_metadata.artist}")
-                        
-                        # Enrich from different sources
-                        enriched_metadata = self._enrich_single_metadata(mock_metadata, request.sources)
-                        enriched_results.append(enriched_metadata)
-                        successful_enrichments += 1
-                        
-                        self.logger.info(f"Enrichment completed successfully for file {audio_file_id}")
-                        self.logger.debug(f"Enriched metadata: {enriched_metadata.title} - {enriched_metadata.artist} ({enriched_metadata.album})")
+                    self.logger.debug(f"Original metadata: {mock_metadata.title} - {mock_metadata.artist}")
                     
+                    # Enrich from different sources
+                    enriched_metadata = self._enrich_single_metadata(mock_metadata, request.sources)
+                    enriched_results.append(enriched_metadata)
+                    successful_enrichments += 1
+                    
+                    self.logger.info(f"Enrichment completed successfully for file {audio_file_id}")
+                    self.logger.debug(f"Enriched metadata: {enriched_metadata.title} - {enriched_metadata.artist} ({enriched_metadata.album})")
+                
                 except Exception as e:
                     failed_enrichments += 1
                     self.logger.error(f"Failed to enrich metadata {i+1}: {e}")
