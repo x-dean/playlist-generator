@@ -147,7 +147,13 @@ class TimeoutHandler:
             raise
         except Exception as e:
             signal.alarm(0)  # Cancel alarm
-            raise ProcessingError(f"Processing failed: {e}")
+            from shared.exceptions.processing import ProcessingError, ErrorSeverity, ErrorCategory
+            raise ProcessingError(
+                error_type="processing_failed",
+                message=f"Processing failed: {e}",
+                severity=ErrorSeverity.HIGH,
+                category=ErrorCategory.PROCESSING
+            )
         finally:
             signal.signal(signal.SIGALRM, old_handler)
 
