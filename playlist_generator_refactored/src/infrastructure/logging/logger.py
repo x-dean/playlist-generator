@@ -119,19 +119,19 @@ def setup_logging(
     correlation_filter = CorrelationIdFilter()
     logger.addFilter(correlation_filter)
     
-    # Add structured log processors
-    from infrastructure.logging.processors import (
-        get_structured_processor,
-        get_database_processor,
-        get_analysis_processor,
-        get_performance_processor
-    )
+    # Add structured log filters (temporarily disabled for Python 3.7 compatibility)
+    # from infrastructure.logging.processors import (
+    #     get_structured_processor,
+    #     get_database_processor,
+    #     get_analysis_processor,
+    #     get_performance_processor
+    # )
     
-    # Add processors to logger
-    logger.addFilter(get_structured_processor())
-    logger.addFilter(get_database_processor())
-    logger.addFilter(get_analysis_processor())
-    logger.addFilter(get_performance_processor())
+    # Add filters to logger (temporarily disabled)
+    # logger.addFilter(get_structured_processor())
+    # logger.addFilter(get_database_processor())
+    # logger.addFilter(get_analysis_processor())
+    # logger.addFilter(get_performance_processor())
     
     # Setup formatters
     from infrastructure.logging.formatters import StructuredFormatter, ColoredFormatter

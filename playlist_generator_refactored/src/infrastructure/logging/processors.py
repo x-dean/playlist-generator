@@ -9,14 +9,14 @@ from typing import Any, Dict, Optional
 from datetime import datetime
 
 
-class StructuredLogProcessor(logging.Processor):
+class StructuredLogProcessor(logging.Filter):
     """Processor that automatically adds structured fields to log records."""
     
     def __init__(self):
         super().__init__()
         self._start_times = {}
     
-    def process(self, record: logging.LogRecord) -> logging.LogRecord:
+    def filter(self, record: logging.LogRecord) -> bool:
         """Process log record to add structured fields."""
         # Add timestamp
         record.timestamp = datetime.fromtimestamp(record.created).isoformat()
@@ -47,16 +47,16 @@ class StructuredLogProcessor(logging.Processor):
             for key, value in record.extra_fields.items():
                 setattr(record, key, value)
         
-        return record
+        return True
 
 
 class DatabaseLogProcessor(StructuredLogProcessor):
     """Processor specifically for database operations."""
     
-    def process(self, record: logging.LogRecord) -> logging.LogRecord:
+    def filter(self, record: logging.LogRecord) -> bool:
         """Process database log record."""
         # Call parent processor first
-        record = super().process(record)
+        super().filter(record)
         
         # Add database-specific fields
         if hasattr(record, 'operation_type'):
@@ -86,16 +86,16 @@ class DatabaseLogProcessor(StructuredLogProcessor):
         if hasattr(record, 'error_type'):
             record.db_error_type = record.error_type
         
-        return record
+        return True
 
 
 class AnalysisLogProcessor(StructuredLogProcessor):
     """Processor specifically for analysis operations."""
     
-    def process(self, record: logging.LogRecord) -> logging.LogRecord:
+    def filter(self, record: logging.LogRecord) -> bool:
         """Process analysis log record."""
         # Call parent processor first
-        record = super().process(record)
+        super().filter(record)
         
         # Add analysis-specific fields
         if hasattr(record, 'analysis_phase'):
@@ -116,7 +116,7 @@ class AnalysisLogProcessor(StructuredLogProcessor):
         if hasattr(record, 'success'):
             record.analysis_success = record.success
         
-        return record
+        return True
 
 
 class PerformanceLogProcessor(StructuredLogProcessor):
@@ -138,10 +138,10 @@ class PerformanceLogProcessor(StructuredLogProcessor):
             return duration
         return None
     
-    def process(self, record: logging.LogRecord) -> logging.LogRecord:
+    def filter(self, record: logging.LogRecord) -> bool:
         """Process performance log record."""
         # Call parent processor first
-        record = super().process(record)
+        super().filter(record)
         
         # Add performance-specific fields
         if hasattr(record, 'operation_id') and record.operation_id in self._operation_timers:
@@ -149,7 +149,7 @@ class PerformanceLogProcessor(StructuredLogProcessor):
             if duration:
                 record.performance_duration_ms = int(duration * 1000)
         
-        return record
+        return True
 
 
 # Global processors
