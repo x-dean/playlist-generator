@@ -54,6 +54,7 @@ from shared.exceptions import (
     ValidationError
 )
 from shared.utils import sort_files_by_size, split_files_by_size, log_largest_files
+from application.services.file_feeder_service import FileFeederService
 from domain.entities.audio_file import AudioFile
 from domain.entities.feature_set import FeatureSet
 from domain.entities.metadata import Metadata
@@ -121,6 +122,9 @@ class AudioAnalysisService:
         self.feature_repo = SQLiteFeatureSetRepository()
         self.metadata_repo = SQLiteMetadataRepository()
         self.analysis_repo = SQLiteAnalysisResultRepository()
+        
+        # Initialize feeder service
+        self.feeder_service = FileFeederService()
         
         # Initialize cache manager
         from infrastructure.caching.cache_manager import get_cache_manager

@@ -15,6 +15,11 @@ class FileDiscoveryError(FileSystemError):
     pass
 
 
+class FileFeederError(FileSystemError):
+    """Exception raised when file feeding fails."""
+    pass
+
+
 class FileAccessError(FileSystemError):
     """Exception raised when file access is denied or fails."""
     pass

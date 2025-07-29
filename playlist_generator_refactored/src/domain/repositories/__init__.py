@@ -32,6 +32,11 @@ class AudioFileRepository(ABC):
         pass
     
     @abstractmethod
+    def find_by_hash(self, file_hash: str) -> Optional[AudioFile]:
+        """Find audio file by file hash."""
+        pass
+    
+    @abstractmethod
     def find_all(self, limit: Optional[int] = None, offset: Optional[int] = None) -> List[AudioFile]:
         """Find all audio files with optional pagination."""
         pass
@@ -111,6 +116,11 @@ class AnalysisResultRepository(ABC):
     @abstractmethod
     def find_by_audio_file_id(self, audio_file_id: UUID) -> Optional[AnalysisResult]:
         """Find analysis result by audio file ID."""
+        pass
+    
+    @abstractmethod
+    def delete_by_audio_file_id(self, audio_file_id: UUID) -> bool:
+        """Delete all analysis results for an audio file ID."""
         pass
     
     @abstractmethod

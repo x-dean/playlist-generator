@@ -30,6 +30,10 @@ class DiscoveryResult:
     # Statistics (calculated dynamically)
     duplicate_files: int = 0
     
+    # Database tracking statistics
+    new_files_added: int = 0
+    missing_files_removed: int = 0
+    
     # File type breakdown
     file_extensions: Dict[str, int] = field(default_factory=dict)
     file_sizes: Dict[str, int] = field(default_factory=dict)  # small, medium, large

@@ -6,6 +6,7 @@ services and components to avoid code duplication.
 """
 
 import logging
+import hashlib
 from pathlib import Path
 from typing import List, Tuple, Optional
 from domain.entities import AudioFile
@@ -13,7 +14,7 @@ from domain.entities import AudioFile
 logger = logging.getLogger(__name__)
 
 
-def get_file_size_mb(file_path: Path) -> float:
+def get_file_size_mb(file_path: Path) -> Optional[float]:
     """
     Get file size in megabytes.
     
@@ -21,14 +22,73 @@ def get_file_size_mb(file_path: Path) -> float:
         file_path: Path to the file
         
     Returns:
-        File size in MB, or 0.0 if size cannot be determined
+        File size in MB, or None if size cannot be determined
     """
     try:
+        # Check if file exists and is a file
+        if not file_path.exists():
+            logger.warning(f"File does not exist: {file_path}")
+            return None
+        
+        if not file_path.is_file():
+            logger.warning(f"Path is not a file: {file_path}")
+            return None
+        
         file_size_bytes = file_path.stat().st_size
+        if file_size_bytes == 0:
+            logger.warning(f"File has zero size: {file_path}")
+            return 0.0
+        
         return file_size_bytes / (1024 * 1024)
+    except PermissionError as e:
+        logger.warning(f"Permission denied getting file size for {file_path}: {e}")
+        return None
+    except OSError as e:
+        logger.warning(f"OS error getting file size for {file_path}: {e}")
+        return None
     except Exception as e:
-        logger.debug(f"Could not get file size for {file_path}: {e}")
-        return 0.0
+        logger.warning(f"Unexpected error getting file size for {file_path}: {e}")
+        return None
+
+
+def calculate_file_hash(file_path: Path) -> Optional[str]:
+    """
+    Calculate MD5 hash of file content.
+    
+    Args:
+        file_path: Path to the file
+        
+    Returns:
+        MD5 hash string, or None if hash cannot be calculated
+    """
+    try:
+        # Check if file exists and is a file
+        if not file_path.exists():
+            logger.warning(f"File does not exist for hash calculation: {file_path}")
+            return None
+        
+        if not file_path.is_file():
+            logger.warning(f"Path is not a file for hash calculation: {file_path}")
+            return None
+        
+        hash_md5 = hashlib.md5()
+        
+        # Read file in chunks to handle large files efficiently
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+        
+        return hash_md5.hexdigest()
+        
+    except PermissionError as e:
+        logger.warning(f"Permission denied calculating hash for {file_path}: {e}")
+        return None
+    except OSError as e:
+        logger.warning(f"OS error calculating hash for {file_path}: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"Unexpected error calculating hash for {file_path}: {e}")
+        return None
 
 
 def sort_files_by_size(file_paths: List[Path], reverse: bool = True) -> List[Path]:
@@ -46,7 +106,7 @@ def sort_files_by_size(file_paths: List[Path], reverse: bool = True) -> List[Pat
     
     for file_path in file_paths:
         size_mb = get_file_size_mb(file_path)
-        files_with_size.append((file_path, size_mb))
+        files_with_size.append((file_path, size_mb or 0))
     
     # Sort by size
     files_with_size.sort(key=lambda x: x[1], reverse=reverse)
@@ -73,7 +133,7 @@ def split_files_by_size(
     
     for file_path in file_paths:
         size_mb = get_file_size_mb(file_path)
-        if size_mb > threshold_mb:
+        if size_mb and size_mb > threshold_mb:
             large_files.append(file_path)
         else:
             small_files.append(file_path)
@@ -95,7 +155,7 @@ def log_largest_files(file_paths: List[Path], count: int = 5) -> None:
     files_with_size = []
     for file_path in file_paths:
         size_mb = get_file_size_mb(file_path)
-        files_with_size.append((file_path, size_mb))
+        files_with_size.append((file_path, size_mb or 0))
     
     # Sort by size (largest first)
     files_with_size.sort(key=lambda x: x[1], reverse=True)
@@ -126,7 +186,10 @@ def create_audio_files_with_size(file_paths: List[Path]) -> List[AudioFile]:
             
             # Set file size
             size_mb = get_file_size_mb(file_path)
-            audio_file.file_size_bytes = int(size_mb * 1024 * 1024)
+            if size_mb:
+                audio_file.file_size_bytes = int(size_mb * 1024 * 1024)
+            else:
+                audio_file.file_size_bytes = None
             
             audio_files.append(audio_file)
             

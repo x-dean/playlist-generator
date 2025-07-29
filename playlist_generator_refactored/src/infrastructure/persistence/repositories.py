@@ -51,6 +51,7 @@ class SQLiteAudioFileRepository(AudioFileRepository):
                         file_path TEXT NOT NULL,
                         file_name TEXT NOT NULL,
                         file_size_bytes INTEGER,
+                        file_hash TEXT,
                         duration_seconds REAL,
                         bitrate_kbps INTEGER,
                         sample_rate_hz INTEGER,
@@ -72,6 +73,7 @@ class SQLiteAudioFileRepository(AudioFileRepository):
                         file_path TEXT NOT NULL,
                         file_name TEXT NOT NULL,
                         file_size_bytes INTEGER,
+                        file_hash TEXT,
                         duration_seconds REAL,
                         bitrate_kbps INTEGER,
                         sample_rate_hz INTEGER,
@@ -88,7 +90,7 @@ class SQLiteAudioFileRepository(AudioFileRepository):
                     INSERT INTO audio_files_new 
                     SELECT id, file_path, file_name, 
                            CASE WHEN file_size_bytes = 0 THEN NULL ELSE file_size_bytes END,
-                           duration_seconds, bitrate_kbps, sample_rate_hz, channels,
+                           NULL, duration_seconds, bitrate_kbps, sample_rate_hz, channels,
                            created_date, updated_date, external_metadata
                     FROM audio_files
                 """)
@@ -118,14 +120,15 @@ class SQLiteAudioFileRepository(AudioFileRepository):
             with self._get_connection() as conn:
                 conn.execute("""
                     INSERT OR REPLACE INTO audio_files 
-                    (id, file_path, file_name, file_size_bytes, duration_seconds, 
+                    (id, file_path, file_name, file_size_bytes, file_hash, duration_seconds, 
                      bitrate_kbps, sample_rate_hz, channels, external_metadata, updated_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     str(audio_file.id),
                     str(audio_file.file_path),
                     audio_file.file_name,
                     audio_file.file_size_bytes if audio_file.file_size_bytes else None,
+                    audio_file.file_hash,
                     audio_file.duration_seconds,
                     audio_file.bitrate_kbps,
                     audio_file.sample_rate_hz,
@@ -171,6 +174,22 @@ class SQLiteAudioFileRepository(AudioFileRepository):
         except Exception as e:
             self.logger.error(f"Failed to find audio file by path {file_path}: {e}")
             raise DatabaseError(f"Failed to find audio file by path: {e}")
+    
+    def find_by_hash(self, file_hash: str) -> Optional[AudioFile]:
+        """Find audio file by file hash."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT * FROM audio_files WHERE file_hash = ?
+                """, (file_hash,))
+                row = cursor.fetchone()
+                
+                if row:
+                    return self._row_to_audio_file(row)
+                return None
+        except Exception as e:
+            self.logger.error(f"Failed to find audio file by hash {file_hash[:8]}...: {e}")
+            raise DatabaseError(f"Failed to find audio file by hash: {e}")
     
     def find_all(self, limit: Optional[int] = None, offset: Optional[int] = None) -> List[AudioFile]:
         """Find all audio files with optional pagination."""
@@ -230,6 +249,7 @@ class SQLiteAudioFileRepository(AudioFileRepository):
             id=UUID(row['id']),
             file_path=Path(row['file_path']),
             file_size_bytes=row['file_size_bytes'],
+            file_hash=row['file_hash'],
             duration_seconds=row['duration_seconds'],
             bitrate_kbps=row['bitrate_kbps'],
             sample_rate_hz=row['sample_rate_hz'],
@@ -652,6 +672,46 @@ class SQLitePlaylistRepository(PlaylistRepository):
             self.logger.error(f"Failed to delete playlist {playlist_id}: {e}")
             raise DatabaseError(f"Failed to delete playlist: {e}")
     
+    def remove_audio_file_references(self, audio_file_id: UUID) -> int:
+        """Remove references to an audio file from all playlists."""
+        try:
+            with self._get_connection() as conn:
+                # Get all playlists that reference this audio file
+                cursor = conn.execute("""
+                    SELECT id, track_ids FROM playlists 
+                    WHERE track_ids LIKE ?
+                """, (f'%{str(audio_file_id)}%',))
+                
+                updated_count = 0
+                
+                for row in cursor.fetchall():
+                    playlist_id = row['id']
+                    track_ids = json.loads(row['track_ids']) if row['track_ids'] else []
+                    
+                    # Remove the audio file ID from track_ids
+                    if str(audio_file_id) in track_ids:
+                        track_ids.remove(str(audio_file_id))
+                        
+                        # Update the playlist
+                        conn.execute("""
+                            UPDATE playlists 
+                            SET track_ids = ?, updated_date = ?
+                            WHERE id = ?
+                        """, (
+                            json.dumps(track_ids),
+                            datetime.now().isoformat(),
+                            playlist_id
+                        ))
+                        updated_count += 1
+                        self.logger.debug(f"Removed audio file {audio_file_id} from playlist {playlist_id}")
+                
+                conn.commit()
+                return updated_count
+                
+        except Exception as e:
+            self.logger.error(f"Failed to remove audio file references {audio_file_id}: {e}")
+            raise DatabaseError(f"Failed to remove audio file references: {e}")
+    
     def count(self) -> int:
         """Get total number of playlists."""
         try:
@@ -782,6 +842,53 @@ class SQLiteAnalysisResultRepository(AnalysisResultRepository):
         except Exception as e:
             self.logger.error(f"Failed to find analysis result by audio file {audio_file_id}: {e}")
             raise DatabaseError(f"Failed to find analysis result by audio file: {e}")
+    
+    def delete_by_audio_file_id(self, audio_file_id: UUID) -> bool:
+        """Delete all analysis results for an audio file ID."""
+        try:
+            with self._get_connection() as conn:
+                # First, get the analysis result to find related feature_set_id and metadata_id
+                cursor = conn.execute("""
+                    SELECT feature_set_id, metadata_id FROM analysis_results WHERE audio_file_id = ?
+                """, (str(audio_file_id),))
+                rows = cursor.fetchall()
+                
+                deleted_count = 0
+                
+                for row in rows:
+                    feature_set_id = row['feature_set_id']
+                    metadata_id = row['metadata_id']
+                    
+                    # Delete related feature set if it exists
+                    if feature_set_id:
+                        try:
+                            conn.execute("DELETE FROM feature_sets WHERE id = ?", (feature_set_id,))
+                        except Exception as e:
+                            self.logger.warning(f"Failed to delete feature set {feature_set_id}: {e}")
+                    
+                    # Delete related metadata if it exists
+                    if metadata_id:
+                        try:
+                            conn.execute("DELETE FROM metadata WHERE id = ?", (metadata_id,))
+                        except Exception as e:
+                            self.logger.warning(f"Failed to delete metadata {metadata_id}: {e}")
+                
+                # Delete all analysis results for this audio file
+                cursor = conn.execute("""
+                    DELETE FROM analysis_results WHERE audio_file_id = ?
+                """, (str(audio_file_id),))
+                
+                deleted_count = cursor.rowcount
+                conn.commit()
+                
+                if deleted_count > 0:
+                    self.logger.debug(f"Deleted {deleted_count} analysis results for audio file: {audio_file_id}")
+                
+                return deleted_count > 0
+                
+        except Exception as e:
+            self.logger.error(f"Failed to delete analysis results for audio file {audio_file_id}: {e}")
+            raise DatabaseError(f"Failed to delete analysis results for audio file: {e}")
     
     def delete(self, analysis_result_id: UUID) -> bool:
         """Delete analysis result by ID."""

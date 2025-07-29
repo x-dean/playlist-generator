@@ -27,6 +27,7 @@ class AudioFile:
     
     # File properties
     file_size_bytes: Optional[int] = None
+    file_hash: Optional[str] = None  # MD5 hash of file content
     duration_seconds: Optional[float] = None
     bitrate_kbps: Optional[int] = None
     sample_rate_hz: Optional[int] = None
