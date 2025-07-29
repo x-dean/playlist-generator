@@ -194,8 +194,8 @@ class FileDiscoveryService:
             response.result.discovered_files = discovered_files
             response.result.skipped_files = skipped_files
             response.result.error_files = error_files
-            response.result.new_files_added = tracking_stats['new_files_added']
-            response.result.missing_files_removed = tracking_stats['missing_files_removed']
+            response.result.new_files_added = tracking_stats['files_added']
+            response.result.missing_files_removed = tracking_stats['files_removed']
             
             response.status = "completed"
             
