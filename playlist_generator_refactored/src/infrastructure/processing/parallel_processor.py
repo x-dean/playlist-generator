@@ -86,8 +86,8 @@ class MemoryMonitor:
             if memory_limit_str:
                 memory_limit_gb = self._parse_memory_limit(memory_limit_str)
                 if memory_limit_gb > 0:
-                    # Estimate memory per worker (rough estimate)
-                    memory_per_worker_gb = 0.5  # Conservative estimate
+                    # Estimate memory per worker (audio processing is memory-intensive)
+                    memory_per_worker_gb = 2.0  # More realistic for audio processing
                     optimal_workers = int(available_gb / memory_per_worker_gb)
                     final_workers = max(1, min(optimal_workers, max_workers))
                     self.logger.info(f"Memory limit calculation:")
@@ -345,6 +345,10 @@ class ParallelProcessor:
         batch_size = min(len(file_paths), workers * self.config.batch_size_multiplier)
         batches = [file_paths[i:i + batch_size] for i in range(0, len(file_paths), batch_size)]
         
+        # If we have very few workers (1), consider sequential processing for better stability
+        if workers == 1:
+            self.logger.warning("Only 1 worker available - consider sequential processing for better stability")
+        
         self.logger.info(f"Batch configuration:")
         self.logger.info(f"  - Calculated batch size: {batch_size} files")
         self.logger.info(f"  - Total batches: {len(batches)}")
@@ -449,10 +453,15 @@ class ParallelProcessor:
                     ))
                 except Exception as e:
                     failed_count += 1
-                    self.logger.error(f"Processing failed for {path.name}: {e}")
+                    error_msg = str(e)
+                    if "terminated abruptly" in error_msg:
+                        self.logger.error(f"Process terminated abruptly for {path.name} - likely memory exhaustion")
+                        error_msg = "Process terminated due to memory exhaustion"
+                    else:
+                        self.logger.error(f"Processing failed for {path.name}: {e}")
                     results.append(ProcessingResult(
                         success=False,
-                        error=str(e)
+                        error=error_msg
                     ))
         
         self.logger.info(f"Batch parallel processing completed:")

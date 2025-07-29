@@ -226,6 +226,11 @@ class AudioAnalyzer:
             )
             
             self.logger.info(f"Analysis completed successfully: {file_path.name} (BPM: {feature_set.bpm:.1f}, Key: {feature_set.key}, Quality: {quality_score:.3f}, Time: {processing_time_ms:.1f}ms)")
+            
+            # Final memory cleanup
+            import gc
+            gc.collect()
+            
             return result
             
         except Exception as e:
@@ -251,6 +256,10 @@ class AudioAnalyzer:
             
             self.logger.debug("Loading audio data...")
             audio_data = self.algorithms.mono_loader()
+            
+            # Force garbage collection after loading large audio files
+            import gc
+            gc.collect()
             
             self.logger.debug(f"Audio loaded successfully: Shape={audio_data.shape}, Sample rate=44100Hz, Duration={len(audio_data)/44100:.2f}s")
             return audio_data
@@ -396,6 +405,11 @@ class AudioAnalyzer:
             valence = self._calculate_valence(audio, spectral_centroid, energy)
             acousticness = self._calculate_acousticness(audio, spectral_centroid, spectral_rolloff)
             self.logger.debug(f"Derived features calculated: Danceability={danceability:.3f}, Valence={valence:.3f}, Acousticness={acousticness:.3f}")
+            
+            # Force garbage collection after feature extraction
+            import gc
+            gc.collect()
+            
         except Exception as e:
             self.logger.error(f"Failed to extract features: {e}")
             # Return minimal feature set with defaults
