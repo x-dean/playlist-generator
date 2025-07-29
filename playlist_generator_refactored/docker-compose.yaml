@@ -18,6 +18,11 @@ services:
       - OUTPUT_DIR=/app/playlists
       - MEMORY_LIMIT_GB=6.0
       - MEMORY_AWARE=true
+      - HOST_LIBRARY_PATH=/root/music/library
+      - LASTFM_API_KEY=9fd1f789ebdf1297e6aa1590a13d85e0
+      - LOG_LEVEL=INFO
+      - LARGE_FILE_THRESHOLD=50
+      - MIN_TRACKS_PER_GENRE=10
     command: ["python", "-m", "src.presentation.cli.main", "--help"]
     stdin_open: true
     tty: true 
