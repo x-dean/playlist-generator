@@ -232,19 +232,37 @@ class AudioAnalyzer:
             self.algorithms.metadata_extractor.configure(filename=str(file_path))
             metadata_tuple = self.algorithms.metadata_extractor()
             
-            # MetadataReader returns a tuple with (title, artist, album, length, ...)
-            # Handle the tuple format properly
-            if isinstance(metadata_tuple, tuple) and len(metadata_tuple) >= 4:
-                title = metadata_tuple[0] if metadata_tuple[0] else file_path.stem
-                artist = metadata_tuple[1] if metadata_tuple[1] else 'Unknown'
-                album = metadata_tuple[2] if metadata_tuple[2] else 'Unknown'
-                duration = float(metadata_tuple[3]) if metadata_tuple[3] else 0.0
-            else:
-                # Fallback if tuple format is unexpected
-                title = file_path.stem
-                artist = 'Unknown'
-                album = 'Unknown'
-                duration = 0.0
+            # MetadataReader returns a tuple with metadata fields
+            # Handle the tuple format more robustly
+            title = file_path.stem
+            artist = 'Unknown'
+            album = 'Unknown'
+            duration = 0.0
+            
+            if isinstance(metadata_tuple, tuple):
+                # Try to extract meaningful metadata from the tuple
+                # The format can vary, so we'll be defensive
+                for i, item in enumerate(metadata_tuple):
+                    if item and isinstance(item, str):
+                        # Look for duration-like values (numbers)
+                        try:
+                            if i == 3 or (isinstance(item, str) and any(c.isdigit() for c in item)):
+                                # Try to extract duration from this field
+                                import re
+                                numbers = re.findall(r'\d+\.?\d*', item)
+                                if numbers:
+                                    duration = float(numbers[0])
+                                    break
+                        except (ValueError, TypeError):
+                            pass
+                        
+                        # Use the first non-empty string as title if we don't have one
+                        if not title or title == file_path.stem:
+                            title = item
+                        elif not artist or artist == 'Unknown':
+                            artist = item
+                        elif not album or album == 'Unknown':
+                            album = item
             
             return Metadata(
                 audio_file_id=audio_file_id,
