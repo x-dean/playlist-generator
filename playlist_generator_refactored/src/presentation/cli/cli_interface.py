@@ -515,12 +515,8 @@ Examples:
         table.add_column("Metric", style="cyan")
         table.add_column("Value", style="green")
         
-        # Check if database exists and initialize if needed
+        # Check if database exists and is functional
         if db_path.exists():
-            table.add_row("Database Status", "✅ Connected")
-            table.add_row("Database Path", str(db_path))
-            
-            # Try to get actual counts from database
             try:
                 import sqlite3
                 conn = sqlite3.connect(db_path)
@@ -536,7 +532,7 @@ Examples:
                     metadata_repo = SQLiteMetadataRepository(db_path)
                     self.console.print("[yellow]Initializing database tables...[/yellow]")
                 
-                # Count audio files
+                # Test if we can actually query the database
                 cursor.execute("SELECT COUNT(*) FROM audio_files")
                 audio_files_count = cursor.fetchone()[0]
                 
@@ -558,11 +554,16 @@ Examples:
                 
                 conn.close()
                 
+                # Only show connected if we can actually query the database
+                table.add_row("Database Status", "✅ Connected")
+                table.add_row("Database Path", str(db_path))
                 table.add_row("Audio Files", f"{audio_files_count:,}")
                 table.add_row("Analyzed Files", f"{analyzed_count:,}")
                 table.add_row("Failed Files", f"{failed_count:,}")
                 
             except Exception as e:
+                table.add_row("Database Status", "❌ Error")
+                table.add_row("Database Path", str(db_path))
                 table.add_row("Audio Files", "Error reading DB")
                 table.add_row("Analyzed Files", "Error reading DB")
                 table.add_row("Failed Files", "Error reading DB")
