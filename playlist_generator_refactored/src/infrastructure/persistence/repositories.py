@@ -8,6 +8,7 @@ providing a clean abstraction over the database layer.
 import sqlite3
 import json
 import logging
+import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Iterator
 from uuid import UUID
@@ -24,6 +25,7 @@ from domain.repositories import (
 )
 from shared.exceptions import DatabaseError, EntityNotFoundError
 from shared.config import get_config
+from infrastructure.logging.helpers import get_database_logger
 
 
 class SQLiteAudioFileRepository(AudioFileRepository):
@@ -141,6 +143,18 @@ class SQLiteAudioFileRepository(AudioFileRepository):
     
     def save(self, audio_file: AudioFile) -> AudioFile:
         """Save audio file to database."""
+        start_time = time.time()
+        
+        # Log save operation start
+        self.logger.save_operation(
+            entity_type='audio_file',
+            entity_id=str(audio_file.id),
+            file_path=str(audio_file.file_path),
+            file_name=audio_file.file_name,
+            file_size_bytes=audio_file.file_size_bytes,
+            file_hash=audio_file.file_hash[:8] if audio_file.file_hash else None
+        )
+        
         try:
             with self._get_connection() as conn:
                 conn.execute("""
@@ -162,14 +176,34 @@ class SQLiteAudioFileRepository(AudioFileRepository):
                     datetime.now().isoformat()
                 ))
                 conn.commit()
-                self.logger.debug(f"Saved audio file: {audio_file.id}")
+                
+                # Log successful operation
+                save_time = time.time() - start_time
+                self.logger.operation_success(
+                    duration_ms=int(save_time * 1000),
+                    rows_affected=1
+                )
                 return audio_file
         except Exception as e:
-            self.logger.error(f"Failed to save audio file {audio_file.id}: {e}")
+            # Log failed operation
+            save_time = time.time() - start_time
+            self.logger.operation_failed(
+                error_type=type(e).__name__,
+                error_message=str(e),
+                duration_ms=int(save_time * 1000)
+            )
             raise DatabaseError(f"Failed to save audio file: {e}")
     
     def find_by_id(self, audio_file_id: UUID) -> Optional[AudioFile]:
         """Find audio file by ID."""
+        start_time = time.time()
+        
+        # Log find operation start
+        self.logger.find_operation(
+            entity_type='audio_file',
+            entity_id=str(audio_file_id)
+        )
+        
         try:
             with self._get_connection() as conn:
                 cursor = conn.execute("""
@@ -177,12 +211,30 @@ class SQLiteAudioFileRepository(AudioFileRepository):
                 """, (str(audio_file_id),))
                 row = cursor.fetchone()
                 
+                find_time = time.time() - start_time
                 if row:
+                    # Log successful find
+                    self.logger.operation_success(
+                        duration_ms=int(find_time * 1000),
+                        found=True
+                    )
                     return self._row_to_audio_file(row)
-                return None
+                else:
+                    # Log not found
+                    self.logger.operation_success(
+                        duration_ms=int(find_time * 1000),
+                        found=False
+                    )
+                    return None
         except Exception as e:
-            self.logger.error(f"Failed to find audio file {audio_file_id}: {e}")
-            raise DatabaseError(f"Failed to find audio file: {e}")
+            # Log failed operation
+            find_time = time.time() - start_time
+            self.logger.operation_failed(
+                error_type=type(e).__name__,
+                error_message=str(e),
+                duration_ms=int(find_time * 1000)
+            )
+            raise DatabaseError(f"Failed to find audio file by ID: {e}")
     
     def find_by_path(self, file_path: Path) -> Optional[AudioFile]:
         """Find audio file by file path."""
@@ -202,22 +254,40 @@ class SQLiteAudioFileRepository(AudioFileRepository):
     
     def find_by_hash(self, file_hash: str) -> Optional[AudioFile]:
         """Find audio file by file hash."""
+        start_time = time.time()
+        self.logger.debug(f"Finding audio file by hash: {file_hash[:8]}...")
+        
         try:
             with self._get_connection() as conn:
+                self.logger.debug(f"Executing SELECT query for hash: {file_hash[:8]}...")
                 cursor = conn.execute("""
                     SELECT * FROM audio_files WHERE file_hash = ?
                 """, (file_hash,))
                 row = cursor.fetchone()
                 
                 if row:
+                    find_time = time.time() - start_time
+                    self.logger.debug(f"Found audio file by hash: {file_hash[:8]}... ({find_time:.3f}s)")
                     return self._row_to_audio_file(row)
-                return None
+                else:
+                    find_time = time.time() - start_time
+                    self.logger.debug(f"No audio file found by hash: {file_hash[:8]}... ({find_time:.3f}s)")
+                    return None
         except Exception as e:
-            self.logger.error(f"Failed to find audio file by hash {file_hash[:8]}...: {e}")
+            find_time = time.time() - start_time
+            self.logger.error(f"Failed to find audio file by hash {file_hash[:8]}... ({find_time:.3f}s): {e}")
             raise DatabaseError(f"Failed to find audio file by hash: {e}")
     
     def find_all(self, limit: Optional[int] = None, offset: Optional[int] = None) -> List[AudioFile]:
         """Find all audio files with optional pagination."""
+        start_time = time.time()
+        self.logger.debug(f"Finding all audio files: limit={limit}, offset={offset}", extra={
+            'operation_type': 'find_all',
+            'entity_type': 'audio_file',
+            'limit': limit,
+            'offset': offset
+        })
+        
         try:
             with self._get_connection() as conn:
                 query = "SELECT * FROM audio_files ORDER BY created_date DESC"
@@ -231,39 +301,82 @@ class SQLiteAudioFileRepository(AudioFileRepository):
                     query += " OFFSET ?"
                     params.append(offset)
                 
+                self.logger.debug(f"Executing query: {query} with params: {params}", extra={
+                    'query_type': 'SELECT_ALL',
+                    'table': 'audio_files',
+                    'query': query,
+                    'params': params
+                })
                 cursor = conn.execute(query, params)
                 rows = cursor.fetchall()
                 
+                find_time = time.time() - start_time
+                self.logger.info(f"Found {len(rows)} audio files ({find_time:.3f}s)", extra={
+                    'operation_type': 'find_all',
+                    'entity_type': 'audio_file',
+                    'duration_ms': int(find_time * 1000),
+                    'success': True,
+                    'rows_affected': len(rows),
+                    'limit': limit,
+                    'offset': offset
+                })
                 return [self._row_to_audio_file(row) for row in rows]
         except Exception as e:
-            self.logger.error(f"Failed to find all audio files: {e}")
+            find_time = time.time() - start_time
+            self.logger.error(f"Failed to find all audio files ({find_time:.3f}s): {e}", extra={
+                'operation_type': 'find_all',
+                'entity_type': 'audio_file',
+                'duration_ms': int(find_time * 1000),
+                'success': False,
+                'error_type': type(e).__name__,
+                'error_message': str(e),
+                'limit': limit,
+                'offset': offset
+            })
             raise DatabaseError(f"Failed to find all audio files: {e}")
     
     def delete(self, audio_file_id: UUID) -> bool:
         """Delete audio file by ID."""
+        start_time = time.time()
+        self.logger.debug(f"Deleting audio file: {audio_file_id}")
+        
         try:
             with self._get_connection() as conn:
+                self.logger.debug(f"Executing DELETE query for audio file ID: {audio_file_id}")
                 cursor = conn.execute("""
                     DELETE FROM audio_files WHERE id = ?
                 """, (str(audio_file_id),))
                 conn.commit()
                 
                 deleted = cursor.rowcount > 0
+                delete_time = time.time() - start_time
                 if deleted:
-                    self.logger.debug(f"Deleted audio file: {audio_file_id}")
+                    self.logger.info(f"Successfully deleted audio file: {audio_file_id} ({delete_time:.3f}s)")
+                else:
+                    self.logger.debug(f"No audio file found to delete: {audio_file_id} ({delete_time:.3f}s)")
                 return deleted
         except Exception as e:
-            self.logger.error(f"Failed to delete audio file {audio_file_id}: {e}")
+            delete_time = time.time() - start_time
+            self.logger.error(f"Failed to delete audio file {audio_file_id} ({delete_time:.3f}s): {e}")
             raise DatabaseError(f"Failed to delete audio file: {e}")
     
     def count(self) -> int:
         """Get total number of audio files."""
+        start_time = time.time()
+        self.logger.debug("Counting total audio files")
+        
         try:
             with self._get_connection() as conn:
+                self.logger.debug("Executing COUNT query")
                 cursor = conn.execute("SELECT COUNT(*) FROM audio_files")
-                return cursor.fetchone()[0]
+                count = cursor.fetchone()[0]
+                
+                count_time = time.time() - start_time
+                self.logger.info(f"Total audio files: {count} ({count_time:.3f}s)")
+                return count
         except Exception as e:
-            self.logger.error(f"Failed to count audio files: {e}")
+            count_time = time.time() - start_time
+            self.logger.error(f"Failed to count audio files ({count_time:.3f}s): {e}")
             raise DatabaseError(f"Failed to count audio files: {e}")
     
     def _row_to_audio_file(self, row) -> AudioFile:
@@ -334,8 +447,15 @@ class SQLiteFeatureSetRepository(FeatureSetRepository):
     
     def save(self, feature_set: FeatureSet) -> FeatureSet:
         """Save feature set to database."""
+        start_time = time.time()
+        self.logger.debug(f"Starting database save for feature set: {feature_set.id}")
+        self.logger.debug(f"  - Audio file ID: {feature_set.audio_file_id}")
+        self.logger.debug(f"  - BPM: {feature_set.bpm}, Key: {feature_set.key}")
+        self.logger.debug(f"  - Energy: {feature_set.energy}, Danceability: {feature_set.danceability}")
+        
         try:
             with self._get_connection() as conn:
+                self.logger.debug(f"Executing INSERT OR REPLACE for feature set: {feature_set.id}")
                 conn.execute("""
                     INSERT OR REPLACE INTO feature_sets 
                     (id, audio_file_id, bpm, energy, danceability, valence, acousticness,
@@ -358,10 +478,12 @@ class SQLiteFeatureSetRepository(FeatureSetRepository):
                     datetime.now().isoformat()
                 ))
                 conn.commit()
-                self.logger.debug(f"Saved feature set: {feature_set.id}")
+                save_time = time.time() - start_time
+                self.logger.info(f"Successfully saved feature set: {feature_set.id} ({save_time:.3f}s)")
                 return feature_set
         except Exception as e:
-            self.logger.error(f"Failed to save feature set {feature_set.id}: {e}")
+            save_time = time.time() - start_time
+            self.logger.error(f"Failed to save feature set {feature_set.id} ({save_time:.3f}s): {e}")
             raise DatabaseError(f"Failed to save feature set: {e}")
     
     def find_by_id(self, feature_set_id: UUID) -> Optional[FeatureSet]:
@@ -810,8 +932,28 @@ class SQLiteAnalysisResultRepository(AnalysisResultRepository):
     
     def save(self, analysis_result: AnalysisResult) -> AnalysisResult:
         """Save analysis result to database."""
+        start_time = time.time()
+        self.logger.debug(f"Starting database save for analysis result: {analysis_result.id}", extra={
+            'operation_type': 'save',
+            'entity_type': 'analysis_result',
+            'entity_id': str(analysis_result.id),
+            'audio_file_id': str(analysis_result.audio_file.id),
+            'is_successful': analysis_result.is_successful,
+            'is_complete': analysis_result.is_complete,
+            'quality_score': analysis_result.quality_score,
+            'processing_time_ms': analysis_result.processing_time_ms,
+            'feature_set_id': str(analysis_result.feature_set.id) if analysis_result.feature_set else None,
+            'metadata_id': str(analysis_result.metadata.id) if analysis_result.metadata else None,
+            'has_error': bool(analysis_result.error_message)
+        })
+        
         try:
             with self._get_connection() as conn:
+                self.logger.debug(f"Executing INSERT OR REPLACE for analysis result: {analysis_result.id}", extra={
+                    'query_type': 'INSERT_OR_REPLACE',
+                    'table': 'analysis_results',
+                    'entity_id': str(analysis_result.id)
+                })
                 conn.execute("""
                     INSERT OR REPLACE INTO analysis_results 
                     (id, audio_file_id, feature_set_id, metadata_id, quality_score,
@@ -830,10 +972,27 @@ class SQLiteAnalysisResultRepository(AnalysisResultRepository):
                     datetime.now().isoformat()
                 ))
                 conn.commit()
-                self.logger.debug(f"Saved analysis result: {analysis_result.id}")
+                save_time = time.time() - start_time
+                self.logger.info(f"Successfully saved analysis result: {analysis_result.id} ({save_time:.3f}s)", extra={
+                    'operation_type': 'save',
+                    'entity_type': 'analysis_result',
+                    'entity_id': str(analysis_result.id),
+                    'duration_ms': int(save_time * 1000),
+                    'success': True,
+                    'rows_affected': 1
+                })
                 return analysis_result
         except Exception as e:
-            self.logger.error(f"Failed to save analysis result {analysis_result.id}: {e}")
+            save_time = time.time() - start_time
+            self.logger.error(f"Failed to save analysis result {analysis_result.id} ({save_time:.3f}s): {e}", extra={
+                'operation_type': 'save',
+                'entity_type': 'analysis_result',
+                'entity_id': str(analysis_result.id),
+                'duration_ms': int(save_time * 1000),
+                'success': False,
+                'error_type': type(e).__name__,
+                'error_message': str(e)
+            })
             raise DatabaseError(f"Failed to save analysis result: {e}")
     
     def find_by_id(self, analysis_result_id: UUID) -> Optional[AnalysisResult]:
@@ -870,49 +1029,144 @@ class SQLiteAnalysisResultRepository(AnalysisResultRepository):
     
     def delete_by_audio_file_id(self, audio_file_id: UUID) -> bool:
         """Delete all analysis results for an audio file ID."""
+        start_time = time.time()
+        self.logger.debug(f"Starting cascading delete for audio file: {audio_file_id}", extra={
+            'operation_type': 'cascading_delete',
+            'entity_type': 'audio_file',
+            'entity_id': str(audio_file_id)
+        })
+        
         try:
             with self._get_connection() as conn:
                 # First, get the analysis result to find related feature_set_id and metadata_id
+                self.logger.debug(f"Finding related entities for audio file: {audio_file_id}", extra={
+                    'query_type': 'SELECT_RELATED',
+                    'table': 'analysis_results',
+                    'entity_id': str(audio_file_id)
+                })
                 cursor = conn.execute("""
                     SELECT feature_set_id, metadata_id FROM analysis_results WHERE audio_file_id = ?
                 """, (str(audio_file_id),))
                 rows = cursor.fetchall()
                 
-                deleted_count = 0
+                self.logger.debug(f"Found {len(rows)} analysis results to delete for audio file: {audio_file_id}", extra={
+                    'analysis_results_count': len(rows),
+                    'entity_id': str(audio_file_id)
+                })
                 
-                for row in rows:
+                deleted_feature_sets = 0
+                deleted_metadata = 0
+                
+                for i, row in enumerate(rows):
                     feature_set_id = row['feature_set_id']
                     metadata_id = row['metadata_id']
+                    
+                    self.logger.debug(f"Processing analysis result {i+1}/{len(rows)} for audio file: {audio_file_id}", extra={
+                        'current_index': i + 1,
+                        'total_count': len(rows),
+                        'entity_id': str(audio_file_id)
+                    })
                     
                     # Delete related feature set if it exists
                     if feature_set_id:
                         try:
+                            self.logger.debug(f"Deleting feature set: {feature_set_id}", extra={
+                                'operation_type': 'delete',
+                                'entity_type': 'feature_set',
+                                'entity_id': feature_set_id
+                            })
                             conn.execute("DELETE FROM feature_sets WHERE id = ?", (feature_set_id,))
+                            deleted_feature_sets += 1
+                            self.logger.debug(f"Successfully deleted feature set: {feature_set_id}", extra={
+                                'operation_type': 'delete',
+                                'entity_type': 'feature_set',
+                                'entity_id': feature_set_id,
+                                'success': True
+                            })
                         except Exception as e:
-                            self.logger.warning(f"Failed to delete feature set {feature_set_id}: {e}")
+                            self.logger.warning(f"Failed to delete feature set {feature_set_id}: {e}", extra={
+                                'operation_type': 'delete',
+                                'entity_type': 'feature_set',
+                                'entity_id': feature_set_id,
+                                'success': False,
+                                'error_type': type(e).__name__,
+                                'error_message': str(e)
+                            })
+                    else:
+                        self.logger.debug(f"No feature set to delete for analysis result {i+1}", extra={
+                            'current_index': i + 1,
+                            'has_feature_set': False
+                        })
                     
                     # Delete related metadata if it exists
                     if metadata_id:
                         try:
+                            self.logger.debug(f"Deleting metadata: {metadata_id}", extra={
+                                'operation_type': 'delete',
+                                'entity_type': 'metadata',
+                                'entity_id': metadata_id
+                            })
                             conn.execute("DELETE FROM metadata WHERE id = ?", (metadata_id,))
+                            deleted_metadata += 1
+                            self.logger.debug(f"Successfully deleted metadata: {metadata_id}", extra={
+                                'operation_type': 'delete',
+                                'entity_type': 'metadata',
+                                'entity_id': metadata_id,
+                                'success': True
+                            })
                         except Exception as e:
-                            self.logger.warning(f"Failed to delete metadata {metadata_id}: {e}")
+                            self.logger.warning(f"Failed to delete metadata {metadata_id}: {e}", extra={
+                                'operation_type': 'delete',
+                                'entity_type': 'metadata',
+                                'entity_id': metadata_id,
+                                'success': False,
+                                'error_type': type(e).__name__,
+                                'error_message': str(e)
+                            })
+                    else:
+                        self.logger.debug(f"No metadata to delete for analysis result {i+1}", extra={
+                            'current_index': i + 1,
+                            'has_metadata': False
+                        })
                 
                 # Delete all analysis results for this audio file
+                self.logger.debug(f"Deleting analysis results for audio file: {audio_file_id}", extra={
+                    'operation_type': 'delete',
+                    'entity_type': 'analysis_result',
+                    'parent_entity_id': str(audio_file_id)
+                })
                 cursor = conn.execute("""
                     DELETE FROM analysis_results WHERE audio_file_id = ?
                 """, (str(audio_file_id),))
                 
-                deleted_count = cursor.rowcount
+                deleted_analysis_results = cursor.rowcount
                 conn.commit()
                 
-                if deleted_count > 0:
-                    self.logger.debug(f"Deleted {deleted_count} analysis results for audio file: {audio_file_id}")
+                delete_time = time.time() - start_time
+                self.logger.info(f"Cascading delete completed for audio file: {audio_file_id} ({delete_time:.3f}s)", extra={
+                    'operation_type': 'cascading_delete',
+                    'entity_type': 'audio_file',
+                    'entity_id': str(audio_file_id),
+                    'duration_ms': int(delete_time * 1000),
+                    'success': True,
+                    'deleted_analysis_results': deleted_analysis_results,
+                    'deleted_feature_sets': deleted_feature_sets,
+                    'deleted_metadata': deleted_metadata
+                })
                 
-                return deleted_count > 0
+                return deleted_analysis_results > 0
                 
         except Exception as e:
-            self.logger.error(f"Failed to delete analysis results for audio file {audio_file_id}: {e}")
+            delete_time = time.time() - start_time
+            self.logger.error(f"Failed to delete analysis results for audio file {audio_file_id} ({delete_time:.3f}s): {e}", extra={
+                'operation_type': 'cascading_delete',
+                'entity_type': 'audio_file',
+                'entity_id': str(audio_file_id),
+                'duration_ms': int(delete_time * 1000),
+                'success': False,
+                'error_type': type(e).__name__,
+                'error_message': str(e)
+            })
             raise DatabaseError(f"Failed to delete analysis results for audio file: {e}")
     
     def delete(self, analysis_result_id: UUID) -> bool:

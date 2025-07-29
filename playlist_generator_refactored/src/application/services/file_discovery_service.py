@@ -104,6 +104,12 @@ class FileDiscoveryService:
                     # Process files with progress indication
                     total_files = len(files)
                     processed_files = 0
+                    hash_calculated = 0
+                    hash_failed = 0
+                    db_saved = 0
+                    db_failed = 0
+                    
+                    self.logger.info(f"Starting to process {total_files} files...")
                     
                     for file_path in files:
                         if str(file_path) in seen_files:
@@ -112,6 +118,8 @@ class FileDiscoveryService:
                         seen_files.add(str(file_path))
                         
                         try:
+                            self.logger.debug(f"Processing file {processed_files + 1}/{total_files}: {file_path}")
+                            
                             # Double-check that this is actually a file and exists
                             if not file_path.exists():
                                 self.logger.warning(f"File no longer exists: {file_path}")
@@ -124,19 +132,35 @@ class FileDiscoveryService:
                                 continue
                             
                             # Calculate file hash first (with timeout protection)
+                            self.logger.debug(f"Calculating hash for: {file_path}")
                             try:
                                 file_hash = calculate_file_hash(file_path)
+                                if file_hash:
+                                    hash_calculated += 1
+                                    self.logger.debug(f"Hash calculated successfully: {file_hash[:8]}...")
+                                else:
+                                    hash_failed += 1
+                                    self.logger.warning(f"Hash calculation returned None for: {file_path}")
                             except Exception as e:
+                                hash_failed += 1
                                 self.logger.warning(f"Could not calculate hash for {file_path}: {e}")
                                 file_hash = None
                             
                             # Check if file already exists in database by hash
                             existing_audio_file = None
                             if file_hash:
+                                self.logger.debug(f"Checking database for existing file with hash: {file_hash[:8]}...")
                                 existing_audio_file = self._find_by_hash(file_hash)
+                                if existing_audio_file:
+                                    self.logger.debug(f"Found existing file in database: {existing_audio_file.file_path}")
+                                else:
+                                    self.logger.debug(f"No existing file found in database for hash: {file_hash[:8]}...")
+                            else:
+                                self.logger.debug(f"Skipping database lookup - no hash available")
                             
                             if existing_audio_file:
                                 # File exists, update path if needed and reuse UUID
+                                self.logger.debug(f"Reusing existing audio file: {existing_audio_file.id}")
                                 audio_file = existing_audio_file
                                 if str(audio_file.file_path) != str(file_path):
                                     self.logger.info(f"File moved: {audio_file.file_path} -> {file_path}")
@@ -144,12 +168,15 @@ class FileDiscoveryService:
                                     audio_file.file_name = file_path.name
                             else:
                                 # New file, create with new UUID
+                                self.logger.debug(f"Creating new audio file for: {file_path}")
                                 audio_file = AudioFile(file_path=file_path)
                                 
                                 # Get file size
+                                self.logger.debug(f"Getting file size for: {file_path}")
                                 size_mb = get_file_size_mb(file_path)
                                 if size_mb is not None:
                                     audio_file.file_size_bytes = int(size_mb * 1024 * 1024)
+                                    self.logger.debug(f"File size set to: {size_mb:.1f} MB")
                                 else:
                                     self.logger.warning(f"Could not determine file size for {file_path}")
                                     audio_file.file_size_bytes = None
@@ -157,24 +184,30 @@ class FileDiscoveryService:
                                 # Set file hash
                                 if file_hash:
                                     audio_file.file_hash = file_hash
-                                    self.logger.debug(f"Calculated hash for {file_path}: {file_hash[:8]}...")
+                                    self.logger.debug(f"Hash set for {file_path}: {file_hash[:8]}...")
                                 else:
                                     self.logger.warning(f"Could not calculate hash for {file_path}")
                                     audio_file.file_hash = None
                             
                             # Save to database immediately
+                            self.logger.debug(f"Saving to database: {file_path}")
                             try:
                                 self.audio_repo.save(audio_file)
-                                self.logger.debug(f"Saved to database: {file_path}")
+                                db_saved += 1
+                                self.logger.debug(f"Successfully saved to database: {file_path}")
                             except Exception as e:
+                                db_failed += 1
                                 self.logger.warning(f"Failed to save {file_path} to database: {e}")
                             
                             discovered_files.append(audio_file)
                             
-                            # Progress indication
+                            # Progress indication with detailed stats
                             processed_files += 1
                             if processed_files % 100 == 0 or processed_files == total_files:
-                                self.logger.info(f"Processed {processed_files}/{total_files} files ({processed_files/total_files*100:.1f}%)")
+                                self.logger.info(f"Progress: {processed_files}/{total_files} files ({processed_files/total_files*100:.1f}%)")
+                                self.logger.info(f"  - Hash calculated: {hash_calculated}, failed: {hash_failed}")
+                                self.logger.info(f"  - Database saved: {db_saved}, failed: {db_failed}")
+                                self.logger.info(f"  - Discovered: {len(discovered_files)}, skipped: {len(skipped_files)}")
                             
                             # Debug logging with proper size handling
                             if hasattr(audio_file, 'file_size_bytes') and audio_file.file_size_bytes:
@@ -191,7 +224,9 @@ class FileDiscoveryService:
                     error_files.append(str(search_path))
             
             # Track database state and clean up missing files
+            self.logger.info("Starting database state tracking...")
             tracking_stats = self._track_database_state(discovered_files)
+            self.logger.info(f"Database tracking completed: {tracking_stats}")
             
             # Finalize result
             response.result.discovered_files = discovered_files
@@ -202,8 +237,11 @@ class FileDiscoveryService:
             
             response.status = "completed"
             
-            self.logger.info(f"File discovery completed: {len(discovered_files)} files found, "
-                           f"{len(skipped_files)} skipped, {len(error_files)} errors")
+            self.logger.info(f"File discovery completed:")
+            self.logger.info(f"  - Total files processed: {processed_files}")
+            self.logger.info(f"  - Hash calculations: {hash_calculated} successful, {hash_failed} failed")
+            self.logger.info(f"  - Database operations: {db_saved} saved, {db_failed} failed")
+            self.logger.info(f"  - Final results: {len(discovered_files)} discovered, {len(skipped_files)} skipped, {len(error_files)} errors")
             
             return response
             
@@ -308,11 +346,14 @@ class FileDiscoveryService:
             self.logger.info("Starting database state tracking")
             
             # Get all files currently in database
+            self.logger.debug("Retrieving all files from database...")
             db_files = self.audio_repo.find_all()
             db_file_paths = {str(af.file_path) for af in db_files}
+            self.logger.debug(f"Found {len(db_files)} files in database")
             
             # Get discovered file paths
             discovered_file_paths = {str(af.file_path) for af in discovered_files}
+            self.logger.debug(f"Discovered {len(discovered_files)} files")
             
             # Find files that exist in database but not in discovery (missing files)
             missing_files = db_file_paths - discovered_file_paths
@@ -320,18 +361,29 @@ class FileDiscoveryService:
             # Find files that exist in discovery but not in database (new files)
             new_files = discovered_file_paths - db_file_paths
             
-            self.logger.info(f"Database tracking: {len(db_files)} in DB, {len(discovered_files)} discovered")
-            self.logger.info(f"Missing files: {len(missing_files)}, New files: {len(new_files)}")
+            self.logger.info(f"Database state analysis:")
+            self.logger.info(f"  - Files in database: {len(db_files)}")
+            self.logger.info(f"  - Files discovered: {len(discovered_files)}")
+            self.logger.info(f"  - Missing files: {len(missing_files)}")
+            self.logger.info(f"  - New files: {len(new_files)}")
             
             # Remove missing files from all databases
             missing_removed = 0
             if missing_files:
+                self.logger.info(f"Removing {len(missing_files)} missing files from database...")
                 missing_removed = self._remove_missing_files(missing_files)
+                self.logger.info(f"Removed {missing_removed} missing files from database")
+            else:
+                self.logger.info("No missing files to remove")
             
             # Add new files to database
             new_added = 0
             if new_files:
+                self.logger.info(f"Adding {len(new_files)} new files to database...")
                 new_added = self._add_new_files(discovered_files, new_files)
+                self.logger.info(f"Added {new_added} new files to database")
+            else:
+                self.logger.info("No new files to add")
             
             self.logger.info("Database state tracking completed")
             

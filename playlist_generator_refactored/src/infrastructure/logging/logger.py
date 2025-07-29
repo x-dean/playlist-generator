@@ -119,22 +119,39 @@ def setup_logging(
     correlation_filter = CorrelationIdFilter()
     logger.addFilter(correlation_filter)
     
+    # Add structured log processors
+    from infrastructure.logging.processors import (
+        get_structured_processor,
+        get_database_processor,
+        get_analysis_processor,
+        get_performance_processor
+    )
+    
+    # Add processors to logger
+    logger.addFilter(get_structured_processor())
+    logger.addFilter(get_database_processor())
+    logger.addFilter(get_analysis_processor())
+    logger.addFilter(get_performance_processor())
+    
     # Setup formatters
     from infrastructure.logging.formatters import StructuredFormatter, ColoredFormatter
     
-    # Console handler (if enabled)
+    # Console handler (if enabled) - minimal output for user
     if console_logging:
         console_handler = logging.StreamHandler(sys.stdout)
         # Set encoding to handle Unicode characters
         if hasattr(console_handler.stream, 'reconfigure'):
             console_handler.stream.reconfigure(encoding='utf-8')
-        console_formatter = ColoredFormatter(
-            '%(log_color)s%(asctime)s [%(correlation_id)s] %(name)s - %(levelname)s - %(message)s'
+        # Use simple formatter for console to avoid JSON spam
+        console_formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s'
         )
         console_handler.setFormatter(console_formatter)
+        # Set console to only show WARNING and above by default
+        console_handler.setLevel(logging.WARNING)
         logger.addHandler(console_handler)
     
-    # File handler (if enabled)
+    # File handler (if enabled) - full JSON logging
     if file_logging:
         if log_file is None:
             log_file = log_dir / f"{log_file_prefix}.log"
@@ -148,8 +165,11 @@ def setup_logging(
             maxBytes=log_file_size_mb * 1024 * 1024,  # Configurable size
             backupCount=max_log_files
         )
+        # Use JSON formatter for file logging
         file_formatter = StructuredFormatter()
         file_handler.setFormatter(file_formatter)
+        # File handler captures all levels
+        file_handler.setLevel(logging.DEBUG)
         logger.addHandler(file_handler)
     
     # Setup TensorFlow and Essentia logging

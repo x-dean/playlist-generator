@@ -157,6 +157,9 @@ class AudioAnalysisService:
             AudioAnalysisResponse with analysis results
         """
         self.logger.info(f"Starting enhanced audio analysis for {len(request.file_paths)} files")
+        self.logger.info(f"Analysis options: parallel={request.parallel_processing}, max_workers={request.max_workers}, timeout={request.timeout_seconds}s")
+        self.logger.info(f"Processing mode: {'Fast' if self.audio_analysis_config.fast_mode else 'Full'}")
+        self.logger.info(f"Memory config: limit={self.memory_config.memory_limit_gb}GB, aware={self.memory_config.memory_aware}")
         
         # Create response with progress tracking
         response = AudioAnalysisResponse(
@@ -179,28 +182,39 @@ class AudioAnalysisService:
                 
                 # Convert file paths to Path objects
                 file_paths = [Path(fp) for fp in request.file_paths]
+                self.logger.debug(f"Converted {len(file_paths)} file paths to Path objects")
                 
                 # Sort files by size (large first) for better resource utilization
+                self.logger.debug("Sorting files by size (largest first)...")
                 sorted_file_paths = sort_files_by_size(file_paths, reverse=True)
+                self.logger.debug(f"Files sorted by size, largest first")
                 
                 # Log the largest files being processed first
                 log_largest_files(sorted_file_paths, count=5)
                 
                 # Split files into small and large based on size
+                self.logger.debug(f"Splitting files by size threshold: {self.processing_config.large_file_threshold_mb}MB")
                 small_files, large_files = split_files_by_size(
                     sorted_file_paths, 
                     self.processing_config.large_file_threshold_mb
                 )
                 
+                self.logger.info(f"File classification:")
+                self.logger.info(f"  - Small files (<{self.processing_config.large_file_threshold_mb}MB): {len(small_files)}")
+                self.logger.info(f"  - Large files (≥{self.processing_config.large_file_threshold_mb}MB): {len(large_files)}")
                 self.logger.info(f"Processing {len(small_files)} small files in parallel, {len(large_files)} large files sequentially")
                 
                 results = []
                 
                 # Process large files FIRST (sequentially) for better resource utilization
-                for file_path in large_files:
+                self.logger.info(f"Starting sequential processing of {len(large_files)} large files...")
+                for i, file_path in enumerate(large_files):
+                    self.logger.info(f"Processing large file {i+1}/{len(large_files)}: {file_path}")
                     try:
-                        self.logger.info(f"Processing large file: {file_path}")
+                        start_time = time.time()
                         result = self._process_single_file(file_path)
+                        processing_time = time.time() - start_time
+                        self.logger.info(f"Large file completed: {file_path} ({processing_time:.1f}s)")
                         results.append(result)
                     except Exception as e:
                         self.logger.error(f"Large file processing failed for {file_path}: {e}")
@@ -215,19 +229,29 @@ class AudioAnalysisService:
                 
                 # Process small files in parallel (after large files)
                 if small_files:
+                    self.logger.info(f"Starting parallel processing of {len(small_files)} small files...")
+                    self.logger.info(f"Parallel config: max_workers={request.max_workers}, timeout={request.timeout_seconds}s")
+                    
+                    start_time = time.time()
                     processing_results = self.parallel_processor.process_files_parallel(
                         file_paths=small_files,
                         processor_func=self._create_standalone_processor(),
                         max_workers=request.max_workers,
                         timeout_minutes=request.timeout_seconds // 60 if request.timeout_seconds else None
                     )
+                    parallel_time = time.time() - start_time
+                    self.logger.info(f"Parallel processing completed in {parallel_time:.1f}s")
                     
                     # Convert processing results to analysis results
+                    successful_results = 0
+                    failed_results = 0
                     for proc_result in processing_results:
                         if proc_result.success:
                             results.append(proc_result.data)
+                            successful_results += 1
                         else:
                             errors.append(proc_result.error)
+                            failed_results += 1
                             # Create failed result
                             audio_file = AudioFile(file_path=proc_result.data.file_path if proc_result.data else Path("unknown"))
                             results.append(AnalysisResult(
@@ -236,26 +260,17 @@ class AudioAnalysisService:
                                 is_complete=True,
                                 error_message=proc_result.error
                             ))
-                    try:
-                        self.logger.info(f"Processing large file: {file_path}")
-                        result = self._process_single_file(file_path)
-                        results.append(result)
-                    except Exception as e:
-                        self.logger.error(f"Large file processing failed for {file_path}: {e}")
-                        errors.append(str(e))
-                        audio_file = AudioFile(file_path=file_path)
-                        results.append(AnalysisResult(
-                            audio_file=audio_file,
-                            is_successful=False,
-                            is_complete=True,
-                            error_message=str(e)
-                        ))
+                    
+                    self.logger.info(f"Parallel processing results: {successful_results} successful, {failed_results} failed")
+                else:
+                    self.logger.info("No small files to process in parallel")
                 
 
                 
             else:
                 # Sequential processing
                 self.logger.info("Using sequential processing")
+                self.logger.info(f"Processing {len(request.file_paths)} files sequentially")
                 
                 for i, file_path in enumerate(request.file_paths):
                     self.logger.info(f"Processing file {i+1}/{len(request.file_paths)}: {file_path}")
@@ -265,15 +280,26 @@ class AudioAnalysisService:
                     response.progress.processed_files = i + 1
                     
                     try:
+                        start_time = time.time()
+                        
                         # Create AudioFile entity
+                        self.logger.debug(f"Creating AudioFile entity for: {file_path}")
                         audio_file = AudioFile(file_path=Path(file_path))
+                        
                         # Extract metadata
+                        self.logger.debug(f"Extracting metadata for: {file_path}")
                         metadata = self._extract_metadata(file_path, audio_file.id)
+                        self.logger.debug(f"Metadata extracted: title='{metadata.title}', artist='{metadata.artist}'")
+                        
                         # Extract features based on mode
+                        self.logger.debug(f"Extracting features for: {file_path}")
                         feature_set = self._extract_features_full(file_path, audio_file.id)
+                        self.logger.debug(f"Features extracted: BPM={feature_set.bpm}, key={feature_set.key}")
                         
                         # Calculate quality score
+                        self.logger.debug(f"Calculating quality score for: {file_path}")
                         quality_score = self._calculate_quality_score(feature_set, metadata)
+                        self.logger.debug(f"Quality score: {quality_score:.2f}")
                         
                         # Create analysis result
                         result = AnalysisResult(
@@ -286,10 +312,13 @@ class AudioAnalysisService:
                             processing_time_ms=None
                         )
                         
+                        processing_time = time.time() - start_time
+                        self.logger.info(f"File completed: {file_path} ({processing_time:.1f}s)")
                         results.append(result)
                         
                     except Exception as e:
-                        self.logger.error(f"Analysis failed for {file_path}: {e}")
+                        processing_time = time.time() - start_time if 'start_time' in locals() else 0
+                        self.logger.error(f"Analysis failed for {file_path} ({processing_time:.1f}s): {e}")
                         errors.append(str(e))
                         audio_file = AudioFile(file_path=Path(file_path))
                         results.append(AnalysisResult(
@@ -306,7 +335,18 @@ class AudioAnalysisService:
             response.progress.completed_files = len(request.file_paths)
             response.end_time = datetime.now()
             
-            self.logger.info(f"Analysis completed: {len(results)} files, {len(errors)} errors")
+            # Calculate final statistics
+            successful_results = sum(1 for r in results if r.is_successful)
+            failed_results = len(results) - successful_results
+            total_time = (response.end_time - response.start_time).total_seconds()
+            
+            self.logger.info(f"Analysis completed:")
+            self.logger.info(f"  - Total files: {len(request.file_paths)}")
+            self.logger.info(f"  - Successful: {successful_results}")
+            self.logger.info(f"  - Failed: {failed_results}")
+            self.logger.info(f"  - Errors: {len(errors)}")
+            self.logger.info(f"  - Total time: {total_time:.1f}s")
+            self.logger.info(f"  - Average time per file: {total_time/len(request.file_paths):.1f}s")
             
         except Exception as e:
             self.logger.error(f"Analysis failed: {e}")
@@ -784,29 +824,46 @@ class AudioAnalysisService:
         """Process a single audio file for sequential processing."""
         start_time = time.time()
         
+        self.logger.debug(f"Starting single file processing: {file_path}")
+        
         try:
             # Create AudioFile entity
+            self.logger.debug(f"Creating AudioFile entity for: {file_path}")
             audio_file = AudioFile(file_path=file_path)
             
             # Check if already analyzed (skip if not forcing re-analysis)
+            self.logger.debug(f"Checking for existing analysis: {file_path}")
             existing_result = self.analysis_repo.find_by_audio_file_id(audio_file.id)
             if existing_result and not getattr(self, '_force_reanalysis', False):
-                self.logger.debug(f"Skipping {file_path} - already analyzed")
+                self.logger.info(f"Skipping {file_path} - already analyzed")
                 return existing_result
             
             # Extract metadata
+            self.logger.debug(f"Extracting metadata for: {file_path}")
+            metadata_start = time.time()
             metadata = self._extract_metadata(file_path, audio_file.id)
+            metadata_time = time.time() - metadata_start
+            self.logger.debug(f"Metadata extraction completed: {file_path} ({metadata_time:.1f}s)")
             
             # Extract features based on mode
+            self.logger.debug(f"Extracting features for: {file_path}")
+            features_start = time.time()
             feature_set = self._extract_features_full(file_path, audio_file.id)
+            features_time = time.time() - features_start
+            self.logger.debug(f"Feature extraction completed: {file_path} ({features_time:.1f}s)")
             
             # Calculate quality score
+            self.logger.debug(f"Calculating quality score for: {file_path}")
+            quality_start = time.time()
             quality_score = self._calculate_quality_score(feature_set, metadata)
+            quality_time = time.time() - quality_start
+            self.logger.debug(f"Quality score calculated: {file_path} ({quality_score:.2f}, {quality_time:.1f}s)")
             
             # Calculate processing time
             processing_time_ms = (time.time() - start_time) * 1000
             
             # Create analysis result
+            self.logger.debug(f"Creating analysis result for: {file_path}")
             result = AnalysisResult(
                 audio_file=audio_file,
                 feature_set=feature_set,
@@ -818,21 +875,30 @@ class AudioAnalysisService:
             )
             
             # Save to database
+            self.logger.debug(f"Saving analysis result to database: {file_path}")
+            db_start = time.time()
             try:
                 self.audio_repo.save(audio_file)
                 self.feature_repo.save(feature_set)
                 self.metadata_repo.save(metadata)
                 self.analysis_repo.save(result)
-                self.logger.debug(f"Saved analysis result for {file_path}")
+                db_time = time.time() - db_start
+                self.logger.debug(f"Database save completed: {file_path} ({db_time:.1f}s)")
             except Exception as db_error:
-                self.logger.error(f"Failed to save analysis result to database: {db_error}")
+                db_time = time.time() - db_start
+                self.logger.error(f"Failed to save analysis result to database: {file_path} ({db_time:.1f}s): {db_error}")
                 # Continue with result even if database save fails
+            
+            total_time = time.time() - start_time
+            self.logger.info(f"Single file processing completed: {file_path} ({total_time:.1f}s)")
+            self.logger.debug(f"Processing breakdown: metadata={metadata_time:.1f}s, features={features_time:.1f}s, quality={quality_time:.1f}s, db={db_time:.1f}s")
             
             return result
             
         except Exception as e:
-            self.logger.error(f"Analysis failed for {file_path}: {e}")
-            processing_time_ms = (time.time() - start_time) * 1000
+            processing_time = time.time() - start_time
+            self.logger.error(f"Analysis failed for {file_path} ({processing_time:.1f}s): {e}")
+            processing_time_ms = processing_time * 1000
             
             audio_file = AudioFile(file_path=file_path)
             result = AnalysisResult(
@@ -847,7 +913,8 @@ class AudioAnalysisService:
             try:
                 self.audio_repo.save(audio_file)
                 self.analysis_repo.save(result)
+                self.logger.debug(f"Saved failed analysis result to database: {file_path}")
             except Exception as db_error:
-                self.logger.error(f"Failed to save failed analysis result to database: {db_error}")
+                self.logger.error(f"Failed to save failed analysis result to database: {file_path}: {db_error}")
             
             return result 

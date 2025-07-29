@@ -30,17 +30,17 @@ class StructuredFormatter(logging.Formatter):
             'message': record.getMessage(),
             'logger': record.name,
             'level': record.levelname,
-            'timestamp': datetime.fromtimestamp(record.created).isoformat(),
-            'module': record.module,
-            'function': record.funcName,
-            'line': record.lineno
+            'timestamp': getattr(record, 'timestamp', datetime.fromtimestamp(record.created).isoformat()),
+            'module': getattr(record, 'module_name', record.module),
+            'function': getattr(record, 'function_name', record.funcName),
+            'line': getattr(record, 'line_number', record.lineno)
         }
         
         # Add correlation ID if available
         if hasattr(record, 'correlation_id') and record.correlation_id:
             log_entry['correlation_id'] = record.correlation_id
         
-        # Add extra fields
+        # Add extra fields from processors
         if hasattr(record, 'extra_fields'):
             log_entry.update(record.extra_fields)
         
@@ -49,9 +49,55 @@ class StructuredFormatter(logging.Formatter):
             log_entry['exception'] = self.formatException(record.exc_info)
         
         # Add process and thread info
-        log_entry['process_id'] = record.process
-        log_entry['thread_id'] = record.thread
-        log_entry['thread_name'] = record.threadName
+        log_entry['process_id'] = getattr(record, 'process_id', record.process)
+        log_entry['thread_id'] = getattr(record, 'thread_id', record.thread)
+        log_entry['thread_name'] = getattr(record, 'thread_name', record.threadName)
+        
+        # Add database-specific fields
+        if hasattr(record, 'db_operation'):
+            log_entry['db_operation'] = record.db_operation
+        if hasattr(record, 'db_entity'):
+            log_entry['db_entity'] = record.db_entity
+        if hasattr(record, 'db_entity_id'):
+            log_entry['db_entity_id'] = record.db_entity_id
+        if hasattr(record, 'db_query_type'):
+            log_entry['db_query_type'] = record.db_query_type
+        if hasattr(record, 'db_table'):
+            log_entry['db_table'] = record.db_table
+        if hasattr(record, 'db_duration_ms'):
+            log_entry['db_duration_ms'] = record.db_duration_ms
+        if hasattr(record, 'db_success'):
+            log_entry['db_success'] = record.db_success
+        if hasattr(record, 'db_rows_affected'):
+            log_entry['db_rows_affected'] = record.db_rows_affected
+        if hasattr(record, 'db_error_type'):
+            log_entry['db_error_type'] = record.db_error_type
+        
+        # Add analysis-specific fields
+        if hasattr(record, 'analysis_phase'):
+            log_entry['analysis_phase'] = record.analysis_phase
+        if hasattr(record, 'analysis_file_path'):
+            log_entry['analysis_file_path'] = record.analysis_file_path
+        if hasattr(record, 'analysis_file_size_mb'):
+            log_entry['analysis_file_size_mb'] = record.analysis_file_size_mb
+        if hasattr(record, 'analysis_mode'):
+            log_entry['analysis_mode'] = record.analysis_mode
+        if hasattr(record, 'analysis_duration_ms'):
+            log_entry['analysis_duration_ms'] = record.analysis_duration_ms
+        if hasattr(record, 'analysis_success'):
+            log_entry['analysis_success'] = record.analysis_success
+        
+        # Add performance-specific fields
+        if hasattr(record, 'performance_duration_ms'):
+            log_entry['performance_duration_ms'] = record.performance_duration_ms
+        if hasattr(record, 'operation_id'):
+            log_entry['operation_id'] = record.operation_id
+        if hasattr(record, 'operation_name'):
+            log_entry['operation_name'] = record.operation_name
+        
+        # Add duration if available
+        if hasattr(record, 'duration_ms'):
+            log_entry['duration_ms'] = record.duration_ms
         
         return json.dumps(log_entry, ensure_ascii=False, default=str)
 
