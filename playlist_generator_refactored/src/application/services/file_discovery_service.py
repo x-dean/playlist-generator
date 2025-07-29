@@ -90,15 +90,22 @@ class FileDiscoveryService:
                             response.result.duplicate_files += 1
                             continue
                         seen_files.add(str(file_path))
+                        
                         try:
-                            # Real audio validation using mutagen
-                            mutagen_file = MutagenFile(str(file_path))
-                            if mutagen_file is None:
-                                raise ValueError("Not a valid audio file")
+                            # Create AudioFile entity with basic info
                             audio_file = AudioFile(file_path=file_path)
+                            
+                            # Get file size if possible
+                            try:
+                                audio_file.file_size_bytes = file_path.stat().st_size
+                            except Exception as e:
+                                self.logger.warning(f"Could not get file size for {file_path}: {e}")
+                            
                             discovered_files.append(audio_file)
+                            self.logger.debug(f"Added file: {file_path}")
+                            
                         except Exception as e:
-                            self.logger.warning(f"Invalid audio file: {file_path} ({e})")
+                            self.logger.warning(f"Could not create AudioFile for {file_path}: {e}")
                             skipped_files.append(str(file_path))
                 except Exception as e:
                     self.logger.error(f"Failed to scan {search_path}: {e}")
