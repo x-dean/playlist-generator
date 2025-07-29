@@ -622,6 +622,34 @@ Examples:
         self.logger.info(f"Starting pipeline for path: {args.path}")
         
         try:
+            # Debug: Check what's in the music directory
+            self.console.print("[cyan]Debug: Checking music directory contents...[/cyan]")
+            music_path = Path(args.path)
+            if music_path.exists():
+                self.logger.info(f"Music directory exists: {music_path}")
+                try:
+                    # List all files in the directory
+                    all_files = list(music_path.rglob('*'))
+                    self.logger.info(f"Total files found: {len(all_files)}")
+                    
+                    # Show first few files for debugging
+                    for i, file_path in enumerate(all_files[:10]):
+                        self.logger.info(f"File {i+1}: {file_path} (exists: {file_path.exists()})")
+                    
+                    # Check for audio files specifically
+                    audio_extensions = {'.mp3', '.flac', '.wav', '.m4a', '.ogg'}
+                    audio_files = [f for f in all_files if f.is_file() and f.suffix.lower() in audio_extensions]
+                    self.logger.info(f"Audio files found: {len(audio_files)}")
+                    for audio_file in audio_files[:5]:
+                        self.logger.info(f"Audio file: {audio_file}")
+                        
+                except Exception as e:
+                    self.logger.error(f"Error listing directory contents: {e}")
+            else:
+                self.logger.error(f"Music directory does not exist: {music_path}")
+                self.console.print(f"[red]Error: Music directory does not exist: {music_path}[/red]")
+                return 1
+            
             # Step 1: Discovery
             self.console.print("[cyan]Step 1: Discovering audio files...[/cyan]")
             self.logger.info("Step 1: Starting file discovery")
