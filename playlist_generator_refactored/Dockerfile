@@ -27,7 +27,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg \
     libavcodec-extra \
-    libfftw3-3 \
+    libfftw3-double3 \
     libtag1v5 \
     sqlite3 \
     libmagic1 \
