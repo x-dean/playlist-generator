@@ -63,11 +63,11 @@
       "description": "Logging configuration for troubleshooting",
       "settings": {
         "LOG_LEVEL": {
-          "value": "DEBUG",
+          "value": "WARNING",
           "description": "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
           "type": "string",
           "options": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-          "default": "DEBUG"
+          "default": "WARNING"
         },
         "console_logging": {
           "value": true,
@@ -140,16 +140,16 @@
       "description": "Processing mode settings",
       "settings": {
         "DEBUG": {
-          "value": true,
+          "value": false,
           "description": "Enable debug mode for detailed logging",
           "type": "boolean",
           "default": false
         },
         "FAST_MODE_ENABLED": {
-          "value": false,
+          "value": true,
           "description": "Enable fast mode processing (3-5x faster with reduced features)",
           "type": "boolean",
-          "default": false
+          "default": true
         }
       }
     },

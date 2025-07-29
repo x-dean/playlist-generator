@@ -199,7 +199,7 @@ class ParallelProcessor:
     def __init__(self, config: ProcessingConfig, memory_config: MemoryConfig):
         self.config = config
         self.memory_config = memory_config
-        self.memory_monitor = MemoryMonitor(memory_config)
+        # Don't create MemoryMonitor here - it has unpickleable threading.Event
         self.large_file_processor = LargeFileProcessor(config)
         self.logger = logging.getLogger(__name__)
         
@@ -225,8 +225,11 @@ class ParallelProcessor:
         if max_workers is None:
             max_workers = self.config.max_workers
         
+        # Create MemoryMonitor when needed (not during initialization)
+        memory_monitor = MemoryMonitor(self.memory_config)
+        
         # Get memory-aware worker count
-        optimal_workers = self.memory_monitor.get_optimal_worker_count(
+        optimal_workers = memory_monitor.get_optimal_worker_count(
             max_workers, 
             memory_limit_str=os.getenv('MEMORY_LIMIT')
         )
@@ -271,7 +274,8 @@ class ParallelProcessor:
             results.extend(batch_results)
             
             # Check memory after each batch
-            if self.memory_monitor.is_memory_critical():
+            memory_monitor = MemoryMonitor(self.memory_config)
+            if memory_monitor.is_memory_critical():
                 self.logger.warning("Memory usage critical, pausing before next batch")
                 time.sleep(self.memory_config.memory_pressure_pause_seconds)
         

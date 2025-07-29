@@ -640,16 +640,17 @@ Examples:
                     all_files = list(music_path.rglob('*'))
                     self.logger.info(f"Total files found: {len(all_files)}")
                     
-                    # Show first few files for debugging
-                    for i, file_path in enumerate(all_files[:10]):
-                        self.logger.info(f"File {i+1}: {file_path} (exists: {file_path.exists()})")
-                    
                     # Check for audio files specifically
                     audio_extensions = {'.mp3', '.flac', '.wav', '.m4a', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.alac'}
                     audio_files = [f for f in all_files if f.is_file() and f.suffix.lower() in audio_extensions]
                     self.logger.info(f"Audio files found: {len(audio_files)}")
-                    for audio_file in audio_files[:5]:
-                        self.logger.info(f"Audio file: {audio_file}")
+                    
+                    # Only log first few files in debug mode
+                    if self.config.logging.level == 'DEBUG':
+                        for i, file_path in enumerate(all_files[:5]):
+                            self.logger.debug(f"File {i+1}: {file_path} (exists: {file_path.exists()})")
+                        for audio_file in audio_files[:3]:
+                            self.logger.debug(f"Audio file: {audio_file}")
                         
                 except Exception as e:
                     self.logger.error(f"Error listing directory contents: {e}")

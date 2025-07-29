@@ -192,9 +192,13 @@ def _setup_external_logging(config: Any) -> None:
     try:
         import tensorflow as tf
         
-        # Configure TensorFlow logging
+        # Configure TensorFlow logging - suppress all warnings
         tf_logger = tf.get_logger()
         tf_logger.handlers.clear()
+        tf_logger.setLevel(logging.ERROR)  # Only show errors
+        
+        # Suppress TensorFlow warnings
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TF warnings
         
         # Get TensorFlow log level from config
         if hasattr(config, 'logging'):
