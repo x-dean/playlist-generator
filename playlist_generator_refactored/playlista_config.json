@@ -60,18 +60,18 @@
     },
 
     "logging": {
-      "description": "Logging configuration",
+      "description": "Logging configuration for troubleshooting",
       "settings": {
         "LOG_LEVEL": {
-          "value": "INFO",
+          "value": "DEBUG",
           "description": "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
           "type": "string",
           "options": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-          "default": "INFO"
+          "default": "DEBUG"
         },
         "console_logging": {
-          "value": false,
-          "description": "Disable logging to console",
+          "value": true,
+          "description": "Enable logging to console for troubleshooting",
           "type": "boolean",
           "default": true
         },
@@ -80,6 +80,18 @@
           "description": "Enable logging to file",
           "type": "boolean",
           "default": true
+        },
+        "colored_output": {
+          "value": true,
+          "description": "Enable colored console output",
+          "type": "boolean",
+          "default": true
+        },
+        "log_file_prefix": {
+          "value": "playlista",
+          "description": "Log file prefix",
+          "type": "string",
+          "default": "playlista"
         }
       }
     },
@@ -138,6 +150,52 @@
           "description": "Enable fast mode processing (3-5x faster with reduced features)",
           "type": "boolean",
           "default": false
+        }
+      }
+    },
+
+    "troubleshooting": {
+      "description": "Troubleshooting and debugging settings",
+      "settings": {
+        "VERBOSE_OUTPUT": {
+          "value": true,
+          "description": "Enable verbose output for debugging",
+          "type": "boolean",
+          "default": true
+        },
+        "SHOW_PROGRESS": {
+          "value": true,
+          "description": "Show progress indicators during processing",
+          "type": "boolean",
+          "default": true
+        },
+        "LOG_MEMORY_USAGE": {
+          "value": true,
+          "description": "Log memory usage during processing",
+          "type": "boolean",
+          "default": true
+        },
+        "LOG_PERFORMANCE": {
+          "value": true,
+          "description": "Log performance metrics",
+          "type": "boolean",
+          "default": true
+        },
+        "MAX_LOG_FILES": {
+          "value": 10,
+          "description": "Maximum number of log files to keep",
+          "type": "integer",
+          "min": 1,
+          "max": 50,
+          "default": 10
+        },
+        "LOG_FILE_SIZE_MB": {
+          "value": 50,
+          "description": "Maximum log file size in MB",
+          "type": "integer",
+          "min": 1,
+          "max": 1000,
+          "default": 50
         }
       }
     }
