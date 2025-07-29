@@ -11,6 +11,7 @@ from typing import List, Optional, Dict, Any
 from pathlib import Path
 from uuid import uuid4
 from mutagen import File as MutagenFile
+import hashlib
 
 from shared.config import get_config
 from shared.exceptions import FileDiscoveryError, FileAccessError
@@ -104,8 +105,6 @@ class FileDiscoveryService:
                     # Process files with progress indication
                     total_files = len(files)
                     processed_files = 0
-                    hash_calculated = 0
-                    hash_failed = 0
                     db_saved = 0
                     db_failed = 0
                     
@@ -140,21 +139,18 @@ class FileDiscoveryService:
                                 stat = file_path.stat()
                                 audio_file.file_size_bytes = stat.st_size
                                 audio_file.file_name = file_path.name
+                                
+                                # Calculate hash if enabled
+                                if self.config.file_discovery.use_hash_tracking:
+                                    # Use filename hash (fastest and tracks by name)
+                                    audio_file.file_hash = self._calculate_filename_hash(file_path)
+                                else:
+                                    audio_file.file_hash = None
+                                    
                             except Exception as e:
                                 self.logger.warning(f"Could not get file info for {file_path}: {e}")
                                 skipped_files.append(str(file_path))
                                 continue
-                                else:
-                                    self.logger.warning(f"Could not determine file size for {file_path}")
-                                    audio_file.file_size_bytes = None
-                                
-                                # Set file hash
-                                if file_hash:
-                                    audio_file.file_hash = file_hash
-                                    self.logger.debug(f"Hash set for {file_path}: {file_hash[:8]}...")
-                                else:
-                                    self.logger.warning(f"Could not calculate hash for {file_path}")
-                                    audio_file.file_hash = None
                             
                             # Save to database immediately
                             self.logger.debug(f"Saving to database: {file_path}")
@@ -172,16 +168,15 @@ class FileDiscoveryService:
                             processed_files += 1
                             if processed_files % 100 == 0 or processed_files == total_files:
                                 self.logger.info(f"Progress: {processed_files}/{total_files} files ({processed_files/total_files*100:.1f}%)")
-                                self.logger.info(f"  - Hash calculated: {hash_calculated}, failed: {hash_failed}")
                                 self.logger.info(f"  - Database saved: {db_saved}, failed: {db_failed}")
                                 self.logger.info(f"  - Discovered: {len(discovered_files)}, skipped: {len(skipped_files)}")
                             
                             # Debug logging with proper size handling
                             if hasattr(audio_file, 'file_size_bytes') and audio_file.file_size_bytes:
                                 size_mb = audio_file.file_size_bytes / (1024 * 1024)
-                                self.logger.debug(f"Added file: {file_path} ({size_mb:.1f} MB, hash: {file_hash[:8] if file_hash else 'None'}...)")
+                                self.logger.debug(f"Added file: {file_path} ({size_mb:.1f} MB)")
                             else:
-                                self.logger.debug(f"Added file: {file_path} (size unknown, hash: {file_hash[:8] if file_hash else 'None'}...)")
+                                self.logger.debug(f"Added file: {file_path} (size unknown)")
                             
                         except Exception as e:
                             self.logger.warning(f"Could not create AudioFile for {file_path}: {e}")
@@ -206,7 +201,6 @@ class FileDiscoveryService:
             
             self.logger.info(f"File discovery completed:")
             self.logger.info(f"  - Total files processed: {processed_files}")
-            self.logger.info(f"  - Hash calculations: {hash_calculated} successful, {hash_failed} failed")
             self.logger.info(f"  - Database operations: {db_saved} saved, {db_failed} failed")
             self.logger.info(f"  - Final results: {len(discovered_files)} discovered, {len(skipped_files)} skipped, {len(error_files)} errors")
             
@@ -288,7 +282,7 @@ class FileDiscoveryService:
         
         This method:
         1. Gets all files currently in database
-        2. Compares with discovered files
+        2. Compares with discovered files (by path or hash)
         3. Removes database entries for files that no longer exist
         4. Adds new files to database
         
@@ -301,44 +295,106 @@ class FileDiscoveryService:
         try:
             self.logger.info("Starting database state tracking")
             
-            # Get discovered file paths
-            discovered_paths = {str(af.file_path) for af in discovered_files}
-            self.logger.info(f"Discovered {len(discovered_paths)} files on disk")
-            
-            # Get database file paths (use a simple query to avoid loading all data)
-            self.logger.info("Checking database for existing files...")
-            db_paths = self._get_database_file_paths()
-            self.logger.info(f"Found {len(db_paths)} files in database")
-            
-            # Find missing files (in database but not on disk)
-            missing_files = db_paths - discovered_paths
-            if missing_files:
-                self.logger.info(f"Found {len(missing_files)} files in database that no longer exist")
-                removed_count = self._remove_missing_files(missing_files)
-                self.logger.info(f"Removed {removed_count} missing files from database")
+            if self.config.file_discovery.use_hash_tracking:
+                self.logger.info("Using hash-based tracking")
+                return self._track_by_hash(discovered_files)
             else:
-                self.logger.info("No missing files found")
-                removed_count = 0
-            
-            # Find new files (on disk but not in database)
-            new_files = discovered_paths - db_paths
-            if new_files:
-                self.logger.info(f"Found {len(new_files)} new files to add")
-                added_count = self._add_new_files(discovered_files, new_files)
-                self.logger.info(f"Added {added_count} new files to database")
-            else:
-                self.logger.info("No new files to add")
-                added_count = 0
-            
-            return {
-                'files_discovered': len(discovered_files),
-                'files_removed': removed_count,
-                'files_added': added_count
-            }
+                self.logger.info("Using path-based tracking")
+                return self._track_by_path(discovered_files)
             
         except Exception as e:
             self.logger.error(f"Database state tracking failed: {e}")
             raise FileDiscoveryError(f"Database state tracking failed: {e}") from e
+    
+    def _track_by_path(self, discovered_files: List[AudioFile]) -> dict:
+        """
+        Track files using path-based comparison (fast).
+        
+        Args:
+            discovered_files: List of discovered files
+            
+        Returns:
+            Dictionary with tracking statistics
+        """
+        # Get discovered file paths
+        discovered_paths = {str(af.file_path) for af in discovered_files}
+        self.logger.info(f"Discovered {len(discovered_paths)} files on disk")
+        
+        # Get database file paths
+        self.logger.info("Checking database for existing files...")
+        db_paths = self._get_database_file_paths()
+        self.logger.info(f"Found {len(db_paths)} files in database")
+        
+        # Find missing files (in database but not on disk)
+        missing_files = db_paths - discovered_paths
+        if missing_files:
+            self.logger.info(f"Found {len(missing_files)} files in database that no longer exist")
+            removed_count = self._remove_missing_files(missing_files)
+            self.logger.info(f"Removed {removed_count} missing files from database")
+        else:
+            self.logger.info("No missing files found")
+            removed_count = 0
+        
+        # Find new files (on disk but not in database)
+        new_files = discovered_paths - db_paths
+        if new_files:
+            self.logger.info(f"Found {len(new_files)} new files to add")
+            added_count = self._add_new_files(discovered_files, new_files)
+            self.logger.info(f"Added {added_count} new files to database")
+        else:
+            self.logger.info("No new files to add")
+            added_count = 0
+        
+        return {
+            'files_discovered': len(discovered_files),
+            'files_removed': removed_count,
+            'files_added': added_count
+        }
+    
+    def _track_by_hash(self, discovered_files: List[AudioFile]) -> dict:
+        """
+        Track files using hash-based comparison (more robust).
+        
+        Args:
+            discovered_files: List of discovered files
+            
+        Returns:
+            Dictionary with tracking statistics
+        """
+        # Get discovered file hashes
+        discovered_hashes = {af.file_hash for af in discovered_files if af.file_hash}
+        self.logger.info(f"Discovered {len(discovered_hashes)} files with hashes")
+        
+        # Get database file hashes
+        self.logger.info("Checking database for existing files...")
+        db_hashes = self._get_database_file_hashes()
+        self.logger.info(f"Found {len(db_hashes)} files with hashes in database")
+        
+        # Find missing files (in database but not on disk)
+        missing_hashes = db_hashes - discovered_hashes
+        if missing_hashes:
+            self.logger.info(f"Found {len(missing_hashes)} files in database that no longer exist")
+            removed_count = self._remove_missing_files_by_hash(missing_hashes)
+            self.logger.info(f"Removed {removed_count} missing files from database")
+        else:
+            self.logger.info("No missing files found")
+            removed_count = 0
+        
+        # Find new files (on disk but not in database)
+        new_hashes = discovered_hashes - db_hashes
+        if new_hashes:
+            self.logger.info(f"Found {len(new_hashes)} new files to add")
+            added_count = self._add_new_files_by_hash(discovered_files, new_hashes)
+            self.logger.info(f"Added {added_count} new files to database")
+        else:
+            self.logger.info("No new files to add")
+            added_count = 0
+        
+        return {
+            'files_discovered': len(discovered_files),
+            'files_removed': removed_count,
+            'files_added': added_count
+        }
     
     def _get_database_file_paths(self) -> set:
         """
@@ -423,4 +479,108 @@ class FileDiscoveryService:
             
         except Exception as e:
             self.logger.error(f"Failed to add new files: {e}")
-            return 0 
+            return 0
+    
+    def _get_database_file_hashes(self) -> set:
+        """
+        Get all file hashes from database efficiently.
+        
+        Returns:
+            Set of file hashes
+        """
+        try:
+            with self.audio_repo._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT file_hash FROM audio_files WHERE file_hash IS NOT NULL")
+                rows = cursor.fetchall()
+                return {row[0] for row in rows}
+        except Exception as e:
+            self.logger.warning(f"Failed to get database file hashes: {e}")
+            return set()
+    
+    def _remove_missing_files_by_hash(self, missing_hashes: set) -> int:
+        """
+        Remove missing files from database by hash.
+        
+        Args:
+            missing_hashes: Set of file hashes that no longer exist
+            
+        Returns:
+            Number of files removed
+        """
+        try:
+            self.logger.info(f"Removing {len(missing_hashes)} missing files from database")
+            
+            removed_count = 0
+            with self.audio_repo._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                for file_hash in missing_hashes:
+                    try:
+                        cursor.execute("DELETE FROM audio_files WHERE file_hash = ?", (file_hash,))
+                        if cursor.rowcount > 0:
+                            removed_count += 1
+                            self.logger.debug(f"Removed missing file with hash: {file_hash[:8]}...")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to remove missing file with hash {file_hash[:8]}...: {e}")
+                
+                conn.commit()
+            
+            self.logger.info(f"Successfully removed {removed_count} missing files from database")
+            return removed_count
+            
+        except Exception as e:
+            self.logger.error(f"Failed to remove missing files: {e}")
+            return 0
+    
+    def _add_new_files_by_hash(self, discovered_files: List[AudioFile], new_hashes: set) -> int:
+        """
+        Add new files to database by hash.
+        
+        Args:
+            discovered_files: List of all discovered files
+            new_hashes: Set of file hashes that are new
+            
+        Returns:
+            Number of files added
+        """
+        try:
+            self.logger.info(f"Adding {len(new_hashes)} new files to database")
+            
+            added_count = 0
+            for audio_file in discovered_files:
+                if audio_file.file_hash and audio_file.file_hash in new_hashes:
+                    try:
+                        self.audio_repo.save(audio_file)
+                        added_count += 1
+                        self.logger.debug(f"Added new file: {audio_file.file_path}")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to add new file {audio_file.file_path}: {e}")
+            
+            self.logger.info(f"Successfully added {added_count} new files to database")
+            return added_count
+            
+        except Exception as e:
+            self.logger.error(f"Failed to add new files: {e}")
+            return 0
+    
+    def _calculate_filename_hash(self, file_path: Path) -> Optional[str]:
+        """
+        Calculate a hash using only the filename.
+        Very fast and tracks files by name regardless of path.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            Hash string or None if failed
+        """
+        try:
+            # Use only filename for hash (path can change, filename stays same)
+            filename = file_path.name
+            return hashlib.md5(filename.encode()).hexdigest()
+        except Exception as e:
+            self.logger.debug(f"Filename hash calculation failed for {file_path}: {e}")
+            return None
+    
+ 

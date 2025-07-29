@@ -205,6 +205,26 @@ class PlaylistConfig:
 
 
 @dataclass
+class FileDiscoveryConfig:
+    """Configuration for file discovery settings."""
+    
+    # Tracking method
+    use_hash_tracking: bool = field(default_factory=lambda: os.getenv('USE_HASH_TRACKING', 'true').lower() == 'true')
+    
+    # File filtering
+    min_file_size_kb: int = field(default_factory=lambda: int(os.getenv('MIN_FILE_SIZE_KB', '1')))
+    valid_extensions: tuple = field(default_factory=lambda: tuple(os.getenv('VALID_EXTENSIONS', '.mp3,.wav,.flac,.ogg,.m4a,.aac,.opus').split(',')))
+    
+    # Progress reporting
+    progress_interval: int = field(default_factory=lambda: int(os.getenv('PROGRESS_INTERVAL', '100')))
+    
+    def __post_init__(self):
+        """Validate and normalize configuration after initialization."""
+        if self.min_file_size_kb < 0:
+            raise ValueError("Minimum file size must be non-negative")
+
+
+@dataclass
 class ExternalAPIConfig:
     """Configuration for external API integrations."""
     
@@ -246,6 +266,7 @@ class AppConfig:
     audio_analysis: AudioAnalysisConfig = field(default_factory=AudioAnalysisConfig)
     playlist: PlaylistConfig = field(default_factory=PlaylistConfig)
     external_api: ExternalAPIConfig = field(default_factory=ExternalAPIConfig)
+    file_discovery: FileDiscoveryConfig = field(default_factory=FileDiscoveryConfig)
     
     # Application settings
     app_name: str = "Playlista"
