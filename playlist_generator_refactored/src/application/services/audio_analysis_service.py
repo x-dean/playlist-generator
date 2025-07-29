@@ -1060,19 +1060,41 @@ class AudioAnalysisService:
             ) 
 
     def _extract_spectral_bandwidth(self, audio):
-        """Extract spectral bandwidth from audio."""
+        """Extract spectral bandwidth from audio using manual calculation if Essentia's algorithm is missing."""
         self.logger.info("Extracting spectral bandwidth...")
         try:
-            self.logger.debug("Initializing Essentia SpectralBandwidth algorithm")
-            bandwidth_algo = es.SpectralBandwidth()
-            self.logger.debug("Running spectral bandwidth analysis on audio")
-            bandwidth_values = bandwidth_algo(audio)
-            self.logger.debug(
-                f"Spectral bandwidth values shape: {np.array(bandwidth_values).shape if hasattr(bandwidth_values, 'shape') else type(bandwidth_values)}")
-            bandwidth_mean = float(np.nanmean(bandwidth_values)) if isinstance(
-                bandwidth_values, (list, np.ndarray)) else float(bandwidth_values)
-            self.logger.info(f"Spectral bandwidth extraction completed: {bandwidth_mean:.1f}Hz")
-            return {'spectral_bandwidth': bandwidth_mean}
+            # Try to use Essentia's algorithm if available
+            if hasattr(es, "SpectralBandwidth"):
+                bandwidth_algo = es.SpectralBandwidth()
+                bandwidth_values = bandwidth_algo(audio)
+                bandwidth_mean = float(np.nanmean(bandwidth_values)) if isinstance(
+                    bandwidth_values, (list, np.ndarray)) else float(bandwidth_values)
+                self.logger.info(f"Spectral bandwidth extraction completed: {bandwidth_mean:.1f}Hz")
+                return {'spectral_bandwidth': bandwidth_mean}
+            else:
+                # Manual calculation: frame-by-frame
+                frame_size = 2048
+                hop_size = 1024
+                window = es.Windowing(type='hann')
+                spectrum = es.Spectrum()
+                centroid_algo = es.SpectralCentroidTime()
+                sample_rate = 44100
+                bandwidths = []
+                for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                    spec = spectrum(window(frame))
+                    centroid = centroid_algo(frame)[0] if hasattr(centroid_algo(frame), '__getitem__') else centroid_algo(frame)
+                    # Bandwidth = sqrt(sum((f - centroid)^2 * mag) / sum(mag))
+                    freqs = np.linspace(0, sample_rate / 2, len(spec))
+                    mag = np.array(spec)
+                    if np.sum(mag) > 0:
+                        bw = np.sqrt(np.sum(((freqs - centroid) ** 2) * mag) / np.sum(mag))
+                        bandwidths.append(bw)
+                if bandwidths:
+                    bandwidth_mean = float(np.nanmean(bandwidths))
+                else:
+                    bandwidth_mean = 0.0
+                self.logger.info(f"Manual spectral bandwidth extraction completed: {bandwidth_mean:.1f}Hz")
+                return {'spectral_bandwidth': bandwidth_mean}
         except Exception as e:
             self.logger.warning(f"Spectral bandwidth extraction failed: {str(e)}")
             return {'spectral_bandwidth': 0.0} 
