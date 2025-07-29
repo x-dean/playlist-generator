@@ -178,14 +178,16 @@ class AudioAnalysisService:
             
             # Use parallel processing if requested
             if request.parallel_processing and len(request.file_paths) > 1:
-                self.logger.info(f"Using parallel processing with {request.max_workers or 'auto'} workers")
+                self.logger.info(f"Processing decision: PARALLEL")
+                self.logger.info(f"  - Reason: parallel_processing={request.parallel_processing}, files={len(request.file_paths)} > 1")
+                self.logger.info(f"  - Max workers requested: {request.max_workers or 'auto'}")
                 
                 # Convert file paths to Path objects
                 file_paths = [Path(fp) for fp in request.file_paths]
                 self.logger.debug(f"Converted {len(file_paths)} file paths to Path objects")
                 
                 # Sort files by size (large first) for better resource utilization
-                self.logger.debug("Sorting files by size (largest first)...")
+                self.logger.info("Sorting files by size (largest first) for optimal resource utilization")
                 sorted_file_paths = sort_files_by_size(file_paths, reverse=True)
                 self.logger.debug(f"Files sorted by size, largest first")
                 
@@ -193,31 +195,46 @@ class AudioAnalysisService:
                 log_largest_files(sorted_file_paths, count=5)
                 
                 # Split files into small and large based on size
-                self.logger.debug(f"Splitting files by size threshold: {self.processing_config.large_file_threshold_mb}MB")
+                self.logger.info(f"Classifying files by size threshold: {self.processing_config.large_file_threshold_mb}MB")
                 small_files, large_files = split_files_by_size(
                     sorted_file_paths, 
                     self.processing_config.large_file_threshold_mb
                 )
                 
-                self.logger.info(f"File classification:")
+                self.logger.info(f"File classification results:")
                 self.logger.info(f"  - Small files (<{self.processing_config.large_file_threshold_mb}MB): {len(small_files)}")
                 self.logger.info(f"  - Large files (≥{self.processing_config.large_file_threshold_mb}MB): {len(large_files)}")
-                self.logger.info(f"Processing {len(small_files)} small files in parallel, {len(large_files)} large files sequentially")
+                self.logger.info(f"Processing strategy:")
+                self.logger.info(f"  - Large files: {len(large_files)} files → SEQUENTIAL (memory intensive)")
+                self.logger.info(f"  - Small files: {len(small_files)} files → PARALLEL (efficient)")
                 
                 results = []
                 
                 # Process large files FIRST (sequentially) for better resource utilization
                 self.logger.info(f"Starting sequential processing of {len(large_files)} large files...")
+                large_successful = 0
+                large_failed = 0
+                
                 for i, file_path in enumerate(large_files):
-                    self.logger.info(f"Processing large file {i+1}/{len(large_files)}: {file_path}")
+                    # Get file size
+                    file_size_mb = file_path.stat().st_size / (1024 * 1024)
+                    self.logger.info(f"Processing large file {i+1}/{len(large_files)}: {file_path.name} ({file_size_mb:.1f}MB)")
                     try:
                         start_time = time.time()
                         result = self._process_single_file(file_path)
                         processing_time = time.time() - start_time
-                        self.logger.info(f"Large file completed: {file_path} ({processing_time:.1f}s)")
+                        
+                        if result.is_successful:
+                            large_successful += 1
+                            self.logger.info(f"Large file completed successfully: {file_path.name} ({file_size_mb:.1f}MB, {processing_time:.1f}s)")
+                        else:
+                            large_failed += 1
+                            self.logger.warning(f"Large file failed: {file_path.name} ({file_size_mb:.1f}MB, {processing_time:.1f}s) - {result.error_message}")
+                        
                         results.append(result)
                     except Exception as e:
-                        self.logger.error(f"Large file processing failed for {file_path}: {e}")
+                        large_failed += 1
+                        self.logger.error(f"Large file processing failed for {file_path.name} ({file_size_mb:.1f}MB): {e}")
                         errors.append(str(e))
                         audio_file = AudioFile(file_path=file_path)
                         results.append(AnalysisResult(
@@ -227,10 +244,16 @@ class AudioAnalysisService:
                             error_message=str(e)
                         ))
                 
+                self.logger.info(f"Large files processing completed: {large_successful} successful, {large_failed} failed")
+                
                 # Process small files in parallel (after large files)
                 if small_files:
                     self.logger.info(f"Starting parallel processing of {len(small_files)} small files...")
-                    self.logger.info(f"Parallel config: max_workers={request.max_workers}, timeout={request.timeout_seconds}s")
+                    self.logger.info(f"Parallel processing configuration:")
+                    self.logger.info(f"  - Files: {len(small_files)} small files")
+                    self.logger.info(f"  - Max workers requested: {request.max_workers}")
+                    self.logger.info(f"  - Timeout: {request.timeout_seconds}s")
+                    self.logger.info(f"  - Processor: standalone audio analysis")
                     
                     start_time = time.time()
                     processing_results = self.parallel_processor.process_files_parallel(
@@ -269,11 +292,19 @@ class AudioAnalysisService:
                 
             else:
                 # Sequential processing
-                self.logger.info("Using sequential processing")
+                self.logger.info(f"Processing decision: SEQUENTIAL")
+                self.logger.info(f"  - Reason: parallel_processing={request.parallel_processing} or files={len(request.file_paths)} ≤ 1")
+                self.logger.info(f"  - Files to process: {len(request.file_paths)}")
                 self.logger.info(f"Processing {len(request.file_paths)} files sequentially")
                 
+                sequential_successful = 0
+                sequential_failed = 0
+                
                 for i, file_path in enumerate(request.file_paths):
-                    self.logger.info(f"Processing file {i+1}/{len(request.file_paths)}: {file_path}")
+                    # Get file size
+                    file_path_obj = Path(file_path)
+                    file_size_mb = file_path_obj.stat().st_size / (1024 * 1024)
+                    self.logger.info(f"Processing file {i+1}/{len(request.file_paths)}: {file_path_obj.name} ({file_size_mb:.1f}MB)")
                     
                     # Update progress
                     response.progress.current_file = str(file_path)
@@ -284,7 +315,7 @@ class AudioAnalysisService:
                         
                         # Create AudioFile entity
                         self.logger.debug(f"Creating AudioFile entity for: {file_path}")
-                        audio_file = AudioFile(file_path=Path(file_path))
+                        audio_file = AudioFile(file_path=file_path_obj)
                         
                         # Extract metadata
                         self.logger.debug(f"Extracting metadata for: {file_path}")
@@ -313,20 +344,24 @@ class AudioAnalysisService:
                         )
                         
                         processing_time = time.time() - start_time
-                        self.logger.info(f"File completed: {file_path} ({processing_time:.1f}s)")
+                        sequential_successful += 1
+                        self.logger.info(f"File completed successfully: {file_path_obj.name} ({file_size_mb:.1f}MB, {processing_time:.1f}s)")
                         results.append(result)
                         
                     except Exception as e:
                         processing_time = time.time() - start_time if 'start_time' in locals() else 0
-                        self.logger.error(f"Analysis failed for {file_path} ({processing_time:.1f}s): {e}")
+                        sequential_failed += 1
+                        self.logger.error(f"Analysis failed for {file_path_obj.name} ({file_size_mb:.1f}MB, {processing_time:.1f}s): {e}")
                         errors.append(str(e))
-                        audio_file = AudioFile(file_path=Path(file_path))
+                        audio_file = AudioFile(file_path=file_path_obj)
                         results.append(AnalysisResult(
                             audio_file=audio_file,
                             is_successful=False,
                             is_complete=True,
                             error_message=str(e)
                         ))
+                
+                self.logger.info(f"Sequential processing completed: {sequential_successful} successful, {sequential_failed} failed")
             
             # Update response
             response.results = results
@@ -516,6 +551,8 @@ class AudioAnalysisService:
     def _extract_rhythm_features(self, y: np.ndarray, sr: int, feature_set: FeatureSet):
         """Extract rhythm-related features."""
         try:
+            self.logger.debug("Extracting rhythm features (BPM, rhythm strength)")
+            
             # BPM
             tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
             feature_set.bpm = float(tempo)
@@ -527,15 +564,21 @@ class AudioAnalysisService:
             # Tempo confidence
             feature_set.tempo_confidence = 0.8  # Placeholder
             
+            self.logger.debug(f"Rhythm features extracted: BPM={feature_set.bpm:.1f}, strength={feature_set.rhythm_strength:.3f}")
+            
         except Exception as e:
             self.logger.warning(f"Rhythm feature extraction failed: {e}")
     
     def _extract_spectral_features(self, y: np.ndarray, sr: int, feature_set: FeatureSet):
         """Extract spectral features."""
         try:
+            self.logger.debug("Extracting spectral features (centroid, rolloff, bandwidth)")
+            
             feature_set.spectral_centroid = float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
             feature_set.spectral_rolloff = float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr)))
             feature_set.spectral_bandwidth = float(np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr)))
+            
+            self.logger.debug(f"Spectral features extracted: centroid={feature_set.spectral_centroid:.1f}, rolloff={feature_set.spectral_rolloff:.1f}, bandwidth={feature_set.spectral_bandwidth:.1f}")
             
         except Exception as e:
             self.logger.warning(f"Spectral feature extraction failed: {e}")

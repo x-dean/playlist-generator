@@ -135,9 +135,12 @@ class FileDiscoveryService:
                             
                             # Show progress periodically
                             if processed_files % progress_interval == 0:
+                                # Calculate total size of processed files
+                                total_size_mb = sum(af.file_size_mb for af in discovered_files)
                                 self.logger.info(f"Progress: {processed_files}/{total_files} files processed ({processed_files/total_files*100:.1f}%)")
                                 self.logger.info(f"  - Database saved: {db_saved}, failed: {db_failed}")
                                 self.logger.info(f"  - Discovered: {len(discovered_files)}, skipped: {len(skipped_files)}")
+                                self.logger.info(f"  - Total size: {total_size_mb:.1f}MB")
                             
                             # Quick validation
                             if not file_path.exists() or not file_path.is_file():

@@ -44,7 +44,19 @@ class MemoryMonitor:
         """Get current memory usage (percent, used_gb, available_gb)."""
         try:
             memory = psutil.virtual_memory()
-            return memory.percent, memory.used / (1024**3), memory.available / (1024**3)
+            percent = memory.percent
+            used_gb = memory.used / (1024**3)
+            available_gb = memory.available / (1024**3)
+            total_gb = memory.total / (1024**3)
+            
+            self.logger.debug(f"Memory calculation details:")
+            self.logger.debug(f"  - Total memory: {total_gb:.1f}GB")
+            self.logger.debug(f"  - Used memory: {used_gb:.1f}GB")
+            self.logger.debug(f"  - Available memory: {available_gb:.1f}GB")
+            self.logger.debug(f"  - Usage percentage: {percent:.1f}%")
+            self.logger.debug(f"  - Calculation: used({used_gb:.1f}GB) / total({total_gb:.1f}GB) * 100 = {percent:.1f}%")
+            
+            return percent, used_gb, available_gb
         except Exception as e:
             self.logger.warning(f"Could not get memory info: {e}")
             return 0.0, 0.0, 0.0
@@ -59,10 +71,16 @@ class MemoryMonitor:
         try:
             usage_percent, used_gb, available_gb = self.get_memory_usage()
             
+            self.logger.info(f"Memory-aware worker calculation:")
+            self.logger.info(f"  - Memory usage: {usage_percent:.1f}% ({used_gb:.1f}GB used, {available_gb:.1f}GB available)")
+            self.logger.info(f"  - Max workers requested: {max_workers}")
+            self.logger.info(f"  - Memory limit string: {memory_limit_str}")
+            
             # If memory is critical, reduce workers
             if self.is_memory_critical():
-                self.logger.warning(f"Memory usage critical ({usage_percent:.1f}%), reducing workers")
-                return max(1, max_workers // 2)
+                reduced_workers = max(1, max_workers // 2)
+                self.logger.warning(f"Memory usage critical ({usage_percent:.1f}%), reducing workers from {max_workers} to {reduced_workers}")
+                return reduced_workers
             
             # If memory limit is specified, calculate based on that
             if memory_limit_str:
@@ -71,14 +89,24 @@ class MemoryMonitor:
                     # Estimate memory per worker (rough estimate)
                     memory_per_worker_gb = 0.5  # Conservative estimate
                     optimal_workers = int(available_gb / memory_per_worker_gb)
-                    return max(1, min(optimal_workers, max_workers))
+                    final_workers = max(1, min(optimal_workers, max_workers))
+                    self.logger.info(f"Memory limit calculation:")
+                    self.logger.info(f"  - Memory limit: {memory_limit_gb:.1f}GB")
+                    self.logger.info(f"  - Memory per worker estimate: {memory_per_worker_gb:.1f}GB")
+                    self.logger.info(f"  - Optimal workers (available/memory_per_worker): {optimal_workers}")
+                    self.logger.info(f"  - Final workers (capped at max): {final_workers}")
+                    return final_workers
             
             # Default: use half of CPU count for memory safety
-            return max(1, max_workers // 2)
+            default_workers = max(1, max_workers // 2)
+            self.logger.info(f"Using default calculation (max_workers // 2): {default_workers}")
+            return default_workers
             
         except Exception as e:
             self.logger.warning(f"Could not determine memory-aware worker count: {e}")
-            return max(1, min(max_workers, mp.cpu_count()))
+            fallback_workers = max(1, min(max_workers, mp.cpu_count()))
+            self.logger.info(f"Using fallback worker count: {fallback_workers}")
+            return fallback_workers
     
     def _parse_memory_limit(self, memory_limit_str: str) -> float:
         """Parse memory limit string (e.g., '2GB', '512MB')."""
@@ -187,8 +215,17 @@ class LargeFileProcessor:
         """Get current memory usage in MB."""
         try:
             process = psutil.Process()
-            return process.memory_info().rss / (1024 * 1024)
-        except Exception:
+            rss_bytes = process.memory_info().rss
+            rss_mb = rss_bytes / (1024 * 1024)
+            
+            self.logger.debug(f"Process memory calculation (LargeFileProcessor):")
+            self.logger.debug(f"  - RSS bytes: {rss_bytes:,}")
+            self.logger.debug(f"  - RSS MB: {rss_mb:.1f}MB")
+            self.logger.debug(f"  - Calculation: {rss_bytes:,} bytes / (1024 * 1024) = {rss_mb:.1f}MB")
+            
+            return rss_mb
+        except Exception as e:
+            self.logger.warning(f"Could not get process memory info: {e}")
             return 0.0
 
 
@@ -247,7 +284,13 @@ class ParallelProcessor:
         """Process files in parallel with memory monitoring."""
         
         if not file_paths:
+            self.logger.info("No files to process")
             return []
+        
+        self.logger.info(f"Starting parallel processing decision:")
+        self.logger.info(f"  - Total files: {len(file_paths)}")
+        self.logger.info(f"  - Max workers requested: {max_workers}")
+        self.logger.info(f"  - Timeout requested: {timeout_minutes} minutes")
         
         # Get optimal worker count
         workers = self.get_optimal_worker_count(max_workers)
@@ -255,8 +298,14 @@ class ParallelProcessor:
         # Set timeout
         if timeout_minutes is None:
             timeout_minutes = self.config.batch_timeout_minutes
+            self.logger.info(f"  - Using default timeout: {timeout_minutes} minutes")
+        else:
+            self.logger.info(f"  - Using specified timeout: {timeout_minutes} minutes")
         
-        self.logger.info(f"Starting parallel processing of {len(file_paths)} files with {workers} workers")
+        self.logger.info(f"Parallel processing configuration:")
+        self.logger.info(f"  - Workers: {workers}")
+        self.logger.info(f"  - Timeout: {timeout_minutes} minutes")
+        self.logger.info(f"  - Batch size multiplier: {self.config.batch_size_multiplier}")
         
         results = []
         
@@ -264,19 +313,50 @@ class ParallelProcessor:
         batch_size = min(len(file_paths), workers * self.config.batch_size_multiplier)
         batches = [file_paths[i:i + batch_size] for i in range(0, len(file_paths), batch_size)]
         
+        self.logger.info(f"Batch configuration:")
+        self.logger.info(f"  - Calculated batch size: {batch_size} files")
+        self.logger.info(f"  - Total batches: {len(batches)}")
+        self.logger.info(f"  - Reason: workers({workers}) * multiplier({self.config.batch_size_multiplier}) = {workers * self.config.batch_size_multiplier}")
+        
         for batch_idx, batch in enumerate(batches):
-            self.logger.info(f"Processing batch {batch_idx + 1}/{len(batches)} ({len(batch)} files)")
+            self.logger.info(f"Processing batch {batch_idx + 1}/{len(batches)}:")
+            self.logger.info(f"  - Batch size: {len(batch)} files")
+            self.logger.info(f"  - Files: {[f.name for f in batch[:3]]}{'...' if len(batch) > 3 else ''}")
             
+            batch_start_time = time.time()
             batch_results = self._process_batch_parallel(
                 batch, processor_func, workers, timeout_minutes, **kwargs
             )
+            batch_time = time.time() - batch_start_time
+            
+            successful_in_batch = sum(1 for r in batch_results if r.success)
+            failed_in_batch = len(batch_results) - successful_in_batch
+            
+            self.logger.info(f"Batch {batch_idx + 1} completed:")
+            self.logger.info(f"  - Time: {batch_time:.1f}s")
+            self.logger.info(f"  - Successful: {successful_in_batch}")
+            self.logger.info(f"  - Failed: {failed_in_batch}")
+            
             results.extend(batch_results)
             
             # Check memory after each batch
             memory_monitor = MemoryMonitor(self.memory_config)
+            memory_usage = memory_monitor.get_memory_usage()
+            self.logger.info(f"  - Memory after batch: {memory_usage[0]:.1f}%")
+            
             if memory_monitor.is_memory_critical():
-                self.logger.warning("Memory usage critical, pausing before next batch")
+                self.logger.warning(f"Memory usage critical ({memory_usage[0]:.1f}%), pausing {self.memory_config.memory_pressure_pause_seconds}s before next batch")
                 time.sleep(self.memory_config.memory_pressure_pause_seconds)
+        
+        total_successful = sum(1 for r in results if r.success)
+        total_failed = len(results) - total_successful
+        
+        self.logger.info(f"Parallel processing completed:")
+        self.logger.info(f"  - Total files: {len(file_paths)}")
+        self.logger.info(f"  - Successful: {total_successful}")
+        self.logger.info(f"  - Failed: {total_failed}")
+        self.logger.info(f"  - Workers used: {workers}")
+        self.logger.info(f"  - Batches processed: {len(batches)}")
         
         return results
     
@@ -290,35 +370,65 @@ class ParallelProcessor:
     ) -> List[ProcessingResult]:
         """Process a batch of files in parallel."""
         
+        self.logger.info(f"Starting batch parallel processing:")
+        self.logger.info(f"  - Files in batch: {len(file_paths)}")
+        self.logger.info(f"  - Workers: {workers}")
+        self.logger.info(f"  - Timeout: {timeout_minutes} minutes")
+        
         results = []
+        successful_count = 0
+        failed_count = 0
+        timeout_count = 0
         
         with ProcessPoolExecutor(max_workers=workers) as executor:
+            self.logger.info(f"Created ProcessPoolExecutor with {workers} workers")
+            
             # Submit all tasks
             future_to_path = {
                 executor.submit(self._process_single_file, path, processor_func, **kwargs): path
                 for path in file_paths
             }
             
+            self.logger.info(f"Submitted {len(future_to_path)} tasks to executor")
+            
             # Collect results with timeout
-            for future in future_to_path:
+            for i, future in enumerate(future_to_path):
+                path = future_to_path[future]
+                self.logger.debug(f"Collecting result {i+1}/{len(future_to_path)} for: {path.name}")
+                
                 try:
                     result = future.result(timeout=timeout_minutes * 60)
                     results.append(result)
+                    
+                    if result.success:
+                        successful_count += 1
+                        self.logger.debug(f"Success: {path.name} ({result.processing_time:.1f}s)")
+                    else:
+                        failed_count += 1
+                        self.logger.warning(f"Failed: {path.name} - {result.error}")
+                        
                 except TimeoutError:
-                    path = future_to_path[future]
-                    self.logger.error(f"Processing timed out for: {path}")
+                    timeout_count += 1
+                    self.logger.error(f"Processing timed out for: {path.name} (timeout: {timeout_minutes} minutes)")
                     results.append(ProcessingResult(
                         success=False,
                         error="Processing timed out",
                         processing_time=timeout_minutes * 60
                     ))
                 except Exception as e:
-                    path = future_to_path[future]
-                    self.logger.error(f"Processing failed for {path}: {e}")
+                    failed_count += 1
+                    self.logger.error(f"Processing failed for {path.name}: {e}")
                     results.append(ProcessingResult(
                         success=False,
                         error=str(e)
                     ))
+        
+        self.logger.info(f"Batch parallel processing completed:")
+        self.logger.info(f"  - Total files: {len(file_paths)}")
+        self.logger.info(f"  - Successful: {successful_count}")
+        self.logger.info(f"  - Failed: {failed_count}")
+        self.logger.info(f"  - Timeouts: {timeout_count}")
+        self.logger.info(f"  - Workers used: {workers}")
         
         return results
     
@@ -364,8 +474,17 @@ class ParallelProcessor:
         """Get current memory usage in MB."""
         try:
             process = psutil.Process()
-            return process.memory_info().rss / (1024 * 1024)
-        except Exception:
+            rss_bytes = process.memory_info().rss
+            rss_mb = rss_bytes / (1024 * 1024)
+            
+            self.logger.debug(f"Process memory calculation (ParallelProcessor):")
+            self.logger.debug(f"  - RSS bytes: {rss_bytes:,}")
+            self.logger.debug(f"  - RSS MB: {rss_mb:.1f}MB")
+            self.logger.debug(f"  - Calculation: {rss_bytes:,} bytes / (1024 * 1024) = {rss_mb:.1f}MB")
+            
+            return rss_mb
+        except Exception as e:
+            self.logger.warning(f"Could not get process memory info: {e}")
             return 0.0
 
 
@@ -453,6 +572,15 @@ class SequentialProcessor:
         """Get current memory usage in MB."""
         try:
             process = psutil.Process()
-            return process.memory_info().rss / (1024 * 1024)
-        except Exception:
+            rss_bytes = process.memory_info().rss
+            rss_mb = rss_bytes / (1024 * 1024)
+            
+            self.logger.debug(f"Process memory calculation (SequentialProcessor):")
+            self.logger.debug(f"  - RSS bytes: {rss_bytes:,}")
+            self.logger.debug(f"  - RSS MB: {rss_mb:.1f}MB")
+            self.logger.debug(f"  - Calculation: {rss_bytes:,} bytes / (1024 * 1024) = {rss_mb:.1f}MB")
+            
+            return rss_mb
+        except Exception as e:
+            self.logger.warning(f"Could not get process memory info: {e}")
             return 0.0 

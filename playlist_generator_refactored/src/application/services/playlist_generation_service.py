@@ -88,14 +88,18 @@ class PlaylistGenerationService:
             PlaylistGenerationResponse with generated playlist
         """
         self.logger.info(f"Starting playlist generation with method: {request.method.value}")
+        self.logger.info(f"Playlist parameters: size={request.playlist_size}, min_tracks={request.min_tracks}, max_tracks={request.max_tracks}")
         
         try:
             start_time = time.time()
             
             # Validate request
+            self.logger.debug("Validating playlist generation request...")
             self._validate_request(request)
+            self.logger.debug("Request validation completed")
             
             # Generate playlist based on method
+            self.logger.info(f"Generating playlist using {request.method.value} method...")
             if request.method == PlaylistGenerationMethod.KMEANS:
                 playlist = self._generate_kmeans_playlist(request)
             elif request.method == PlaylistGenerationMethod.SIMILARITY:
@@ -120,12 +124,24 @@ class PlaylistGenerationService:
                 raise PlaylistMethodError(f"Unknown playlist generation method: {request.method}")
             
             # Calculate quality metrics
+            self.logger.debug("Calculating playlist quality metrics...")
             quality_metrics = self._calculate_quality_metrics(playlist, request)
             
             # Calculate processing time
             processing_time = (time.time() - start_time) * 1000
             
-            self.logger.info(f"Playlist generation completed: {len(playlist.track_ids)} tracks")
+            # Calculate total size of playlist tracks
+            total_size_mb = 0
+            for audio_file in request.audio_files:
+                if hasattr(audio_file, 'file_size_mb') and audio_file.file_size_mb:
+                    total_size_mb += audio_file.file_size_mb
+            
+            self.logger.info(f"Playlist generation completed:")
+            self.logger.info(f"  - Method: {request.method.value}")
+            self.logger.info(f"  - Tracks: {len(playlist.track_ids)}")
+            self.logger.info(f"  - Total size: {total_size_mb:.1f}MB")
+            self.logger.info(f"  - Processing time: {processing_time:.1f}ms")
+            self.logger.info(f"  - Quality metrics: diversity={quality_metrics.diversity_score:.3f}, coherence={quality_metrics.coherence_score:.3f}, balance={quality_metrics.balance_score:.3f}")
             
             return PlaylistGenerationResponse(
                 request_id=str(uuid4()),
