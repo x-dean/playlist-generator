@@ -18,6 +18,6 @@ services:
       - OUTPUT_DIR=/app/playlists
       - MEMORY_LIMIT_GB=6.0
       - MEMORY_AWARE=true
-    command: ["python", "playlista", "--help"]
+    command: ["python", "-m", "src.presentation.cli.main", "--help"]
     stdin_open: true
     tty: true 
