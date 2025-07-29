@@ -49,9 +49,9 @@ class AdvancedAudioModels:
             audio = es.MonoLoader(filename=audio_path)()
             
             # Extract spectral features for emotion analysis
-            spectral_centroid = es.SpectralCentroid()
-            spectral_rolloff = es.SpectralRolloff()
-            spectral_flatness = es.SpectralFlatness()
+            spectral_centroid = es.Centroid()
+            spectral_rolloff = es.RollOff()
+            spectral_flatness = es.Flatness()
             
             # Calculate frame-by-frame features
             frame_size = 2048
