@@ -947,9 +947,7 @@ class AudioAnalyzer:
         """Extract loudness features from audio."""
         logger.info("Extracting loudness features...")
         try:
-            logger.debug("Initializing Essentia RMS algorithm")
             rms_algo = es.RMS()
-            logger.debug("Running RMS analysis on audio")
             
             # Check if we're in a worker thread (signal only works in main thread)
             import threading
@@ -963,11 +961,9 @@ class AudioAnalyzer:
                 
                 signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(600)  # 10 minutes for large files
-                logger.debug("Set 10-minute timeout for large file loudness extraction")
             
             try:
                 rms_values = rms_algo(audio)
-                logger.debug("Loudness analysis completed successfully")
             except MemoryError as me:
                 logger.error(f"Loudness extraction failed due to memory error: {me}")
                 raise
@@ -978,12 +974,9 @@ class AudioAnalyzer:
                 # Cancel timeout (only in main thread)
                 if is_main_thread and len(audio) > 100000000:
                     signal.alarm(0)
-            logger.debug(
-                f"RMS values shape: {np.array(rms_values).shape if hasattr(rms_values, 'shape') else type(rms_values)}")
 
             rms_mean = float(np.nanmean(rms_values)) if isinstance(
                 rms_values, (list, np.ndarray)) else float(rms_values)
-            logger.debug(f"Calculated mean RMS: {rms_mean:.3f}")
             logger.info(f"Loudness extraction completed: RMS = {rms_mean:.3f}")
             return {'rms': rms_mean}
         except TimeoutException as te:
@@ -991,54 +984,35 @@ class AudioAnalyzer:
             raise  # Re-raise to be caught by the main extraction function
         except Exception as e:
             logger.warning(f"Loudness extraction failed: {str(e)}")
-            logger.debug(
-                f"Loudness extraction error details: {type(e).__name__}")
             return {'rms': 0.0}
 
     def _extract_danceability(self, audio):
         """Extract danceability features from audio."""
         logger.info("Extracting danceability features...")
         try:
-            logger.debug("Initializing Essentia Danceability algorithm")
             dance_algo = es.Danceability()
-            logger.debug("Running danceability analysis on audio")
             dance_result = dance_algo(audio)
-            logger.debug(f"Danceability result type: {type(dance_result)}")
-            logger.debug(f"Danceability result: {dance_result}")
 
             # Handle different return types from Essentia
             if isinstance(dance_result, tuple):
-                logger.debug(f"Danceability tuple length: {len(dance_result)}")
-                for i, item in enumerate(dance_result):
-                    logger.debug(
-                        f"Danceability tuple[{i}]: {type(item)} = {item}")
                 if len(dance_result) >= 1:
                     dance_values = dance_result[0]
-                    logger.debug(
-                        f"Extracted danceability from tuple[0]: {dance_values}")
                 else:
                     logger.warning("Empty danceability result tuple")
                     dance_values = [0.0]
             else:
                 dance_values = dance_result
-                logger.debug(
-                    f"Extracted danceability from single value: {dance_values}")
 
             # Handle numpy arrays
             if isinstance(dance_values, np.ndarray):
                 if dance_values.size == 1:
                     dance_mean = float(dance_values.item())
-                    logger.debug(
-                        f"Converted single-element array to float: {dance_mean}")
                 else:
                     dance_mean = float(np.nanmean(dance_values))
-                    logger.debug(f"Calculated mean from array: {dance_mean}")
             elif isinstance(dance_values, (list, tuple)):
                 dance_mean = float(np.nanmean(dance_values))
-                logger.debug(f"Calculated mean from list/tuple: {dance_mean}")
             else:
                 dance_mean = float(dance_values)
-                logger.debug(f"Converted to float: {dance_mean}")
 
             # Ensure danceability is a valid number and normalize if needed
             if not np.isfinite(dance_mean):
@@ -1054,84 +1028,58 @@ class AudioAnalyzer:
                 # Try to normalize or use as-is if it's reasonable
                 if dance_mean <= 10:  # If it's in 0-10 scale, normalize
                     dance_mean = dance_mean / 10.0
-                    logger.debug(
-                        f"Normalized danceability from 0-10 scale: {dance_mean:.3f}")
                 elif dance_mean <= 100:  # If it's in 0-100 scale, normalize
                     dance_mean = dance_mean / 100.0
-                    logger.debug(
-                        f"Normalized danceability from 0-100 scale: {dance_mean:.3f}")
                 else:
                     logger.warning(
                         f"Danceability value out of expected range: {dance_mean}, using default")
                     dance_mean = 0.0
 
-            logger.debug(f"Final danceability: {dance_mean}")
             logger.info(f"Danceability extraction completed: {dance_mean:.3f}")
             return {'danceability': dance_mean}
         except Exception as e:
             logger.warning(f"Danceability extraction failed: {str(e)}")
-            logger.debug(
-                f"Danceability extraction error details: {type(e).__name__}")
-            import traceback
-            logger.debug(
-                f"Danceability extraction full traceback: {traceback.format_exc()}")
             return {'danceability': 0.0}
 
     def _extract_key(self, audio):
         """Extract key features from audio."""
         logger.info("Extracting key features...")
         try:
-            logger.debug("Initializing Essentia KeyExtractor algorithm")
             key_algo = es.KeyExtractor()
-            logger.debug("Running key analysis on audio")
             key, scale, strength = key_algo(audio)
-            logger.debug(f"Extracted key: {key} {scale}, strength: {strength}")
             logger.info(
                 f"Key extraction completed: {key} {scale} (strength: {strength:.3f})")
             return {'key': key, 'scale': scale, 'key_strength': float(strength)}
         except Exception as e:
             logger.warning(f"Key extraction failed: {str(e)}")
-            logger.debug(f"Key extraction error details: {type(e).__name__}")
             return {'key': 'C', 'scale': 'major', 'key_strength': 0.0}
 
     def _extract_onset_rate(self, audio):
         """Extract onset rate features from audio."""
         logger.info("Extracting onset rate features...")
         try:
-            logger.debug("Initializing Essentia OnsetRate algorithm")
             onset_algo = es.OnsetRate()
-            logger.debug("Running onset rate analysis on audio")
             onset_result = onset_algo(audio)
-            logger.debug(f"Onset rate result type: {type(onset_result)}")
-            logger.debug(f"Onset rate result: {onset_result}")
 
             # Handle different return types from Essentia
             if isinstance(onset_result, tuple):
                 if len(onset_result) >= 1:
                     onset_rate = onset_result[0]
-                    logger.debug(
-                        f"Extracted onset rate from tuple[0]: {onset_rate}")
                 else:
                     logger.warning("Empty onset rate result tuple")
                     onset_rate = 0.0
             else:
                 onset_rate = onset_result
-                logger.debug(
-                    f"Extracted onset rate from single value: {onset_rate}")
 
             # Handle numpy arrays
             if isinstance(onset_rate, np.ndarray):
                 if onset_rate.size == 1:
                     onset_rate = float(onset_rate.item())
-                    logger.debug(
-                        f"Converted single-element array to float: {onset_rate}")
                 else:
                     onset_rate = float(np.nanmean(onset_rate))
-                    logger.debug(f"Calculated mean from array: {onset_rate}")
             else:
                 # Convert to float
                 onset_rate = float(onset_rate)
-                logger.debug(f"Converted to float: {onset_rate}")
 
             # Ensure onset rate is a valid number
             if not np.isfinite(onset_rate) or onset_rate < 0:
@@ -1139,55 +1087,34 @@ class AudioAnalyzer:
                     f"Invalid onset rate value: {onset_rate}, using default")
                 onset_rate = 0.0
 
-            logger.debug(f"Final onset rate: {onset_rate}")
             logger.info(
                 f"Onset rate extraction completed: {onset_rate:.2f} onsets/sec")
             return {'onset_rate': float(onset_rate)}
         except Exception as e:
             logger.warning(f"Onset rate extraction failed: {str(e)}")
-            logger.debug(
-                f"Onset rate extraction error details: {type(e).__name__}")
-            import traceback
-            logger.debug(
-                f"Onset rate extraction full traceback: {traceback.format_exc()}")
             return {'onset_rate': 0.0}
 
     def _extract_zcr(self, audio):
         """Extract zero crossing rate features from audio."""
         logger.info("Extracting zero crossing rate features...")
         try:
-            logger.debug("Initializing Essentia ZeroCrossingRate algorithm")
             zcr_algo = es.ZeroCrossingRate()
-            logger.debug("Running zero crossing rate analysis on audio")
             zcr_values = zcr_algo(audio)
-            logger.debug(
-                f"ZCR values shape: {np.array(zcr_values).shape if hasattr(zcr_values, 'shape') else type(zcr_values)}")
 
             zcr_mean = float(np.nanmean(zcr_values)) if isinstance(
                 zcr_values, (list, np.ndarray)) else float(zcr_values)
-            logger.debug(f"Calculated mean ZCR: {zcr_mean:.3f}")
             logger.info(
                 f"Zero crossing rate extraction completed: {zcr_mean:.3f}")
             return {'zcr': zcr_mean}
         except Exception as e:
             logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
-            logger.debug(
-                f"Zero crossing rate extraction error details: {type(e).__name__}")
             return {'zcr': 0.0}
 
     def _extract_mfcc(self, audio, num_coeffs=13):
         """Extract MFCC coefficients from audio."""
         logger.info("Extracting MFCC coefficients...")
         try:
-            logger.debug("Initializing Essentia MFCC algorithm")
             mfcc_algo = es.MFCC(numberCoefficients=num_coeffs)
-            logger.debug("Running MFCC analysis on audio")
-
-            # Check available memory before processing
-            import psutil
-            memory_info = psutil.virtual_memory()
-            logger.debug(f"Available memory before MFCC: {memory_info.available / (1024**3):.1f}GB")
-            logger.debug(f"Audio samples: {len(audio)}, estimated memory needed: {len(audio) * 8 / (1024**3):.1f}GB")
 
             # Check if we're in a worker thread (signal only works in main thread)
             import threading
@@ -1201,12 +1128,8 @@ class AudioAnalyzer:
                 
                 signal.signal(signal.SIGALRM, timeout_handler)
                 signal.alarm(900)  # 15 minutes
-                logger.debug(
-                    "Set 15-minute timeout for large file MFCC extraction")
 
             try:
-                logger.debug(f"Starting MFCC computation for {len(audio)} samples")
-                
                 # Check if audio data is valid
                 if len(audio) == 0:
                     logger.error("MFCC extraction failed: Audio data is empty")
@@ -1220,7 +1143,6 @@ class AudioAnalyzer:
                         raise ValueError("Audio contains NaN or infinite values")
                 
                 _, mfcc_coeffs = mfcc_algo(audio)
-                logger.debug("MFCC computation completed successfully")
             except MemoryError as me:
                 logger.error(f"MFCC extraction failed due to memory error: {me}")
                 memory_info = psutil.virtual_memory()
@@ -1236,23 +1158,15 @@ class AudioAnalyzer:
                 # Cancel timeout (only in main thread)
                 if is_main_thread and len(audio) > 100000000:
                     signal.alarm(0)
-            logger.debug(f"MFCC coefficients type: {type(mfcc_coeffs)}")
-            logger.debug(
-                f"MFCC coefficients shape: {np.array(mfcc_coeffs).shape if hasattr(mfcc_coeffs, 'shape') else 'no shape'}")
-
             # Handle different return types from Essentia MFCC
             if isinstance(mfcc_coeffs, (list, np.ndarray)):
                 if len(mfcc_coeffs) > 0:
                     # If it's a 2D array (time x coefficients)
                     if hasattr(mfcc_coeffs, 'shape') and len(mfcc_coeffs.shape) == 2:
                         mfcc_mean = np.mean(mfcc_coeffs, axis=0).tolist()
-                        logger.debug(
-                            f"Calculated mean MFCC coefficients from 2D array: {len(mfcc_mean)} values")
                     # If it's a 1D array (single frame)
                     else:
                         mfcc_mean = np.array(mfcc_coeffs).tolist()
-                        logger.debug(
-                            f"Using single frame MFCC coefficients: {len(mfcc_mean)} values")
                 else:
                     logger.warning("MFCC coefficients array is empty")
                     mfcc_mean = [0.0] * num_coeffs
@@ -1272,9 +1186,6 @@ class AudioAnalyzer:
                     # Truncate
                     mfcc_mean = mfcc_mean[:num_coeffs]
 
-            logger.debug(f"Final MFCC coefficients: {len(mfcc_mean)} values")
-            logger.debug(
-                f"MFCC coefficient range: min={min(mfcc_mean):.3f}, max={max(mfcc_mean):.3f}")
             logger.info(
                 f"MFCC extraction completed: {len(mfcc_mean)} coefficients")
             return {'mfcc': mfcc_mean}
@@ -1283,10 +1194,6 @@ class AudioAnalyzer:
             raise  # Re-raise to be caught by the main extraction function
         except Exception as e:
             logger.warning(f"MFCC extraction failed: {str(e)}")
-            logger.debug(f"MFCC extraction error details: {type(e).__name__}")
-            import traceback
-            logger.debug(
-                f"MFCC extraction full traceback: {traceback.format_exc()}")
             return {'mfcc': [0.0] * num_coeffs}
 
     def _extract_chroma(self, audio):
@@ -1296,31 +1203,20 @@ class AudioAnalyzer:
             # Set up parameters
             frame_size = 2048
             hop_size = 1024
-            logger.debug(
-                f"Chroma extraction parameters: frame_size={frame_size}, hop_size={hop_size}")
 
-            # Initialize algorithms
-            logger.debug(
-                "Initializing Essentia algorithms for chroma extraction")
             window = es.Windowing(type='blackmanharris62')
             spectrum = es.Spectrum()
             spectral_peaks = es.SpectralPeaks()
             hpcp = es.HPCP()
 
-            logger.debug("Running chroma extraction pipeline")
             # Process audio in frames
             chroma_values = []
             frame_count = 0
 
             for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
                 frame_count += 1
-                if frame_count % 100 == 0:
-                    logger.debug(
-                        f"Processed {frame_count} frames for chroma extraction")
 
                 try:
-                    logger.debug(
-                        f"Processing frame {frame_count} of length {len(frame)}")
                     windowed = window(frame)
                     spec = spectrum(windowed)
                     frequencies, magnitudes = spectral_peaks(spec)
@@ -1336,61 +1232,35 @@ class AudioAnalyzer:
                             hpcp_value = hpcp(freq_array, mag_array)
                             if hpcp_value is not None and len(hpcp_value) == 12:
                                 chroma_values.append(hpcp_value)
-                                logger.debug(
-                                    f"Frame {frame_count}: valid HPCP value with {len(hpcp_value)} dimensions")
                         else:
-                            logger.debug(
-                                f"Frame {frame_count}: no valid frequencies/magnitudes")
+                            pass
                     else:
-                        logger.debug(
-                            f"Frame {frame_count}: no spectral peaks found")
+                        pass
 
                 except Exception as frame_error:
-                    logger.debug(
-                        f"Frame {frame_count} processing error: {frame_error}")
                     continue
-
-            logger.debug(
-                f"Extracted {len(chroma_values)} chroma frames from {frame_count} total frames")
 
             # Calculate global average
             if chroma_values:
                 chroma_avg = np.mean(chroma_values, axis=0).tolist()
-                logger.debug(
-                    f"Calculated mean chroma features: {len(chroma_avg)} values")
-                logger.debug(
-                    f"Chroma feature range: min={min(chroma_avg):.3f}, max={max(chroma_avg):.3f}")
                 logger.info(
                     f"Chroma extraction completed: {len(chroma_avg)} features from {frame_count} frames")
                 return {'chroma': chroma_avg}
             else:
-                logger.debug(
-                    "No valid chroma values calculated, returning default")
                 logger.info(
                     "Chroma extraction completed: using default values (no valid frames)")
                 return {'chroma': [0.0] * 12}
 
         except Exception as e:
             logger.warning(f"Chroma extraction failed: {str(e)}")
-            logger.debug(
-                f"Chroma extraction error details: {type(e).__name__}")
-            import traceback
-            logger.debug(
-                f"Chroma extraction full traceback: {traceback.format_exc()}")
             return {'chroma': [0.0] * 12}
 
     def _extract_spectral_contrast(self, audio):
         """Extract spectral contrast features from audio."""
-        logger.debug("Starting spectral contrast extraction with Essentia")
         try:
             # Use frame-by-frame processing for spectral contrast
             frame_size = 2048
             hop_size = 1024
-            logger.debug(
-                f"Spectral contrast parameters: frame_size={frame_size}, hop_size={hop_size}")
-
-            logger.debug(
-                "Initializing Essentia algorithms for spectral contrast")
             window = es.Windowing(type='hann')
             spectrum = es.Spectrum()
             spectral_peaks = es.SpectralPeaks()
@@ -1398,13 +1268,9 @@ class AudioAnalyzer:
             contrast_list = []
             frame_count = 0
 
-            logger.debug("Running spectral contrast analysis frame by frame")
             # Process audio frame by frame
             for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
                 frame_count += 1
-                if frame_count % 100 == 0:
-                    logger.debug(
-                        f"Processed {frame_count} frames for spectral contrast")
 
                 try:
                     spec = spectrum(window(frame))
@@ -1426,43 +1292,25 @@ class AudioAnalyzer:
                                 contrast = float(
                                     np.mean(peaks) - np.mean(valleys))
                                 contrast_list.append(contrast)
-                                logger.debug(
-                                    f"Frame {frame_count}: contrast={contrast:.3f}")
                             else:
-                                logger.debug(
-                                    f"Frame {frame_count}: insufficient peaks/valleys for contrast")
+                                pass
                         else:
-                            logger.debug(
-                                f"Frame {frame_count}: no valid magnitudes")
+                            pass
                     else:
-                        logger.debug(
-                            f"Frame {frame_count}: no spectral peaks found")
+                        pass
 
                 except Exception as frame_error:
-                    logger.debug(
-                        f"Frame {frame_count} processing error: {frame_error}")
                     continue
 
-            logger.debug(
-                f"Processed {frame_count} frames, calculated contrast for {len(contrast_list)} frames")
             # Return mean contrast across all frames
             if contrast_list:
                 contrast_mean = float(np.mean(contrast_list))
-                logger.debug(
-                    f"Calculated mean spectral contrast: {contrast_mean:.3f}")
                 return {'spectral_contrast': contrast_mean}
             else:
-                logger.debug(
-                    "No valid contrast values calculated, returning 0.0")
                 return {'spectral_contrast': 0.0}
 
         except Exception as e:
             logger.warning(f"Spectral contrast extraction failed: {str(e)}")
-            logger.debug(
-                f"Spectral contrast extraction error details: {type(e).__name__}")
-            import traceback
-            logger.debug(
-                f"Spectral contrast full traceback: {traceback.format_exc()}")
             return {'spectral_contrast': 0.0}
 
     def _extract_spectral_flatness(self, audio):
