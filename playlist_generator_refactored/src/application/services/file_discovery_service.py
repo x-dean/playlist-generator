@@ -96,10 +96,9 @@ class FileDiscoveryService:
                             # Create AudioFile entity with size information
                             audio_file = AudioFile(file_path=file_path)
                             
-                            # Get file size if possible
+                            # Get file size
                             size_mb = get_file_size_mb(file_path)
-                            if size_mb:
-                                audio_file.file_size_bytes = int(size_mb * 1024 * 1024)
+                            audio_file.file_size_bytes = int(size_mb * 1024 * 1024)
                             
                             discovered_files.append(audio_file)
                             self.logger.debug(f"Added file: {file_path}")
@@ -159,8 +158,6 @@ class FileDiscoveryService:
                         # Filter by size
                         if request.min_file_size_mb is not None or request.max_file_size_mb is not None:
                             size_mb = get_file_size_mb(entry)
-                            if size_mb is None:
-                                continue  # Skip files where we can't determine size
                             if request.min_file_size_mb is not None and size_mb < request.min_file_size_mb:
                                 continue
                             if request.max_file_size_mb is not None and size_mb > request.max_file_size_mb:

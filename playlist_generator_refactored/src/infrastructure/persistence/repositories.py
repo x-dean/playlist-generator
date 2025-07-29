@@ -39,22 +39,63 @@ class SQLiteAudioFileRepository(AudioFileRepository):
     def _ensure_table_exists(self):
         """Ensure the audio_files table exists."""
         with self._get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS audio_files (
-                    id TEXT PRIMARY KEY,
-                    file_path TEXT NOT NULL,
-                    file_name TEXT NOT NULL,
-                    file_size_bytes INTEGER NOT NULL,
-                    duration_seconds REAL,
-                    bitrate_kbps INTEGER,
-                    sample_rate_hz INTEGER,
-                    channels INTEGER,
-                    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    external_metadata TEXT,
-                    UNIQUE(file_path)
-                )
-            """)
+            # Check if table exists and has the old schema
+            cursor = conn.execute("PRAGMA table_info(audio_files)")
+            columns = {row[1]: row[2] for row in cursor.fetchall()}
+            
+            if not columns:
+                # Table doesn't exist, create it
+                conn.execute("""
+                    CREATE TABLE audio_files (
+                        id TEXT PRIMARY KEY,
+                        file_path TEXT NOT NULL,
+                        file_name TEXT NOT NULL,
+                        file_size_bytes INTEGER,
+                        duration_seconds REAL,
+                        bitrate_kbps INTEGER,
+                        sample_rate_hz INTEGER,
+                        channels INTEGER,
+                        created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        external_metadata TEXT,
+                        UNIQUE(file_path)
+                    )
+                """)
+            elif 'file_size_bytes' in columns and 'NOT NULL' in columns['file_size_bytes']:
+                # Table exists but has NOT NULL constraint, recreate it
+                self.logger.info("Migrating audio_files table to allow NULL file_size_bytes")
+                
+                # Create temporary table with new schema
+                conn.execute("""
+                    CREATE TABLE audio_files_new (
+                        id TEXT PRIMARY KEY,
+                        file_path TEXT NOT NULL,
+                        file_name TEXT NOT NULL,
+                        file_size_bytes INTEGER,
+                        duration_seconds REAL,
+                        bitrate_kbps INTEGER,
+                        sample_rate_hz INTEGER,
+                        channels INTEGER,
+                        created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        external_metadata TEXT,
+                        UNIQUE(file_path)
+                    )
+                """)
+                
+                # Copy data from old table to new table
+                conn.execute("""
+                    INSERT INTO audio_files_new 
+                    SELECT id, file_path, file_name, 
+                           CASE WHEN file_size_bytes = 0 THEN NULL ELSE file_size_bytes END,
+                           duration_seconds, bitrate_kbps, sample_rate_hz, channels,
+                           created_date, updated_date, external_metadata
+                    FROM audio_files
+                """)
+                
+                # Drop old table and rename new table
+                conn.execute("DROP TABLE audio_files")
+                conn.execute("ALTER TABLE audio_files_new RENAME TO audio_files")
     
     @contextmanager
     def _get_connection(self):
@@ -84,7 +125,7 @@ class SQLiteAudioFileRepository(AudioFileRepository):
                     str(audio_file.id),
                     str(audio_file.file_path),
                     audio_file.file_name,
-                    audio_file.file_size_bytes,
+                    audio_file.file_size_bytes if audio_file.file_size_bytes else None,
                     audio_file.duration_seconds,
                     audio_file.bitrate_kbps,
                     audio_file.sample_rate_hz,

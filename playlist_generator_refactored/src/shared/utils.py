@@ -13,7 +13,7 @@ from domain.entities import AudioFile
 logger = logging.getLogger(__name__)
 
 
-def get_file_size_mb(file_path: Path) -> Optional[float]:
+def get_file_size_mb(file_path: Path) -> float:
     """
     Get file size in megabytes.
     
@@ -21,14 +21,14 @@ def get_file_size_mb(file_path: Path) -> Optional[float]:
         file_path: Path to the file
         
     Returns:
-        File size in MB, or None if size cannot be determined
+        File size in MB, or 0.0 if size cannot be determined
     """
     try:
         file_size_bytes = file_path.stat().st_size
         return file_size_bytes / (1024 * 1024)
     except Exception as e:
         logger.debug(f"Could not get file size for {file_path}: {e}")
-        return None
+        return 0.0
 
 
 def sort_files_by_size(file_paths: List[Path], reverse: bool = True) -> List[Path]:
@@ -46,7 +46,7 @@ def sort_files_by_size(file_paths: List[Path], reverse: bool = True) -> List[Pat
     
     for file_path in file_paths:
         size_mb = get_file_size_mb(file_path)
-        files_with_size.append((file_path, size_mb or 0))
+        files_with_size.append((file_path, size_mb))
     
     # Sort by size
     files_with_size.sort(key=lambda x: x[1], reverse=reverse)
@@ -73,7 +73,7 @@ def split_files_by_size(
     
     for file_path in file_paths:
         size_mb = get_file_size_mb(file_path)
-        if size_mb and size_mb > threshold_mb:
+        if size_mb > threshold_mb:
             large_files.append(file_path)
         else:
             small_files.append(file_path)
@@ -95,7 +95,7 @@ def log_largest_files(file_paths: List[Path], count: int = 5) -> None:
     files_with_size = []
     for file_path in file_paths:
         size_mb = get_file_size_mb(file_path)
-        files_with_size.append((file_path, size_mb or 0))
+        files_with_size.append((file_path, size_mb))
     
     # Sort by size (largest first)
     files_with_size.sort(key=lambda x: x[1], reverse=True)
@@ -124,10 +124,9 @@ def create_audio_files_with_size(file_paths: List[Path]) -> List[AudioFile]:
         try:
             audio_file = AudioFile(file_path=file_path)
             
-            # Set file size if available
+            # Set file size
             size_mb = get_file_size_mb(file_path)
-            if size_mb:
-                audio_file.file_size_bytes = int(size_mb * 1024 * 1024)
+            audio_file.file_size_bytes = int(size_mb * 1024 * 1024)
             
             audio_files.append(audio_file)
             
