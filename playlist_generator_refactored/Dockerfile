@@ -64,5 +64,8 @@ ENV PYTHONUNBUFFERED=1 \
 # Add src to Python path
 ENV PYTHONPATH="${PYTHONPATH}:/app/src"
 
-# Default command
-CMD ["python", "-m", "src.presentation.cli.main"] 
+# Set entrypoint to the Python module
+ENTRYPOINT ["python", "-m", "src.presentation.cli.main"]
+
+# Default command (show help if no args)
+CMD ["--help"] 
