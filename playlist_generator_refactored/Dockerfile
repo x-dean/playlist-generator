@@ -1,5 +1,5 @@
 # --- Build stage ---
-FROM python:3.7-slim-bullseye AS builder
+FROM python:3.8-slim-bullseye AS builder
 
 # Install build dependencies
 RUN apt-get update && \
@@ -16,11 +16,11 @@ RUN apt-get update && \
 
 # Install Python dependencies in a virtualenv (for clean copy)
 WORKDIR /install
-COPY requirements_docker.txt requirements.txt
+COPY requirements.txt requirements.txt
 RUN pip install --prefix=/install/deps --no-cache-dir -r requirements.txt
 
 # --- Final stage ---
-FROM python:3.7-slim-bullseye
+FROM python:3.8-slim-bullseye
 
 # Install runtime dependencies only
 RUN apt-get update && \
@@ -42,6 +42,11 @@ WORKDIR /app
 
 # Copy application code (this layer will be rebuilt when code changes)
 COPY src /app/src
+
+# Copy CLI entry point and requirements
+COPY playlista /app/playlista
+COPY README.md /app/README.md
+COPY requirements.txt /app/requirements.txt
 
 # Create directories with proper permissions
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs

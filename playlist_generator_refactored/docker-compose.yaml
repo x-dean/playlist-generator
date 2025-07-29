@@ -1,14 +1,13 @@
 version: '3.8'
 
 services:
-  playlista-enhanced:
+  playlista:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: playlista-enhanced
+    container_name: playlista
     volumes:
       - ./src:/app/src:ro
-      - ./test_docker_features.py:/app/test_docker_features.py:ro
       - ./music:/music:ro
       - ./cache:/app/cache
       - ./logs:/app/logs
@@ -21,28 +20,6 @@ services:
       - OUTPUT_DIR=/app/playlists
       - MEMORY_LIMIT_GB=6.0
       - MEMORY_AWARE=true
-    command: ["python", "test_docker_features.py"]
-    stdin_open: true
-    tty: true
-
-  # Alternative service for running the CLI
-  playlista-cli:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: playlista-cli
-    volumes:
-      - ./src:/app/src:ro
-      - ./music:/music:ro
-      - ./cache:/app/cache
-      - ./logs:/app/logs
-      - ./playlists:/app/playlists
-    environment:
-      - PYTHONPATH=/app/src
-      - MUSIC_PATH=/music
-      - CACHE_DIR=/app/cache
-      - LOG_DIR=/app/logs
-      - OUTPUT_DIR=/app/playlists
-    command: ["python", "-m", "src.presentation.cli.main", "--help"]
+    command: ["python", "playlista", "--help"]
     stdin_open: true
     tty: true 

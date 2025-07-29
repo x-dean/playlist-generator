@@ -19,12 +19,12 @@ from ..exceptions import ConfigurationError
 class LoggingConfig:
     """Configuration for logging settings."""
     
-    level: str = field(default_factory=lambda: os.getenv('LOG_LEVEL', 'INFO'))
+    level: str = field(default_factory=lambda: os.getenv('LOG_LEVEL', 'DEBUG'))
     log_dir: Path = field(default_factory=lambda: Path(os.getenv('LOG_DIR', '/app/logs')))
     log_file_prefix: str = "playlista"
     colored_output: bool = True
     file_logging: bool = True
-    console_logging: bool = False
+    console_logging: bool = True
     
     # TensorFlow and Essentia logging
     tensorflow_log_level: str = "2"  # Hide INFO and WARNING, show only ERROR
@@ -137,7 +137,7 @@ class AudioAnalysisConfig:
     
     # Model paths
     model_dir: Path = field(default_factory=lambda: Path(os.getenv('MODEL_DIR', '/app/feature_extraction/models')))
-    musicnn_model_path: Path = field(default_factory=lambda: Path(os.getenv('MUSICNN_MODEL_PATH', '/app/feature_extraction/models/musicnn/msd-musicnn-1.pb')))
+    musicnn_model_path: Path = field(default_factory=lambda: Path(os.getenv('MUSICNN_MODEL_PATH', '/app/feature_extraction/models/msd-musicnn-1.pb')))
     musicnn_json_path: Path = field(default_factory=lambda: Path(os.getenv('MUSICNN_JSON_PATH', '/app/feature_extraction/models/musicnn/msd-musicnn-1.json')))
     
     # BPM extraction settings

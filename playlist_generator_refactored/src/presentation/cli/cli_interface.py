@@ -46,7 +46,8 @@ class CLIInterface:
         self.discovery_service = FileDiscoveryService()
         self.analysis_service = AudioAnalysisService(
             self.config.processing, 
-            self.config.memory
+            self.config.memory,
+            self.config.audio_analysis
         )
         self.enrichment_service = MetadataEnrichmentService()
         self.playlist_service = PlaylistGenerationService()
@@ -323,20 +324,15 @@ Examples:
         
         # Create request
         request = AudioAnalysisRequest(
-            file_paths=[Path(args.path)],
-            fast_mode=args.fast_mode,
-            force_reextract=args.force,
-            bypass_cache=args.no_cache,
-            failed_only=args.failed,
+            file_paths=[str(Path(args.path))],
+            analysis_method="essentia",
+            force_reanalysis=args.force,
             parallel_processing=processing_mode == "parallel",
             max_workers=args.workers,
-            memory_limit=args.memory_limit,
-            memory_aware=args.memory_aware,
-            rss_limit_gb=args.rss_limit_gb,
-            low_memory_mode=args.low_memory,
-            large_file_threshold_mb=args.large_file_threshold,
             batch_size=args.batch_size,
-            timeout_seconds=args.timeout
+            timeout_seconds=args.timeout,
+            skip_existing=not args.no_cache,
+            retry_failed=not args.failed
         )
         
         with Progress(
@@ -365,7 +361,7 @@ Examples:
             table.add_column("Processing Time", style="yellow")
             
             table.add_row(
-                "✅ Completed" if response.status.value == "COMPLETED" else "❌ Failed",
+                "✅ Completed" if response.status == "completed" else "❌ Failed",
                 str(len(response.results)),
                 str(successful),
                 str(failed),
@@ -388,12 +384,23 @@ Examples:
         self.console.print("[bold blue]Enriching metadata[/bold blue]")
         
         # Create request
+        from uuid import uuid4
+        from application.dtos.metadata_enrichment import EnrichmentSource
+        
+        # For testing, create mock audio file IDs
+        audio_file_ids = [uuid4()] if not args.audio_ids else [uuid4() for _ in args.audio_ids.split(',')]
+        sources = []
+        if args.musicbrainz:
+            sources.append(EnrichmentSource.MUSICBRAINZ)
+        if args.lastfm:
+            sources.append(EnrichmentSource.LASTFM)
+        if not sources:
+            sources = [EnrichmentSource.MUSICBRAINZ, EnrichmentSource.LASTFM]
+        
         request = MetadataEnrichmentRequest(
-            audio_file_ids=args.audio_ids.split(',') if args.audio_ids else None,
-            search_paths=[args.path] if args.path else None,
-            force_reextract=args.force,
-            use_musicbrainz=args.musicbrainz,
-            use_lastfm=args.lastfm
+            audio_file_ids=audio_file_ids,
+            sources=sources,
+            force_reenrichment=args.force
         )
         
         with Progress(
@@ -440,11 +447,7 @@ Examples:
         # Create request
         request = PlaylistGenerationRequest(
             method=args.method,
-            playlist_size=args.size,
-            num_playlists=args.num_playlists,
-            search_paths=[args.path] if args.path else None,
-            min_tracks_per_genre=args.min_tracks_per_genre,
-            output_directory=args.output_dir
+            playlist_size=args.size
         )
         
         with Progress(

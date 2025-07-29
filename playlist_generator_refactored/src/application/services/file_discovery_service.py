@@ -107,6 +107,7 @@ class FileDiscoveryService:
             response.result.discovered_files = discovered_files
             response.result.skipped_files = skipped_files
             response.result.error_files = error_files
+            
             response.status = "completed"
             
             self.logger.info(f"File discovery completed: {len(discovered_files)} files found, "

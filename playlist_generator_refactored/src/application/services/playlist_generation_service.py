@@ -38,6 +38,11 @@ from application.dtos.playlist_generation import (
     PlaylistGenerationMethod,
     PlaylistQualityMetrics
 )
+from .tag_based_service import TagBasedService
+from .cache_based_service import CacheBasedService
+from .advanced_models_service import AdvancedModelsService
+from .feature_group_service import FeatureGroupService
+from .mixed_playlist_service import MixedPlaylistService
 
 
 class PlaylistGenerationService:
@@ -59,6 +64,13 @@ class PlaylistGenerationService:
         # Initialize ML components
         self.scaler = StandardScaler() if ML_AVAILABLE else None
         self.pca = None  # Will be initialized dynamically based on data size
+        
+        # Initialize services
+        self.tag_based_service = TagBasedService()
+        self.cache_based_service = CacheBasedService()
+        self.advanced_models_service = AdvancedModelsService()
+        self.feature_group_service = FeatureGroupService()
+        self.mixed_playlist_service = MixedPlaylistService()
         
         # Playlist generation parameters
         self.default_playlist_size = 20
@@ -94,6 +106,16 @@ class PlaylistGenerationService:
                 playlist = self._generate_random_playlist(request)
             elif request.method == PlaylistGenerationMethod.TIME_BASED:
                 playlist = self._generate_time_based_playlist(request)
+            elif request.method == PlaylistGenerationMethod.TAG_BASED:
+                playlist = self._generate_tag_based_playlist(request)
+            elif request.method == PlaylistGenerationMethod.CACHE:
+                playlist = self._generate_cache_based_playlist(request)
+            elif request.method == PlaylistGenerationMethod.ADVANCED:
+                playlist = self._generate_advanced_playlist(request)
+            elif request.method == PlaylistGenerationMethod.FEATURE_GROUP:
+                playlist = self._generate_feature_group_playlist(request)
+            elif request.method == PlaylistGenerationMethod.MIXED:
+                playlist = self._generate_mixed_playlist(request)
             else:
                 raise PlaylistMethodError(f"Unknown playlist generation method: {request.method}")
             
@@ -410,6 +432,136 @@ class PlaylistGenerationService:
             generation_method=request.method.value,
             created_date=datetime.now()
         )
+    
+    def _generate_tag_based_playlist(self, request: PlaylistGenerationRequest) -> Playlist:
+        """Generate playlist using tag-based selection."""
+        self.logger.info("Generating playlist using tag-based selection")
+        
+        try:
+            # Use tag-based service to generate playlists
+            playlists = self.tag_based_service.generate_tag_based_playlists(request.audio_files)
+            
+            if not playlists:
+                self.logger.warning("No tag-based playlists generated, using random")
+                return self._generate_random_playlist(request)
+            
+            # Select the best playlist or combine multiple
+            selected_playlist = playlists[0]  # Simple selection for now
+            
+            # Limit to requested size
+            if request.playlist_size and len(selected_playlist.track_ids) > request.playlist_size:
+                selected_playlist.track_ids = selected_playlist.track_ids[:request.playlist_size]
+                selected_playlist.track_paths = selected_playlist.track_paths[:request.playlist_size]
+            
+            return selected_playlist
+        
+        except Exception as e:
+            self.logger.error(f"Tag-based generation failed: {e}")
+            return self._generate_random_playlist(request)
+    
+    def _generate_cache_based_playlist(self, request: PlaylistGenerationRequest) -> Playlist:
+        """Generate playlist using cache-based selection."""
+        self.logger.info("Generating playlist using cache-based selection")
+        
+        try:
+            # Use cache-based service to generate playlists
+            playlists = self.cache_based_service.generate_cache_based_playlists(request.audio_files)
+            
+            if not playlists:
+                self.logger.warning("No cache-based playlists generated, using random")
+                return self._generate_random_playlist(request)
+            
+            # Select the best playlist or combine multiple
+            selected_playlist = playlists[0]  # Simple selection for now
+            
+            # Limit to requested size
+            if request.playlist_size and len(selected_playlist.track_ids) > request.playlist_size:
+                selected_playlist.track_ids = selected_playlist.track_ids[:request.playlist_size]
+                selected_playlist.track_paths = selected_playlist.track_paths[:request.playlist_size]
+            
+            return selected_playlist
+            
+        except Exception as e:
+            self.logger.error(f"Cache-based generation failed: {e}")
+            return self._generate_random_playlist(request)
+    
+    def _generate_advanced_playlist(self, request: PlaylistGenerationRequest) -> Playlist:
+        """Generate playlist using advanced models."""
+        self.logger.info("Generating playlist using advanced models")
+        
+        try:
+            # Use advanced models service to generate playlists
+            playlists = self.advanced_models_service.generate_advanced_playlists(request.audio_files)
+            
+            if not playlists:
+                self.logger.warning("No advanced playlists generated, using random")
+                return self._generate_random_playlist(request)
+            
+            # Select the best playlist or combine multiple
+            selected_playlist = playlists[0]  # Simple selection for now
+            
+            # Limit to requested size
+            if request.playlist_size and len(selected_playlist.track_ids) > request.playlist_size:
+                selected_playlist.track_ids = selected_playlist.track_ids[:request.playlist_size]
+                selected_playlist.track_paths = selected_playlist.track_paths[:request.playlist_size]
+            
+            return selected_playlist
+            
+        except Exception as e:
+            self.logger.error(f"Advanced generation failed: {e}")
+            return self._generate_random_playlist(request)
+    
+    def _generate_feature_group_playlist(self, request: PlaylistGenerationRequest) -> Playlist:
+        """Generate playlist using feature group selection."""
+        self.logger.info("Generating playlist using feature group selection")
+        
+        try:
+            # Use feature group service to generate playlists
+            playlists = self.feature_group_service.generate_feature_group_playlists(request.audio_files)
+            
+            if not playlists:
+                self.logger.warning("No feature group playlists generated, using random")
+                return self._generate_random_playlist(request)
+            
+            # Select the best playlist or combine multiple
+            selected_playlist = playlists[0]  # Simple selection for now
+            
+            # Limit to requested size
+            if request.playlist_size and len(selected_playlist.track_ids) > request.playlist_size:
+                selected_playlist.track_ids = selected_playlist.track_ids[:request.playlist_size]
+                selected_playlist.track_paths = selected_playlist.track_paths[:request.playlist_size]
+            
+            return selected_playlist
+            
+        except Exception as e:
+            self.logger.error(f"Feature group generation failed: {e}")
+            return self._generate_random_playlist(request)
+    
+    def _generate_mixed_playlist(self, request: PlaylistGenerationRequest) -> Playlist:
+        """Generate playlist using mixed selection."""
+        self.logger.info("Generating playlist using mixed selection")
+        
+        try:
+            # Use mixed service to generate playlists
+            playlists = self.mixed_playlist_service.generate_mixed_playlists(request.audio_files)
+            
+            if not playlists:
+                self.logger.warning("No mixed playlists generated, using random")
+                return self._generate_random_playlist(request)
+            
+            # Select the best playlist or combine multiple
+            selected_playlist = playlists[0]  # Simple selection for now
+            
+            # Limit to requested size
+            if request.playlist_size and len(selected_playlist.track_ids) > request.playlist_size:
+                selected_playlist.track_ids = selected_playlist.track_ids[:request.playlist_size]
+                selected_playlist.track_paths = selected_playlist.track_paths[:request.playlist_size]
+            
+            return selected_playlist
+            
+        except Exception as e:
+            self.logger.error(f"Mixed generation failed: {e}")
+            return self._generate_random_playlist(request)
     
     def _extract_features_for_clustering(self, audio_files: List[AudioFile]) -> List[List[float]]:
         """

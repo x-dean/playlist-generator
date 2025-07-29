@@ -27,10 +27,7 @@ class DiscoveryResult:
     skipped_files: List[str] = field(default_factory=list)
     error_files: List[str] = field(default_factory=list)
     
-    # Statistics
-    total_files_found: int = 0
-    valid_audio_files: int = 0
-    invalid_files: int = 0
+    # Statistics (calculated dynamically)
     duplicate_files: int = 0
     
     # File type breakdown
@@ -48,10 +45,6 @@ class DiscoveryResult:
         if self.start_time and self.end_time:
             self.total_duration_seconds = (self.end_time - self.start_time).total_seconds()
         
-        self.total_files_found = len(self.discovered_files) + len(self.skipped_files) + len(self.error_files)
-        self.valid_audio_files = len(self.discovered_files)
-        self.invalid_files = len(self.skipped_files)
-        
         # Calculate file type breakdown
         for audio_file in self.discovered_files:
             extension = audio_file.file_path.suffix.lower()
@@ -66,6 +59,21 @@ class DiscoveryResult:
                 else:
                     size_category = "large"
                 self.file_sizes[size_category] = self.file_sizes.get(size_category, 0) + 1
+    
+    @property
+    def total_files_found(self) -> int:
+        """Get total number of files found."""
+        return len(self.discovered_files) + len(self.skipped_files) + len(self.error_files)
+    
+    @property
+    def valid_audio_files(self) -> int:
+        """Get number of valid audio files."""
+        return len(self.discovered_files)
+    
+    @property
+    def invalid_files(self) -> int:
+        """Get number of invalid files."""
+        return len(self.skipped_files)
     
     @property
     def success_rate(self) -> float:

@@ -63,7 +63,8 @@ from application.dtos.audio_analysis import (
     AnalysisStatus,
     AnalysisProgress
 )
-from shared.config.settings import ProcessingConfig, MemoryConfig
+from shared.config.settings import ProcessingConfig, MemoryConfig, AudioAnalysisConfig
+from infrastructure.processing.parallel_processor import ParallelProcessor
 
 
 class AudioAnalysisService:
@@ -83,10 +84,11 @@ class AudioAnalysisService:
     - Large file handling
     """
     
-    def __init__(self, processing_config: ProcessingConfig, memory_config: MemoryConfig):
+    def __init__(self, processing_config: ProcessingConfig, memory_config: MemoryConfig, audio_analysis_config: AudioAnalysisConfig):
         """Initialize the AudioAnalysisService."""
         self.processing_config = processing_config
         self.memory_config = memory_config
+        self.audio_analysis_config = audio_analysis_config
         self.logger = logging.getLogger(__name__)
         
         # Check for required libraries
@@ -103,12 +105,15 @@ class AudioAnalysisService:
         self.musicnn_model = None
         if TENSORFLOW_AVAILABLE and ESSENTIA_AVAILABLE:
             self._init_musicnn()
+        
+        # Initialize parallel processor
+        self.parallel_processor = ParallelProcessor(self.processing_config, self.memory_config)
     
     def _init_musicnn(self):
         """Initialize MusiCNN model if available."""
         try:
             # Try to load MusiCNN model
-            model_path = self.processing_config.musicnn_model_path
+            model_path = self.audio_analysis_config.musicnn_model_path
             if model_path.exists():
                 self.musicnn_model = es.TensorflowPredictMusiCNN(
                     graphFilename=str(model_path),
@@ -147,46 +152,81 @@ class AudioAnalysisService:
             results = []
             errors = []
             
-            for i, file_path in enumerate(request.file_paths):
-                self.logger.info(f"Processing file {i+1}/{len(request.file_paths)}: {file_path}")
+            # Use parallel processing if requested
+            if request.parallel_processing and len(request.file_paths) > 1:
+                self.logger.info(f"Using parallel processing with {request.max_workers or 'auto'} workers")
                 
-                # Update progress
-                response.progress.current_file = str(file_path)
-                response.progress.processed_files = i + 1
+                # Convert file paths to Path objects
+                file_paths = [Path(fp) for fp in request.file_paths]
                 
-                try:
-                    # Extract metadata
-                    metadata = self._extract_metadata(file_path)
-                    
-                    # Extract features based on mode
-                    if request.fast_mode:
-                        feature_set = self._extract_features_fast(file_path)
+                # Use parallel processor
+                processing_results = self.parallel_processor.process_files_parallel(
+                    file_paths=file_paths,
+                    processor_func=self._process_single_file,
+                    max_workers=request.max_workers,
+                    timeout_minutes=request.timeout_seconds // 60 if request.timeout_seconds else None
+                )
+                
+                # Convert processing results to analysis results
+                for proc_result in processing_results:
+                    if proc_result.success:
+                        results.append(proc_result.data)
                     else:
-                        feature_set = self._extract_features_full(file_path)
+                        errors.append(proc_result.error)
+                        # Create failed result
+                        audio_file = AudioFile(file_path=proc_result.data.file_path if proc_result.data else Path("unknown"))
+                        results.append(AnalysisResult(
+                            audio_file=audio_file,
+                            is_successful=False,
+                            is_complete=True,
+                            error_message=proc_result.error
+                        ))
+                
+            else:
+                # Sequential processing
+                self.logger.info("Using sequential processing")
+                
+                for i, file_path in enumerate(request.file_paths):
+                    self.logger.info(f"Processing file {i+1}/{len(request.file_paths)}: {file_path}")
                     
-                    # Calculate quality score
-                    quality_score = self._calculate_quality_score(feature_set, metadata)
+                    # Update progress
+                    response.progress.current_file = str(file_path)
+                    response.progress.processed_files = i + 1
                     
-                    # Create analysis result
-                    result = AnalysisResult(
-                        audio_file_id=uuid4(),
-                        feature_set=feature_set,
-                        metadata=metadata,
-                        quality_score=quality_score,
-                        processing_time=time.time(),
-                        success=True
-                    )
-                    
-                    results.append(result)
-                    
-                except Exception as e:
-                    self.logger.error(f"Analysis failed for {file_path}: {e}")
-                    errors.append(str(e))
-                    results.append(AnalysisResult(
-                        audio_file_id=uuid4(),
-                        success=False,
-                        error=str(e)
-                    ))
+                    try:
+                        # Create AudioFile entity
+                        audio_file = AudioFile(file_path=Path(file_path))
+                        # Extract metadata
+                        metadata = self._extract_metadata(file_path, audio_file.id)
+                        # Extract features based on mode
+                        feature_set = self._extract_features_full(file_path, audio_file.id)
+                        
+                        # Calculate quality score
+                        quality_score = self._calculate_quality_score(feature_set, metadata)
+                        
+                        # Create analysis result
+                        result = AnalysisResult(
+                            audio_file=audio_file,
+                            feature_set=feature_set,
+                            metadata=metadata,
+                            quality_score=quality_score,
+                            is_successful=True,
+                            is_complete=True,
+                            processing_time_ms=None
+                        )
+                        
+                        results.append(result)
+                        
+                    except Exception as e:
+                        self.logger.error(f"Analysis failed for {file_path}: {e}")
+                        errors.append(str(e))
+                        audio_file = AudioFile(file_path=Path(file_path))
+                        results.append(AnalysisResult(
+                            audio_file=audio_file,
+                            is_successful=False,
+                            is_complete=True,
+                            error_message=str(e)
+                        ))
             
             # Update response
             response.results = results
@@ -213,9 +253,9 @@ class AudioAnalysisService:
             responses.append(response)
         return responses
     
-    def _extract_metadata(self, file_path: Path) -> Metadata:
+    def _extract_metadata(self, file_path: Path, audio_file_id=None) -> Metadata:
         """Extract metadata from audio file."""
-        metadata = Metadata()
+        metadata = Metadata(audio_file_id=audio_file_id or uuid4())
         
         if not MUTAGEN_AVAILABLE:
             return metadata
@@ -243,7 +283,7 @@ class AudioAnalysisService:
         
         return metadata
     
-    def _extract_features_fast(self, file_path: Path) -> FeatureSet:
+    def _extract_features_fast(self, file_path: Path, audio_file_id=None) -> FeatureSet:
         """Extract only essential features for fast processing (3-5x faster)."""
         self.logger.info(f"Using fast mode for {file_path}")
         
@@ -260,7 +300,7 @@ class AudioAnalysisService:
                 self.logger.warning(f"Large file detected ({len(y)} samples), using minimal features")
             
             # Initialize feature set
-            feature_set = FeatureSet(audio_file_id=uuid4())
+            feature_set = FeatureSet(audio_file_id=audio_file_id or uuid4())
             
             # Essential features only
             if not is_large_file:
@@ -290,7 +330,7 @@ class AudioAnalysisService:
             self.logger.error(f"Fast feature extraction failed for {file_path}: {e}")
             raise FeatureExtractionError(f"Failed to extract features: {e}")
     
-    def _extract_features_full(self, file_path: Path) -> FeatureSet:
+    def _extract_features_full(self, file_path: Path, audio_file_id=None) -> FeatureSet:
         """Extract all features with memory-aware processing."""
         self.logger.info(f"Using full mode for {file_path}")
         
@@ -312,7 +352,7 @@ class AudioAnalysisService:
             self.logger.info(f"File size: {len(y)} samples, Large: {is_large_file}, Very large: {is_very_large}, Memory critical: {memory_critical}")
             
             # Initialize feature set
-            feature_set = FeatureSet(audio_file_id=uuid4())
+            feature_set = FeatureSet(audio_file_id=audio_file_id or uuid4())
             feature_set.duration = float(len(y) / sr)
             
             # Extract features based on file size and memory
@@ -601,3 +641,41 @@ class AudioAnalysisService:
         """Cancel analysis."""
         # Placeholder - would need to implement cancellation
         return True 
+
+    def _process_single_file(self, file_path: Path) -> AnalysisResult:
+        """Process a single audio file for parallel processing."""
+        try:
+            # Create AudioFile entity
+            audio_file = AudioFile(file_path=file_path)
+            
+            # Extract metadata
+            metadata = self._extract_metadata(file_path, audio_file.id)
+            
+            # Extract features based on mode
+            feature_set = self._extract_features_full(file_path, audio_file.id)
+            
+            # Calculate quality score
+            quality_score = self._calculate_quality_score(feature_set, metadata)
+            
+            # Create analysis result
+            result = AnalysisResult(
+                audio_file=audio_file,
+                feature_set=feature_set,
+                metadata=metadata,
+                quality_score=quality_score,
+                is_successful=True,
+                is_complete=True,
+                processing_time_ms=None
+            )
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Analysis failed for {file_path}: {e}")
+            audio_file = AudioFile(file_path=file_path)
+            return AnalysisResult(
+                audio_file=audio_file,
+                is_successful=False,
+                is_complete=True,
+                error_message=str(e)
+            ) 

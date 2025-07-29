@@ -53,6 +53,14 @@ from .cache import (
     CacheKeyError
 )
 
+from .processing import (
+    ProcessingError,
+    TimeoutError,
+    WorkerError,
+    MemoryError,
+    BatchProcessingError
+)
+
 __all__ = [
     # Base exceptions
     'PlaylistaException',
@@ -96,5 +104,12 @@ __all__ = [
     # Cache exceptions
     'CacheError',
     'CacheConnectionError',
-    'CacheKeyError'
+    'CacheKeyError',
+    
+    # Processing exceptions
+    'ProcessingError',
+    'TimeoutError',
+    'WorkerError',
+    'MemoryError',
+    'BatchProcessingError'
 ] 

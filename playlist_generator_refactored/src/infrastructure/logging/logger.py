@@ -80,7 +80,23 @@ def setup_logging(
     
     # Create main logger
     logger = logging.getLogger('playlista')
-    logger.setLevel(getattr(logging, config.logging.level.upper(), logging.INFO))
+    
+    # Get log level from config (handle both direct config and nested logging config)
+    if hasattr(config, 'logging'):
+        log_level = config.logging.level
+        file_logging = config.logging.file_logging
+        console_logging = config.logging.console_logging
+        log_dir = config.logging.log_dir
+        log_file_prefix = config.logging.log_file_prefix
+    else:
+        # Fallback to direct config attributes
+        log_level = getattr(config, 'level', 'DEBUG')
+        file_logging = getattr(config, 'file_logging', True)
+        console_logging = getattr(config, 'console_logging', True)
+        log_dir = getattr(config, 'log_dir', Path('/app/logs'))
+        log_file_prefix = getattr(config, 'log_file_prefix', 'playlista')
+    
+    logger.setLevel(getattr(logging, log_level.upper(), logging.DEBUG))
     
     # Clear existing handlers
     logger.handlers.clear()
@@ -93,7 +109,7 @@ def setup_logging(
     from infrastructure.logging.formatters import StructuredFormatter, ColoredFormatter
     
     # Console handler (if enabled)
-    if config.logging.console_logging:
+    if console_logging:
         console_handler = logging.StreamHandler(sys.stdout)
         # Set encoding to handle Unicode characters
         if hasattr(console_handler.stream, 'reconfigure'):
@@ -105,9 +121,9 @@ def setup_logging(
         logger.addHandler(console_handler)
     
     # File handler (if enabled)
-    if config.logging.file_logging:
+    if file_logging:
         if log_file is None:
-            log_file = config.logging.log_dir / f"{config.logging.log_file_prefix}.log"
+            log_file = log_dir / f"{log_file_prefix}.log"
         
         # Ensure log directory exists
         log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -134,9 +150,9 @@ def setup_logging(
     _log_setup_complete = True
     
     logger.info("Logging system initialized", extra={
-        'log_level': config.logging.level,
-        'file_logging': config.logging.file_logging,
-        'console_logging': config.logging.console_logging,
+        'log_level': log_level,
+        'file_logging': file_logging,
+        'console_logging': console_logging,
         'log_file': str(log_file) if log_file else None
     })
     
@@ -152,13 +168,21 @@ def _setup_external_logging(config: Any) -> None:
         tf_logger = tf.get_logger()
         tf_logger.handlers.clear()
         
-        # Set TensorFlow log level
-        tf_log_level = getattr(logging, config.logging.tensorflow_log_level.upper(), logging.ERROR)
+        # Get TensorFlow log level from config
+        if hasattr(config, 'logging'):
+            tf_log_level = getattr(logging, config.logging.tensorflow_log_level.upper(), logging.ERROR)
+            file_logging = config.logging.file_logging
+            log_dir = config.logging.log_dir
+        else:
+            tf_log_level = getattr(logging, getattr(config, 'tensorflow_log_level', '2').upper(), logging.ERROR)
+            file_logging = getattr(config, 'file_logging', True)
+            log_dir = getattr(config, 'log_dir', Path('/app/logs'))
+        
         tf_logger.setLevel(tf_log_level)
         
         # Add file handler for TensorFlow logs
-        if config.logging.file_logging:
-            tf_log_file = config.logging.log_dir / "tensorflow.log"
+        if file_logging:
+            tf_log_file = log_dir / "tensorflow.log"
             tf_handler = logging.handlers.RotatingFileHandler(
                 tf_log_file,
                 maxBytes=5 * 1024 * 1024,  # 5MB
@@ -181,8 +205,12 @@ def _setup_external_logging(config: Any) -> None:
         essentia.log.warningActive = True
         essentia.log.errorActive = True
         
-        # Set Essentia log level
-        essentia_log_level = config.logging.essentia_logging_level.upper()
+        # Get Essentia log level from config
+        if hasattr(config, 'logging'):
+            essentia_log_level = config.logging.essentia_logging_level.upper()
+        else:
+            essentia_log_level = getattr(config, 'essentia_logging_level', 'error').upper()
+        
         if essentia_log_level == 'ERROR':
             essentia.log.infoActive = False
             essentia.log.warningActive = False
@@ -327,21 +355,21 @@ def log_function_call(func):
         correlation_id = get_correlation_id()
         
         logger.debug(f"Calling {func.__name__}", extra={
-            'function': func.__name__,
-            'module': func.__module__,
+            'function_name': func.__name__,
+            'module_name': func.__module__,
             'correlation_id': correlation_id
         })
         
         try:
             result = func(*args, **kwargs)
             logger.debug(f"Function {func.__name__} completed successfully", extra={
-                'function': func.__name__,
+                'function_name': func.__name__,
                 'correlation_id': correlation_id
             })
             return result
         except Exception as e:
             logger.error(f"Function {func.__name__} failed: {e}", extra={
-                'function': func.__name__,
+                'function_name': func.__name__,
                 'correlation_id': correlation_id,
                 'error': str(e)
             })
