@@ -671,8 +671,11 @@ Examples:
             # Step 2: Analysis
             self.console.print("[cyan]Step 2: Analyzing audio files...[/cyan]")
             self.logger.info("Step 2: Starting audio analysis")
+            
+            # Get file paths from discovered files
+            file_paths = [str(af.file_path) for af in discovery_response.discovered_files]
             analysis_request = AudioAnalysisRequest(
-                file_paths=[args.path],
+                file_paths=file_paths,
                 analysis_method="essentia",
                 force_reanalysis=args.force,
                 parallel_processing=True,
@@ -684,7 +687,7 @@ Examples:
             )
             
             analysis_response = self.analysis_service.analyze_audio_file(analysis_request)
-            successful_analysis = sum(1 for r in analysis_response.results if r.success)
+            successful_analysis = sum(1 for r in analysis_response.results if r.is_successful)
             failed_analysis = len(analysis_response.results) - successful_analysis
             
             self.console.print(f"[green]Analysis completed: {successful_analysis} successful, {failed_analysis} failed[/green]")
