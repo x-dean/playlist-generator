@@ -53,6 +53,7 @@ from shared.exceptions import (
     FeatureExtractionError,
     ValidationError
 )
+from shared.utils import sort_files_by_size, split_files_by_size, log_largest_files
 from domain.entities.audio_file import AudioFile
 from domain.entities.feature_set import FeatureSet
 from domain.entities.metadata import Metadata
@@ -175,26 +176,40 @@ class AudioAnalysisService:
                 # Convert file paths to Path objects
                 file_paths = [Path(fp) for fp in request.file_paths]
                 
-                # Split files into small and large based on size
-                small_files = []
-                large_files = []
+                # Sort files by size (large first) for better resource utilization
+                sorted_file_paths = sort_files_by_size(file_paths, reverse=True)
                 
-                for file_path in file_paths:
-                    try:
-                        file_size_mb = file_path.stat().st_size / (1024 * 1024)
-                        if file_size_mb > self.processing_config.large_file_threshold_mb:
-                            large_files.append(file_path)
-                        else:
-                            small_files.append(file_path)
-                    except Exception:
-                        # If we can't get file size, treat as small file
-                        small_files.append(file_path)
+                # Log the largest files being processed first
+                log_largest_files(sorted_file_paths, count=5)
+                
+                # Split files into small and large based on size
+                small_files, large_files = split_files_by_size(
+                    sorted_file_paths, 
+                    self.processing_config.large_file_threshold_mb
+                )
                 
                 self.logger.info(f"Processing {len(small_files)} small files in parallel, {len(large_files)} large files sequentially")
                 
                 results = []
                 
-                # Process small files in parallel
+                # Process large files FIRST (sequentially) for better resource utilization
+                for file_path in large_files:
+                    try:
+                        self.logger.info(f"Processing large file: {file_path}")
+                        result = self._process_single_file(file_path)
+                        results.append(result)
+                    except Exception as e:
+                        self.logger.error(f"Large file processing failed for {file_path}: {e}")
+                        errors.append(str(e))
+                        audio_file = AudioFile(file_path=file_path)
+                        results.append(AnalysisResult(
+                            audio_file=audio_file,
+                            is_successful=False,
+                            is_complete=True,
+                            error_message=str(e)
+                        ))
+                
+                # Process small files in parallel (after large files)
                 if small_files:
                     processing_results = self.parallel_processor.process_files_parallel(
                         file_paths=small_files,
@@ -217,9 +232,6 @@ class AudioAnalysisService:
                                 is_complete=True,
                                 error_message=proc_result.error
                             ))
-                
-                # Process large files sequentially with memory limits
-                for file_path in large_files:
                     try:
                         self.logger.info(f"Processing large file: {file_path}")
                         result = self._process_single_file(file_path)

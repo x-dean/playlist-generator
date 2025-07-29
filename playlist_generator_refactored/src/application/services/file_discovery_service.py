@@ -14,6 +14,7 @@ from mutagen import File as MutagenFile
 
 from shared.config import get_config
 from shared.exceptions import FileDiscoveryError, FileAccessError
+from shared.utils import get_file_size_mb, create_audio_files_with_size
 from infrastructure.logging import get_logger, set_correlation_id, log_function_call
 
 from domain.entities import AudioFile
@@ -92,14 +93,13 @@ class FileDiscoveryService:
                         seen_files.add(str(file_path))
                         
                         try:
-                            # Create AudioFile entity with basic info
+                            # Create AudioFile entity with size information
                             audio_file = AudioFile(file_path=file_path)
                             
                             # Get file size if possible
-                            try:
-                                audio_file.file_size_bytes = file_path.stat().st_size
-                            except Exception as e:
-                                self.logger.warning(f"Could not get file size for {file_path}: {e}")
+                            size_mb = get_file_size_mb(file_path)
+                            if size_mb:
+                                audio_file.file_size_bytes = int(size_mb * 1024 * 1024)
                             
                             discovered_files.append(audio_file)
                             self.logger.debug(f"Added file: {file_path}")
@@ -158,13 +158,12 @@ class FileDiscoveryService:
                                 continue
                         # Filter by size
                         if request.min_file_size_mb is not None or request.max_file_size_mb is not None:
-                            try:
-                                size_mb = entry.stat().st_size / (1024 * 1024)
-                                if request.min_file_size_mb is not None and size_mb < request.min_file_size_mb:
-                                    continue
-                                if request.max_file_size_mb is not None and size_mb > request.max_file_size_mb:
-                                    continue
-                            except Exception:
+                            size_mb = get_file_size_mb(entry)
+                            if size_mb is None:
+                                continue  # Skip files where we can't determine size
+                            if request.min_file_size_mb is not None and size_mb < request.min_file_size_mb:
+                                continue
+                            if request.max_file_size_mb is not None and size_mb > request.max_file_size_mb:
                                 continue
                         # Filter by patterns
                         if request.exclude_patterns and any(entry.match(pat) for pat in request.exclude_patterns):

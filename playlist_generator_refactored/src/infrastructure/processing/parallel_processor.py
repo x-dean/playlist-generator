@@ -19,6 +19,7 @@ import queue
 
 from shared.exceptions import ProcessingError, TimeoutError as CustomTimeoutError
 from shared.config.settings import ProcessingConfig, MemoryConfig
+from shared.utils import get_file_size_mb
 
 
 @dataclass
@@ -133,19 +134,17 @@ class LargeFileProcessor:
     
     def is_large_file(self, file_path: Path) -> bool:
         """Check if file is considered large."""
-        try:
-            file_size_mb = file_path.stat().st_size / (1024 * 1024)
-            return file_size_mb > self.config.large_file_threshold_mb
-        except Exception:
+        file_size_mb = get_file_size_mb(file_path)
+        if file_size_mb is None:
             return False
+        return file_size_mb > self.config.large_file_threshold_mb
     
     def is_very_large_file(self, file_path: Path) -> bool:
         """Check if file is very large."""
-        try:
-            file_size_mb = file_path.stat().st_size / (1024 * 1024)
-            return file_size_mb > self.config.very_large_file_threshold_mb
-        except Exception:
+        file_size_mb = get_file_size_mb(file_path)
+        if file_size_mb is None:
             return False
+        return file_size_mb > self.config.very_large_file_threshold_mb
     
     def process_large_file(self, file_path: Path, processor_func: Callable, *args, **kwargs) -> ProcessingResult:
         """Process large file with special handling."""
