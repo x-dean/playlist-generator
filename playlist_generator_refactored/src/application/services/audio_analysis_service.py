@@ -247,8 +247,69 @@ class AudioAnalysisService:
                 self.logger.info(f"Classifying files by size threshold: {self.processing_config.large_file_threshold_mb}MB")
                 small_files, large_files = split_files_by_size(sorted_file_paths, self.processing_config.large_file_threshold_mb)
                 
+                # Process LARGE files FIRST for optimal memory management
+                if large_files:
+                    self.logger.info(f"Processing {len(large_files)} large files (>{self.processing_config.large_file_threshold_mb}MB) FIRST with 1-worker batches")
+                    # Process large files in batches of up to 50 with 1 worker each for optimal memory management
+                    batches = self._create_batches(large_files, max_batch_size=50)
+                    self.logger.info(f"Created {len(batches)} batches for large files (max 50 files per batch)")
+                    
+                    for batch_idx, batch in enumerate(batches):
+                        batch_size = len(batch)
+                        self.logger.info(f"Processing large file batch {batch_idx + 1}/{len(batches)} ({batch_size} files, 1 worker)")
+                        
+                        try:
+                            batch_results = self.parallel_processor.process_files_parallel(
+                                file_paths=batch,
+                                processor_func=self._create_standalone_processor(),
+                                max_workers=1,  # Single worker for large files (memory intensive)
+                                timeout_minutes=request.timeout_seconds // 60 if request.timeout_seconds else None
+                            )
+                            
+                            # Convert ProcessingResult to AnalysisResult
+                            successful_in_batch = 0
+                            failed_in_batch = 0
+                            
+                            for proc_result in batch_results:
+                                if proc_result.success:
+                                    results.append(proc_result.data)
+                                    successful_in_batch += 1
+                                else:
+                                    # Create failed result
+                                    audio_file = AudioFile(file_path=proc_result.data.file_path if proc_result.data else Path("unknown"))
+                                    failed_result = AnalysisResult(
+                                        audio_file=audio_file,
+                                        is_successful=False,
+                                        is_complete=True,
+                                        error_message=proc_result.error
+                                    )
+                                    results.append(failed_result)
+                                    failed_in_batch += 1
+                            
+                            self.logger.info(f"Batch {batch_idx + 1} completed: {successful_in_batch} successful, {failed_in_batch} failed")
+                                    
+                        except Exception as e:
+                            self.error_handler.handle_error(
+                                "large_file_batch_error",
+                                f"Failed to process large file batch {batch_idx + 1}: {e}",
+                                service="analysis",
+                                operation="process_large_file_batch",
+                                file_path=str(batch[0]) if batch else "unknown"
+                            )
+                            # Create failed results for entire batch
+                            for file_path in batch:
+                                audio_file = AudioFile(file_path=file_path)
+                                failed_result = AnalysisResult(
+                                    audio_file=audio_file,
+                                    is_successful=False,
+                                    is_complete=True,
+                                    error_message=f"Batch processing failed: {e}"
+                                )
+                                results.append(failed_result)
+                
+                # Process SMALL files SECOND (after large files are done)
                 if small_files:
-                    self.logger.info(f"Processing {len(small_files)} small files in parallel")
+                    self.logger.info(f"Processing {len(small_files)} small files in parallel SECOND")
                     # Process small files in parallel using standalone processor
                     processing_results = self.parallel_processor.process_files_parallel(
                         file_paths=small_files, 
@@ -273,31 +334,6 @@ class AudioAnalysisService:
                             results.append(failed_result)
                 else:
                     self.logger.info("No small files to process in parallel")
-                
-                if large_files:
-                    self.logger.info(f"Processing {len(large_files)} large files sequentially")
-                    # Process large files sequentially to avoid memory issues
-                    for file_path in large_files:
-                        try:
-                            result = self._process_single_file(file_path)
-                            results.append(result)
-                        except Exception as e:
-                            self.error_handler.handle_error(
-                                "large_file_processing_error",
-                                f"Failed to process large file {file_path}: {e}",
-                                service="analysis",
-                                operation="process_large_file",
-                                file_path=str(file_path)
-                            )
-                            # Create failed result
-                            audio_file = AudioFile(file_path=file_path)
-                            failed_result = AnalysisResult(
-                                audio_file=audio_file,
-                                is_successful=False,
-                                is_complete=True,
-                                error_message=str(e)
-                            )
-                            results.append(failed_result)
                 
             else:
                 # Sequential processing
@@ -980,6 +1016,14 @@ class AudioAnalysisService:
         except Exception as e:
             self.logger.warning(f"Error checking existing analysis for {file_path}: {e}")
             return None
+    
+    def _create_batches(self, files: List[Path], max_batch_size: int = 50) -> List[List[Path]]:
+        """Create batches of files for optimal processing."""
+        batches = []
+        for i in range(0, len(files), max_batch_size):
+            batch = files[i:i + max_batch_size]
+            batches.append(batch)
+        return batches
     
     def _save_analysis_result(self, result: AnalysisResult, processing_time: float):
         """Save analysis result to database with proper error handling."""
