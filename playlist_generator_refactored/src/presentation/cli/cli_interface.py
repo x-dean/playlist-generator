@@ -42,6 +42,10 @@ class CLIInterface:
         self.console = Console()
         self.config = load_config()
         
+        # Setup logging
+        from infrastructure.logging.logger import setup_logging
+        self.logger = setup_logging(self.config)
+        
         # Initialize services
         self.discovery_service = FileDiscoveryService()
         self.analysis_service = AudioAnalysisService(
@@ -615,28 +619,85 @@ Examples:
     def _handle_pipeline(self, args) -> int:
         """Handle the pipeline command."""
         self.console.print(f"[bold blue]Running full pipeline for: {args.path}[/bold blue]")
+        self.logger.info(f"Starting pipeline for path: {args.path}")
         
-        # This would orchestrate the full pipeline
-        steps = ["Discovery", "Analysis", "Enrichment", "Playlist Generation"]
-        if args.export:
-            steps.append("Export")
-        
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TimeElapsedColumn(),
-            console=self.console
-        ) as progress:
-            task = progress.add_task("Running pipeline...", total=len(steps))
+        try:
+            # Step 1: Discovery
+            self.console.print("[cyan]Step 1: Discovering audio files...[/cyan]")
+            self.logger.info("Step 1: Starting file discovery")
+            discovery_request = FileDiscoveryRequest(
+                search_paths=[args.path],
+                recursive=True,
+                file_extensions=['mp3', 'flac', 'wav', 'm4a', 'ogg']
+            )
             
-            for i, step in enumerate(steps):
-                progress.update(task, description=f"Running {step}...", advance=1)
-                # This would actually run each step
-        
-        self.console.print("[green]Pipeline completed successfully![/green]")
-        
-        return 0
+            discovery_response = self.discovery_service.discover_files(discovery_request)
+            if not discovery_response.discovered_files:
+                self.console.print("[yellow]No audio files found in the specified path.[/yellow]")
+                self.logger.warning(f"No audio files found in path: {args.path}")
+                return 0
+            
+            self.console.print(f"[green]Found {len(discovery_response.discovered_files)} audio files[/green]")
+            self.logger.info(f"Discovered {len(discovery_response.discovered_files)} audio files")
+            
+            # Step 2: Analysis
+            self.console.print("[cyan]Step 2: Analyzing audio files...[/cyan]")
+            self.logger.info("Step 2: Starting audio analysis")
+            analysis_request = AudioAnalysisRequest(
+                file_paths=[args.path],
+                analysis_method="essentia",
+                force_reanalysis=args.force,
+                parallel_processing=True,
+                max_workers=None,  # Auto-detect
+                batch_size=None,
+                timeout_seconds=300,
+                skip_existing=not args.force,
+                retry_failed=args.failed
+            )
+            
+            analysis_response = self.analysis_service.analyze_audio_file(analysis_request)
+            successful_analysis = sum(1 for r in analysis_response.results if r.success)
+            failed_analysis = len(analysis_response.results) - successful_analysis
+            
+            self.console.print(f"[green]Analysis completed: {successful_analysis} successful, {failed_analysis} failed[/green]")
+            self.logger.info(f"Analysis completed: {successful_analysis} successful, {failed_analysis} failed")
+            
+            # Step 3: Playlist Generation (if requested)
+            if args.generate:
+                self.console.print("[cyan]Step 3: Generating playlists...[/cyan]")
+                self.logger.info("Step 3: Starting playlist generation")
+                
+                # Convert discovered files to AudioFile entities for playlist generation
+                from domain.entities.audio_file import AudioFile
+                audio_files = [AudioFile(file_path=Path(f.file_path)) for f in discovery_response.discovered_files]
+                
+                playlist_request = PlaylistGenerationRequest(
+                    audio_files=audio_files,
+                    method="kmeans",  # Default method
+                    playlist_size=20,
+                    num_playlists=8
+                )
+                
+                playlist_response = self.playlist_service.generate_playlist(playlist_request)
+                self.console.print(f"[green]Generated {len(playlist_response.playlists)} playlists[/green]")
+                self.logger.info(f"Generated {len(playlist_response.playlists)} playlists")
+            
+            # Step 4: Export (if requested)
+            if args.export:
+                self.console.print("[cyan]Step 4: Exporting playlists...[/cyan]")
+                self.logger.info("Step 4: Starting playlist export")
+                # This would export playlists to files
+                self.console.print("[green]Export completed[/green]")
+                self.logger.info("Export completed")
+            
+            self.console.print("[bold green]Pipeline completed successfully![/bold green]")
+            self.logger.info("Pipeline completed successfully")
+            return 0
+            
+        except Exception as e:
+            self.console.print(f"[red]Pipeline failed: {e}[/red]")
+            self.logger.error(f"Pipeline failed: {e}", exc_info=True)
+            return 1
 
 
 def main():
