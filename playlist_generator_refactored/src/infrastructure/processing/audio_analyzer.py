@@ -35,7 +35,7 @@ class AnalysisAlgorithms:
     
     # Additional algorithms
     spectral_rolloff: Optional[Any]  # Could be RollOff or Rolloff
-    spectral_bandwidth: Optional[es.Bandwidth]
+    spectral_bandwidth: Optional[es.SpectralBandwidth]
     spectral_contrast: Optional[es.SpectralContrast]
     spectral_peaks: Optional[es.SpectralPeaks]
     hpcp_extractor: Optional[es.HPCP]
@@ -72,7 +72,7 @@ class AudioAnalyzer:
                 metadata_extractor=es.MetadataReader(),
                 mono_loader=es.MonoLoader(),
                 spectral_rolloff=es.RollOff(),
-                spectral_bandwidth=es.Bandwidth(),
+                spectral_bandwidth=es.SpectralBandwidth(),
                 spectral_contrast=es.SpectralContrast(),
                 spectral_peaks=es.SpectralPeaks(),
                 hpcp_extractor=es.HPCP(),
@@ -92,7 +92,7 @@ class AudioAnalyzer:
                     metadata_extractor=es.MetadataReader(),
                     mono_loader=es.MonoLoader(),
                     spectral_rolloff=es.Rolloff(),  # Try different case
-                    spectral_bandwidth=es.Bandwidth(),
+                    spectral_bandwidth=es.SpectralBandwidth(),
                     spectral_contrast=es.SpectralContrast(),
                     spectral_peaks=es.SpectralPeaks(),
                     hpcp_extractor=es.HPCP(),
