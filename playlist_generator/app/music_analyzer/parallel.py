@@ -265,9 +265,11 @@ class ParallelProcessor:
                         # Add timeout for batch processing
                         batch_timeout = 1800  # 30 minutes per batch (increased for larger batches)
                         
+                        logger.debug(f"🔄 PARALLEL: About to start imap_unordered loop for batch of {len(batch)} files")
                         for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
                             processed_in_batch += 1
                             logger.debug(f"🔄 PARALLEL: Got result {processed_in_batch}/{len(batch)} for {os.path.basename(filepath)}")
+                            logger.debug(f"🔄 PARALLEL: About to yield result for {os.path.basename(filepath)} - features: {features is not None}, db_write: {db_write_success}")
                             
                             # Check if batch is taking too long
                             batch_elapsed = time.time() - batch_start_time
@@ -314,6 +316,7 @@ class ParallelProcessor:
                                 conn.commit()
                                 conn.close()
                                 successful_files.append(filepath)  # Track successful files
+                                logger.debug(f"🔄 PARALLEL: Yielding successful result for {os.path.basename(filepath)}")
                                 yield features, filepath, db_write_success
                             else:
                                 if self.enforce_fail_limit:
@@ -337,6 +340,7 @@ class ParallelProcessor:
                                     conn.commit()
                                     conn.close()
                                     # Don't remove failed files from remaining_files - they'll be retried
+                                    logger.debug(f"🔄 PARALLEL: Yielding failed result for {os.path.basename(filepath)}")
                                     yield None, filepath, False
                         
                         batch_time = time.time() - batch_start_time
