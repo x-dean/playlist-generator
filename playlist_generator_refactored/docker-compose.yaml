@@ -5,11 +5,10 @@ services:
       dockerfile: Dockerfile
     container_name: playlista
     volumes:
-      - ./src:/app/src:ro
-      - ./music:/music:ro
-      - ./cache:/app/cache
-      - ./logs:/app/logs
-      - ./playlists:/app/playlists
+      - /root/music/library:/music:ro
+      - /root/music/playlista/cache:/app/cache
+      - /root/music/playlista/logs:/app/logs
+      - /root/music/playlista/playlists:/app/playlists
     environment:
       - PYTHONPATH=/app/src
       - MUSIC_PATH=/music
