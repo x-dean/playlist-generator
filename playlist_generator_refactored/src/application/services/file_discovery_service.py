@@ -14,7 +14,7 @@ from mutagen import File as MutagenFile
 
 from shared.config import get_config
 from shared.exceptions import FileDiscoveryError, FileAccessError
-from shared.utils import get_file_size_mb, calculate_file_hash, create_audio_files_with_size
+from shared.utils import get_file_size_mb
 from infrastructure.logging import get_logger, set_correlation_id, log_function_call
 
 from domain.entities import AudioFile
@@ -111,6 +111,9 @@ class FileDiscoveryService:
                     
                     self.logger.info(f"Starting to process {total_files} files...")
                     
+                    # Show progress every 100 files
+                    progress_interval = max(1, total_files // 10)  # Show progress every 10% or every file if < 10
+                    
                     for file_path in files:
                         if str(file_path) in seen_files:
                             response.result.duplicate_files += 1
@@ -118,65 +121,29 @@ class FileDiscoveryService:
                         seen_files.add(str(file_path))
                         
                         try:
-                            self.logger.debug(f"Processing file {processed_files + 1}/{total_files}: {file_path}")
+                            processed_files += 1
                             
-                            # Double-check that this is actually a file and exists
-                            if not file_path.exists():
-                                self.logger.warning(f"File no longer exists: {file_path}")
+                            # Show progress periodically
+                            if processed_files % progress_interval == 0:
+                                self.logger.info(f"Progress: {processed_files}/{total_files} files processed ({processed_files/total_files*100:.1f}%)")
+                            
+                            # Quick validation
+                            if not file_path.exists() or not file_path.is_file():
                                 skipped_files.append(str(file_path))
                                 continue
                             
-                            if not file_path.is_file():
-                                self.logger.warning(f"Path is not a file: {file_path}")
-                                skipped_files.append(str(file_path))
-                                continue
+                            # Create audio file with basic info
+                            audio_file = AudioFile(file_path=file_path)
                             
-                            # Calculate file hash first (with timeout protection)
-                            self.logger.debug(f"Calculating hash for: {file_path}")
+                            # Get file size quickly
                             try:
-                                file_hash = calculate_file_hash(file_path)
-                                if file_hash:
-                                    hash_calculated += 1
-                                    self.logger.debug(f"Hash calculated successfully: {file_hash[:8]}...")
-                                else:
-                                    hash_failed += 1
-                                    self.logger.warning(f"Hash calculation returned None for: {file_path}")
+                                stat = file_path.stat()
+                                audio_file.file_size_bytes = stat.st_size
+                                audio_file.file_name = file_path.name
                             except Exception as e:
-                                hash_failed += 1
-                                self.logger.warning(f"Could not calculate hash for {file_path}: {e}")
-                                file_hash = None
-                            
-                            # Check if file already exists in database by hash
-                            existing_audio_file = None
-                            if file_hash:
-                                self.logger.debug(f"Checking database for existing file with hash: {file_hash[:8]}...")
-                                existing_audio_file = self._find_by_hash(file_hash)
-                                if existing_audio_file:
-                                    self.logger.debug(f"Found existing file in database: {existing_audio_file.file_path}")
-                                else:
-                                    self.logger.debug(f"No existing file found in database for hash: {file_hash[:8]}...")
-                            else:
-                                self.logger.debug(f"Skipping database lookup - no hash available")
-                            
-                            if existing_audio_file:
-                                # File exists, update path if needed and reuse UUID
-                                self.logger.debug(f"Reusing existing audio file: {existing_audio_file.id}")
-                                audio_file = existing_audio_file
-                                if str(audio_file.file_path) != str(file_path):
-                                    self.logger.info(f"File moved: {audio_file.file_path} -> {file_path}")
-                                    audio_file.file_path = file_path
-                                    audio_file.file_name = file_path.name
-                            else:
-                                # New file, create with new UUID
-                                self.logger.debug(f"Creating new audio file for: {file_path}")
-                                audio_file = AudioFile(file_path=file_path)
-                                
-                                # Get file size
-                                self.logger.debug(f"Getting file size for: {file_path}")
-                                size_mb = get_file_size_mb(file_path)
-                                if size_mb is not None:
-                                    audio_file.file_size_bytes = int(size_mb * 1024 * 1024)
-                                    self.logger.debug(f"File size set to: {size_mb:.1f} MB")
+                                self.logger.warning(f"Could not get file info for {file_path}: {e}")
+                                skipped_files.append(str(file_path))
+                                continue
                                 else:
                                     self.logger.warning(f"Could not determine file size for {file_path}")
                                     audio_file.file_size_bytes = None
@@ -264,10 +231,13 @@ class FileDiscoveryService:
         import os
         
         files = []
+        valid_extensions = {'.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus'}
+        
         try:
             if path.is_file():
                 # Single file
-                files.append(path)
+                if path.suffix.lower() in valid_extensions:
+                    files.append(path)
             elif path.is_dir():
                 # Directory - use os.walk for efficient traversal
                 for root, dirs, files_in_dir in os.walk(str(path)):
@@ -279,29 +249,15 @@ class FileDiscoveryService:
                     for file_name in files_in_dir:
                         file_path = Path(root) / file_name
                         
-                        # Filter by extension
-                        if request.file_extensions:
-                            file_ext = file_path.suffix.lower().lstrip('.')
-                            if file_ext not in [ext.lower() for ext in request.file_extensions]:
-                                continue
-                        
-                        # Filter by size
-                        if request.min_file_size_mb is not None or request.max_file_size_mb is not None:
-                            size_mb = get_file_size_mb(file_path)
-                            if size_mb is None:
-                                self.logger.debug(f"Skipping file with unknown size: {file_path}")
-                                continue
-                            if request.min_file_size_mb is not None and size_mb < request.min_file_size_mb:
-                                self.logger.debug(f"Skipping file too small ({size_mb:.1f} MB): {file_path}")
-                                continue
-                            if request.max_file_size_mb is not None and size_mb > request.max_file_size_mb:
-                                self.logger.debug(f"Skipping file too large ({size_mb:.1f} MB): {file_path}")
-                                continue
-                        
-                        # Filter by patterns
-                        if request.exclude_patterns and any(file_path.match(pat) for pat in request.exclude_patterns):
+                        # Quick extension check
+                        if file_path.suffix.lower() not in valid_extensions:
                             continue
-                        if request.include_patterns and not any(file_path.match(pat) for pat in request.include_patterns):
+                        
+                        # Quick size check (skip very small files)
+                        try:
+                            if file_path.stat().st_size < 1024:  # Less than 1KB
+                                continue
+                        except Exception:
                             continue
                         
                         files.append(file_path)
@@ -345,60 +301,66 @@ class FileDiscoveryService:
         try:
             self.logger.info("Starting database state tracking")
             
-            # Get all files currently in database
-            self.logger.debug("Retrieving all files from database...")
-            db_files = self.audio_repo.find_all()
-            db_file_paths = {str(af.file_path) for af in db_files}
-            self.logger.debug(f"Found {len(db_files)} files in database")
-            
             # Get discovered file paths
-            discovered_file_paths = {str(af.file_path) for af in discovered_files}
-            self.logger.debug(f"Discovered {len(discovered_files)} files")
+            discovered_paths = {str(af.file_path) for af in discovered_files}
+            self.logger.info(f"Discovered {len(discovered_paths)} files on disk")
             
-            # Find files that exist in database but not in discovery (missing files)
-            missing_files = db_file_paths - discovered_file_paths
+            # Get database file paths (use a simple query to avoid loading all data)
+            self.logger.info("Checking database for existing files...")
+            db_paths = self._get_database_file_paths()
+            self.logger.info(f"Found {len(db_paths)} files in database")
             
-            # Find files that exist in discovery but not in database (new files)
-            new_files = discovered_file_paths - db_file_paths
-            
-            self.logger.info(f"Database state analysis:")
-            self.logger.info(f"  - Files in database: {len(db_files)}")
-            self.logger.info(f"  - Files discovered: {len(discovered_files)}")
-            self.logger.info(f"  - Missing files: {len(missing_files)}")
-            self.logger.info(f"  - New files: {len(new_files)}")
-            
-            # Remove missing files from all databases
-            missing_removed = 0
+            # Find missing files (in database but not on disk)
+            missing_files = db_paths - discovered_paths
             if missing_files:
-                self.logger.info(f"Removing {len(missing_files)} missing files from database...")
-                missing_removed = self._remove_missing_files(missing_files)
-                self.logger.info(f"Removed {missing_removed} missing files from database")
+                self.logger.info(f"Found {len(missing_files)} files in database that no longer exist")
+                removed_count = self._remove_missing_files(missing_files)
+                self.logger.info(f"Removed {removed_count} missing files from database")
             else:
-                self.logger.info("No missing files to remove")
+                self.logger.info("No missing files found")
+                removed_count = 0
             
-            # Add new files to database
-            new_added = 0
+            # Find new files (on disk but not in database)
+            new_files = discovered_paths - db_paths
             if new_files:
-                self.logger.info(f"Adding {len(new_files)} new files to database...")
-                new_added = self._add_new_files(discovered_files, new_files)
-                self.logger.info(f"Added {new_added} new files to database")
+                self.logger.info(f"Found {len(new_files)} new files to add")
+                added_count = self._add_new_files(discovered_files, new_files)
+                self.logger.info(f"Added {added_count} new files to database")
             else:
                 self.logger.info("No new files to add")
-            
-            self.logger.info("Database state tracking completed")
+                added_count = 0
             
             return {
-                'new_files_added': new_added,
-                'missing_files_removed': missing_removed
+                'files_discovered': len(discovered_files),
+                'files_removed': removed_count,
+                'files_added': added_count
             }
             
         except Exception as e:
             self.logger.error(f"Database state tracking failed: {e}")
             raise FileDiscoveryError(f"Database state tracking failed: {e}") from e
     
+    def _get_database_file_paths(self) -> set:
+        """
+        Get all file paths from database efficiently.
+        
+        Returns:
+            Set of file paths
+        """
+        try:
+            # Use a simple query to get just the file paths
+            with self.audio_repo._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT file_path FROM audio_files")
+                rows = cursor.fetchall()
+                return {row[0] for row in rows}
+        except Exception as e:
+            self.logger.warning(f"Failed to get database file paths: {e}")
+            return set()
+    
     def _remove_missing_files(self, missing_file_paths: set) -> int:
         """
-        Remove missing files from all databases.
+        Remove missing files from database.
         
         Args:
             missing_file_paths: Set of file paths that no longer exist
@@ -410,56 +372,27 @@ class FileDiscoveryService:
             self.logger.info(f"Removing {len(missing_file_paths)} missing files from database")
             
             removed_count = 0
-            
-            for file_path_str in missing_file_paths:
-                try:
-                    # Find the audio file in database
-                    audio_file = self.audio_repo.find_by_path(Path(file_path_str))
-                    if audio_file:
-                        # Remove from all related tables
-                        self._remove_audio_file_data(audio_file.id)
-                        removed_count += 1
-                        self.logger.debug(f"Removed missing file: {file_path_str}")
-                except Exception as e:
-                    self.logger.warning(f"Failed to remove missing file {file_path_str}: {e}")
+            with self.audio_repo._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                for file_path in missing_file_paths:
+                    try:
+                        # Delete from audio_files table
+                        cursor.execute("DELETE FROM audio_files WHERE file_path = ?", (file_path,))
+                        if cursor.rowcount > 0:
+                            removed_count += 1
+                            self.logger.debug(f"Removed missing file: {file_path}")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to remove missing file {file_path}: {e}")
+                
+                conn.commit()
             
             self.logger.info(f"Successfully removed {removed_count} missing files from database")
             return removed_count
             
         except Exception as e:
             self.logger.error(f"Failed to remove missing files: {e}")
-            raise FileDiscoveryError(f"Failed to remove missing files: {e}") from e
-    
-    def _remove_audio_file_data(self, audio_file_id) -> None:
-        """
-        Remove all data related to an audio file from all databases.
-        
-        This method removes the file from:
-        - audio_files table
-        - analysis_results table  
-        - feature_sets table (via cascade)
-        - metadata table (via cascade)
-        - playlists table (if referenced)
-        
-        Args:
-            audio_file_id: ID of the audio file to remove
-        """
-        try:
-            # Remove from playlists first
-            playlist_updates = self.playlist_repo.remove_audio_file_references(audio_file_id)
-            if playlist_updates > 0:
-                self.logger.debug(f"Removed audio file from {playlist_updates} playlists")
-            
-            # Remove from analysis results (this will cascade to features and metadata)
-            self.analysis_repo.delete_by_audio_file_id(audio_file_id)
-            
-            # Remove from audio files table
-            self.audio_repo.delete(audio_file_id)
-            
-            self.logger.debug(f"Removed all data for audio file UUID: {audio_file_id}")
-            
-        except Exception as e:
-            self.logger.warning(f"Failed to remove audio file data {audio_file_id}: {e}")
+            return 0
     
     def _add_new_files(self, discovered_files: List[AudioFile], new_file_paths: set) -> int:
         """
@@ -476,11 +409,9 @@ class FileDiscoveryService:
             self.logger.info(f"Adding {len(new_file_paths)} new files to database")
             
             added_count = 0
-            
             for audio_file in discovered_files:
                 if str(audio_file.file_path) in new_file_paths:
                     try:
-                        # Save to database
                         self.audio_repo.save(audio_file)
                         added_count += 1
                         self.logger.debug(f"Added new file: {audio_file.file_path}")
@@ -492,20 +423,4 @@ class FileDiscoveryService:
             
         except Exception as e:
             self.logger.error(f"Failed to add new files: {e}")
-            raise FileDiscoveryError(f"Failed to add new files: {e}") from e
-    
-    def _find_by_hash(self, file_hash: str) -> Optional[AudioFile]:
-        """
-        Find audio file by hash.
-        
-        Args:
-            file_hash: MD5 hash of the file
-            
-        Returns:
-            AudioFile if found, None otherwise
-        """
-        try:
-            return self.audio_repo.find_by_hash(file_hash)
-        except Exception as e:
-            self.logger.warning(f"Failed to find file by hash {file_hash[:8]}...: {e}")
-            return None 
+            return 0 
