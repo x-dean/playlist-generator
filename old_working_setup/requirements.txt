@@ -1,0 +1,17 @@
+pandas
+scikit-learn
+tqdm
+essentia-tensorflow
+tensorflow==2.11.*
+numpy
+matplotlib
+psutil
+colorlog
+scipy
+pydub
+rich
+musicbrainzngs
+mutagen
+requests
+questionary
+librosa 
