@@ -35,11 +35,11 @@ class AnalysisAlgorithms:
     
     # Additional algorithms
     spectral_rolloff: Optional[Any]  # Could be RollOff or Rolloff
-    spectral_bandwidth: Optional[es.SpectralBandwidth]
-    spectral_contrast: Optional[es.SpectralContrast]
-    spectral_peaks: Optional[es.SpectralPeaks]
-    hpcp_extractor: Optional[es.HPCP]
-    chord_detector: Optional[es.ChordsDetection]
+    spectral_bandwidth: Optional[Any]  # Could be SpectralBandwidth or None
+    spectral_contrast: Optional[Any]  # Could be SpectralContrast or None
+    spectral_peaks: Optional[Any]  # Could be SpectralPeaks or None
+    hpcp_extractor: Optional[Any]  # Could be HPCP or None
+    chord_detector: Optional[Any]  # Could be ChordsDetection or None
     
     def __post_init__(self):
         """Validate algorithm initialization."""
@@ -88,34 +88,54 @@ class AudioAnalyzer:
                     self.logger.warning("RollOff/Rolloff algorithm not available in Essentia")
             
             try:
-                optional_algorithms['spectral_bandwidth'] = es.SpectralBandwidth()
-            except AttributeError:
+                if hasattr(es, 'SpectralBandwidth'):
+                    optional_algorithms['spectral_bandwidth'] = es.SpectralBandwidth()
+                else:
+                    optional_algorithms['spectral_bandwidth'] = None
+                    self.logger.warning("SpectralBandwidth algorithm not available in Essentia")
+            except Exception as e:
                 optional_algorithms['spectral_bandwidth'] = None
-                self.logger.warning("SpectralBandwidth algorithm not available in Essentia")
+                self.logger.warning(f"SpectralBandwidth algorithm not available in Essentia: {e}")
             
             try:
-                optional_algorithms['spectral_contrast'] = es.SpectralContrast()
-            except AttributeError:
+                if hasattr(es, 'SpectralContrast'):
+                    optional_algorithms['spectral_contrast'] = es.SpectralContrast()
+                else:
+                    optional_algorithms['spectral_contrast'] = None
+                    self.logger.warning("SpectralContrast algorithm not available in Essentia")
+            except Exception as e:
                 optional_algorithms['spectral_contrast'] = None
-                self.logger.warning("SpectralContrast algorithm not available in Essentia")
+                self.logger.warning(f"SpectralContrast algorithm not available in Essentia: {e}")
             
             try:
-                optional_algorithms['spectral_peaks'] = es.SpectralPeaks()
-            except AttributeError:
+                if hasattr(es, 'SpectralPeaks'):
+                    optional_algorithms['spectral_peaks'] = es.SpectralPeaks()
+                else:
+                    optional_algorithms['spectral_peaks'] = None
+                    self.logger.warning("SpectralPeaks algorithm not available in Essentia")
+            except Exception as e:
                 optional_algorithms['spectral_peaks'] = None
-                self.logger.warning("SpectralPeaks algorithm not available in Essentia")
+                self.logger.warning(f"SpectralPeaks algorithm not available in Essentia: {e}")
             
             try:
-                optional_algorithms['hpcp_extractor'] = es.HPCP()
-            except AttributeError:
+                if hasattr(es, 'HPCP'):
+                    optional_algorithms['hpcp_extractor'] = es.HPCP()
+                else:
+                    optional_algorithms['hpcp_extractor'] = None
+                    self.logger.warning("HPCP algorithm not available in Essentia")
+            except Exception as e:
                 optional_algorithms['hpcp_extractor'] = None
-                self.logger.warning("HPCP algorithm not available in Essentia")
+                self.logger.warning(f"HPCP algorithm not available in Essentia: {e}")
             
             try:
-                optional_algorithms['chord_detector'] = es.ChordsDetection()
-            except AttributeError:
+                if hasattr(es, 'ChordsDetection'):
+                    optional_algorithms['chord_detector'] = es.ChordsDetection()
+                else:
+                    optional_algorithms['chord_detector'] = None
+                    self.logger.warning("ChordsDetection algorithm not available in Essentia")
+            except Exception as e:
                 optional_algorithms['chord_detector'] = None
-                self.logger.warning("ChordsDetection algorithm not available in Essentia")
+                self.logger.warning(f"ChordsDetection algorithm not available in Essentia: {e}")
             
             # Combine core and optional algorithms
             all_algorithms = {**core_algorithms, **optional_algorithms}
