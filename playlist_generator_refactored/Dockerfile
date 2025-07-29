@@ -44,12 +44,9 @@ WORKDIR /app
 COPY src /app/src
 
 # Copy CLI entry point and requirements
-COPY playlista /usr/local/bin/playlista
+COPY playlista /app/playlista
 COPY README.md /app/README.md
 COPY requirements.txt /app/requirements.txt
-
-# Make playlista executable
-RUN chmod +x /usr/local/bin/playlista
 
 # Create directories with proper permissions
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs
@@ -68,4 +65,4 @@ ENV PYTHONUNBUFFERED=1 \
 ENV PYTHONPATH="${PYTHONPATH}:/app/src"
 
 # Default command
-CMD ["playlista"] 
+CMD ["python", "-m", "src.presentation.cli.main"] 
