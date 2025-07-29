@@ -1472,24 +1472,16 @@ class AudioAnalyzer:
             # Use frame-by-frame processing for spectral flatness
             frame_size = 2048
             hop_size = 1024
-            logger.debug(
-                f"Spectral flatness parameters: frame_size={frame_size}, hop_size={hop_size}")
 
-            logger.debug(
-                "Initializing Essentia algorithms for spectral flatness")
             window = es.Windowing(type='hann')
             spectrum = es.Spectrum()
 
             flatness_list = []
             frame_count = 0
 
-            logger.debug("Running spectral flatness analysis frame by frame")
             # Process audio frame by frame
             for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
                 frame_count += 1
-                if frame_count % 100 == 0:
-                    logger.debug(
-                        f"Processed {frame_count} frames for spectral flatness")
 
                 try:
                     spec = spectrum(window(frame))
@@ -1503,37 +1495,24 @@ class AudioAnalyzer:
                         arithmetic_mean = np.mean(spec_safe)
                         flatness = geometric_mean / arithmetic_mean if arithmetic_mean > 0 else 0.0
                         flatness_list.append(float(flatness))
-                        logger.debug(
-                            f"Frame {frame_count}: flatness={flatness:.3f}")
                     else:
-                        logger.debug(
-                            f"Frame {frame_count}: no valid spectrum for flatness")
+                        pass
                 except Exception as frame_error:
-                    logger.debug(
-                        f"Frame {frame_count} processing error: {frame_error}")
                     continue
 
-            logger.debug(
-                f"Processed {frame_count} frames, calculated flatness for {len(flatness_list)} frames")
             # Return mean flatness across all frames
             if flatness_list:
                 flatness_mean = float(np.mean(flatness_list))
-                logger.debug(
-                    f"Calculated mean spectral flatness: {flatness_mean:.3f}")
                 logger.info(
                     f"Spectral flatness completed: {flatness_mean:.3f} from {frame_count} frames")
                 return {'spectral_flatness': flatness_mean}
             else:
-                logger.debug(
-                    "No valid flatness values calculated, returning 0.0")
                 logger.info(
                     "Spectral flatness completed: using default value (no valid frames)")
                 return {'spectral_flatness': 0.0}
 
         except Exception as e:
             logger.warning(f"Spectral flatness extraction failed: {str(e)}")
-            logger.debug(
-                f"Spectral flatness extraction error details: {type(e).__name__}")
             return {'spectral_flatness': 0.0}
 
     def _extract_spectral_rolloff(self, audio):
@@ -1543,24 +1522,16 @@ class AudioAnalyzer:
             # Use frame-by-frame processing for spectral rolloff
             frame_size = 2048
             hop_size = 1024
-            logger.debug(
-                f"Spectral rolloff parameters: frame_size={frame_size}, hop_size={hop_size}")
 
-            logger.debug(
-                "Initializing Essentia algorithms for spectral rolloff")
             window = es.Windowing(type='hann')
             spectrum = es.Spectrum()
 
             rolloff_list = []
             frame_count = 0
 
-            logger.debug("Running spectral rolloff analysis frame by frame")
             # Process audio frame by frame
             for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
                 frame_count += 1
-                if frame_count % 100 == 0:
-                    logger.debug(
-                        f"Processed {frame_count} frames for spectral rolloff")
 
                 try:
                     spec = spectrum(window(frame))
@@ -1582,43 +1553,28 @@ class AudioAnalyzer:
                                 rolloff_freq = (
                                     rolloff_idx[0] / len(spec)) * 22050
                                 rolloff_list.append(float(rolloff_freq))
-                                logger.debug(
-                                    f"Frame {frame_count}: rolloff={rolloff_freq:.1f}Hz")
                             else:
-                                logger.debug(
-                                    f"Frame {frame_count}: no rolloff found")
+                                pass
                         else:
-                            logger.debug(
-                                f"Frame {frame_count}: no energy for rolloff")
+                            pass
                     else:
-                        logger.debug(
-                            f"Frame {frame_count}: no valid spectrum for rolloff")
+                        pass
                 except Exception as frame_error:
-                    logger.debug(
-                        f"Frame {frame_count} processing error: {frame_error}")
                     continue
 
-            logger.debug(
-                f"Processed {frame_count} frames, calculated rolloff for {len(rolloff_list)} frames")
             # Return mean rolloff across all frames
             if rolloff_list:
                 rolloff_mean = float(np.mean(rolloff_list))
-                logger.debug(
-                    f"Calculated mean spectral rolloff: {rolloff_mean:.1f}Hz")
                 logger.info(
                     f"Spectral rolloff completed: {rolloff_mean:.1f}Hz from {frame_count} frames")
                 return {'spectral_rolloff': rolloff_mean}
             else:
-                logger.debug(
-                    "No valid rolloff values calculated, returning 0.0")
                 logger.info(
                     "Spectral rolloff completed: using default value (no valid frames)")
                 return {'spectral_rolloff': 0.0}
 
         except Exception as e:
             logger.warning(f"Spectral rolloff extraction failed: {str(e)}")
-            logger.debug(
-                f"Spectral rolloff extraction error details: {type(e).__name__}")
             return {'spectral_rolloff': 0.0}
 
     def _musicbrainz_lookup(self, artist, title):
