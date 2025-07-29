@@ -56,8 +56,8 @@ class AudioAnalyzer:
     
     def __init__(self):
         """Initialize the analyzer with pre-created algorithms."""
-        self.algorithms = self._initialize_algorithms()
         self._setup_logging()
+        self.algorithms = self._initialize_algorithms()
     
     def _initialize_algorithms(self) -> AnalysisAlgorithms:
         """Initialize all Essentia algorithms once."""
