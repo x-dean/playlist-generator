@@ -250,13 +250,27 @@ class AudioAnalysisService:
                 if small_files:
                     self.logger.info(f"Processing {len(small_files)} small files in parallel")
                     # Process small files in parallel
-                    parallel_results = self.parallel_processor.process_files(
-                        small_files, 
-                        self._process_single_file,
+                    processing_results = self.parallel_processor.process_files_parallel(
+                        file_paths=small_files, 
+                        processor_func=self._process_single_file,
                         max_workers=request.max_workers,
-                        timeout_seconds=request.timeout_seconds
+                        timeout_minutes=request.timeout_seconds // 60 if request.timeout_seconds else None
                     )
-                    results.extend(parallel_results)
+                    
+                    # Convert ProcessingResult to AnalysisResult
+                    for proc_result in processing_results:
+                        if proc_result.success:
+                            results.append(proc_result.data)
+                        else:
+                            # Create failed result
+                            audio_file = AudioFile(file_path=proc_result.data.file_path if proc_result.data else Path("unknown"))
+                            failed_result = AnalysisResult(
+                                audio_file=audio_file,
+                                is_successful=False,
+                                is_complete=True,
+                                error_message=proc_result.error
+                            )
+                            results.append(failed_result)
                 else:
                     self.logger.info("No small files to process in parallel")
                 

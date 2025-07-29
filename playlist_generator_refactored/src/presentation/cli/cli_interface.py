@@ -723,7 +723,7 @@ Examples:
             )
             
             self.logger.info(f"About to call analyze_audio_file with {len(file_paths)} files")
-            self.logger.info(f"First 5 file paths: {file_paths[:5]}")
+            
             
             try:
                 analysis_response = self.analysis_service.analyze_audio_file(analysis_request)
