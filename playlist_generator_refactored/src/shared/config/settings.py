@@ -136,6 +136,9 @@ class ProcessingConfig:
 class AudioAnalysisConfig:
     """Configuration for audio analysis settings."""
     
+    # Processing mode
+    fast_mode: bool = field(default_factory=lambda: os.getenv('FAST_MODE', 'false').lower() == 'true')
+    
     # Feature extraction settings
     extract_bpm: bool = True
     extract_mfcc: bool = True
@@ -314,6 +317,7 @@ class AppConfig:
                 'batch_timeout_minutes': self.processing.batch_timeout_minutes
             },
             'audio_analysis': {
+                'fast_mode': self.audio_analysis.fast_mode,
                 'extract_bpm': self.audio_analysis.extract_bpm,
                 'extract_mfcc': self.audio_analysis.extract_mfcc,
                 'extract_chroma': self.audio_analysis.extract_chroma,
