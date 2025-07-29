@@ -78,8 +78,11 @@ def process_file_worker(filepath: str, status_queue: Optional[object] = None, fo
         notifier.start()
 
     # Set a timeout for processing each file (e.g., 5 minutes = 300 seconds)
-    signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(300)  # 5 minutes timeout
+    # Only set signal handler in main thread to avoid issues
+    import threading
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(300)  # 5 minutes timeout
 
     while retry_count <= max_retries:
         try:
@@ -354,6 +357,10 @@ class ParallelProcessor:
                         from playlista import is_interrupt_requested
                         if is_interrupt_requested():
                             logger.warning("🔄 PARALLEL: Interrupt received between batches, stopping processing")
+                            # Clean up any remaining processes
+                            if pool:
+                                pool.terminate()
+                                pool.join()
                             return
                     except ImportError:
                         pass  # If we can't import the function, continue normally

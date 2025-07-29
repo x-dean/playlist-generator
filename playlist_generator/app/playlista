@@ -107,6 +107,8 @@ def signal_handler(signum, frame):
     # Check if this is a worker process (not the main process)
     if os.getpid() != 1:
         logger.debug(f"Child process {os.getpid()} received signal {signum}, exiting quietly")
+        # Disable logging before exit to avoid lock issues
+        cleanup_logging()
         sys.exit(130)
     
     # Check if we're in parallel processing mode - if so, ignore the signal
@@ -135,6 +137,9 @@ def signal_handler(signum, frame):
     except:
         pass
     
+    # Disable logging before exit to avoid lock issues
+    cleanup_logging()
+    
     sys.exit(130)
 
 # Register the signal handler FIRST
@@ -153,6 +158,21 @@ def set_parallel_processing_active():
 def clear_parallel_processing_active():
     """Mark that parallel processing is inactive."""
     _parallel_processing_active.clear()
+
+def cleanup_logging():
+    """Safely shutdown logging to avoid lock issues."""
+    try:
+        # Remove all handlers to prevent lock issues
+        root_logger = logging.getLogger()
+        for handler in root_logger.handlers[:]:
+            try:
+                handler.close()
+                root_logger.removeHandler(handler)
+            except:
+                pass
+        logging.shutdown()
+    except:
+        pass
 
 # Setup runtime log level control AFTER interrupt handlers
 setup_log_level_signal_handler_direct()
