@@ -162,11 +162,15 @@ class ParallelProcessor:
         if batch_size_env:
             self.batch_size = int(batch_size_env)
         else:
-            # Default: batch size equals number of workers
-            self.batch_size = self.workers
+            # Default: batch size should be much larger than workers to amortize pool creation overhead
+            # Use 10 items per worker for optimal efficiency
+            min_batch_size = self.workers * 10
+            # But don't make batches too large to avoid memory issues
+            max_batch_size = min(100, len(file_list))
+            self.batch_size = min(min_batch_size, max_batch_size)
             
         logger.info(
-            f"🔄 PARALLEL: Using {self.workers} workers with batch size {self.batch_size}")
+            f"🔄 PARALLEL: Using {self.workers} workers with batch size {self.batch_size} (efficient batch processing)")
         if fast_mode:
             logger.info("🔄 PARALLEL: FAST MODE enabled for 3-5x faster processing")
         logger.info(f"🔄 PARALLEL: Starting multiprocessing pool for {len(file_list)} files")
@@ -192,7 +196,7 @@ class ParallelProcessor:
                     current_batch += 1
                     batch = remaining_files[i:i+self.batch_size]
                     
-                    logger.info(f"🔄 PARALLEL: Starting batch {current_batch}/{total_batches} with {len(batch)} files")
+                    logger.info(f"🔄 PARALLEL: Starting batch {current_batch}/{total_batches} with {len(batch)} files (batch size: {self.batch_size})")
                     
                     # Check memory before starting batch
                     try:
@@ -202,11 +206,14 @@ class ParallelProcessor:
                         
                         # Store original batch size if not already stored
                         if not hasattr(self, 'original_batch_size'):
-                            self.original_batch_size = self.workers
+                            self.original_batch_size = self.batch_size
                         
                         if memory_status['is_critical']:
                             logger.warning("Memory critical, reducing batch size")
-                            self.batch_size = max(1, self.batch_size // 2)
+                            new_batch_size = max(self.workers, self.batch_size // 2)  # Don't go below workers count
+                            if new_batch_size != self.batch_size:
+                                logger.info(f"Reducing batch size from {self.batch_size} to {new_batch_size}")
+                                self.batch_size = new_batch_size
                         elif memory_status['is_high']:
                             # Keep current batch size
                             logger.debug("Memory high, keeping current batch size")
