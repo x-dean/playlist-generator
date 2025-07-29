@@ -62,42 +62,67 @@ class SQLiteAudioFileRepository(AudioFileRepository):
                         UNIQUE(file_path)
                     )
                 """)
-            elif 'file_size_bytes' in columns and 'NOT NULL' in columns['file_size_bytes']:
-                # Table exists but has NOT NULL constraint, recreate it
-                self.logger.info("Migrating audio_files table to allow NULL file_size_bytes")
+            else:
+                # Table exists, check if it needs migration
+                needs_migration = False
+                migration_reason = []
                 
-                # Create temporary table with new schema
-                conn.execute("""
-                    CREATE TABLE audio_files_new (
-                        id TEXT PRIMARY KEY,
-                        file_path TEXT NOT NULL,
-                        file_name TEXT NOT NULL,
-                        file_size_bytes INTEGER,
-                        file_hash TEXT,
-                        duration_seconds REAL,
-                        bitrate_kbps INTEGER,
-                        sample_rate_hz INTEGER,
-                        channels INTEGER,
-                        created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        external_metadata TEXT,
-                        UNIQUE(file_path)
-                    )
-                """)
+                # Check for NOT NULL constraint on file_size_bytes
+                if 'file_size_bytes' in columns and 'NOT NULL' in columns['file_size_bytes']:
+                    needs_migration = True
+                    migration_reason.append("file_size_bytes NOT NULL constraint")
                 
-                # Copy data from old table to new table
-                conn.execute("""
-                    INSERT INTO audio_files_new 
-                    SELECT id, file_path, file_name, 
-                           CASE WHEN file_size_bytes = 0 THEN NULL ELSE file_size_bytes END,
-                           NULL, duration_seconds, bitrate_kbps, sample_rate_hz, channels,
-                           created_date, updated_date, external_metadata
-                    FROM audio_files
-                """)
+                # Check for missing file_hash column
+                if 'file_hash' not in columns:
+                    needs_migration = True
+                    migration_reason.append("missing file_hash column")
                 
-                # Drop old table and rename new table
-                conn.execute("DROP TABLE audio_files")
-                conn.execute("ALTER TABLE audio_files_new RENAME TO audio_files")
+                if needs_migration:
+                    self.logger.info(f"Migrating audio_files table: {', '.join(migration_reason)}")
+                    
+                    # Create temporary table with new schema
+                    conn.execute("""
+                        CREATE TABLE audio_files_new (
+                            id TEXT PRIMARY KEY,
+                            file_path TEXT NOT NULL,
+                            file_name TEXT NOT NULL,
+                            file_size_bytes INTEGER,
+                            file_hash TEXT,
+                            duration_seconds REAL,
+                            bitrate_kbps INTEGER,
+                            sample_rate_hz INTEGER,
+                            channels INTEGER,
+                            created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            external_metadata TEXT,
+                            UNIQUE(file_path)
+                        )
+                    """)
+                    
+                    # Copy data from old table to new table
+                    if 'file_size_bytes' in columns:
+                        # Handle file_size_bytes migration
+                        conn.execute("""
+                            INSERT INTO audio_files_new 
+                            SELECT id, file_path, file_name, 
+                                   CASE WHEN file_size_bytes = 0 THEN NULL ELSE file_size_bytes END,
+                                   NULL, duration_seconds, bitrate_kbps, sample_rate_hz, channels,
+                                   created_date, updated_date, external_metadata
+                            FROM audio_files
+                        """)
+                    else:
+                        # No file_size_bytes column, add it as NULL
+                        conn.execute("""
+                            INSERT INTO audio_files_new 
+                            SELECT id, file_path, file_name, 
+                                   NULL, NULL, duration_seconds, bitrate_kbps, sample_rate_hz, channels,
+                                   created_date, updated_date, external_metadata
+                            FROM audio_files
+                        """)
+                    
+                    # Drop old table and rename new table
+                    conn.execute("DROP TABLE audio_files")
+                    conn.execute("ALTER TABLE audio_files_new RENAME TO audio_files")
     
     @contextmanager
     def _get_connection(self):

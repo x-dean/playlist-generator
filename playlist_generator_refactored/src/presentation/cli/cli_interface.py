@@ -636,21 +636,15 @@ Examples:
             if music_path.exists():
                 self.logger.info(f"Music directory exists: {music_path}")
                 try:
-                    # List all files in the directory
-                    all_files = list(music_path.rglob('*'))
-                    self.logger.info(f"Total files found: {len(all_files)}")
-                    
                     # Check for audio files specifically
                     audio_extensions = {'.mp3', '.flac', '.wav', '.m4a', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.alac'}
-                    audio_files = [f for f in all_files if f.is_file() and f.suffix.lower() in audio_extensions]
+                    audio_files = [f for f in music_path.rglob('*') if f.is_file() and f.suffix.lower() in audio_extensions]
                     self.logger.info(f"Audio files found: {len(audio_files)}")
                     
-                    # Only log first few files in debug mode
+                    # Only log first few audio files in debug mode
                     if self.config.logging.level == 'DEBUG':
-                        for i, file_path in enumerate(all_files[:5]):
-                            self.logger.debug(f"File {i+1}: {file_path} (exists: {file_path.exists()})")
-                        for audio_file in audio_files[:3]:
-                            self.logger.debug(f"Audio file: {audio_file}")
+                        for i, audio_file in enumerate(audio_files[:5]):
+                            self.logger.debug(f"Audio file {i+1}: {audio_file}")
                         
                 except Exception as e:
                     self.logger.error(f"Error listing directory contents: {e}")
