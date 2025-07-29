@@ -200,7 +200,8 @@ class AudioAnalyzer:
             # Extract metadata
             self.logger.debug(f"Extracting metadata from: {file_path}")
             metadata = self._extract_metadata(file_path, audio_file.id)
-            self.logger.debug(f"Metadata extracted: Title='{metadata.title}', Artist='{metadata.artist}', Duration={metadata.duration:.2f}s")
+            duration = metadata.additional_metadata.get('duration', 0.0)
+            self.logger.debug(f"Metadata extracted: Title='{metadata.title}', Artist='{metadata.artist}', Duration={duration:.2f}s")
             
             # Extract features
             self.logger.debug(f"Extracting audio features from: {file_path}")
@@ -314,7 +315,7 @@ class AudioAnalyzer:
                 title=title,
                 artist=artist,
                 album=album,
-                duration=duration
+                additional_metadata={'duration': duration}
             )
         except Exception as e:
             self.logger.warning(f"Metadata extraction failed for {file_path}: {e}")
@@ -323,7 +324,7 @@ class AudioAnalyzer:
                 title=file_path.stem,
                 artist='Unknown',
                 album='Unknown',
-                duration=0.0
+                additional_metadata={'duration': 0.0}
             )
     
     def _extract_features(self, audio: np.ndarray, audio_file_id: str) -> FeatureSet:
@@ -522,7 +523,8 @@ class AudioAnalyzer:
             # Quality factors
             energy_score = min(1.0, feature_set.energy / 0.1)
             loudness_score = min(1.0, (feature_set.loudness + 60) / 60)  # Normalize to 0-1
-            duration_score = min(1.0, metadata.duration / 300.0)  # Prefer longer tracks
+            duration = metadata.additional_metadata.get('duration', 0.0)
+            duration_score = min(1.0, duration / 300.0)  # Prefer longer tracks
             
             # Weighted average
             quality_score = (energy_score * 0.3 + loudness_score * 0.3 + duration_score * 0.4)
