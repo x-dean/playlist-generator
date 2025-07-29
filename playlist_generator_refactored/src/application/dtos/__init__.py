@@ -33,6 +33,12 @@ from .file_discovery import (
     DiscoveryResult
 )
 
+from .file_feeder import (
+    FileFeederRequest,
+    FileFeederResponse,
+    FeederResult
+)
+
 __all__ = [
     # Audio Analysis DTOs
     'AudioAnalysisRequest',
@@ -56,5 +62,10 @@ __all__ = [
     'FileDiscoveryRequest',
     'FileDiscoveryResponse',
     'DiscoveryFilter',
-    'DiscoveryResult'
+    'DiscoveryResult',
+    
+    # File Feeder DTOs
+    'FileFeederRequest',
+    'FileFeederResponse',
+    'FeederResult'
 ] 
