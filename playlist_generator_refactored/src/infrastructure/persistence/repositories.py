@@ -35,7 +35,7 @@ class SQLiteAudioFileRepository(AudioFileRepository):
         """Initialize repository with database path."""
         self.config = get_config()
         self.db_path = db_path or self.config.database.db_path
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_database_logger(__name__)
         self._ensure_table_exists()
     
     def _ensure_table_exists(self):
@@ -403,7 +403,7 @@ class SQLiteFeatureSetRepository(FeatureSetRepository):
         """Initialize repository with database path."""
         self.config = get_config()
         self.db_path = db_path or self.config.database.db_path
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_database_logger(__name__)
         self._ensure_table_exists()
     
     def _ensure_table_exists(self):
@@ -561,7 +561,7 @@ class SQLiteMetadataRepository(MetadataRepository):
         """Initialize repository with database path."""
         self.config = get_config()
         self.db_path = db_path or self.config.database.db_path
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_database_logger(__name__)
         self._ensure_table_exists()
     
     def _ensure_table_exists(self):
@@ -707,7 +707,7 @@ class SQLitePlaylistRepository(PlaylistRepository):
         """Initialize repository with database path."""
         self.config = get_config()
         self.db_path = db_path or self.config.database.playlist_db_path
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_database_logger(__name__)
         self._ensure_table_exists()
     
     def _ensure_table_exists(self):
@@ -890,7 +890,7 @@ class SQLiteAnalysisResultRepository(AnalysisResultRepository):
         """Initialize repository with database path."""
         self.config = get_config()
         self.db_path = db_path or self.config.database.db_path
-        self.logger = logging.getLogger(__name__)
+        self.logger = get_database_logger(__name__)
         self._ensure_table_exists()
     
     def _ensure_table_exists(self):
