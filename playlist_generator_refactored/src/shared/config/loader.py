@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 import logging
 
 from .settings import AppConfig, ConfigurationError
+from .json_loader import load_json_config, get_json_config_summary
 
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,11 @@ class ConfigLoader:
     
     def _load_from_environment(self) -> AppConfig:
         """Load configuration from environment variables."""
+        # Load JSON configuration first (if available)
+        json_config = load_json_config()
+        if json_config:
+            logger.info(f"Loaded {len(json_config)} settings from JSON configuration")
+        
         # Set environment variables that might be needed by the config classes
         self._set_default_environment_variables()
         
@@ -141,7 +147,14 @@ class ConfigLoader:
     def get_config_dict(self) -> Dict[str, Any]:
         """Get configuration as dictionary for debugging/logging."""
         config = self.load_config()
-        return config.to_dict()
+        config_dict = config.to_dict()
+        
+        # Add JSON config summary if available
+        json_summary = get_json_config_summary()
+        if json_summary:
+            config_dict['json_config'] = json_summary
+        
+        return config_dict
 
 
 # Global configuration loader instance

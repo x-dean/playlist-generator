@@ -5,23 +5,20 @@ services:
       dockerfile: Dockerfile
     container_name: playlista
     volumes:
+      # Mount the JSON configuration file
+      - /root/music/playlista/config/playlistarrays_config.json:/app/config/playlista_config.json:ro
+      # Mount music library
       - /root/music/library:/music:ro
+      # Mount output directories
       - /root/music/playlista/cache:/app/cache
       - /root/music/playlista/logs:/app/logs
       - /root/music/playlista/playlists:/app/playlists
       - /root/music/playlista/models:/app/feature_extraction/models
     environment:
+      # Only essential environment variables (system paths)
       - PYTHONPATH=/app/src
-      - MUSIC_PATH=/music
-      - CACHE_DIR=/app/cache
-      - LOG_DIR=/app/logs
-      - OUTPUT_DIR=/app/playlists
-      - MEMORY_LIMIT_GB=6.0
-      - MEMORY_AWARE=true
-      - HOST_LIBRARY_PATH=/root/music/library
-      - LASTFM_API_KEY=9fd1f789ebdf1297e6aa1590a13d85e0
-      - LOG_LEVEL=INFO
-      - LARGE_FILE_THRESHOLD=50
-      - MIN_TRACKS_PER_GENRE=10
+      # Optional: Override specific settings if needed
+      # - MEMORY_LIMIT_GB=8.0
+      # - DEBUG=true
     stdin_open: true
     tty: true 

@@ -86,6 +86,8 @@ class CLIInterface:
             return self._handle_status(parsed_args)
         elif parsed_args.command == 'pipeline':
             return self._handle_pipeline(parsed_args)
+        elif parsed_args.command == 'config':
+            return self._handle_config(parsed_args)
         else:
             self.console.print(f"[red]Unknown command: {parsed_args.command}[/red]")
             return 1
@@ -204,8 +206,14 @@ Examples:
         pipeline_parser.add_argument('--generate', action='store_true', help='Generate playlists after analysis')
         pipeline_parser.add_argument('--export', action='store_true', help='Export playlists after generation')
         
+        # Config command
+        config_parser = subparsers.add_parser('config', help='Show configuration information')
+        config_parser.add_argument('--json', action='store_true', help='Show JSON configuration')
+        config_parser.add_argument('--validate', action='store_true', help='Validate configuration')
+        config_parser.add_argument('--reload', action='store_true', help='Reload configuration')
+        
         # Global options
-        for subparser in [discover_parser, analyze_parser, enrich_parser, playlist_parser, export_parser, status_parser, pipeline_parser]:
+        for subparser in [discover_parser, analyze_parser, enrich_parser, playlist_parser, export_parser, status_parser, pipeline_parser, config_parser]:
             subparser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                                  default='INFO', help='Set logging level')
             subparser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
@@ -728,6 +736,90 @@ Examples:
         except Exception as e:
             self.console.print(f"[red]Pipeline failed: {e}[/red]")
             self.logger.error(f"Pipeline failed: {e}", exc_info=True)
+            return 1
+    
+    def _handle_config(self, args) -> int:
+        """Handle the config command."""
+        self.console.print("[bold blue]Configuration Information[/bold blue]")
+        
+        try:
+            from shared.config.json_loader import get_json_config_summary, reload_json_config
+            
+            if args.reload:
+                self.console.print("[cyan]Reloading configuration...[/cyan]")
+                reload_json_config()
+                self.console.print("[green]Configuration reloaded[/green]")
+            
+            if args.json:
+                # Show JSON configuration summary
+                json_summary = get_json_config_summary()
+                if json_summary:
+                    table = Table(title="JSON Configuration Summary")
+                    table.add_column("Setting", style="cyan")
+                    table.add_column("Value", style="green")
+                    table.add_column("Type", style="yellow")
+                    table.add_column("Description", style="magenta")
+                    
+                    for section_name, section_settings in json_summary.get('sections', {}).items():
+                        for setting in section_settings:
+                            table.add_row(
+                                setting['name'],
+                                str(setting['value']),
+                                setting['type'],
+                                setting['description'][:50] + "..." if len(setting['description']) > 50 else setting['description']
+                            )
+                    
+                    self.console.print(table)
+                    
+                    if json_summary.get('validation_errors'):
+                        self.console.print(f"[red]Validation errors: {len(json_summary['validation_errors'])}[/red]")
+                        for error in json_summary['validation_errors'][:5]:
+                            self.console.print(f"[dim]  {error}[/dim]")
+                else:
+                    self.console.print("[yellow]No JSON configuration found[/yellow]")
+            
+            elif args.validate:
+                # Validate configuration
+                json_summary = get_json_config_summary()
+                if json_summary and json_summary.get('validation_errors'):
+                    self.console.print(f"[red]Configuration validation failed: {len(json_summary['validation_errors'])} errors[/red]")
+                    for error in json_summary['validation_errors']:
+                        self.console.print(f"[red]  {error}[/red]")
+                    return 1
+                else:
+                    self.console.print("[green]Configuration validation passed[/green]")
+            
+            else:
+                # Show general configuration info
+                config_dict = self.config.to_dict()
+                
+                table = Table(title="Current Configuration")
+                table.add_column("Category", style="cyan")
+                table.add_column("Setting", style="green")
+                table.add_column("Value", style="yellow")
+                
+                for category, settings in config_dict.items():
+                    if isinstance(settings, dict):
+                        for setting, value in settings.items():
+                            table.add_row(
+                                category,
+                                setting,
+                                str(value)
+                            )
+                    else:
+                        table.add_row(
+                            "general",
+                            category,
+                            str(settings)
+                        )
+                
+                self.console.print(table)
+            
+            return 0
+            
+        except Exception as e:
+            self.console.print(f"[red]Configuration error: {e}[/red]")
+            self.logger.error(f"Configuration error: {e}", exc_info=True)
             return 1
 
 

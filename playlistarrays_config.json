@@ -1,0 +1,671 @@
+{
+  "playlista_config": {
+    "description": "Playlista Music Analysis and Playlist Generation Configuration",
+    "version": "1.0.0",
+    "last_updated": "2024-01-01",
+    
+    "logging": {
+      "description": "Logging configuration settings",
+      "settings": {
+        "LOG_LEVEL": {
+          "value": "INFO",
+          "description": "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+          "type": "string",
+          "options": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+          "default": "INFO"
+        },
+        "LOG_DIR": {
+          "value": "/app/logs",
+          "description": "Directory for log files",
+          "type": "path",
+          "default": "/app/logs"
+        },
+        "TENSORFLOW_LOG_LEVEL": {
+          "value": "2",
+          "description": "TensorFlow logging level (0=all, 1=no INFO, 2=no INFO/WARNING)",
+          "type": "integer",
+          "default": "2"
+        },
+        "ESSENTIA_LOG_LEVEL": {
+          "value": "error",
+          "description": "Essentia logging level",
+          "type": "string",
+          "default": "error"
+        }
+      }
+    },
+
+    "memory_management": {
+      "description": "Memory management and resource limits",
+      "settings": {
+        "MEMORY_LIMIT_GB": {
+          "value": 6.0,
+          "description": "Memory limit per worker in GB",
+          "type": "float",
+          "min": 0.5,
+          "max": 32.0,
+          "default": 6.0
+        },
+        "RSS_LIMIT_GB": {
+          "value": 6.0,
+          "description": "Maximum total Python RSS in GB",
+          "type": "float",
+          "min": 0.5,
+          "max": 32.0,
+          "default": 6.0
+        },
+        "MEMORY_AWARE": {
+          "value": false,
+          "description": "Enable memory-aware processing",
+          "type": "boolean",
+          "default": false
+        },
+        "LOW_MEMORY_MODE": {
+          "value": false,
+          "description": "Enable low memory mode for constrained environments",
+          "type": "boolean",
+          "default": false
+        },
+        "MEMORY_PRESSURE_THRESHOLD": {
+          "value": 0.8,
+          "description": "Memory pressure threshold (0.0-1.0, 80% default)",
+          "type": "float",
+          "min": 0.5,
+          "max": 0.95,
+          "default": 0.8
+        },
+        "MEMORY_PRESSURE_PAUSE_SECONDS": {
+          "value": 30,
+          "description": "Pause duration when memory pressure is detected",
+          "type": "integer",
+          "min": 5,
+          "max": 300,
+          "default": 30
+        },
+        "MEMORY_PER_WORKER_GB": {
+          "value": 0.5,
+          "description": "Estimated memory per worker in GB",
+          "type": "float",
+          "min": 0.1,
+          "max": 4.0,
+          "default": 0.5
+        }
+      }
+    },
+
+    "file_processing": {
+      "description": "File processing thresholds and limits",
+      "settings": {
+        "LARGE_FILE_THRESHOLD_MB": {
+          "value": 50,
+          "description": "File size threshold for large file processing (MB)",
+          "type": "integer",
+          "min": 10,
+          "max": 1000,
+          "default": 50
+        },
+        "VERY_LARGE_FILE_THRESHOLD_MB": {
+          "value": 100,
+          "description": "File size threshold for very large file processing (MB)",
+          "type": "integer",
+          "min": 50,
+          "max": 2000,
+          "default": 100
+        },
+        "EXTREMELY_LARGE_FILE_THRESHOLD_MB": {
+          "value": 500,
+          "description": "File size threshold for extremely large file processing (MB)",
+          "type": "integer",
+          "min": 200,
+          "max": 5000,
+          "default": 500
+        },
+        "FILE_TIMEOUT_MINUTES": {
+          "value": 10,
+          "description": "Timeout for individual file processing (minutes)",
+          "type": "integer",
+          "min": 1,
+          "max": 60,
+          "default": 10
+        },
+        "BATCH_TIMEOUT_MINUTES": {
+          "value": 30,
+          "description": "Timeout for batch processing (minutes)",
+          "type": "integer",
+          "min": 5,
+          "max": 120,
+          "default": 30
+        },
+        "MAX_RETRIES": {
+          "value": 3,
+          "description": "Maximum number of retries for failed files",
+          "type": "integer",
+          "min": 0,
+          "max": 10,
+          "default": 3
+        },
+        "BATCH_SIZE_MULTIPLIER": {
+          "value": 10,
+          "description": "Multiplier for batch size calculation",
+          "type": "integer",
+          "min": 1,
+          "max": 50,
+          "default": 10
+        },
+        "MAX_BATCH_SIZE": {
+          "value": 100,
+          "description": "Maximum batch size for processing",
+          "type": "integer",
+          "min": 10,
+          "max": 500,
+          "default": 100
+        }
+      }
+    },
+
+    "audio_processing": {
+      "description": "Audio processing limits and settings",
+      "settings": {
+        "MAX_AUDIO_SAMPLES": {
+          "value": 150000000,
+          "description": "Maximum audio samples to process (~5.7 hours at 44kHz)",
+          "type": "integer",
+          "min": 10000000,
+          "max": 1000000000,
+          "default": 150000000
+        },
+        "MAX_SAMPLES_FOR_MFCC": {
+          "value": 100000000,
+          "description": "Maximum samples for MFCC processing (~2.3 hours at 44kHz)",
+          "type": "integer",
+          "min": 5000000,
+          "max": 500000000,
+          "default": 100000000
+        },
+        "MAX_SAMPLES_FOR_PROCESSING": {
+          "value": 500000000,
+          "description": "Maximum samples for general processing (~11.3 hours at 44kHz)",
+          "type": "integer",
+          "min": 10000000,
+          "max": 2000000000,
+          "default": 500000000
+        },
+        "DEFAULT_SAMPLE_RATE": {
+          "value": 44100,
+          "description": "Default sample rate for audio processing",
+          "type": "integer",
+          "options": [22050, 44100, 48000, 96000],
+          "default": 44100
+        },
+        "BPM_MIN": {
+          "value": 60,
+          "description": "Minimum BPM for detection",
+          "type": "integer",
+          "min": 30,
+          "max": 120,
+          "default": 60
+        },
+        "BPM_MAX": {
+          "value": 200,
+          "description": "Maximum BPM for detection",
+          "type": "integer",
+          "min": 120,
+          "max": 300,
+          "default": 200
+        },
+        "BPM_CONFIDENCE_THRESHOLD": {
+          "value": 0.5,
+          "description": "Confidence threshold for BPM detection",
+          "type": "float",
+          "min": 0.1,
+          "max": 1.0,
+          "default": 0.5
+        }
+      }
+    },
+
+    "feature_extraction": {
+      "description": "Audio feature extraction settings",
+      "settings": {
+        "EXTRACT_BPM": {
+          "value": true,
+          "description": "Extract BPM (tempo) from audio files",
+          "type": "boolean",
+          "default": true
+        },
+        "EXTRACT_MFCC": {
+          "value": true,
+          "description": "Extract MFCC features from audio files",
+          "type": "boolean",
+          "default": true
+        },
+        "EXTRACT_CHROMA": {
+          "value": true,
+          "description": "Extract chroma features from audio files",
+          "type": "boolean",
+          "default": true
+        },
+        "EXTRACT_MUSICNN": {
+          "value": true,
+          "description": "Extract MusiCNN features (requires model)",
+          "type": "boolean",
+          "default": true
+        },
+        "EXTRACT_SPECTRAL": {
+          "value": true,
+          "description": "Extract spectral features from audio files",
+          "type": "boolean",
+          "default": true
+        },
+        "MFCC_N_COEFFICIENTS": {
+          "value": 13,
+          "description": "Number of MFCC coefficients to extract",
+          "type": "integer",
+          "min": 8,
+          "max": 40,
+          "default": 13
+        },
+        "NORMALIZE_DANCEABILITY": {
+          "value": true,
+          "description": "Normalize danceability scores",
+          "type": "boolean",
+          "default": true
+        },
+        "NORMALIZE_CENTROID": {
+          "value": true,
+          "description": "Normalize spectral centroid values",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+
+    "playlist_generation": {
+      "description": "Playlist generation settings",
+      "settings": {
+        "MIN_TRACKS_PER_PLAYLIST": {
+          "value": 10,
+          "description": "Minimum tracks per playlist",
+          "type": "integer",
+          "min": 1,
+          "max": 100,
+          "default": 10
+        },
+        "MAX_TRACKS_PER_PLAYLIST": {
+          "value": 500,
+          "description": "Maximum tracks per playlist",
+          "type": "integer",
+          "min": 10,
+          "max": 2000,
+          "default": 500
+        },
+        "DEFAULT_NUM_PLAYLISTS": {
+          "value": 8,
+          "description": "Default number of playlists to generate",
+          "type": "integer",
+          "min": 1,
+          "max": 50,
+          "default": 8
+        },
+        "MIN_TRACKS_PER_GENRE": {
+          "value": 10,
+          "description": "Minimum tracks per genre for tag-based playlists",
+          "type": "integer",
+          "min": 1,
+          "max": 100,
+          "default": 10
+        },
+        "KMEANS_N_CLUSTERS": {
+          "value": 8,
+          "description": "Number of clusters for K-means playlist generation",
+          "type": "integer",
+          "min": 2,
+          "max": 20,
+          "default": 8
+        },
+        "KMEANS_MAX_ITER": {
+          "value": 300,
+          "description": "Maximum iterations for K-means algorithm",
+          "type": "integer",
+          "min": 100,
+          "max": 1000,
+          "default": 300
+        },
+        "KMEANS_TOLERANCE": {
+          "value": 0.0001,
+          "description": "Tolerance for K-means convergence",
+          "type": "float",
+          "min": 0.00001,
+          "max": 0.01,
+          "default": 0.0001
+        },
+        "MIN_SIMILARITY_THRESHOLD": {
+          "value": 0.3,
+          "description": "Minimum similarity threshold for playlist generation",
+          "type": "float",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.3
+        },
+        "MAX_SIMILARITY_THRESHOLD": {
+          "value": 0.9,
+          "description": "Maximum similarity threshold for playlist generation",
+          "type": "float",
+          "min": 0.5,
+          "max": 1.0,
+          "default": 0.9
+        }
+      }
+    },
+
+    "external_apis": {
+      "description": "External API configuration",
+      "settings": {
+        "MUSICBRAINZ_USER_AGENT": {
+          "value": "Playlista/1.0",
+          "description": "User agent for MusicBrainz API requests",
+          "type": "string",
+          "default": "Playlista/1.0"
+        },
+        "MUSICBRAINZ_RATE_LIMIT": {
+          "value": 1.0,
+          "description": "MusicBrainz API rate limit (requests per second)",
+          "type": "float",
+          "min": 0.1,
+          "max": 10.0,
+          "default": 1.0
+        },
+        "LASTFM_API_KEY": {
+          "value": "",
+          "description": "Last.fm API key for metadata enrichment",
+          "type": "string",
+          "default": ""
+        },
+        "LASTFM_RATE_LIMIT": {
+          "value": 2.0,
+          "description": "Last.fm API rate limit (requests per second)",
+          "type": "float",
+          "min": 0.1,
+          "max": 10.0,
+          "default": 2.0
+        },
+        "SPOTIFY_CLIENT_ID": {
+          "value": "",
+          "description": "Spotify API client ID",
+          "type": "string",
+          "default": ""
+        },
+        "SPOTIFY_CLIENT_SECRET": {
+          "value": "",
+          "description": "Spotify API client secret",
+          "type": "string",
+          "default": ""
+        },
+        "DISCOGS_USER_TOKEN": {
+          "value": "",
+          "description": "Discogs API user token",
+          "type": "string",
+          "default": ""
+        }
+      }
+    },
+
+    "paths": {
+      "description": "File system paths and directories",
+      "settings": {
+        "HOST_LIBRARY_PATH": {
+          "value": "/root/music/library",
+          "description": "Host library path for music files",
+          "type": "path",
+          "default": "/root/music/library"
+        },
+        "MUSIC_PATH": {
+          "value": "/music",
+          "description": "Container music path",
+          "type": "path",
+          "default": "/music"
+        },
+        "OUTPUT_DIR": {
+          "value": "/app/playlists",
+          "description": "Output directory for generated playlists",
+          "type": "path",
+          "default": "/app/playlists"
+        },
+        "CACHE_DIR": {
+          "value": "/app/cache",
+          "description": "Cache directory for analysis results",
+          "type": "path",
+          "default": "/app/cache"
+        },
+        "LOG_DIR": {
+          "value": "/app/logs",
+          "description": "Log directory",
+          "type": "path",
+          "default": "/app/logs"
+        },
+        "MODEL_DIR": {
+          "value": "/app/feature_extraction/models",
+          "description": "Directory for AI models",
+          "type": "path",
+          "default": "/app/feature_extraction/models"
+        },
+        "MUSICNN_MODEL_PATH": {
+          "value": "/app/feature_extraction/models/msd-musicnn-1.pb",
+          "description": "Path to MusiCNN model file",
+          "type": "path",
+          "default": "/app/feature_extraction/models/msd-musicnn-1.pb"
+        },
+        "MUSICNN_JSON_PATH": {
+          "value": "/app/feature_extraction/models/musicnn/msd-musicnn-1.json",
+          "description": "Path to MusiCNN JSON configuration",
+          "type": "path",
+          "default": "/app/feature_extraction/models/musicnn/msd-musicnn-1.json"
+        }
+      }
+    },
+
+    "database": {
+      "description": "Database configuration settings",
+      "settings": {
+        "CACHE_FILE": {
+          "value": "audio_analysis.db",
+          "description": "SQLite database file for audio analysis cache",
+          "type": "string",
+          "default": "audio_analysis.db"
+        },
+        "PLAYLIST_DB_FILE": {
+          "value": "playlist.db",
+          "description": "SQLite database file for playlists",
+          "type": "string",
+          "default": "playlist.db"
+        },
+        "PRAGMA_CACHE_SIZE": {
+          "value": 10000,
+          "description": "SQLite cache size in pages",
+          "type": "integer",
+          "min": 1000,
+          "max": 100000,
+          "default": 10000
+        },
+        "PRAGMA_JOURNAL_MODE": {
+          "value": "WAL",
+          "description": "SQLite journal mode",
+          "type": "string",
+          "options": ["DELETE", "TRUNCATE", "PERSIST", "MEMORY", "WAL", "OFF"],
+          "default": "WAL"
+        },
+        "PRAGMA_SYNCHRONOUS": {
+          "value": "NORMAL",
+          "description": "SQLite synchronous mode",
+          "type": "string",
+          "options": ["OFF", "NORMAL", "FULL", "EXTRA"],
+          "default": "NORMAL"
+        }
+      }
+    },
+
+    "processing_modes": {
+      "description": "Processing mode configuration",
+      "settings": {
+        "DEFAULT_PROCESSING_MODE": {
+          "value": "auto",
+          "description": "Default processing mode (parallel, sequential, auto)",
+          "type": "string",
+          "options": ["parallel", "sequential", "auto"],
+          "default": "auto"
+        },
+        "FAST_MODE_ENABLED": {
+          "value": false,
+          "description": "Enable fast mode processing (3-5x faster with reduced features)",
+          "type": "boolean",
+          "default": false
+        },
+        "DEBUG_MODE": {
+          "value": false,
+          "description": "Enable debug mode for detailed logging",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+
+    "quality_scoring": {
+      "description": "Quality scoring weights and thresholds",
+      "settings": {
+        "DIVERSITY_WEIGHT": {
+          "value": 0.4,
+          "description": "Weight for diversity in overall quality score",
+          "type": "float",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.4
+        },
+        "COHERENCE_WEIGHT": {
+          "value": 0.4,
+          "description": "Weight for coherence in overall quality score",
+          "type": "float",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.4
+        },
+        "BALANCE_WEIGHT": {
+          "value": 0.2,
+          "description": "Weight for balance in overall quality score",
+          "type": "float",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.2
+        },
+        "BPM_SCORE_WEIGHT": {
+          "value": 0.2,
+          "description": "Weight for BPM in feature scoring",
+          "type": "float",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.2
+        },
+        "MFCC_SCORE_WEIGHT": {
+          "value": 0.2,
+          "description": "Weight for MFCC in feature scoring",
+          "type": "float",
+          "min": 0.0,
+          "max": 1.0,
+          "default": 0.2
+        }
+      }
+    },
+
+    "cache_based_ranges": {
+      "description": "Cache-based playlist generation ranges",
+      "settings": {
+        "BPM_RANGES": {
+          "value": {
+            "Very_Slow": [0, 60],
+            "Slow": [60, 90],
+            "Medium": [90, 120],
+            "Upbeat": [120, 150],
+            "Fast": [150, 180],
+            "Very_Fast": [180, 999]
+          },
+          "description": "BPM ranges for playlist categorization",
+          "type": "object",
+          "default": "see value"
+        },
+        "ENERGY_LEVELS": {
+          "value": {
+            "Ambient": [0.0, 0.3],
+            "Chill": [0.3, 0.45],
+            "Balanced": [0.45, 0.6],
+            "Groovy": [0.6, 0.75],
+            "Energetic": [0.75, 0.85],
+            "Intense": [0.85, 1.0]
+          },
+          "description": "Energy level ranges for playlist categorization",
+          "type": "object",
+          "default": "see value"
+        },
+        "MOOD_RANGES": {
+          "value": {
+            "Dark": [0, 1000],
+            "Warm": [1000, 2000],
+            "Balanced": [2000, 4000],
+            "Bright": [4000, 6000],
+            "Brilliant": [6000, 9999]
+          },
+          "description": "Spectral centroid ranges for mood categorization",
+          "type": "object",
+          "default": "see value"
+        }
+      }
+    },
+
+    "time_based_playlists": {
+      "description": "Time-based playlist generation settings",
+      "settings": {
+        "TIME_SLOTS": {
+          "value": {
+            "Morning": {"min_bpm": 50, "max_bpm": 100, "min_centroid": 1000},
+            "Afternoon": {"min_bpm": 80, "max_bpm": 130, "min_centroid": 1500},
+            "Evening": {"min_bpm": 70, "max_bpm": 120, "max_centroid": 3500},
+            "Night": {"min_bpm": 60, "max_bpm": 90, "max_centroid": 2000}
+          },
+          "description": "Time slot definitions for time-based playlists",
+          "type": "object",
+          "default": "see value"
+        }
+      }
+    },
+
+    "feature_bins": {
+      "description": "Feature-based playlist generation bins",
+      "settings": {
+        "FEATURE_BINS": {
+          "value": {
+            "Upbeat": {"min_bpm": 120, "max_bpm": 150, "description": "Energetic and lively tracks"},
+            "Fast": {"min_bpm": 150, "max_bpm": 180, "description": "High-energy dance music"},
+            "Dark": {"min_centroid": 0, "max_centroid": 1000, "description": "Deep and atmospheric"},
+            "Warm": {"min_centroid": 1000, "max_centroid": 2000, "description": "Rich and full-bodied sound"}
+          },
+          "description": "Feature bins for playlist categorization",
+          "type": "object",
+          "default": "see value"
+        }
+      }
+    }
+  },
+
+  "usage_notes": {
+    "description": "How to use this configuration file",
+    "instructions": [
+      "1. Copy this file to your host system",
+      "2. Modify the 'value' fields for settings you want to change",
+      "3. Mount the file into the Docker container at /app/config/playlista_config.json",
+      "4. The application will automatically load these settings",
+      "5. Environment variables will override these settings if set",
+      "6. CLI arguments will override both config file and environment variables"
+    ],
+    "docker_mount_example": "docker run -v /path/to/playlista_config.json:/app/config/playlista_config.json playlista",
+    "environment_override_example": "MEMORY_LIMIT_GB=8.0 docker run playlista",
+    "cli_override_example": "docker run playlista analyze --memory-limit 4GB"
+  }
+} 
