@@ -40,7 +40,7 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
         logger.debug(f"PROGRESS: current_index {current_index} >= len(files_list) {len(files_list)}, returning")
         return
 
-    # Use the actual filepath being processed if provided, otherwise fall back to list lookup
+    # Always use the actual filepath being processed if provided, otherwise fall back to list lookup
     if current_filepath:
         file_path = current_filepath
     else:
@@ -86,7 +86,7 @@ def _update_progress_bar(progress, task_id, files_list, current_index, total_cou
     # Update progress bar with persistent timing
     # Use advance=1 to maintain timing estimation across batches
     if current_index < len(files_list) - 1:
-        # Show next file being processed
+        # Show the file that was just completed
         progress.update(
             task_id,
             advance=1,  # Always advance to maintain timing
@@ -573,6 +573,16 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 except ImportError:
                     pass
                 
+                # Update progress bar to show we're starting parallel processing
+                if normal_files:
+                    first_normal_file = normal_files[0]
+                    first_normal_filepath = first_normal_file[0] if isinstance(first_normal_file, tuple) else first_normal_file
+                    first_normal_filename = os.path.basename(first_normal_filepath)
+                    logger.debug(f"PROGRESS: Starting parallel processing with {first_normal_filename}")
+                    # Update progress bar to show transition to parallel processing
+                    _update_progress_bar(progress, task_id, files_to_analyze, len(big_files), len(files_to_analyze),
+                                         "[cyan]", "", "", first_normal_filepath, True, file_sizes)
+                
                 parallel_manager = ParallelWorkerManager()
                 fast_mode = getattr(args, 'fast_mode', False)
                 logger.debug(f"PROGRESS: Starting parallel processing loop for {len(normal_files)} files")
@@ -597,6 +607,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     # Update progress bar with the file that was just processed
                     logger.debug(f"PROGRESS: About to update progress bar for {filename}")
                     logger.debug(f"PROGRESS: processed_count={processed_count}, total_files={len(files_to_analyze)}")
+                    # Show the actual file that was just completed, not the file at the current index
                     _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
                                          "[cyan]", "", status_dot, result[1], True, file_sizes)
                     logger.debug(f"PROGRESS: Progress bar updated for {filename}")

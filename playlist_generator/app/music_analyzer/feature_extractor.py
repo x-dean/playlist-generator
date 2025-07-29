@@ -751,24 +751,17 @@ class AudioAnalyzer:
                 # Cancel timeout (only in main thread)
                 if is_main_thread and len(audio) > 100000000:
                     signal.alarm(0)
-            logger.debug(f"Rhythm result type: {type(rhythm_result)}")
-            logger.debug(
-                f"Rhythm result length: {len(rhythm_result) if isinstance(rhythm_result, tuple) else 'not tuple'}")
-            logger.debug(f"Rhythm result: {rhythm_result}")
-
             # Handle different return types from Essentia
             if isinstance(rhythm_result, tuple):
                 # Try to get BPM from the first element
                 if len(rhythm_result) > 0:
                     bpm = rhythm_result[0]
-                    logger.debug(f"Extracted BPM from tuple[0]: {bpm}")
                 else:
                     logger.warning("Empty rhythm result tuple")
                     bpm = -1.0  # Special marker for failed BPM extraction
             else:
                 # Single value return
                 bpm = rhythm_result
-                logger.debug(f"Extracted BPM from single value: {bpm}")
 
             # Ensure BPM is a valid number
             try:
@@ -783,7 +776,6 @@ class AudioAnalyzer:
                     f"Could not convert BPM to float: {bpm}, using failed marker")
                 bpm = -1.0  # Special marker for failed BPM extraction
 
-            logger.debug(f"Final BPM: {bpm}")
             logger.info(f"Rhythm extraction completed: BPM = {bpm:.1f}")
             bpm_extraction_state['final_bpm'] = float(bpm)
             return {'bpm': float(bpm), 'bpm_state': bpm_extraction_state}
@@ -792,11 +784,6 @@ class AudioAnalyzer:
             raise  # Re-raise to be caught by the main extraction function
         except Exception as e:
             logger.warning(f"Rhythm extraction failed: {str(e)}")
-            logger.debug(
-                f"Rhythm extraction error details: {type(e).__name__}")
-            import traceback
-            logger.debug(
-                f"Rhythm extraction full traceback: {traceback.format_exc()}")
             
             # Try to get BPM from external APIs as fallback
             bpm_extraction_state['external_attempted'] = True

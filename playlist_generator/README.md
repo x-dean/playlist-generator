@@ -30,6 +30,7 @@ Choose with `-m` or `--playlist_method`:
 | all (default)  | Feature-grouping: robust, musically meaningful playlists (recommended for most users)      |
 | time           | Playlists for each time slot (Morning, Afternoon, etc.), split if too long                 |
 | kmeans         | Clusters tracks by audio features using k-means, always assigns all tracks                 |
+
 | cache          | Rule-based grouping by feature bins (similar to "all", fallback for legacy compatibility)  |
 | tags           | Genre and decade-based playlists using MusicBrainz and Last.fm metadata                    |
 | ensemble       | **NEW**: Combines multiple clustering algorithms (K-means, DBSCAN, Hierarchical) for robust playlists |
