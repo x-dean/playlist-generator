@@ -82,27 +82,22 @@ class JSONConfigLoader:
                     config_data = json.load(f)
                 
                 logger.info(f"Successfully loaded config from: {config_path}")
-                break
+                
+                # Extract settings from the nested structure
+                settings = self._extract_settings(config_data)
+                
+                # Convert to environment variables
+                self._set_environment_variables(settings)
+                
+                self.config_cache = settings
+                logger.info(f"Loaded configuration from {config_path}")
+                return settings
                 
             except Exception as e:
-                logger.debug(f"Failed to load config from {config_path}: {e}")
+                logger.debug(f"Failed to load config from {config_file_path}: {e}")
                 continue
         else:
             logger.warning("No config file found in any of the expected locations")
-            return {}
-            
-            # Extract settings from the nested structure
-            settings = self._extract_settings(config_data)
-            
-            # Convert to environment variables
-            self._set_environment_variables(settings)
-            
-            self.config_cache = settings
-            logger.info(f"Loaded configuration from {config_path}")
-            return settings
-            
-        except Exception as e:
-            logger.error(f"Failed to load JSON config: {e}")
             return {}
     
     def _extract_settings(self, config_data: Dict[str, Any]) -> Dict[str, ConfigValue]:
