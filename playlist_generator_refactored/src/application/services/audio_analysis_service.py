@@ -1058,3 +1058,21 @@ class AudioAnalysisService:
                 operation="save_analysis_result",
                 file_path=str(result.audio_file.file_path)
             ) 
+
+    def _extract_spectral_bandwidth(self, audio):
+        """Extract spectral bandwidth from audio."""
+        self.logger.info("Extracting spectral bandwidth...")
+        try:
+            self.logger.debug("Initializing Essentia SpectralBandwidth algorithm")
+            bandwidth_algo = es.SpectralBandwidth()
+            self.logger.debug("Running spectral bandwidth analysis on audio")
+            bandwidth_values = bandwidth_algo(audio)
+            self.logger.debug(
+                f"Spectral bandwidth values shape: {np.array(bandwidth_values).shape if hasattr(bandwidth_values, 'shape') else type(bandwidth_values)}")
+            bandwidth_mean = float(np.nanmean(bandwidth_values)) if isinstance(
+                bandwidth_values, (list, np.ndarray)) else float(bandwidth_values)
+            self.logger.info(f"Spectral bandwidth extraction completed: {bandwidth_mean:.1f}Hz")
+            return {'spectral_bandwidth': bandwidth_mean}
+        except Exception as e:
+            self.logger.warning(f"Spectral bandwidth extraction failed: {str(e)}")
+            return {'spectral_bandwidth': 0.0} 
