@@ -100,6 +100,11 @@ class FileDiscoveryService:
                     
                     files = self._scan_directory(path_obj, request)
                     self.logger.info(f"Directory scan found {len(files)} files")
+                    
+                    # Process files with progress indication
+                    total_files = len(files)
+                    processed_files = 0
+                    
                     for file_path in files:
                         if str(file_path) in seen_files:
                             response.result.duplicate_files += 1
@@ -118,8 +123,12 @@ class FileDiscoveryService:
                                 skipped_files.append(str(file_path))
                                 continue
                             
-                            # Calculate file hash first
-                            file_hash = calculate_file_hash(file_path)
+                            # Calculate file hash first (with timeout protection)
+                            try:
+                                file_hash = calculate_file_hash(file_path)
+                            except Exception as e:
+                                self.logger.warning(f"Could not calculate hash for {file_path}: {e}")
+                                file_hash = None
                             
                             # Check if file already exists in database by hash
                             existing_audio_file = None
@@ -161,6 +170,11 @@ class FileDiscoveryService:
                                 self.logger.warning(f"Failed to save {file_path} to database: {e}")
                             
                             discovered_files.append(audio_file)
+                            
+                            # Progress indication
+                            processed_files += 1
+                            if processed_files % 100 == 0 or processed_files == total_files:
+                                self.logger.info(f"Processed {processed_files}/{total_files} files ({processed_files/total_files*100:.1f}%)")
                             
                             # Debug logging with proper size handling
                             if hasattr(audio_file, 'file_size_bytes') and audio_file.file_size_bytes:

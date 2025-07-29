@@ -53,13 +53,14 @@ def get_file_size_mb(file_path: Path) -> Optional[float]:
 
 def calculate_file_hash(file_path: Path) -> Optional[str]:
     """
-    Calculate MD5 hash of file content.
+    Calculate fast hash using file metadata and sample content.
+    This is much faster than reading entire files for large libraries.
     
     Args:
         file_path: Path to the file
         
     Returns:
-        MD5 hash string, or None if hash cannot be calculated
+        Hash string, or None if hash cannot be calculated
     """
     try:
         # Check if file exists and is a file
@@ -73,10 +74,22 @@ def calculate_file_hash(file_path: Path) -> Optional[str]:
         
         hash_md5 = hashlib.md5()
         
-        # Read file in chunks to handle large files efficiently
+        # Get file metadata for faster hashing
+        stat = file_path.stat()
+        metadata = f"{file_path.name}_{stat.st_size}_{stat.st_mtime}".encode()
+        hash_md5.update(metadata)
+        
+        # Read first and last 8KB for content sampling (much faster than full file)
         with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
+            # Read first 8KB
+            start_chunk = f.read(8192)
+            hash_md5.update(start_chunk)
+            
+            # Read last 8KB if file is larger than 16KB
+            if stat.st_size > 16384:
+                f.seek(-8192, 2)  # Seek to 8KB from end
+                end_chunk = f.read(8192)
+                hash_md5.update(end_chunk)
         
         return hash_md5.hexdigest()
         
