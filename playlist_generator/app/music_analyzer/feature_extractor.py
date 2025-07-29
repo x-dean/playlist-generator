@@ -379,6 +379,9 @@ class AudioAnalyzer:
         if not self.test_database_connectivity():
             logger.warning("Database connectivity test failed - some operations may not work properly")
         
+        # Get database stats
+        self.get_database_stats()
+        
         # Set MusicBrainz user agent
         musicbrainzngs.set_useragent(
             "PlaylistGenerator", "1.0", "noreply@example.com")
@@ -1892,19 +1895,20 @@ class AudioAnalyzer:
                     f"Feature extraction returned invalid result for {audio_path}")
                 self._mark_failed(file_info)
                 return None, False, None
+            logger.info(f"About to save features to database for {file_info['file_path']}")
             db_write_success = self._save_features_to_db(
                 file_info, features, failed=0)
-            logger.debug(
+            logger.info(
                 f"Database save result for {file_info['file_path']}: {db_write_success}")
             if db_write_success:
-                logger.info(f"DB WRITE: {file_info['file_path']}")
+                logger.info(f"DB WRITE SUCCESS: {file_info['file_path']}")
+                logger.info(f"Returning successful result for {file_info['file_path']}")
+                return features, db_write_success, file_info['file_hash']
             else:
                 logger.error(f"DB WRITE FAILED: {file_info['file_path']}")
+                logger.error(f"Marking file as failed: {file_info['file_path']}")
                 self._mark_failed(file_info)
                 return None, False, None
-            logger.debug(
-                f"Returning successful result for {file_info['file_path']}")
-            return features, db_write_success, file_info['file_hash']
         except TimeoutException as te:
             logger.error(f"Timeout processing {audio_path}: {str(te)}")
             self._mark_failed(self._get_file_info(audio_path))
@@ -2331,6 +2335,10 @@ class AudioAnalyzer:
         file_info['file_path'] = self._normalize_to_library_path(
             file_info['file_path'])
 
+        logger.info(f"Attempting to save features for: {file_info['file_path']}")
+        logger.info(f"File hash: {file_info['file_hash']}")
+        logger.info(f"Features count: {len(features)}")
+
         try:
             # Validate and convert all features to proper Python types
             features = validate_and_convert_features(features)
@@ -2342,6 +2350,17 @@ class AudioAnalyzer:
             columns = cursor.fetchall()
             logger.debug(f"Database columns: {[col[1] for col in columns]}")
             logger.debug(f"Number of columns: {len(columns)}")
+
+            # Check if record already exists
+            existing_cursor = self.conn.execute(
+                "SELECT file_path, failed FROM audio_features WHERE file_hash = ?",
+                (file_info['file_hash'],)
+            )
+            existing_record = existing_cursor.fetchone()
+            if existing_record:
+                logger.info(f"Record already exists for {file_info['file_path']}, will update")
+            else:
+                logger.info(f"No existing record found for {file_info['file_path']}, will insert")
 
             # Prepare values with proper type conversion and error handling
             try:
@@ -2385,6 +2404,7 @@ class AudioAnalyzer:
                 raise
 
             # Use a transaction to ensure atomicity
+            logger.info(f"Starting database transaction for {file_info['file_path']}")
             with self.conn:
                 cursor = self.conn.execute(
                     """
@@ -2399,7 +2419,7 @@ class AudioAnalyzer:
                 
                 # Check if the row was actually inserted/updated
                 if cursor.rowcount > 0:
-                    logger.debug(
+                    logger.info(
                         f"Successfully saved features to database for {file_info['file_path']} (rows affected: {cursor.rowcount})")
                     logger.info(
                         f"Database save completed successfully for {file_info['file_path']}")
@@ -2414,14 +2434,19 @@ class AudioAnalyzer:
                 )
                 verify_result = verify_cursor.fetchone()
                 if verify_result:
-                    logger.debug(
+                    logger.info(
                         f"Database verification: Record exists for {file_info['file_path']}, failed={verify_result[1]}")
                 else:
                     logger.error(
                         f"Database verification: Record NOT found for {file_info['file_path']} after save!")
                     return False
                 
-            return True
+                logger.info(f"Database transaction completed successfully for {file_info['file_path']}")
+                
+                # Force checkpoint to ensure writes are persisted
+                self.force_database_checkpoint()
+                
+                return True
             
         except Exception as e:
             logger.error(f"Error saving features to DB: {str(e)}")
@@ -3559,6 +3584,60 @@ class AudioAnalyzer:
             return float(value) if value is not None else 0.0
         except (TypeError, ValueError):
             return 0.0
+
+    def get_database_stats(self):
+        """Get database statistics to help diagnose issues."""
+        try:
+            cursor = self.conn.execute("SELECT COUNT(*) FROM audio_features")
+            total_records = cursor.fetchone()[0]
+            
+            cursor = self.conn.execute("SELECT COUNT(*) FROM audio_features WHERE failed = 1")
+            failed_records = cursor.fetchone()[0]
+            
+            cursor = self.conn.execute("SELECT COUNT(*) FROM audio_features WHERE failed = 0")
+            successful_records = cursor.fetchone()[0]
+            
+            cursor = self.conn.execute("SELECT COUNT(*) FROM audio_features WHERE musicnn_skipped = 1")
+            skipped_musicnn = cursor.fetchone()[0]
+            
+            # Get recent records
+            cursor = self.conn.execute("""
+                SELECT file_path, failed, last_analyzed 
+                FROM audio_features 
+                ORDER BY last_analyzed DESC 
+                LIMIT 5
+            """)
+            recent_records = cursor.fetchall()
+            
+            stats = {
+                'total_records': total_records,
+                'failed_records': failed_records,
+                'successful_records': successful_records,
+                'skipped_musicnn': skipped_musicnn,
+                'recent_records': recent_records
+            }
+            
+            logger.info(f"Database stats: Total={total_records}, Failed={failed_records}, Successful={successful_records}, SkippedMusicNN={skipped_musicnn}")
+            logger.info("Recent records:")
+            for record in recent_records:
+                logger.info(f"  {record[0]} - Failed: {record[1]} - Last analyzed: {record[2]}")
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error getting database stats: {e}")
+            return {}
+
+    def force_database_checkpoint(self):
+        """Force a database checkpoint to ensure writes are persisted."""
+        try:
+            logger.info("Forcing database checkpoint...")
+            self.conn.execute("PRAGMA wal_checkpoint(FULL)")
+            logger.info("Database checkpoint completed")
+            return True
+        except Exception as e:
+            logger.error(f"Error forcing database checkpoint: {e}")
+            return False
 
 
 audio_analyzer = AudioAnalyzer()
