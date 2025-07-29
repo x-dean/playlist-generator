@@ -62,7 +62,10 @@ class AudioAnalyzer:
     def _initialize_algorithms(self) -> AnalysisAlgorithms:
         """Initialize all Essentia algorithms once."""
         try:
+            self.logger.info("Initializing Essentia algorithms...")
+            
             # Initialize core algorithms (these should always be available)
+            self.logger.debug("Initializing core algorithms...")
             core_algorithms = {
                 'rhythm_extractor': es.RhythmExtractor2013(),
                 'key_extractor': es.KeyExtractor(),
@@ -73,16 +76,20 @@ class AudioAnalyzer:
                 'metadata_extractor': es.MetadataReader(),
                 'mono_loader': es.MonoLoader(),
             }
+            self.logger.debug("Core algorithms initialized successfully")
             
             # Initialize optional algorithms with fallbacks
+            self.logger.debug("Initializing optional algorithms...")
             optional_algorithms = {}
             
             # Try to initialize optional spectral algorithms
             try:
                 optional_algorithms['spectral_rolloff'] = es.RollOff()
+                self.logger.debug("Spectral rolloff algorithm initialized successfully")
             except AttributeError:
                 try:
                     optional_algorithms['spectral_rolloff'] = es.Rolloff()
+                    self.logger.debug("Spectral rolloff algorithm initialized successfully (alternative name)")
                 except AttributeError:
                     optional_algorithms['spectral_rolloff'] = None
                     self.logger.warning("RollOff/Rolloff algorithm not available in Essentia")
@@ -140,6 +147,9 @@ class AudioAnalyzer:
             # Combine core and optional algorithms
             all_algorithms = {**core_algorithms, **optional_algorithms}
             
+            self.logger.info("All algorithms initialized successfully")
+            self.logger.debug(f"Available algorithms: {list(all_algorithms.keys())}")
+            
             return AnalysisAlgorithms(**all_algorithms)
             
         except Exception as e:
@@ -175,21 +185,35 @@ class AudioAnalyzer:
         """Analyze a single audio file with full feature extraction."""
         start_time = time.time()
         
+        self.logger.info(f"Starting analysis of: {file_path.name}")
+        
         try:
             # Create AudioFile entity
             audio_file = AudioFile(file_path=file_path)
+            self.logger.debug(f"Created AudioFile entity with ID: {audio_file.id}")
             
             # Load audio
+            self.logger.debug(f"Loading audio file: {file_path}")
             audio = self._load_audio(file_path)
+            self.logger.debug(f"Audio loaded successfully. Shape: {audio.shape}, Duration: {len(audio)/44100:.2f}s")
             
-            # Extract all features
+            # Extract metadata
+            self.logger.debug(f"Extracting metadata from: {file_path}")
             metadata = self._extract_metadata(file_path, audio_file.id)
+            self.logger.debug(f"Metadata extracted: Title='{metadata.title}', Artist='{metadata.artist}', Duration={metadata.duration:.2f}s")
+            
+            # Extract features
+            self.logger.debug(f"Extracting audio features from: {file_path}")
             feature_set = self._extract_features(audio, audio_file.id)
+            self.logger.debug(f"Features extracted: BPM={feature_set.bpm:.1f}, Key='{feature_set.key}', Energy={feature_set.energy:.3f}")
             
             # Calculate quality score
+            self.logger.debug(f"Calculating quality score for: {file_path}")
             quality_score = self._calculate_quality_score(feature_set, metadata)
+            self.logger.debug(f"Quality score calculated: {quality_score:.3f}")
             
             # Create analysis result
+            processing_time_ms = (time.time() - start_time) * 1000
             result = AnalysisResult(
                 audio_file=audio_file,
                 feature_set=feature_set,
@@ -197,9 +221,10 @@ class AudioAnalyzer:
                 quality_score=quality_score,
                 is_successful=True,
                 is_complete=True,
-                processing_time_ms=(time.time() - start_time) * 1000
+                processing_time_ms=processing_time_ms
             )
             
+            self.logger.info(f"Analysis completed successfully: {file_path.name} (BPM: {feature_set.bpm:.1f}, Key: {feature_set.key}, Quality: {quality_score:.3f}, Time: {processing_time_ms:.1f}ms)")
             return result
             
         except Exception as e:
@@ -214,13 +239,20 @@ class AudioAnalyzer:
                 processing_time_ms=processing_time_ms
             )
             
+            self.logger.error(f"Analysis failed for {file_path.name}: {e} (Time: {processing_time_ms:.1f}ms)")
             return result
     
     def _load_audio(self, file_path: Path) -> np.ndarray:
         """Load audio file using pre-initialized loader."""
         try:
+            self.logger.debug(f"Configuring MonoLoader for: {file_path}")
             self.algorithms.mono_loader.configure(filename=str(file_path))
-            return self.algorithms.mono_loader()
+            
+            self.logger.debug("Loading audio data...")
+            audio_data = self.algorithms.mono_loader()
+            
+            self.logger.debug(f"Audio loaded successfully: Shape={audio_data.shape}, Sample rate=44100Hz, Duration={len(audio_data)/44100:.2f}s")
+            return audio_data
         except Exception as e:
             self.logger.error(f"Failed to load audio file {file_path}: {e}")
             raise
@@ -228,9 +260,12 @@ class AudioAnalyzer:
     def _extract_metadata(self, file_path: Path, audio_file_id: str) -> Metadata:
         """Extract metadata from audio file."""
         try:
+            self.logger.debug(f"Starting metadata extraction for: {file_path}")
+            
             # Configure the metadata extractor with the file path
             self.algorithms.metadata_extractor.configure(filename=str(file_path))
             metadata_tuple = self.algorithms.metadata_extractor()
+            self.logger.debug(f"Raw metadata tuple: {metadata_tuple}")
             
             # MetadataReader returns a tuple with metadata fields
             # Handle the tuple format more robustly
@@ -240,10 +275,12 @@ class AudioAnalyzer:
             duration = 0.0
             
             if isinstance(metadata_tuple, tuple):
+                self.logger.debug(f"Processing metadata tuple with {len(metadata_tuple)} elements")
                 # Try to extract meaningful metadata from the tuple
                 # The format can vary, so we'll be defensive
                 for i, item in enumerate(metadata_tuple):
                     if item and isinstance(item, str):
+                        self.logger.debug(f"Processing metadata item {i}: '{item}'")
                         # Look for duration-like values (numbers)
                         try:
                             if i == 3 or (isinstance(item, str) and any(c.isdigit() for c in item)):
@@ -252,6 +289,7 @@ class AudioAnalyzer:
                                 numbers = re.findall(r'\d+\.?\d*', item)
                                 if numbers:
                                     duration = float(numbers[0])
+                                    self.logger.debug(f"Extracted duration: {duration}s from item: '{item}'")
                                     break
                         except (ValueError, TypeError):
                             pass
@@ -259,10 +297,17 @@ class AudioAnalyzer:
                         # Use the first non-empty string as title if we don't have one
                         if not title or title == file_path.stem:
                             title = item
+                            self.logger.debug(f"Set title to: '{title}'")
                         elif not artist or artist == 'Unknown':
                             artist = item
+                            self.logger.debug(f"Set artist to: '{artist}'")
                         elif not album or album == 'Unknown':
                             album = item
+                            self.logger.debug(f"Set album to: '{album}'")
+            else:
+                self.logger.debug(f"Metadata tuple is not a tuple: {type(metadata_tuple)}")
+            
+            self.logger.debug(f"Final metadata: Title='{title}', Artist='{artist}', Album='{album}', Duration={duration:.2f}s")
             
             return Metadata(
                 audio_file_id=audio_file_id,
@@ -284,44 +329,72 @@ class AudioAnalyzer:
     def _extract_features(self, audio: np.ndarray, audio_file_id: str) -> FeatureSet:
         """Extract comprehensive audio features."""
         try:
+            self.logger.debug(f"Starting feature extraction for audio with shape: {audio.shape}")
+            
             # Rhythm features
+            self.logger.debug("Extracting rhythm features (BPM, rhythm strength, etc.)")
             bpm, _, _, _ = self.algorithms.rhythm_extractor(audio)
+            self.logger.debug(f"Rhythm extraction complete: BPM={bpm:.1f}")
             
             # Harmonic features
+            self.logger.debug("Extracting harmonic features (key, scale, key strength)")
             key, scale, key_strength = self.algorithms.key_extractor(audio)
+            self.logger.debug(f"Harmonic extraction complete: Key={key} {scale}, Strength={key_strength:.3f}")
             
             # Energy and loudness
+            self.logger.debug("Extracting energy and loudness features")
             energy = self.algorithms.energy_extractor(audio)
             loudness = self.algorithms.loudness_extractor(audio)
+            self.logger.debug(f"Energy/Loudness extraction complete: Energy={energy:.3f}, Loudness={loudness:.1f}dB")
             
             # Spectral features
+            self.logger.debug("Extracting spectral centroid")
             spectral_centroid = self.algorithms.spectral_extractor(audio)
+            self.logger.debug(f"Spectral centroid extraction complete: {spectral_centroid:.1f}Hz")
             
             # Optional spectral features
             spectral_rolloff = 0.0
             spectral_bandwidth = 0.0
+            
             if self.algorithms.spectral_rolloff:
+                self.logger.debug("Extracting spectral rolloff")
                 spectral_rolloff = self.algorithms.spectral_rolloff(audio)
+                self.logger.debug(f"Spectral rolloff extraction complete: {spectral_rolloff:.1f}Hz")
+            else:
+                self.logger.debug("Spectral rolloff algorithm not available, using default value")
+            
             if self.algorithms.spectral_bandwidth:
+                self.logger.debug("Extracting spectral bandwidth")
                 spectral_bandwidth = self.algorithms.spectral_bandwidth(audio)
+                self.logger.debug(f"Spectral bandwidth extraction complete: {spectral_bandwidth:.1f}Hz")
             else:
                 # Manual spectral bandwidth calculation as fallback
+                self.logger.debug("Spectral bandwidth algorithm not available, calculating manually")
                 spectral_bandwidth = self._calculate_manual_spectral_bandwidth(audio, spectral_centroid)
+                self.logger.debug(f"Manual spectral bandwidth calculation complete: {spectral_bandwidth:.1f}Hz")
             
             # MFCC features
+            self.logger.debug("Extracting MFCC features")
             mfcc_bands, mfcc_coeffs = self.algorithms.mfcc_extractor(audio)
+            self.logger.debug(f"MFCC extraction complete: {len(mfcc_coeffs)} coefficients")
             
             # Optional HPCP features for chord analysis
             chords = "C"
             chord_strength = 0.0
             if self.algorithms.hpcp_extractor and self.algorithms.chord_detector:
+                self.logger.debug("Extracting HPCP and chord detection features")
                 hpcp = self.algorithms.hpcp_extractor(audio)
                 chords, chord_strength = self.algorithms.chord_detector(hpcp)
+                self.logger.debug(f"Chord detection complete: Chords={chords}, Strength={chord_strength:.3f}")
+            else:
+                self.logger.debug("HPCP/Chord detection algorithms not available, using defaults")
             
             # Calculate derived features
+            self.logger.debug("Calculating derived features (danceability, valence, acousticness)")
             danceability = self._calculate_danceability(audio, bpm)
             valence = self._calculate_valence(audio, spectral_centroid, energy)
             acousticness = self._calculate_acousticness(audio, spectral_centroid, spectral_rolloff)
+            self.logger.debug(f"Derived features calculated: Danceability={danceability:.3f}, Valence={valence:.3f}, Acousticness={acousticness:.3f}")
         except Exception as e:
             self.logger.error(f"Failed to extract features: {e}")
             # Return minimal feature set with defaults
