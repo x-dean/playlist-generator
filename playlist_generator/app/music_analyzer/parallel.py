@@ -338,14 +338,12 @@ class ParallelProcessor:
                                 if should_pause:
                                     pause_duration = get_pause_duration_seconds()
                                     logger.warning(f"🔄 PARALLEL: Pausing {pause_duration}s between batches: {reason}")
-                                    import time
                                     time.sleep(pause_duration)
                                 else:
                                     logger.debug("🔄 PARALLEL: Memory status good, no pause needed")
                             except Exception as e:
                                 logger.debug(f"Could not check memory after cleanup: {e}")
                                 # Default pause if we can't check memory
-                                import time
                                 time.sleep(3)
                     
                     # Log batch transition
