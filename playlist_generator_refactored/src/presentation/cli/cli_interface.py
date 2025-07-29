@@ -678,7 +678,7 @@ Examples:
                 file_paths=file_paths,
                 analysis_method="essentia",
                 force_reanalysis=args.force,
-                parallel_processing=True,
+                parallel_processing=True,  # Re-enable parallel processing
                 max_workers=None,  # Auto-detect
                 batch_size=None,
                 timeout_seconds=300,
