@@ -697,7 +697,15 @@ Examples:
                 retry_failed=args.failed
             )
             
-            analysis_response = self.analysis_service.analyze_audio_file(analysis_request)
+            self.logger.info(f"About to call analyze_audio_file with {len(file_paths)} files")
+            self.logger.info(f"First 5 file paths: {file_paths[:5]}")
+            
+            try:
+                analysis_response = self.analysis_service.analyze_audio_file(analysis_request)
+                self.logger.info(f"analyze_audio_file returned successfully")
+            except Exception as e:
+                self.logger.error(f"analyze_audio_file failed with exception: {e}", exc_info=True)
+                raise
             successful_analysis = sum(1 for r in analysis_response.results if r.is_successful)
             failed_analysis = len(analysis_response.results) - successful_analysis
             

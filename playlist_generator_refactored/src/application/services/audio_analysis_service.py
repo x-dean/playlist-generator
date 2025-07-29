@@ -156,10 +156,12 @@ class AudioAnalysisService:
         Returns:
             AudioAnalysisResponse with analysis results
         """
+        self.logger.info(f"=== ENTERING analyze_audio_file ===")
         self.logger.info(f"Starting enhanced audio analysis for {len(request.file_paths)} files")
         self.logger.info(f"Analysis options: parallel={request.parallel_processing}, max_workers={request.max_workers}, timeout={request.timeout_seconds}s")
         self.logger.info(f"Processing mode: {'Fast' if self.audio_analysis_config.fast_mode else 'Full'}")
         self.logger.info(f"Memory config: limit={self.memory_config.memory_limit_gb}GB, aware={self.memory_config.memory_aware}")
+        self.logger.info(f"First 3 file paths: {request.file_paths[:3]}")
         
         # Create response with progress tracking
         response = AudioAnalysisResponse(
