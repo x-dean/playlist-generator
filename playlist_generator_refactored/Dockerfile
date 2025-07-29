@@ -20,7 +20,7 @@ COPY requirements.txt requirements.txt
 RUN pip install --prefix=/install/deps --no-cache-dir -r requirements.txt
 
 # --- Final stage ---
-FROM python:3.8-slim
+FROM python:3.7-slim
 
 # Install runtime dependencies only
 RUN apt-get update && \
