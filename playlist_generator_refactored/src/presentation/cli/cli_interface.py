@@ -636,9 +636,17 @@ Examples:
             if music_path.exists():
                 self.logger.info(f"Music directory exists: {music_path}")
                 try:
-                    # Check for audio files specifically
+                    # Check for audio files specifically using os.walk for efficiency
+                    import os
                     audio_extensions = {'.mp3', '.flac', '.wav', '.m4a', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.alac'}
-                    audio_files = [f for f in music_path.rglob('*') if f.is_file() and f.suffix.lower() in audio_extensions]
+                    audio_files = []
+                    
+                    for root, dirs, files in os.walk(str(music_path)):
+                        for file_name in files:
+                            file_path = Path(root) / file_name
+                            if file_path.suffix.lower() in audio_extensions:
+                                audio_files.append(file_path)
+                    
                     self.logger.info(f"Audio files found: {len(audio_files)}")
                     
                     # Only log first few audio files in debug mode

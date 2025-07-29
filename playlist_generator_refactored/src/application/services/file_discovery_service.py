@@ -194,7 +194,7 @@ class FileDiscoveryService:
     def _scan_directory(self, path: Path, request: FileDiscoveryRequest) -> List[Path]:
         """
         Scan a directory for audio files matching the request filters.
-        Only files that can be opened by mutagen are considered valid audio files.
+        Uses os.walk() for efficient directory traversal.
         
         Args:
             path: Directory path
@@ -203,41 +203,50 @@ class FileDiscoveryService:
         Returns:
             List of matching file paths
         """
+        import os
+        
         files = []
         try:
             if path.is_file():
+                # Single file
                 files.append(path)
             elif path.is_dir():
-                if request.recursive:
-                    entries = path.rglob("*")
-                else:
-                    entries = path.glob("*")
-                for entry in entries:
-                    if entry.is_file():
+                # Directory - use os.walk for efficient traversal
+                for root, dirs, files_in_dir in os.walk(str(path)):
+                    # Skip failed directory if specified
+                    if hasattr(self, 'failed_dir') and self.failed_dir in root:
+                        self.logger.debug(f"Skipping failed directory: {root}")
+                        continue
+                    
+                    for file_name in files_in_dir:
+                        file_path = Path(root) / file_name
+                        
                         # Filter by extension
                         if request.file_extensions:
-                            # Remove dot from suffix for comparison
-                            file_ext = entry.suffix.lower().lstrip('.')
+                            file_ext = file_path.suffix.lower().lstrip('.')
                             if file_ext not in [ext.lower() for ext in request.file_extensions]:
                                 continue
+                        
                         # Filter by size
                         if request.min_file_size_mb is not None or request.max_file_size_mb is not None:
-                            size_mb = get_file_size_mb(entry)
+                            size_mb = get_file_size_mb(file_path)
                             if size_mb is None:
-                                self.logger.debug(f"Skipping file with unknown size: {entry}")
-                                continue  # Skip files where we can't determine size
+                                self.logger.debug(f"Skipping file with unknown size: {file_path}")
+                                continue
                             if request.min_file_size_mb is not None and size_mb < request.min_file_size_mb:
-                                self.logger.debug(f"Skipping file too small ({size_mb:.1f} MB): {entry}")
+                                self.logger.debug(f"Skipping file too small ({size_mb:.1f} MB): {file_path}")
                                 continue
                             if request.max_file_size_mb is not None and size_mb > request.max_file_size_mb:
-                                self.logger.debug(f"Skipping file too large ({size_mb:.1f} MB): {entry}")
+                                self.logger.debug(f"Skipping file too large ({size_mb:.1f} MB): {file_path}")
                                 continue
+                        
                         # Filter by patterns
-                        if request.exclude_patterns and any(entry.match(pat) for pat in request.exclude_patterns):
+                        if request.exclude_patterns and any(file_path.match(pat) for pat in request.exclude_patterns):
                             continue
-                        if request.include_patterns and not any(entry.match(pat) for pat in request.include_patterns):
+                        if request.include_patterns and not any(file_path.match(pat) for pat in request.include_patterns):
                             continue
-                        files.append(entry)
+                        
+                        files.append(file_path)
         except Exception as e:
             self.logger.warning(f"Directory scan failed for {path}: {e}")
         return files
