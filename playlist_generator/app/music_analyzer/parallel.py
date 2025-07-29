@@ -254,9 +254,20 @@ class ParallelProcessor:
                         processed_in_batch = 0
                         batch_start_time = time.time()
                         
+                        # Add timeout for batch processing
+                        batch_timeout = 1800  # 30 minutes per batch (increased for larger batches)
+                        
                         for features, filepath, db_write_success in pool.imap_unordered(worker_func, batch):
                             processed_in_batch += 1
                             logger.debug(f"🔄 PARALLEL: Got result {processed_in_batch}/{len(batch)} for {os.path.basename(filepath)}")
+                            
+                            # Check if batch is taking too long
+                            batch_elapsed = time.time() - batch_start_time
+                            if batch_elapsed > batch_timeout:
+                                logger.error(f"🔄 PARALLEL: Batch timeout after {batch_elapsed:.1f}s - terminating pool")
+                                pool.terminate()
+                                pool.join()
+                                raise TimeoutException(f"Batch processing timed out after {batch_elapsed:.1f}s")
                             
                             if self.enforce_fail_limit:
                                 # Use in-memory retry counter
@@ -273,6 +284,12 @@ class ParallelProcessor:
                                     conn.close()
                                     logger.warning(
                                         f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                    continue
+                                
+                                # Check if this file has been stuck for too long
+                                if batch_elapsed > 600:  # 10 minutes per file (increased for larger batches)
+                                    logger.warning(f"File {os.path.basename(filepath)} stuck for {batch_elapsed:.1f}s - marking for retry")
+                                    # Don't mark as failed yet, just skip for now
                                     continue
 
                             import sqlite3

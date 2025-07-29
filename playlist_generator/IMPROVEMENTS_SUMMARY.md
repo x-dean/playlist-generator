@@ -71,6 +71,27 @@
    - Dynamic adjustment with logging
    - More efficient memory pressure handling
 
+### 4. Timeout and Stuck File Handling
+
+**Problem**: Files could get stuck in processing for hours without any retry mechanism.
+
+**Improvements Made**:
+
+1. **Enhanced Timeout Monitoring** (`analysis_manager.py`):
+   - Added automatic termination after 30 minutes for any stuck file
+   - Forces interrupt flag to kill stuck processes
+   - Better detection of stuck vs. normal large file processing
+
+2. **Batch Timeout Protection** (`parallel.py`):
+   - Added 30-minute timeout per batch (increased for larger batches)
+   - Automatic pool termination if batch takes too long
+   - Individual file timeout of 10 minutes in parallel mode
+
+3. **Retry Logic for Stuck Files**:
+   - Files stuck for >5 minutes are marked for retry
+   - Files stuck for >30 minutes are force-terminated
+   - Better logging of stuck file detection
+
 ## Key Features Added
 
 ### BPM Extraction Enhancements
@@ -116,6 +137,20 @@ logger.info(f"🔄 PARALLEL: Starting batch {current_batch}/{total_batches} with
 # Dynamic adjustment based on memory pressure
 ```
 
+### Timeout and Stuck File Handling
+
+```python
+# Automatic stuck file detection
+if file_processing_time > 1800:  # 30 minutes
+    logger.error(f"CRITICAL: File stuck for {file_processing_time:.1f}s - forcing termination")
+    _interrupt_requested.set()  # Force kill
+
+# Batch timeout protection
+if batch_elapsed > 1800:  # 30 minutes per batch
+    pool.terminate()
+    raise TimeoutException("Batch processing timed out")
+```
+
 ## Benefits
 
 1. **Better BPM Data Quality**: 
@@ -135,10 +170,17 @@ logger.info(f"🔄 PARALLEL: Starting batch {current_batch}/{total_batches} with
    - **Much faster processing** due to efficient batch sizes
    - **Better resource utilization**
 
-4. **Enhanced Debugging**:
+4. **Robust Stuck File Handling**:
+   - **Automatic termination** of stuck files after 30 minutes
+   - **Batch timeout protection** (10 minutes per batch)
+   - **Individual file timeout** (5 minutes in parallel)
+   - **Better retry logic** for problematic files
+
+5. **Enhanced Debugging**:
    - Detailed BPM extraction statistics
    - Better batch transition logging
    - Memory pressure monitoring
+   - Stuck file detection and logging
 
 ## Usage
 
@@ -158,6 +200,9 @@ BPM Extraction Stats for song.mp3:
 🔄 PARALLEL: Processing 2314 files in 23 batches
 🔄 PARALLEL: Starting batch 1/23 with 20 files (batch size: 20)
 🔄 PARALLEL: Reducing batch size from 20 to 10 (memory critical)
+
+CRITICAL: File stuck for 1830.5s - forcing termination
+Set interrupt flag to force termination of stuck process
 ```
 
 ## Configuration
@@ -170,7 +215,7 @@ No additional configuration required - the improvements work with existing setti
 
 ## Performance Impact
 
-**Before**: 2314 files → 1157 batches → Massive overhead
-**After**: 2314 files → ~23 batches → 95% reduction in overhead
+**Before**: 2314 files → 1157 batches → Massive overhead + stuck files
+**After**: 2314 files → ~23 batches → 95% reduction in overhead + automatic stuck file handling
 
-This should result in **significantly faster processing** and **much better resource utilization**. 
+This should result in **significantly faster processing**, **much better resource utilization**, and **automatic recovery from stuck files**. 

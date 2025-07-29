@@ -423,6 +423,18 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                             logger.debug(f"Large file processing ({current_file_size:.1f}MB) for {file_processing_time:.1f}s - not stuck yet")
                         else:
                             logger.warning(f"PROCESSING: No progress for 20 minutes - file may be stuck (current file: {current_file_size:.1f}MB, processing for {file_processing_time:.1f}s)")
+                            
+                            # If it's been stuck for too long, force kill the process
+                            max_stuck_time = 1800  # 30 minutes for any file
+                            if file_processing_time > max_stuck_time:
+                                logger.error(f"CRITICAL: File stuck for {file_processing_time:.1f}s - forcing termination")
+                                try:
+                                    # Force interrupt the main process
+                                    from playlista import _interrupt_requested
+                                    _interrupt_requested.set()
+                                    logger.error("Set interrupt flag to force termination of stuck process")
+                                except Exception as e:
+                                    logger.error(f"Could not set interrupt flag: {e}")
                     
                     # Check memory usage
                     try:
