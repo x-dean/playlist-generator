@@ -173,6 +173,7 @@ def setup_logging(
         except ImportError:
             logger.debug("psutil not available for memory monitoring")
     
+    # Log initialization only once
     logger.info("Logging system initialized", extra={
         'log_level': log_level,
         'file_logging': file_logging,
@@ -197,8 +198,10 @@ def _setup_external_logging(config: Any) -> None:
         tf_logger.handlers.clear()
         tf_logger.setLevel(logging.ERROR)  # Only show errors
         
-        # Suppress TensorFlow warnings
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TF warnings
+            # Suppress TensorFlow warnings more aggressively
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TF warnings
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimizations
+    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU usage
         
         # Get TensorFlow log level from config
         if hasattr(config, 'logging'):

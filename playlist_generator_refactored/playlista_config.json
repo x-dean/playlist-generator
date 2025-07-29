@@ -63,11 +63,11 @@
       "description": "Logging configuration for troubleshooting",
       "settings": {
         "LOG_LEVEL": {
-          "value": "WARNING",
+          "value": "INFO",
           "description": "Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
           "type": "string",
           "options": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-          "default": "WARNING"
+          "default": "INFO"
         },
         "console_logging": {
           "value": true,

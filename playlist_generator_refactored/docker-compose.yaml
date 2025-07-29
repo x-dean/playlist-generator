@@ -6,7 +6,7 @@ services:
     container_name: playlista
     volumes:
       # Mount the JSON configuration file
-      - /root/music/playlista/config/playlistarrays_config.json:/app/config/playlista_config.json:ro
+      - ./playlista_config.json:/app/config/playlista_config.json:ro
       # Mount music library
       - /root/music/library:/music:ro
       # Mount output directories
@@ -17,6 +17,10 @@ services:
     environment:
       # Only essential environment variables (system paths)
       - PYTHONPATH=/app/src
+      # TensorFlow suppression
+      - TF_CPP_MIN_LOG_LEVEL=3
+      - TF_ENABLE_ONEDNN_OPTS=0
+      - CUDA_VISIBLE_DEVICES=-1
       # Optional: Override specific settings if needed
       # - MEMORY_LIMIT_GB=8.0
       # - DEBUG=true

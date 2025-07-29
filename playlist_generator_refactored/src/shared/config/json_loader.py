@@ -38,6 +38,14 @@ class JSONConfigLoader:
         """
         self.config_file_path = config_file_path or "/app/config/playlista_config.json"
         self.config_cache: Optional[Dict[str, Any]] = None
+        
+        # Alternative config paths to try
+        self.alternative_paths = [
+            "/app/config/playlista_config.json",
+            "/app/playlista_config.json",
+            "./playlista_config.json",
+            "playlista_config.json"
+        ]
     
     def load_config(self, force_reload: bool = False) -> Dict[str, Any]:
         """Load configuration from JSON file.
@@ -51,14 +59,37 @@ class JSONConfigLoader:
         if self.config_cache is not None and not force_reload:
             return self.config_cache
         
-        try:
-            config_path = Path(self.config_file_path)
-            if not config_path.exists():
-                logger.debug(f"Config file not found: {config_path}")
-                return {}
-            
-            with open(config_path, 'r') as f:
-                config_data = json.load(f)
+        # Try multiple config paths
+        config_paths_to_try = [self.config_file_path] + self.alternative_paths
+        
+        for config_file_path in config_paths_to_try:
+            try:
+                config_path = Path(config_file_path)
+                logger.debug(f"Trying config file at: {config_path}")
+                logger.debug(f"Config path exists: {config_path.exists()}")
+                logger.debug(f"Config path is file: {config_path.is_file()}")
+                logger.debug(f"Config path is directory: {config_path.is_dir()}")
+                
+                if not config_path.exists():
+                    logger.debug(f"Config file not found: {config_path}")
+                    continue
+                
+                if config_path.is_dir():
+                    logger.error(f"Config path is a directory, not a file: {config_path}")
+                    continue
+                
+                with open(config_path, 'r') as f:
+                    config_data = json.load(f)
+                
+                logger.info(f"Successfully loaded config from: {config_path}")
+                break
+                
+            except Exception as e:
+                logger.debug(f"Failed to load config from {config_path}: {e}")
+                continue
+        else:
+            logger.warning("No config file found in any of the expected locations")
+            return {}
             
             # Extract settings from the nested structure
             settings = self._extract_settings(config_data)
