@@ -23,6 +23,6 @@ services:
       - LOG_LEVEL=INFO
       - LARGE_FILE_THRESHOLD=50
       - MIN_TRACKS_PER_GENRE=10
-    command: ["python", "-m", "src.presentation.cli.main", "--help"]
+    command: ["--help"]
     stdin_open: true
     tty: true 

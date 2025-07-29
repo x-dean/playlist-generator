@@ -9,7 +9,7 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from presentation.cli.cli_interface import CLIInterface
+from src.presentation.cli.cli_interface import CLIInterface
 
 
 def main():
