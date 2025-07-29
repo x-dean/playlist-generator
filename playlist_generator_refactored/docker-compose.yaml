@@ -9,6 +9,7 @@ services:
       - /root/music/playlista/cache:/app/cache
       - /root/music/playlista/logs:/app/logs
       - /root/music/playlista/playlists:/app/playlists
+      - /root/music/playlista/models:/app/feature_extraction/models
     environment:
       - PYTHONPATH=/app/src
       - MUSIC_PATH=/music

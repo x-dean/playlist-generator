@@ -56,6 +56,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     CACHE_DIR=/app/cache \
     MODEL_DIR=/app/feature_extraction/models \
+    MUSICNN_MODEL_PATH=/app/feature_extraction/models/musicnn/msd-musicnn-1.pb \
     MUSIC_PATH=/music \
     LOG_DIR=/app/logs \
     OUTPUT_DIR=/app/playlists
