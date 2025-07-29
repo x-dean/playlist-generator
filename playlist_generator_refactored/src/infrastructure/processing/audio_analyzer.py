@@ -230,14 +230,28 @@ class AudioAnalyzer:
         try:
             # Configure the metadata extractor with the file path
             self.algorithms.metadata_extractor.configure(filename=str(file_path))
-            metadata_dict = self.algorithms.metadata_extractor()
+            metadata_tuple = self.algorithms.metadata_extractor()
+            
+            # MetadataReader returns a tuple with (title, artist, album, length, ...)
+            # Handle the tuple format properly
+            if isinstance(metadata_tuple, tuple) and len(metadata_tuple) >= 4:
+                title = metadata_tuple[0] if metadata_tuple[0] else file_path.stem
+                artist = metadata_tuple[1] if metadata_tuple[1] else 'Unknown'
+                album = metadata_tuple[2] if metadata_tuple[2] else 'Unknown'
+                duration = float(metadata_tuple[3]) if metadata_tuple[3] else 0.0
+            else:
+                # Fallback if tuple format is unexpected
+                title = file_path.stem
+                artist = 'Unknown'
+                album = 'Unknown'
+                duration = 0.0
             
             return Metadata(
                 audio_file_id=audio_file_id,
-                title=metadata_dict.get('title', file_path.stem),
-                artist=metadata_dict.get('artist', 'Unknown'),
-                album=metadata_dict.get('album', 'Unknown'),
-                duration=metadata_dict.get('length', 0.0)
+                title=title,
+                artist=artist,
+                album=album,
+                duration=duration
             )
         except Exception as e:
             self.logger.warning(f"Metadata extraction failed for {file_path}: {e}")
