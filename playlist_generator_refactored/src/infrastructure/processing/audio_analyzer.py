@@ -62,42 +62,69 @@ class AudioAnalyzer:
     def _initialize_algorithms(self) -> AnalysisAlgorithms:
         """Initialize all Essentia algorithms once."""
         try:
-            return AnalysisAlgorithms(
-                rhythm_extractor=es.RhythmExtractor2013(),
-                key_extractor=es.KeyExtractor(),
-                energy_extractor=es.Energy(),
-                loudness_extractor=es.Loudness(),
-                spectral_extractor=es.Centroid(),
-                mfcc_extractor=es.MFCC(),
-                metadata_extractor=es.MetadataReader(),
-                mono_loader=es.MonoLoader(),
-                spectral_rolloff=es.RollOff(),
-                spectral_bandwidth=es.SpectralBandwidth(),
-                spectral_contrast=es.SpectralContrast(),
-                spectral_peaks=es.SpectralPeaks(),
-                hpcp_extractor=es.HPCP(),
-                chord_detector=es.ChordsDetection()
-            )
-        except AttributeError as e:
-            self.logger.error(f"Failed to initialize Essentia algorithms: {e}")
-            # Try with corrected algorithm names
+            # Initialize core algorithms (these should always be available)
+            core_algorithms = {
+                'rhythm_extractor': es.RhythmExtractor2013(),
+                'key_extractor': es.KeyExtractor(),
+                'energy_extractor': es.Energy(),
+                'loudness_extractor': es.Loudness(),
+                'spectral_extractor': es.Centroid(),
+                'mfcc_extractor': es.MFCC(),
+                'metadata_extractor': es.MetadataReader(),
+                'mono_loader': es.MonoLoader(),
+            }
+            
+            # Initialize optional algorithms with fallbacks
+            optional_algorithms = {}
+            
+            # Try to initialize optional spectral algorithms
             try:
-                return AnalysisAlgorithms(
-                    rhythm_extractor=es.RhythmExtractor2013(),
-                    key_extractor=es.KeyExtractor(),
-                    energy_extractor=es.Energy(),
-                    loudness_extractor=es.Loudness(),
-                    spectral_extractor=es.Centroid(),
-                    mfcc_extractor=es.MFCC(),
-                    metadata_extractor=es.MetadataReader(),
-                    mono_loader=es.MonoLoader(),
-                    spectral_rolloff=es.Rolloff(),  # Try different case
-                    spectral_bandwidth=es.SpectralBandwidth(),
-                    spectral_contrast=es.SpectralContrast(),
-                    spectral_peaks=es.SpectralPeaks(),
-                    hpcp_extractor=es.HPCP(),
-                    chord_detector=es.ChordsDetection()
-                )
+                optional_algorithms['spectral_rolloff'] = es.RollOff()
+            except AttributeError:
+                try:
+                    optional_algorithms['spectral_rolloff'] = es.Rolloff()
+                except AttributeError:
+                    optional_algorithms['spectral_rolloff'] = None
+                    self.logger.warning("RollOff/Rolloff algorithm not available in Essentia")
+            
+            try:
+                optional_algorithms['spectral_bandwidth'] = es.SpectralBandwidth()
+            except AttributeError:
+                optional_algorithms['spectral_bandwidth'] = None
+                self.logger.warning("SpectralBandwidth algorithm not available in Essentia")
+            
+            try:
+                optional_algorithms['spectral_contrast'] = es.SpectralContrast()
+            except AttributeError:
+                optional_algorithms['spectral_contrast'] = None
+                self.logger.warning("SpectralContrast algorithm not available in Essentia")
+            
+            try:
+                optional_algorithms['spectral_peaks'] = es.SpectralPeaks()
+            except AttributeError:
+                optional_algorithms['spectral_peaks'] = None
+                self.logger.warning("SpectralPeaks algorithm not available in Essentia")
+            
+            try:
+                optional_algorithms['hpcp_extractor'] = es.HPCP()
+            except AttributeError:
+                optional_algorithms['hpcp_extractor'] = None
+                self.logger.warning("HPCP algorithm not available in Essentia")
+            
+            try:
+                optional_algorithms['chord_detector'] = es.ChordsDetection()
+            except AttributeError:
+                optional_algorithms['chord_detector'] = None
+                self.logger.warning("ChordsDetection algorithm not available in Essentia")
+            
+            # Combine core and optional algorithms
+            all_algorithms = {**core_algorithms, **optional_algorithms}
+            
+            return AnalysisAlgorithms(**all_algorithms)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Essentia algorithms: {e}")
+            raise
             except AttributeError as e2:
                 self.logger.error(f"Failed to initialize with corrected names: {e2}")
                 # Try with minimal set of algorithms
@@ -242,6 +269,9 @@ class AudioAnalyzer:
                 spectral_rolloff = self.algorithms.spectral_rolloff(audio)
             if self.algorithms.spectral_bandwidth:
                 spectral_bandwidth = self.algorithms.spectral_bandwidth(audio)
+            else:
+                # Manual spectral bandwidth calculation as fallback
+                spectral_bandwidth = self._calculate_manual_spectral_bandwidth(audio, spectral_centroid)
             
             # MFCC features
             mfcc_bands, mfcc_coeffs = self.algorithms.mfcc_extractor(audio)
@@ -339,6 +369,34 @@ class AudioAnalyzer:
             return (normalized_centroid + normalized_energy) / 2.0
         except Exception:
             return 0.5
+    
+    def _calculate_manual_spectral_bandwidth(self, audio: np.ndarray, spectral_centroid: float) -> float:
+        """Calculate spectral bandwidth manually using FFT."""
+        try:
+            # Use FFT to get spectrum
+            fft = np.fft.fft(audio)
+            magnitude_spectrum = np.abs(fft[:len(fft)//2])
+            frequencies = np.fft.fftfreq(len(audio), 1.0/44100.0)[:len(fft)//2]
+            
+            # Calculate spectral bandwidth as weighted standard deviation
+            if np.sum(magnitude_spectrum) > 0:
+                # Normalize magnitude spectrum
+                normalized_magnitude = magnitude_spectrum / np.sum(magnitude_spectrum)
+                
+                # Calculate weighted mean (spectral centroid)
+                weighted_mean = np.sum(frequencies * normalized_magnitude)
+                
+                # Calculate weighted variance
+                weighted_variance = np.sum(normalized_magnitude * (frequencies - weighted_mean)**2)
+                
+                # Spectral bandwidth is the square root of variance
+                bandwidth = np.sqrt(weighted_variance)
+                return float(bandwidth)
+            else:
+                return 0.0
+        except Exception as e:
+            self.logger.warning(f"Manual spectral bandwidth calculation failed: {e}")
+            return 0.0
     
     def _calculate_acousticness(self, audio: np.ndarray, spectral_centroid: float, spectral_rolloff: float) -> float:
         """Calculate acousticness based on spectral characteristics."""
