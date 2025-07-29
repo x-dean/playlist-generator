@@ -165,7 +165,8 @@ class PlaylistaCLI:
         self.discovery_service = FileDiscoveryService()
         self.analysis_service = AudioAnalysisService(
             processing_config=self.config.processing,
-            memory_config=self.config.memory
+            memory_config=self.config.memory,
+            audio_analysis_config=self.config.audio_analysis
         )
         self.enrichment_service = MetadataEnrichmentService()
         self.playlist_service = PlaylistGenerationService()
