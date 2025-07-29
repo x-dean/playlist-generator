@@ -888,13 +888,9 @@ class AudioAnalysisService:
 
     def _create_standalone_processor(self):
         """Create a standalone processor function using the modular analyzer."""
+        # Return the top-level function directly - this can be pickled
         from infrastructure.processing.audio_analyzer import analyze_audio_file
-        
-        def standalone_processor(file_path: Path) -> AnalysisResult:
-            """Use the modular analyzer for efficient parallel processing."""
-            return analyze_audio_file(file_path)
-        
-        return standalone_processor
+        return analyze_audio_file
     
     def _process_single_file(self, file_path: Path) -> AnalysisResult:
         """Process a single audio file for sequential processing."""
