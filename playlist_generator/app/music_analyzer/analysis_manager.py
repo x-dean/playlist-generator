@@ -612,10 +612,15 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 
                 parallel_manager = ParallelWorkerManager()
                 fast_mode = getattr(args, 'fast_mode', False)
+                logger.debug(f"PROGRESS: About to start parallel processing for {len(normal_files)} files")
+                logger.debug(f"PROGRESS: parallel_manager={parallel_manager}, workers={workers}, fast_mode={fast_mode}")
                 logger.debug(f"PROGRESS: Starting parallel processing loop for {len(normal_files)} files")
+                result_count = 0
                 for result in parallel_manager.process(normal_files, workers=workers, force_reextract=force_reextract, fast_mode=fast_mode):
+                    result_count += 1
                     processed_count += 1
                     filename = os.path.basename(result[1]) # result[1] is the filepath
+                    logger.debug(f"PROGRESS: Received result #{result_count} for {filename}")
                     
                     # Check for interrupt using global flag
                     try:
@@ -634,6 +639,7 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                     # Update progress bar with the file that was just processed
                     logger.debug(f"PROGRESS: About to update progress bar for {filename}")
                     logger.debug(f"PROGRESS: processed_count={processed_count}, total_files={len(files_to_analyze)}")
+                    logger.debug(f"PROGRESS: result[0]={result[0] is not None}, result[2]={result[2]}")
                     # Show the actual file that was just completed, not the file at the current index
                     _update_progress_bar(progress, task_id, files_to_analyze, processed_count - 1, len(files_to_analyze),
                                          "[cyan]", "", status_dot, result[1], True, file_sizes)
