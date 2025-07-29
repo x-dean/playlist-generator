@@ -851,125 +851,12 @@ class AudioAnalysisService:
         return True 
 
     def _create_standalone_processor(self):
-        """Create a standalone processor function that can be pickled."""
-        # Import necessary modules for standalone function
-        import time
-        import numpy as np
-        import librosa
-        import essentia
-        import essentia.standard as es
-        from pathlib import Path
-        from domain.entities.audio_file import AudioFile
-        from domain.entities.analysis_result import AnalysisResult
-        from domain.entities.feature_set import FeatureSet
-        from domain.entities.metadata import Metadata
+        """Create a standalone processor function using the modular analyzer."""
+        from infrastructure.processing.audio_analyzer import analyze_audio_file
         
         def standalone_processor(file_path: Path) -> AnalysisResult:
-            """Standalone processor function for parallel processing with full analysis."""
-            start_time = time.time()
-            
-            try:
-                # Create AudioFile entity
-                audio_file = AudioFile(file_path=file_path)
-                
-                # Load audio with librosa for basic analysis
-                y, sr = librosa.load(str(file_path), sr=None)
-                
-                # Initialize Essentia algorithms (created fresh for each process)
-                loader = es.MonoLoader(filename=str(file_path))
-                audio = loader()
-                
-                # Extract metadata using Essentia
-                metadata_extractor = es.MetadataReader()
-                metadata_dict = metadata_extractor(str(file_path))
-                
-                # Create metadata
-                metadata = Metadata(
-                    audio_file_id=audio_file.id,
-                    title=metadata_dict.get('title', file_path.stem),
-                    artist=metadata_dict.get('artist', 'Unknown'),
-                    album=metadata_dict.get('album', 'Unknown'),
-                    duration=len(audio) / 44100.0  # Essentia default sample rate
-                )
-                
-                # Extract rhythm features
-                rhythm_extractor = es.RhythmExtractor2013()
-                bpm, _, _, _ = rhythm_extractor(audio)
-                
-                # Extract key and scale
-                key_extractor = es.KeyExtractor()
-                key, scale, key_strength = key_extractor(audio)
-                
-                # Extract energy
-                energy_extractor = es.Energy()
-                energy = energy_extractor(audio)
-                
-                # Extract loudness
-                loudness_extractor = es.Loudness()
-                loudness = loudness_extractor(audio)
-                
-                # Extract spectral features
-                spectral_extractor = es.SpectralCentroid()
-                spectral_centroid = spectral_extractor(audio)
-                
-                # Extract MFCC features
-                mfcc_extractor = es.MFCC()
-                mfcc_bands, mfcc_coeffs = mfcc_extractor(audio)
-                
-                # Extract danceability (simplified)
-                danceability = 0.5  # Placeholder - would need more complex analysis
-                
-                # Create comprehensive feature set
-                feature_set = FeatureSet(
-                    audio_file_id=audio_file.id,
-                    bpm=float(bpm),
-                    key=f"{key} {scale}",
-                    energy=float(energy),
-                    danceability=danceability,
-                    valence=0.5,  # Placeholder
-                    acousticness=0.5,  # Placeholder
-                    instrumentalness=0.5,  # Placeholder
-                    liveness=0.5,  # Placeholder
-                    speechiness=0.5,  # Placeholder
-                    loudness=float(loudness),
-                    tempo=float(bpm),
-                    mode=1 if scale == 'major' else 0,
-                    time_signature=4,  # Default
-                    duration=len(audio) / 44100.0,
-                    sample_rate=sr,
-                    bit_rate=0,  # Would need to extract from file
-                    channels=1  # MonoLoader loads as mono
-                )
-                
-                # Calculate quality score based on extracted features
-                quality_score = min(1.0, max(0.0, (energy + loudness + spectral_centroid) / 3.0))
-                
-                # Create analysis result
-                result = AnalysisResult(
-                    audio_file=audio_file,
-                    feature_set=feature_set,
-                    metadata=metadata,
-                    quality_score=quality_score,
-                    is_successful=True,
-                    is_complete=True,
-                    processing_time_ms=(time.time() - start_time) * 1000
-                )
-                
-                return result
-                
-            except Exception as e:
-                processing_time_ms = (time.time() - start_time) * 1000
-                
-                audio_file = AudioFile(file_path=file_path)
-                result = AnalysisResult(
-                    audio_file=audio_file,
-                    is_successful=False,
-                    is_complete=True,
-                    error_message=str(e),
-                    processing_time_ms=processing_time_ms
-                )
-                
-                return result
+            """Use the modular analyzer for efficient parallel processing."""
+            return analyze_audio_file(file_path)
         
         return standalone_processor
     
