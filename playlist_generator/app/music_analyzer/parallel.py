@@ -240,6 +240,7 @@ class ParallelProcessor:
                         
                         # Check if workers are actually running
                         import psutil
+                        import sqlite3
                         pool_pids = [p.pid for p in pool._pool]
                         logger.debug(f"🔄 PARALLEL: Worker PIDs: {pool_pids}")
                         
@@ -284,7 +285,6 @@ class ParallelProcessor:
                                 count = self.retry_counter.get(filepath, 0)
                                 if count >= 3:
                                     # Mark as failed in DB
-                                    import sqlite3
                                     conn = sqlite3.connect(
                                         os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
                                     cur = conn.cursor()
@@ -302,7 +302,6 @@ class ParallelProcessor:
                                     # Don't mark as failed yet, just skip for now
                                     continue
 
-                            import sqlite3
                             conn = sqlite3.connect(
                                 os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
                             cur = conn.cursor()
