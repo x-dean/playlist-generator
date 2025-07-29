@@ -249,10 +249,7 @@ class AppConfig:
         # Ensure output directory exists
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Validate paths
-        if not self.host_library_path.exists():
-            logging.warning(f"Host library path does not exist: {self.host_library_path}")
-        
+        # Validate container paths only (host paths are not accessible in Docker)
         if not self.music_path.exists():
             logging.warning(f"Music path does not exist: {self.music_path}")
     
