@@ -27,7 +27,8 @@ from infrastructure.persistence.repositories import (
     SQLiteAudioFileRepository,
     SQLiteFeatureSetRepository,
     SQLiteMetadataRepository,
-    SQLiteAnalysisResultRepository
+    SQLiteAnalysisResultRepository,
+    SQLitePlaylistRepository
 )
 
 

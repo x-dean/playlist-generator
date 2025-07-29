@@ -89,6 +89,12 @@ class JSONConfigLoader:
                 # Convert to environment variables
                 self._set_environment_variables(settings)
                 
+                # Debug: Log some key settings
+                if 'LASTFM_API_KEY' in settings:
+                    logger.info(f"Last.fm API key loaded: {settings['LASTFM_API_KEY'].value[:8]}...")
+                else:
+                    logger.warning("Last.fm API key not found in JSON config")
+                
                 self.config_cache = settings
                 logger.info(f"Loaded configuration from {config_path}")
                 return settings

@@ -213,7 +213,7 @@ class ExternalAPIConfig:
     musicbrainz_rate_limit: float = 1.0  # requests per second
     
     # Last.fm settings
-    lastfm_api_key: str = field(default_factory=lambda: os.getenv('LASTFM_API_KEY', ''))
+    lastfm_api_key: str = field(default_factory=lambda: os.getenv('LASTFM_API_KEY', '9fd1f789ebdf1297e6aa1590a13d85e0'))
     lastfm_rate_limit: float = 2.0  # requests per second
     
     # Spotify settings (future)
