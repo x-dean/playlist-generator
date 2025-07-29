@@ -124,46 +124,27 @@ class AudioAnalyzer:
             
         except Exception as e:
             self.logger.error(f"Failed to initialize Essentia algorithms: {e}")
-            raise
+            # Try with minimal set of algorithms as fallback
+            try:
+                return AnalysisAlgorithms(
+                    rhythm_extractor=es.RhythmExtractor2013(),
+                    key_extractor=es.KeyExtractor(),
+                    energy_extractor=es.Energy(),
+                    loudness_extractor=es.Loudness(),
+                    spectral_extractor=es.Centroid(),
+                    mfcc_extractor=es.MFCC(),
+                    metadata_extractor=es.MetadataReader(),
+                    mono_loader=es.MonoLoader(),
+                    spectral_rolloff=None,
+                    spectral_bandwidth=None,
+                    spectral_contrast=None,
+                    spectral_peaks=None,
+                    hpcp_extractor=None,
+                    chord_detector=None
+                )
             except AttributeError as e2:
-                self.logger.error(f"Failed to initialize with corrected names: {e2}")
-                # Try with minimal set of algorithms
-                try:
-                    return AnalysisAlgorithms(
-                        rhythm_extractor=es.RhythmExtractor2013(),
-                        key_extractor=es.KeyExtractor(),
-                        energy_extractor=es.Energy(),
-                        loudness_extractor=es.Loudness(),
-                        spectral_extractor=es.Centroid(),
-                        mfcc_extractor=es.MFCC(),
-                        metadata_extractor=es.MetadataReader(),
-                        mono_loader=es.MonoLoader(),
-                        spectral_rolloff=None,
-                        spectral_bandwidth=None,
-                        spectral_contrast=None,
-                        spectral_peaks=None,
-                        hpcp_extractor=None,
-                        chord_detector=None
-                    )
-                except AttributeError as e3:
-                    self.logger.error(f"Failed to initialize even basic algorithms: {e3}")
-                    # Last resort - try with just the essential algorithms
-                    return AnalysisAlgorithms(
-                        rhythm_extractor=es.RhythmExtractor2013(),
-                        key_extractor=es.KeyExtractor(),
-                        energy_extractor=es.Energy(),
-                        loudness_extractor=es.Loudness(),
-                        spectral_extractor=es.Centroid(),
-                        mfcc_extractor=es.MFCC(),
-                        metadata_extractor=es.MetadataReader(),
-                        mono_loader=es.MonoLoader(),
-                        spectral_rolloff=None,
-                        spectral_bandwidth=None,
-                        spectral_contrast=None,
-                        spectral_peaks=None,
-                        hpcp_extractor=None,
-                        chord_detector=None
-                    )
+                self.logger.error(f"Failed to initialize even basic algorithms: {e2}")
+                raise
     
     def _setup_logging(self):
         """Setup logging for the analyzer."""
