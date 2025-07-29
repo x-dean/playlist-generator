@@ -633,3 +633,148 @@ class SQLitePlaylistRepository(PlaylistRepository):
             track_ids=track_ids,
             track_paths=track_paths
         ) 
+
+
+class SQLiteAnalysisResultRepository(AnalysisResultRepository):
+    """SQLite implementation of AnalysisResult repository."""
+    
+    def __init__(self, db_path: Optional[Path] = None):
+        """Initialize repository with database path."""
+        self.config = get_config()
+        self.db_path = db_path or self.config.database.db_path
+        self.logger = logging.getLogger(__name__)
+        self._ensure_table_exists()
+    
+    def _ensure_table_exists(self):
+        """Ensure the analysis_results table exists."""
+        with self._get_connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS analysis_results (
+                    id TEXT PRIMARY KEY,
+                    audio_file_id TEXT NOT NULL,
+                    feature_set_id TEXT,
+                    metadata_id TEXT,
+                    quality_score REAL,
+                    is_successful BOOLEAN NOT NULL,
+                    is_complete BOOLEAN NOT NULL,
+                    processing_time_ms REAL,
+                    error_message TEXT,
+                    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (audio_file_id) REFERENCES audio_files (id),
+                    FOREIGN KEY (feature_set_id) REFERENCES feature_sets (id),
+                    FOREIGN KEY (metadata_id) REFERENCES metadata (id)
+                )
+            """)
+    
+    @contextmanager
+    def _get_connection(self):
+        """Get database connection with proper error handling."""
+        conn = None
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            conn.row_factory = sqlite3.Row
+            yield conn
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error: {e}")
+            raise DatabaseError(f"Database operation failed: {e}")
+        finally:
+            if conn:
+                conn.close()
+    
+    def save(self, analysis_result: AnalysisResult) -> AnalysisResult:
+        """Save analysis result to database."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO analysis_results 
+                    (id, audio_file_id, feature_set_id, metadata_id, quality_score,
+                     is_successful, is_complete, processing_time_ms, error_message, updated_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    str(analysis_result.id),
+                    str(analysis_result.audio_file.id),
+                    str(analysis_result.feature_set.id) if analysis_result.feature_set else None,
+                    str(analysis_result.metadata.id) if analysis_result.metadata else None,
+                    analysis_result.quality_score,
+                    analysis_result.is_successful,
+                    analysis_result.is_complete,
+                    analysis_result.processing_time_ms,
+                    analysis_result.error_message,
+                    datetime.now().isoformat()
+                ))
+                conn.commit()
+                self.logger.debug(f"Saved analysis result: {analysis_result.id}")
+                return analysis_result
+        except Exception as e:
+            self.logger.error(f"Failed to save analysis result {analysis_result.id}: {e}")
+            raise DatabaseError(f"Failed to save analysis result: {e}")
+    
+    def find_by_id(self, analysis_result_id: UUID) -> Optional[AnalysisResult]:
+        """Find analysis result by ID."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT * FROM analysis_results WHERE id = ?
+                """, (str(analysis_result_id),))
+                row = cursor.fetchone()
+                
+                if row:
+                    return self._row_to_analysis_result(row)
+                return None
+        except Exception as e:
+            self.logger.error(f"Failed to find analysis result {analysis_result_id}: {e}")
+            raise DatabaseError(f"Failed to find analysis result: {e}")
+    
+    def find_by_audio_file_id(self, audio_file_id: UUID) -> Optional[AnalysisResult]:
+        """Find analysis result by audio file ID."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("""
+                    SELECT * FROM analysis_results WHERE audio_file_id = ?
+                """, (str(audio_file_id),))
+                row = cursor.fetchone()
+                
+                if row:
+                    return self._row_to_analysis_result(row)
+                return None
+        except Exception as e:
+            self.logger.error(f"Failed to find analysis result by audio file {audio_file_id}: {e}")
+            raise DatabaseError(f"Failed to find analysis result by audio file: {e}")
+    
+    def delete(self, analysis_result_id: UUID) -> bool:
+        """Delete analysis result by ID."""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("""
+                    DELETE FROM analysis_results WHERE id = ?
+                """, (str(analysis_result_id),))
+                conn.commit()
+                
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    self.logger.debug(f"Deleted analysis result: {analysis_result_id}")
+                return deleted
+        except Exception as e:
+            self.logger.error(f"Failed to delete analysis result {analysis_result_id}: {e}")
+            raise DatabaseError(f"Failed to delete analysis result: {e}")
+    
+    def _row_to_analysis_result(self, row) -> AnalysisResult:
+        """Convert database row to AnalysisResult entity."""
+        # This is a simplified conversion - in a real implementation,
+        # you'd need to load the related entities (AudioFile, FeatureSet, Metadata)
+        from domain.entities.audio_file import AudioFile
+        
+        audio_file = AudioFile(file_path=Path(row['audio_file_id']))  # Simplified
+        
+        return AnalysisResult(
+            id=UUID(row['id']),
+            audio_file=audio_file,
+            feature_set=None,  # Would need to load from feature_sets table
+            metadata=None,      # Would need to load from metadata table
+            quality_score=row['quality_score'],
+            is_successful=bool(row['is_successful']),
+            is_complete=bool(row['is_complete']),
+            processing_time_ms=row['processing_time_ms'],
+            error_message=row['error_message']
+        ) 

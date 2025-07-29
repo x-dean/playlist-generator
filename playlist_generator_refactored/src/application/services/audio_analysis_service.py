@@ -108,6 +108,22 @@ class AudioAnalysisService:
         
         # Initialize parallel processor
         self.parallel_processor = ParallelProcessor(self.processing_config, self.memory_config)
+        
+        # Initialize repositories for database persistence
+        from infrastructure.persistence.repositories import (
+            SQLiteAudioFileRepository, 
+            SQLiteFeatureSetRepository, 
+            SQLiteMetadataRepository,
+            SQLiteAnalysisResultRepository
+        )
+        self.audio_repo = SQLiteAudioFileRepository()
+        self.feature_repo = SQLiteFeatureSetRepository()
+        self.metadata_repo = SQLiteMetadataRepository()
+        self.analysis_repo = SQLiteAnalysisResultRepository()
+        
+        # Initialize cache manager
+        from infrastructure.caching.cache_manager import get_cache_manager
+        self.cache_manager = get_cache_manager()
     
     def _init_musicnn(self):
         """Initialize MusiCNN model if available."""
@@ -524,9 +540,20 @@ class AudioAnalysisService:
             self.logger.warning(f"Advanced spectral extraction failed: {e}")
     
     def _extract_musicnn_features(self, file_path: Path, feature_set: FeatureSet):
-        """Extract MusiCNN embeddings if available."""
+        """Extract MusiCNN embeddings if available with caching."""
         if self.musicnn_model is None:
             self.logger.debug("MusiCNN not available")
+            return
+        
+        # Generate cache key based on file path and modification time
+        cache_key = f"musicnn_{file_path}_{file_path.stat().st_mtime}"
+        
+        # Try to get from cache first
+        cached_result = self.cache_manager.get(cache_key)
+        if cached_result:
+            self.logger.debug(f"Using cached MusiCNN features for {file_path}")
+            feature_set.musicnn_mean = cached_result['mean']
+            feature_set.musicnn_std = cached_result['std']
             return
         
         try:
@@ -536,11 +563,22 @@ class AudioAnalysisService:
             # Extract MusiCNN features
             musicnn_features = self.musicnn_model(audio)
             
-            # Store features
-            feature_set.musicnn_mean = np.mean(musicnn_features, axis=0).tolist()
-            feature_set.musicnn_std = np.std(musicnn_features, axis=0).tolist()
+            # Calculate statistics
+            mean_val = np.mean(musicnn_features, axis=0).tolist()
+            std_val = np.std(musicnn_features, axis=0).tolist()
             
-            self.logger.debug(f"MusiCNN features extracted: {len(feature_set.musicnn_mean)} dimensions")
+            # Cache the result for 24 hours
+            cache_data = {
+                'mean': mean_val,
+                'std': std_val
+            }
+            self.cache_manager.set(cache_key, cache_data, ttl_seconds=86400)
+            
+            # Store features
+            feature_set.musicnn_mean = mean_val
+            feature_set.musicnn_std = std_val
+            
+            self.logger.debug(f"MusiCNN features extracted and cached: {len(feature_set.musicnn_mean)} dimensions")
             
         except Exception as e:
             self.logger.warning(f"MusiCNN extraction failed: {e}")
@@ -644,9 +682,17 @@ class AudioAnalysisService:
 
     def _process_single_file(self, file_path: Path) -> AnalysisResult:
         """Process a single audio file for parallel processing."""
+        start_time = time.time()
+        
         try:
             # Create AudioFile entity
             audio_file = AudioFile(file_path=file_path)
+            
+            # Check if already analyzed (skip if not forcing re-analysis)
+            existing_result = self.analysis_repo.find_by_audio_file_id(audio_file.id)
+            if existing_result and not getattr(self, '_force_reanalysis', False):
+                self.logger.debug(f"Skipping {file_path} - already analyzed")
+                return existing_result
             
             # Extract metadata
             metadata = self._extract_metadata(file_path, audio_file.id)
@@ -657,6 +703,9 @@ class AudioAnalysisService:
             # Calculate quality score
             quality_score = self._calculate_quality_score(feature_set, metadata)
             
+            # Calculate processing time
+            processing_time_ms = (time.time() - start_time) * 1000
+            
             # Create analysis result
             result = AnalysisResult(
                 audio_file=audio_file,
@@ -665,17 +714,40 @@ class AudioAnalysisService:
                 quality_score=quality_score,
                 is_successful=True,
                 is_complete=True,
-                processing_time_ms=None
+                processing_time_ms=processing_time_ms
             )
+            
+            # Save to database
+            try:
+                self.audio_repo.save(audio_file)
+                self.feature_repo.save(feature_set)
+                self.metadata_repo.save(metadata)
+                self.analysis_repo.save(result)
+                self.logger.debug(f"Saved analysis result for {file_path}")
+            except Exception as db_error:
+                self.logger.error(f"Failed to save analysis result to database: {db_error}")
+                # Continue with result even if database save fails
             
             return result
             
         except Exception as e:
             self.logger.error(f"Analysis failed for {file_path}: {e}")
+            processing_time_ms = (time.time() - start_time) * 1000
+            
             audio_file = AudioFile(file_path=file_path)
-            return AnalysisResult(
+            result = AnalysisResult(
                 audio_file=audio_file,
                 is_successful=False,
                 is_complete=True,
-                error_message=str(e)
-            ) 
+                error_message=str(e),
+                processing_time_ms=processing_time_ms
+            )
+            
+            # Save failed result to database
+            try:
+                self.audio_repo.save(audio_file)
+                self.analysis_repo.save(result)
+            except Exception as db_error:
+                self.logger.error(f"Failed to save failed analysis result to database: {db_error}")
+            
+            return result 

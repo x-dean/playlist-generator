@@ -526,10 +526,11 @@ Examples:
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='audio_files'")
                 if not cursor.fetchone():
                     # Initialize database tables
-                    from infrastructure.persistence.repositories import SQLiteAudioFileRepository, SQLiteFeatureSetRepository, SQLiteMetadataRepository
+                    from infrastructure.persistence.repositories import SQLiteAudioFileRepository, SQLiteFeatureSetRepository, SQLiteMetadataRepository, SQLiteAnalysisResultRepository
                     audio_repo = SQLiteAudioFileRepository(db_path)
                     feature_repo = SQLiteFeatureSetRepository(db_path)
                     metadata_repo = SQLiteMetadataRepository(db_path)
+                    analysis_repo = SQLiteAnalysisResultRepository(db_path)
                     self.console.print("[yellow]Initializing database tables...[/yellow]")
                 
                 # Test if we can actually query the database
