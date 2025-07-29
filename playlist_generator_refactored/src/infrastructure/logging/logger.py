@@ -119,19 +119,19 @@ def setup_logging(
     correlation_filter = CorrelationIdFilter()
     logger.addFilter(correlation_filter)
     
-    # Add structured log filters (temporarily disabled for Python 3.7 compatibility)
-    # from infrastructure.logging.processors import (
-    #     get_structured_processor,
-    #     get_database_processor,
-    #     get_analysis_processor,
-    #     get_performance_processor
-    # )
+    # FIXED: Add unified logging filters for better consistency
+    from infrastructure.logging.processors import (
+        get_structured_processor,
+        get_database_processor,
+        get_analysis_processor,
+        get_performance_processor
+    )
     
-    # Add filters to logger (temporarily disabled)
-    # logger.addFilter(get_structured_processor())
-    # logger.addFilter(get_database_processor())
-    # logger.addFilter(get_analysis_processor())
-    # logger.addFilter(get_performance_processor())
+    # Add filters to logger for unified logging
+    logger.addFilter(get_structured_processor())
+    logger.addFilter(get_database_processor())
+    logger.addFilter(get_analysis_processor())
+    logger.addFilter(get_performance_processor())
     
     # Setup formatters
     from infrastructure.logging.formatters import StructuredFormatter, ColoredFormatter
@@ -172,6 +172,9 @@ def setup_logging(
         file_handler.setLevel(logging.DEBUG)
         logger.addHandler(file_handler)
     
+    # FIXED: Add service-specific loggers for better organization
+    _setup_service_loggers(config, log_dir, log_file_prefix)
+    
     # Setup TensorFlow and Essentia logging
     _setup_external_logging(config)
     
@@ -206,6 +209,74 @@ def setup_logging(
     })
     
     return logger
+
+
+def _setup_service_loggers(config: Any, log_dir: Path, log_file_prefix: str):
+    """Setup service-specific loggers for unified logging."""
+    services = ['discovery', 'analysis', 'enrichment', 'playlist', 'metadata']
+    
+    for service in services:
+        # Create service-specific logger
+        service_logger = logging.getLogger(f'playlista.{service}')
+        service_logger.setLevel(logging.DEBUG)
+        
+        # Create service-specific log file
+        service_log_file = log_dir / f"{log_file_prefix}_{service}.log"
+        
+        # Add rotating file handler for service
+        service_handler = logging.handlers.RotatingFileHandler(
+            service_log_file,
+            maxBytes=50 * 1024 * 1024,  # 50MB
+            backupCount=5
+        )
+        
+        # Use structured formatter for service logs
+        from infrastructure.logging.formatters import StructuredFormatter
+        service_formatter = StructuredFormatter()
+        service_handler.setFormatter(service_formatter)
+        service_handler.setLevel(logging.DEBUG)
+        
+        service_logger.addHandler(service_handler)
+        
+        # Prevent propagation to avoid duplicate logs
+        service_logger.propagate = False
+
+
+def get_service_logger(service_name: str) -> logging.Logger:
+    """Get a service-specific logger."""
+    return logging.getLogger(f'playlista.{service_name}')
+
+
+def log_service_operation(service_name: str, operation: str, **kwargs):
+    """Log a service operation with unified format."""
+    logger = get_service_logger(service_name)
+    logger.info(f"Service operation: {operation}", extra={
+        'service': service_name,
+        'operation': operation,
+        **kwargs
+    })
+
+
+def log_service_error(service_name: str, operation: str, error: str, **kwargs):
+    """Log a service error with unified format."""
+    logger = get_service_logger(service_name)
+    logger.error(f"Service error in {operation}: {error}", extra={
+        'service': service_name,
+        'operation': operation,
+        'error': error,
+        **kwargs
+    })
+
+
+def log_service_warning(service_name: str, operation: str, warning: str, **kwargs):
+    """Log a service warning with unified format."""
+    logger = get_service_logger(service_name)
+    logger.warning(f"Service warning in {operation}: {warning}", extra={
+        'service': service_name,
+        'operation': operation,
+        'warning': warning,
+        **kwargs
+    })
 
 
 def _setup_external_logging(config: Any) -> None:

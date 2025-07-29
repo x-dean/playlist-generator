@@ -50,12 +50,21 @@ class FileDiscoveryService:
         self.logger = get_logger(__name__)
         self._discovery_cache: Dict[str, List[AudioFile]] = {}
         
+        # FIXED: Initialize unified error handler
+        from shared.exceptions.processing import get_error_handler, set_error_handler_logger
+        self.error_handler = get_error_handler()
+        set_error_handler_logger(self.logger)
+        
         # Initialize repositories for database tracking
         self.audio_repo = SQLiteAudioFileRepository()
         self.feature_repo = SQLiteFeatureSetRepository()
         self.metadata_repo = SQLiteMetadataRepository()
         self.analysis_repo = SQLiteAnalysisResultRepository()
         self.playlist_repo = SQLitePlaylistRepository()
+        
+        # FIXED: Initialize unified cache manager
+        from infrastructure.caching.cache_manager import get_cache_manager
+        self.cache_manager = get_cache_manager()
     
     @log_function_call
     def discover_files(self, request: FileDiscoveryRequest) -> FileDiscoveryResponse:
@@ -78,6 +87,9 @@ class FileDiscoveryService:
             
             self.logger.info(f"Starting file discovery in {request.total_search_paths} paths")
             
+            # FIXED: Use unified configuration for file validation
+            unified_config = self.config.unified_processing
+            
             # Initialize response
             response = FileDiscoveryResponse(
                 request_id=str(uuid4()),
@@ -96,22 +108,17 @@ class FileDiscoveryService:
                     self.logger.info(f"Scanning path: {search_path}")
                     path_obj = Path(search_path)
                     if not path_obj.exists():
-                        self.logger.warning(f"Path does not exist: {search_path}")
+                        self.error_handler.handle_warning(
+                            "path_not_found",
+                            f"Path does not exist: {search_path}",
+                            service="discovery",
+                            operation="scan_directory",
+                            file_path=str(search_path)
+                        )
                         continue
                     
-                    files = self._scan_directory(path_obj, request)
+                    files = self._scan_directory(path_obj, request, unified_config)
                     self.logger.info(f"Directory scan found {len(files)} files")
-                    
-                    # Process files with progress indication
-                    total_files = len(files)
-                    processed_files = 0
-                    db_saved = 0
-                    db_failed = 0
-                    
-                    self.logger.info(f"Starting to process {total_files} files...")
-                    
-                    # Show progress every 100 files
-                    progress_interval = max(1, total_files // 10)  # Show progress every 10% or every file if < 10
                     
                     # Process files with progress indication
                     total_files = len(files)
@@ -142,15 +149,21 @@ class FileDiscoveryService:
                                 self.logger.info(f"  - Discovered: {len(discovered_files)}, skipped: {len(skipped_files)}")
                                 self.logger.info(f"  - Total size: {total_size_mb:.1f}MB")
                             
-                            # Quick validation
-                            if not file_path.exists() or not file_path.is_file():
+                            # FIXED: Use unified validation
+                            if not unified_config.is_valid_audio_file(file_path):
+                                self.error_handler.handle_warning(
+                                    "invalid_audio_file",
+                                    f"File does not meet validation criteria: {file_path}",
+                                    service="discovery",
+                                    operation="validate_file",
+                                    file_path=str(file_path)
+                                )
                                 skipped_files.append(str(file_path))
                                 continue
                             
                             # Create audio file with basic info
                             audio_file = AudioFile(file_path=file_path)
                             
-                            # Get file size quickly
                             try:
                                 stat = file_path.stat()
                                 audio_file.file_size_bytes = stat.st_size
@@ -164,28 +177,44 @@ class FileDiscoveryService:
                                     audio_file.file_hash = None
                                     
                             except Exception as e:
-                                self.logger.warning(f"Could not get file info for {file_path}: {e}")
+                                self.error_handler.handle_error(
+                                    "file_stat_error",
+                                    f"Could not get file info for {file_path}: {e}",
+                                    service="discovery",
+                                    operation="get_file_info",
+                                    file_path=str(file_path)
+                                )
                                 skipped_files.append(str(file_path))
                                 continue
                             
-                            # Save to database immediately
-                            self.logger.debug(f"Saving to database: {file_path}")
-                            try:
-                                self.audio_repo.save(audio_file)
-                                db_saved += 1
-                                self.logger.debug(f"Successfully saved to database: {file_path}")
-                            except Exception as e:
-                                db_failed += 1
-                                self.logger.warning(f"Failed to save {file_path} to database: {e}")
+                            # FIXED: Check if file already exists in database before saving
+                            existing_file = self.audio_repo.find_by_path(file_path)
+                            if existing_file:
+                                self.logger.debug(f"File already exists in database: {file_path}")
+                                # Use existing file data but update if needed
+                                audio_file.id = existing_file.id
+                                audio_file.created_date = existing_file.created_date
+                                # Only update if file has changed
+                                if audio_file.file_size_bytes != existing_file.file_size_bytes:
+                                    audio_file.last_modified = datetime.now()
+                            else:
+                                # New file, save to database
+                                self.logger.debug(f"Saving to database: {file_path}")
+                                try:
+                                    self.audio_repo.save(audio_file)
+                                    db_saved += 1
+                                    self.logger.debug(f"Successfully saved to database: {file_path}")
+                                except Exception as e:
+                                    db_failed += 1
+                                    self.error_handler.handle_error(
+                                        "database_save_error",
+                                        f"Failed to save {file_path} to database: {e}",
+                                        service="discovery",
+                                        operation="save_to_database",
+                                        file_path=str(file_path)
+                                    )
                             
                             discovered_files.append(audio_file)
-                            
-                            # Progress indication with detailed stats
-                            processed_files += 1
-                            if processed_files % 100 == 0 or processed_files == total_files:
-                                self.logger.info(f"Progress: {processed_files}/{total_files} files ({processed_files/total_files*100:.1f}%)")
-                                self.logger.info(f"  - Database saved: {db_saved}, failed: {db_failed}")
-                                self.logger.info(f"  - Discovered: {len(discovered_files)}, skipped: {len(skipped_files)}")
                             
                             # Debug logging with proper size handling
                             if hasattr(audio_file, 'file_size_bytes') and audio_file.file_size_bytes:
@@ -195,10 +224,22 @@ class FileDiscoveryService:
                                 self.logger.debug(f"Added file: {file_path} (size unknown)")
                             
                         except Exception as e:
-                            self.logger.warning(f"Could not create AudioFile for {file_path}: {e}")
+                            self.error_handler.handle_error(
+                                "file_processing_error",
+                                f"Could not create AudioFile for {file_path}: {e}",
+                                service="discovery",
+                                operation="create_audio_file",
+                                file_path=str(file_path)
+                            )
                             skipped_files.append(str(file_path))
                 except Exception as e:
-                    self.logger.error(f"Failed to scan {search_path}: {e}")
+                    self.error_handler.handle_error(
+                        "directory_scan_error",
+                        f"Failed to scan {search_path}: {e}",
+                        service="discovery",
+                        operation="scan_directory",
+                        file_path=str(search_path)
+                    )
                     error_files.append(str(search_path))
             
             # Track database state and clean up missing files
@@ -221,13 +262,28 @@ class FileDiscoveryService:
             self.logger.info(f"  - Database operations: {db_saved} saved, {db_failed} failed")
             self.logger.info(f"  - Final results: {len(discovered_files)} discovered, {len(skipped_files)} skipped, {len(error_files)} errors")
             
+            # FIXED: Cache discovery results
+            cache_key = f"discovery:{request.search_paths}:{request.recursive}"
+            self.cache_manager.set_for_service(
+                "discovery", "discover_files", discovered_files, 
+                ttl_seconds=3600,  # Cache for 1 hour
+                search_paths=request.search_paths,
+                recursive=request.recursive
+            )
+            
             return response
             
         except Exception as e:
-            self.logger.error(f"File discovery failed: {e}")
+            self.error_handler.handle_error(
+                "discovery_failed",
+                f"File discovery failed: {e}",
+                severity=ErrorSeverity.CRITICAL,
+                service="discovery",
+                operation="discover_files"
+            )
             raise FileDiscoveryError(f"File discovery failed: {e}") from e
     
-    def _scan_directory(self, path: Path, request: FileDiscoveryRequest) -> List[Path]:
+    def _scan_directory(self, path: Path, request: FileDiscoveryRequest, unified_config) -> List[Path]:
         """
         Scan a directory for audio files matching the request filters.
         Uses os.walk() for efficient directory traversal.
@@ -235,6 +291,7 @@ class FileDiscoveryService:
         Args:
             path: Directory path
             request: Discovery request parameters
+            unified_config: Unified processing configuration
             
         Returns:
             List of matching file paths
@@ -242,12 +299,12 @@ class FileDiscoveryService:
         import os
         
         files = []
-        valid_extensions = {'.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus'}
+        valid_extensions = unified_config.get_audio_extensions_set()
         
         try:
             if path.is_file():
                 # Single file
-                if path.suffix.lower() in valid_extensions:
+                if unified_config.is_valid_audio_file(path):
                     files.append(path)
             elif path.is_dir():
                 # Directory - use os.walk for efficient traversal
@@ -260,20 +317,17 @@ class FileDiscoveryService:
                     for file_name in files_in_dir:
                         file_path = Path(root) / file_name
                         
-                        # Quick extension check
-                        if file_path.suffix.lower() not in valid_extensions:
-                            continue
-                        
-                        # Quick size check (skip very small files)
-                        try:
-                            if file_path.stat().st_size < 1024:  # Less than 1KB
-                                continue
-                        except Exception:
-                            continue
-                        
-                        files.append(file_path)
+                        # Use unified validation
+                        if unified_config.is_valid_audio_file(file_path):
+                            files.append(file_path)
         except Exception as e:
-            self.logger.warning(f"Directory scan failed for {path}: {e}")
+            self.error_handler.handle_error(
+                "directory_scan_error",
+                f"Directory scan failed for {path}: {e}",
+                service="discovery",
+                operation="scan_directory",
+                file_path=str(path)
+            )
         return files
     
     def clear_cache(self) -> None:

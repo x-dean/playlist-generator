@@ -671,20 +671,45 @@ Examples:
             )
             
             discovery_response = self.discovery_service.discover_files(discovery_request)
-            if not discovery_response.discovered_files:
+            
+            # FIXED: Proper response structure access and validation
+            if not discovery_response.result or not discovery_response.result.discovered_files:
                 self.console.print("[yellow]No audio files found in the specified path.[/yellow]")
                 self.logger.warning(f"No audio files found in path: {args.path}")
                 return 0
             
-            self.console.print(f"[green]Found {len(discovery_response.discovered_files)} audio files[/green]")
-            self.logger.info(f"Discovered {len(discovery_response.discovered_files)} audio files")
+            discovered_files = discovery_response.result.discovered_files
+            self.console.print(f"[green]Found {len(discovered_files)} audio files[/green]")
+            self.logger.info(f"Discovered {len(discovered_files)} audio files")
             
             # Step 2: Analysis
             self.console.print("[cyan]Step 2: Analyzing audio files...[/cyan]")
             self.logger.info("Step 2: Starting audio analysis")
             
-            # Get file paths from discovered files
-            file_paths = [str(af.file_path) for af in discovery_response.discovered_files]
+            # FIXED: Proper data type conversion and validation
+            file_paths = []
+            valid_files = []
+            
+            for audio_file in discovered_files:
+                try:
+                    # Ensure we have absolute paths and validate file existence
+                    file_path = audio_file.file_path.resolve()
+                    if file_path.exists() and file_path.is_file():
+                        file_paths.append(str(file_path))
+                        valid_files.append(audio_file)
+                        self.logger.debug(f"Validated file: {file_path}")
+                    else:
+                        self.logger.warning(f"File no longer exists or is invalid: {file_path}")
+                except Exception as e:
+                    self.logger.error(f"Error validating file {audio_file.file_path}: {e}")
+            
+            if not file_paths:
+                self.console.print("[yellow]No valid audio files found for analysis.[/yellow]")
+                self.logger.warning("No valid files found for analysis after validation")
+                return 0
+            
+            self.logger.info(f"Validated {len(file_paths)} files for analysis")
+            
             analysis_request = AudioAnalysisRequest(
                 file_paths=file_paths,
                 analysis_method="essentia",
@@ -706,8 +731,14 @@ Examples:
             except Exception as e:
                 self.logger.error(f"analyze_audio_file failed with exception: {e}", exc_info=True)
                 raise
-            successful_analysis = sum(1 for r in analysis_response.results if r.is_successful)
-            failed_analysis = len(analysis_response.results) - successful_analysis
+                
+            # FIXED: Proper result counting with null safety
+            if analysis_response and analysis_response.results:
+                successful_analysis = sum(1 for r in analysis_response.results if r and r.is_successful)
+                failed_analysis = len(analysis_response.results) - successful_analysis
+            else:
+                successful_analysis = 0
+                failed_analysis = 0
             
             self.console.print(f"[green]Analysis completed: {successful_analysis} successful, {failed_analysis} failed[/green]")
             self.logger.info(f"Analysis completed: {successful_analysis} successful, {failed_analysis} failed")
@@ -717,12 +748,9 @@ Examples:
                 self.console.print("[cyan]Step 3: Generating playlists...[/cyan]")
                 self.logger.info("Step 3: Starting playlist generation")
                 
-                # Convert discovered files to AudioFile entities for playlist generation
-                from domain.entities.audio_file import AudioFile
-                audio_files = [AudioFile(file_path=Path(f.file_path)) for f in discovery_response.discovered_files]
-                
+                # FIXED: Use validated files instead of recreating AudioFile entities
                 playlist_request = PlaylistGenerationRequest(
-                    audio_files=audio_files,
+                    audio_files=valid_files,  # Use the validated files from discovery
                     method="kmeans",  # Default method
                     playlist_size=20,
                     num_playlists=8

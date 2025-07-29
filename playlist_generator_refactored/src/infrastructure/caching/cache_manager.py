@@ -71,6 +71,15 @@ class CacheManager:
         self._hits = 0
         self._misses = 0
         self._evictions = 0
+        
+        # FIXED: Add service-specific cache prefixes for better organization
+        self._service_prefixes = {
+            'discovery': 'disc',
+            'analysis': 'anal',
+            'enrichment': 'enrich',
+            'playlist': 'play',
+            'metadata': 'meta'
+        }
     
     def _generate_key(self, *args, **kwargs) -> str:
         """Generate a cache key from arguments."""
@@ -80,6 +89,12 @@ class CacheManager:
         }
         key_string = json.dumps(key_data, sort_keys=True, default=str)
         return hashlib.md5(key_string.encode()).hexdigest()
+    
+    def _generate_service_key(self, service: str, operation: str, *args, **kwargs) -> str:
+        """Generate a service-specific cache key."""
+        prefix = self._service_prefixes.get(service, 'gen')
+        base_key = self._generate_key(*args, **kwargs)
+        return f"{prefix}:{operation}:{base_key}"
     
     def get(self, key: str, default: Any = None) -> Any:
         """Get value from cache."""
@@ -106,6 +121,11 @@ class CacheManager:
             self._misses += 1
             return default
     
+    def get_for_service(self, service: str, operation: str, *args, **kwargs) -> Any:
+        """Get cached value for a specific service operation."""
+        key = self._generate_service_key(service, operation, *args, **kwargs)
+        return self.get(key)
+    
     def set(self, key: str, value: Any, ttl_seconds: Optional[int] = None) -> None:
         """Set value in cache."""
         with self._lock:
@@ -114,6 +134,11 @@ class CacheManager:
             
             # Also save to file cache for persistence
             self._save_to_file(key, value, ttl_seconds)
+    
+    def set_for_service(self, service: str, operation: str, value: Any, ttl_seconds: Optional[int] = None, *args, **kwargs) -> None:
+        """Set cached value for a specific service operation."""
+        key = self._generate_service_key(service, operation, *args, **kwargs)
+        self.set(key, value, ttl_seconds)
     
     def delete(self, key: str) -> bool:
         """Delete value from cache."""
@@ -125,12 +150,30 @@ class CacheManager:
             # Remove from file cache
             return self._delete_from_file(key)
     
+    def delete_for_service(self, service: str, operation: str, *args, **kwargs) -> bool:
+        """Delete cached value for a specific service operation."""
+        key = self._generate_service_key(service, operation, *args, **kwargs)
+        return self.delete(key)
+    
     def clear(self) -> None:
         """Clear all cache entries."""
         with self._lock:
             self._memory_cache.clear()
             self._clear_file_cache()
             self.logger.info("Cache cleared")
+    
+    def clear_service_cache(self, service: str) -> None:
+        """Clear all cache entries for a specific service."""
+        with self._lock:
+            prefix = self._service_prefixes.get(service, 'gen')
+            keys_to_delete = [key for key in self._memory_cache.keys() if key.startswith(f"{prefix}:")]
+            
+            for key in keys_to_delete:
+                del self._memory_cache[key]
+            
+            # Clear file cache for this service
+            self._clear_file_cache_for_service(service)
+            self.logger.info(f"Cache cleared for service: {service}")
     
     def exists(self, key: str) -> bool:
         """Check if key exists in cache."""
@@ -144,11 +187,22 @@ class CacheManager:
             
             return self._exists_in_file(key)
     
+    def exists_for_service(self, service: str, operation: str, *args, **kwargs) -> bool:
+        """Check if cached value exists for a specific service operation."""
+        key = self._generate_service_key(service, operation, *args, **kwargs)
+        return self.exists(key)
+    
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
         with self._lock:
             total_requests = self._hits + self._misses
             hit_rate = (self._hits / total_requests * 100) if total_requests > 0 else 0
+            
+            # FIXED: Add service-specific statistics
+            service_stats = {}
+            for service, prefix in self._service_prefixes.items():
+                service_keys = [key for key in self._memory_cache.keys() if key.startswith(f"{prefix}:")]
+                service_stats[service] = len(service_keys)
             
             return {
                 'hits': self._hits,
@@ -156,7 +210,8 @@ class CacheManager:
                 'evictions': self._evictions,
                 'hit_rate_percent': round(hit_rate, 2),
                 'memory_entries': len(self._memory_cache),
-                'file_entries': self._count_file_entries()
+                'file_entries': self._count_file_entries(),
+                'service_stats': service_stats
             }
     
     def cleanup_expired(self) -> int:
@@ -172,6 +227,21 @@ class CacheManager:
             
             self.logger.info(f"Cleaned up {len(expired_keys)} expired entries")
             return len(expired_keys)
+    
+    def _clear_file_cache_for_service(self, service: str) -> None:
+        """Clear file cache entries for a specific service."""
+        try:
+            prefix = self._service_prefixes.get(service, 'gen')
+            for cache_file in self.cache_dir.glob(f"{prefix}:*.cache"):
+                try:
+                    cache_file.unlink()
+                    meta_file = cache_file.with_suffix('.meta')
+                    if meta_file.exists():
+                        meta_file.unlink()
+                except Exception as e:
+                    self.logger.warning(f"Failed to delete cache file {cache_file}: {e}")
+        except Exception as e:
+            self.logger.warning(f"Failed to clear file cache for service {service}: {e}")
     
     def _get_from_file(self, key: str) -> Optional[Any]:
         """Get value from file cache."""
@@ -251,11 +321,13 @@ class CacheManager:
         """Clear all file cache entries."""
         try:
             for cache_file in self.cache_dir.glob("*.cache"):
-                cache_file.unlink()
-            
-            for metadata_file in self.cache_dir.glob("*.meta"):
-                metadata_file.unlink()
-                
+                try:
+                    cache_file.unlink()
+                    meta_file = cache_file.with_suffix('.meta')
+                    if meta_file.exists():
+                        meta_file.unlink()
+                except Exception as e:
+                    self.logger.warning(f"Failed to delete cache file {cache_file}: {e}")
         except Exception as e:
             self.logger.warning(f"Failed to clear file cache: {e}")
     

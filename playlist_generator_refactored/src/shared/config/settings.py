@@ -9,7 +9,7 @@ throughout the codebase.
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import logging
 
 from ..exceptions import ConfigurationError
@@ -253,6 +253,97 @@ class ExternalAPIConfig:
 
 
 @dataclass
+class UnifiedProcessingConfig:
+    """Unified configuration for discovery and analysis processing."""
+    
+    # File extensions - unified across all services
+    audio_extensions: List[str] = field(default_factory=lambda: [
+        '.mp3', '.flac', '.wav', '.m4a', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.alac'
+    ])
+    
+    # File size thresholds - unified across all services
+    min_file_size_bytes: int = 1024  # 1KB minimum
+    large_file_threshold_mb: int = field(default_factory=lambda: int(os.getenv('LARGE_FILE_THRESHOLD', '50')))
+    very_large_file_threshold_mb: int = 100
+    extremely_large_file_threshold_mb: int = 500
+    
+    # Processing options - unified across all services
+    parallel_processing: bool = True
+    max_workers: Optional[int] = None
+    batch_size: Optional[int] = None
+    timeout_seconds: int = 300
+    
+    # Memory management - unified across all services
+    memory_limit_gb: float = field(default_factory=lambda: float(os.getenv('MEMORY_LIMIT_GB', '6.0')))
+    memory_aware: bool = field(default_factory=lambda: os.getenv('MEMORY_AWARE', 'false').lower() == 'true')
+    memory_pressure_threshold: float = 0.8
+    
+    # Cache settings - unified across all services
+    cache_enabled: bool = True
+    cache_ttl_seconds: Optional[int] = 3600  # 1 hour default
+    cache_max_size_mb: int = 1000  # 1GB cache limit
+    
+    # Error handling - unified across all services
+    max_retries: int = 3
+    retry_delay_seconds: int = 5
+    fail_fast: bool = False
+    
+    def __post_init__(self):
+        """Validate and normalize configuration after initialization."""
+        import multiprocessing as mp
+        
+        if self.max_workers is None:
+            self.max_workers = max(1, mp.cpu_count() // 2)
+        
+        if self.batch_size is None:
+            self.batch_size = max(10, self.max_workers * 2)
+        
+        if self.memory_limit_gb <= 0:
+            raise ValueError("Memory limit must be positive")
+        
+        if self.large_file_threshold_mb <= 0:
+            raise ValueError("Large file threshold must be positive")
+    
+    def get_audio_extensions_set(self) -> set:
+        """Get audio extensions as a set for efficient lookup."""
+        return {ext.lower() for ext in self.audio_extensions}
+    
+    def is_valid_audio_file(self, file_path: Path) -> bool:
+        """Check if a file is a valid audio file based on unified criteria."""
+        try:
+            # Check extension
+            if file_path.suffix.lower() not in self.get_audio_extensions_set():
+                return False
+            
+            # Check file exists and is readable
+            if not file_path.exists() or not file_path.is_file():
+                return False
+            
+            # Check file size
+            file_size = file_path.stat().st_size
+            if file_size < self.min_file_size_bytes:
+                return False
+            
+            return True
+            
+        except Exception:
+            return False
+    
+    def get_file_size_category(self, file_size_bytes: int) -> str:
+        """Categorize file by size."""
+        file_size_mb = file_size_bytes / (1024 * 1024)
+        
+        if file_size_mb < 5:
+            return "small"
+        elif file_size_mb < self.large_file_threshold_mb:
+            return "medium"
+        elif file_size_mb < self.very_large_file_threshold_mb:
+            return "large"
+        else:
+            return "very_large"
+
+
+@dataclass
 class AppConfig:
     """Main application configuration."""
     
@@ -271,6 +362,9 @@ class AppConfig:
     external_api: ExternalAPIConfig = field(default_factory=ExternalAPIConfig)
     file_discovery: FileDiscoveryConfig = field(default_factory=FileDiscoveryConfig)
     
+    # FIXED: Add unified processing configuration
+    unified_processing: UnifiedProcessingConfig = field(default_factory=UnifiedProcessingConfig)
+    
     # Application settings
     app_name: str = "Playlista"
     app_version: str = "1.0.0"
@@ -284,53 +378,51 @@ class AppConfig:
         # Validate container paths only (host paths are not accessible in Docker)
         if not self.music_path.exists():
             logging.warning(f"Music path does not exist: {self.music_path}")
+        
+        # FIXED: Synchronize configurations to prevent mismatches
+        self._synchronize_configurations()
+    
+    def _synchronize_configurations(self):
+        """Synchronize configurations to ensure consistency."""
+        # Sync file extensions across all services
+        unified_extensions = self.unified_processing.get_audio_extensions_set()
+        
+        # Update file discovery config
+        self.file_discovery.file_extensions = list(unified_extensions)
+        
+        # Update processing config
+        self.processing.large_file_threshold_mb = self.unified_processing.large_file_threshold_mb
+        self.processing.max_workers = self.unified_processing.max_workers
+        self.processing.batch_size = self.unified_processing.batch_size
+        
+        # Update memory config
+        self.memory.memory_limit_gb = self.unified_processing.memory_limit_gb
+        self.memory.memory_aware = self.unified_processing.memory_aware
+        self.memory.memory_pressure_threshold = self.unified_processing.memory_pressure_threshold
+        
+        # Update audio analysis config
+        self.audio_analysis.fast_mode = self.unified_processing.parallel_processing
+        
+        logging.info("Configuration synchronization completed")
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary for serialization."""
         return {
-            'host_library_path': str(self.host_library_path),
+            'app_name': self.app_name,
+            'app_version': self.app_version,
+            'debug_mode': self.debug_mode,
             'music_path': str(self.music_path),
             'output_dir': str(self.output_dir),
-            'logging': {
-                'level': self.logging.level,
-                'log_dir': str(self.logging.log_dir),
-                'colored_output': self.logging.colored_output,
-                'file_logging': self.logging.file_logging,
-                'console_logging': self.logging.console_logging
-            },
-            'database': {
-                'cache_dir': str(self.database.cache_dir),
-                'cache_file': self.database.cache_file,
-                'pragma_cache_size': self.database.pragma_cache_size
-            },
-            'memory': {
-                'memory_limit_gb': self.memory.memory_limit_gb,
-                'rss_limit_gb': self.memory.rss_limit_gb,
-                'memory_aware': self.memory.memory_aware,
-                'low_memory_mode': self.memory.low_memory_mode
-            },
-            'processing': {
-                'default_workers': self.processing.default_workers,
-                'max_workers': self.processing.max_workers,
-                'large_file_threshold_mb': self.processing.large_file_threshold_mb,
-                'file_timeout_minutes': self.processing.file_timeout_minutes,
-                'batch_timeout_minutes': self.processing.batch_timeout_minutes
-            },
-            'audio_analysis': {
-                'fast_mode': self.audio_analysis.fast_mode,
-                'extract_bpm': self.audio_analysis.extract_bpm,
-                'extract_mfcc': self.audio_analysis.extract_mfcc,
-                'extract_chroma': self.audio_analysis.extract_chroma,
-                'extract_musicnn': self.audio_analysis.extract_musicnn,
-                'bpm_min': self.audio_analysis.bpm_min,
-                'bpm_max': self.audio_analysis.bpm_max
-            },
-            'playlist': {
-                'min_tracks_per_playlist': self.playlist.min_tracks_per_playlist,
-                'max_tracks_per_playlist': self.playlist.max_tracks_per_playlist,
-                'default_num_playlists': self.playlist.default_num_playlists,
-                'min_tracks_per_genre': self.playlist.min_tracks_per_genre
-            }
+            'host_library_path': str(self.host_library_path),
+            'logging': self.logging.__dict__,
+            'database': self.database.__dict__,
+            'memory': self.memory.__dict__,
+            'processing': self.processing.__dict__,
+            'audio_analysis': self.audio_analysis.__dict__,
+            'playlist': self.playlist.__dict__,
+            'external_api': self.external_api.__dict__,
+            'file_discovery': self.file_discovery.__dict__,
+            'unified_processing': self.unified_processing.__dict__
         }
 
 
