@@ -578,6 +578,11 @@ class AudioAnalyzer:
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_failed ON audio_features(failed)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_musicnn_skipped ON audio_features(musicnn_skipped)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_last_analyzed ON audio_features(last_analyzed)")
+            
+            # Test database connection and count existing records
+            test_cursor = self.conn.execute("SELECT COUNT(*) FROM audio_features")
+            count = test_cursor.fetchone()[0]
+            logger.debug(f"Database initialized: {self.cache_file} with {count} existing records")
 
     def _ensure_float(self, value):
         """Convert value to float safely"""
@@ -2269,7 +2274,7 @@ class AudioAnalyzer:
                 logger.debug(f"Value {i}: {type(val)} = {val}")
 
             with self.conn:
-                self.conn.execute(
+                cursor = self.conn.execute(
                     """
                     INSERT OR REPLACE INTO audio_features (
                         file_hash, file_path, duration, bpm, beat_confidence, centroid, loudness, danceability, key, scale, key_strength, onset_rate, zcr,
@@ -2279,10 +2284,29 @@ class AudioAnalyzer:
                     """,
                     values_tuple
                 )
-            logger.debug(
-                f"Successfully saved features to database for {file_info['file_path']}")
-            logger.info(
-                f"Database save completed successfully for {file_info['file_path']}")
+                # Check if the row was actually inserted/updated
+                if cursor.rowcount > 0:
+                    logger.debug(
+                        f"Successfully saved features to database for {file_info['file_path']} (rows affected: {cursor.rowcount})")
+                    logger.info(
+                        f"Database save completed successfully for {file_info['file_path']}")
+                else:
+                    logger.warning(
+                        f"No rows affected when saving features for {file_info['file_path']}")
+                
+                # Verify the save by checking if the record exists
+                verify_cursor = self.conn.execute(
+                    "SELECT file_path, failed FROM audio_features WHERE file_hash = ?",
+                    (file_info['file_hash'],)
+                )
+                verify_result = verify_cursor.fetchone()
+                if verify_result:
+                    logger.debug(
+                        f"Database verification: Record exists for {file_info['file_path']}, failed={verify_result[1]}")
+                else:
+                    logger.error(
+                        f"Database verification: Record NOT found for {file_info['file_path']} after save!")
+                
             return True
         except Exception as e:
             logger.error(f"Error saving features to DB: {str(e)}")

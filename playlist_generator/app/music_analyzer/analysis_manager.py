@@ -180,6 +180,33 @@ def select_files_for_analysis(args, audio_db):
 
     logger.debug(
         f"DISCOVERY: normal_files={len(normal_files)}, big_files={len(big_files)}")
+    
+    # Debug: Show all big files in the library (not just those needing analysis)
+    all_files = audio_db.get_all_audio_files()
+    all_file_sizes = audio_db.get_file_sizes_from_db(all_files)
+    all_big_files = []
+    for file_path in all_files:
+        file_size_bytes = all_file_sizes.get(file_path, 0)
+        file_size_mb = file_size_bytes / (1024 * 1024)
+        if file_size_mb > BIG_FILE_SIZE_MB:
+            all_big_files.append((file_path, file_size_mb))
+    
+    logger.info(f"DISCOVERY: Total big files in library: {len(all_big_files)}")
+    if all_big_files:
+        logger.info(f"DISCOVERY: Sample big files in library: {[os.path.basename(f[0]) for f in all_big_files[:5]]}")
+    
+    # Debug: Check specific file status
+    if big_files:
+        for big_file in big_files:
+            file_info = audio_db._get_file_info(big_file)
+            cached_features = audio_db._get_cached_features(file_info)
+            logger.info(f"DISCOVERY: Big file '{os.path.basename(big_file)}' status:")
+            logger.info(f"  - File info: {file_info}")
+            logger.info(f"  - Cached features: {'Yes' if cached_features else 'No'}")
+            if cached_features:
+                logger.info(f"  - Features valid: {audio_db.is_valid_feature_set(cached_features)}")
+                logger.info(f"  - Failed: {cached_features.get('failed', False)}")
+    
     return normal_files, big_files, [], db_features
 
 
