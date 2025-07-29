@@ -228,7 +228,9 @@ class AudioAnalyzer:
     def _extract_metadata(self, file_path: Path, audio_file_id: str) -> Metadata:
         """Extract metadata from audio file."""
         try:
-            metadata_dict = self.algorithms.metadata_extractor(str(file_path))
+            # Configure the metadata extractor with the file path
+            self.algorithms.metadata_extractor.configure(filename=str(file_path))
+            metadata_dict = self.algorithms.metadata_extractor()
             
             return Metadata(
                 audio_file_id=audio_file_id,
