@@ -79,7 +79,7 @@ def filter_metadata(meta):
 
 
 def safe_json_dumps(obj):
-    """Safely serialize object to JSON, handling NumPy types."""
+    """Safely serialize object to JSON, handling NumPy types and edge cases."""
     if obj is None:
         return None
     try:
@@ -91,40 +91,48 @@ def safe_json_dumps(obj):
             if isinstance(obj, dict):
                 converted = {}
                 for k, v in obj.items():
-                    if isinstance(v, np.floating):
-                        converted[k] = float(v)
-                    elif isinstance(v, np.integer):
-                        converted[k] = int(v)
-                    elif isinstance(v, np.ndarray):
-                        converted[k] = v.tolist()
-                    elif isinstance(v, dict):
-                        converted[k] = safe_json_dumps(v)
-                    elif isinstance(v, list):
-                        converted[k] = [float(x) if isinstance(x, np.floating) else
-                                        int(x) if isinstance(x, np.integer) else
-                                        x.tolist() if isinstance(x, np.ndarray) else x
-                                        for x in v]
-                    else:
-                        converted[k] = v
+                    try:
+                        if isinstance(v, np.floating):
+                            converted[k] = float(v)
+                        elif isinstance(v, np.integer):
+                            converted[k] = int(v)
+                        elif isinstance(v, np.ndarray):
+                            converted[k] = v.tolist()
+                        elif isinstance(v, dict):
+                            converted[k] = safe_json_dumps(v)
+                        elif isinstance(v, list):
+                            converted[k] = [float(x) if isinstance(x, np.floating) else
+                                            int(x) if isinstance(x, np.integer) else
+                                            x.tolist() if isinstance(x, np.ndarray) else x
+                                            for x in v]
+                        else:
+                            converted[k] = v
+                    except Exception as conv_error:
+                        logger.warning(f"Failed to convert dict value {k}: {conv_error}")
+                        converted[k] = str(v)  # Fallback to string representation
                 return json.dumps(converted)
             elif isinstance(obj, list):
                 converted = []
                 for v in obj:
-                    if isinstance(v, np.floating):
-                        converted.append(float(v))
-                    elif isinstance(v, np.integer):
-                        converted.append(int(v))
-                    elif isinstance(v, np.ndarray):
-                        converted.append(v.tolist())
-                    elif isinstance(v, dict):
-                        converted.append(safe_json_dumps(v))
-                    elif isinstance(v, list):
-                        converted.append([float(x) if isinstance(x, np.floating) else
-                                          int(x) if isinstance(x, np.integer) else
-                                          x.tolist() if isinstance(x, np.ndarray) else x
-                                          for x in v])
-                    else:
-                        converted.append(v)
+                    try:
+                        if isinstance(v, np.floating):
+                            converted.append(float(v))
+                        elif isinstance(v, np.integer):
+                            converted.append(int(v))
+                        elif isinstance(v, np.ndarray):
+                            converted.append(v.tolist())
+                        elif isinstance(v, dict):
+                            converted.append(safe_json_dumps(v))
+                        elif isinstance(v, list):
+                            converted.append([float(x) if isinstance(x, np.floating) else
+                                              int(x) if isinstance(x, np.integer) else
+                                              x.tolist() if isinstance(x, np.ndarray) else x
+                                              for x in v])
+                        else:
+                            converted.append(v)
+                    except Exception as conv_error:
+                        logger.warning(f"Failed to convert list item: {conv_error}")
+                        converted.append(str(v))  # Fallback to string representation
                 return json.dumps(converted)
             elif isinstance(obj, np.ndarray):
                 return json.dumps(obj.tolist())
@@ -133,9 +141,17 @@ def safe_json_dumps(obj):
             elif isinstance(obj, np.integer):
                 return json.dumps(int(obj))
             else:
+                # Final fallback - convert to string
+                logger.warning(f"Converting unsupported type {type(obj)} to string for JSON serialization")
                 return json.dumps(str(obj))
         else:
-            raise e
+            # For other TypeError cases, try string conversion
+            logger.warning(f"JSON serialization failed for type {type(obj)}, converting to string")
+            return json.dumps(str(obj))
+    except Exception as e:
+        logger.error(f"Unexpected error in safe_json_dumps: {e}")
+        # Ultimate fallback - return None
+        return None
 
 
 def convert_to_python_types(obj):
@@ -273,6 +289,28 @@ def validate_and_convert_features(features):
             else:
                 validated_features[feature_name] = None
 
+    # Additional validation for critical features
+    try:
+        # Ensure duration is positive
+        if validated_features.get('duration', 0) < 0:
+            logger.warning("Duration is negative, setting to 0")
+            validated_features['duration'] = 0.0
+        
+        # Ensure BPM is reasonable (0-300 BPM)
+        bpm = validated_features.get('bpm', 0)
+        if bpm < 0 or bpm > 300:
+            logger.warning(f"BPM value {bpm} is outside reasonable range (0-300), setting to 0")
+            validated_features['bpm'] = 0.0
+        
+        # Ensure MFCC and chroma are lists with proper lengths
+        if not isinstance(validated_features.get('mfcc', []), list):
+            validated_features['mfcc'] = [0.0] * 13
+        if not isinstance(validated_features.get('chroma', []), list):
+            validated_features['chroma'] = [0.0] * 12
+            
+    except Exception as e:
+        logger.error(f"Error in additional feature validation: {e}")
+
     return validated_features
 
 
@@ -336,6 +374,11 @@ class AudioAnalyzer:
         os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
         self._init_db()
         self.cleanup_database()  # Clean up immediately on init
+        
+        # Test database connectivity
+        if not self.test_database_connectivity():
+            logger.warning("Database connectivity test failed - some operations may not work properly")
+        
         # Set MusicBrainz user agent
         musicbrainzngs.set_useragent(
             "PlaylistGenerator", "1.0", "noreply@example.com")
@@ -583,6 +626,67 @@ class AudioAnalyzer:
             test_cursor = self.conn.execute("SELECT COUNT(*) FROM audio_features")
             count = test_cursor.fetchone()[0]
             logger.debug(f"Database initialized: {self.cache_file} with {count} existing records")
+
+        self._check_and_repair_schema()
+
+    def _check_and_repair_schema(self):
+        """Check and repair database schema to ensure all required columns exist."""
+        try:
+            cursor = self.conn.execute("PRAGMA table_info(audio_features)")
+            columns = {row[1]: row[2] for row in cursor.fetchall()}
+            
+            # Define required columns and their types
+            required_columns = {
+                'file_hash': 'TEXT',
+                'file_path': 'TEXT',
+                'duration': 'REAL',
+                'bpm': 'REAL',
+                'beat_confidence': 'REAL',
+                'centroid': 'REAL',
+                'loudness': 'REAL',
+                'danceability': 'REAL',
+                'key': 'TEXT',
+                'scale': 'TEXT',
+                'key_strength': 'REAL',
+                'onset_rate': 'REAL',
+                'zcr': 'REAL',
+                'mfcc': 'JSON',
+                'chroma': 'JSON',
+                'spectral_contrast': 'REAL',
+                'spectral_flatness': 'REAL',
+                'spectral_rolloff': 'REAL',
+                'musicnn_embedding': 'JSON',
+                'musicnn_tags': 'JSON',
+                'musicnn_skipped': 'INTEGER',
+                'last_modified': 'REAL',
+                'last_analyzed': 'TIMESTAMP',
+                'metadata': 'JSON',
+                'failed': 'INTEGER'
+            }
+            
+            missing_columns = []
+            for col_name, col_type in required_columns.items():
+                if col_name not in columns:
+                    missing_columns.append((col_name, col_type))
+            
+            if missing_columns:
+                logger.info(f"Adding {len(missing_columns)} missing columns to audio_features table")
+                with self.conn:
+                    for col_name, col_type in missing_columns:
+                        try:
+                            self.conn.execute(f"ALTER TABLE audio_features ADD COLUMN {col_name} {col_type}")
+                            logger.debug(f"Added column: {col_name} ({col_type})")
+                        except Exception as e:
+                            logger.warning(f"Failed to add column {col_name}: {e}")
+                
+                logger.info("Database schema repair completed")
+            else:
+                logger.debug("Database schema is up to date")
+                
+        except Exception as e:
+            logger.error(f"Error checking/repairing database schema: {e}")
+            import traceback
+            logger.error(f"Schema repair error traceback: {traceback.format_exc()}")
 
     def _ensure_float(self, value):
         """Convert value to float safely"""
@@ -2239,40 +2343,48 @@ class AudioAnalyzer:
             logger.debug(f"Database columns: {[col[1] for col in columns]}")
             logger.debug(f"Number of columns: {len(columns)}")
 
-            # Prepare values with proper type conversion
-            values_tuple = (
-                file_info['file_hash'],
-                file_info['file_path'],
-                features.get('duration', 0.0),
-                features.get('bpm', 0.0),
-                features.get('beat_confidence', 0.0),
-                features.get('centroid', 0.0),
-                features.get('loudness', 0.0),
-                features.get('danceability', 0.0),
-                features.get('key', ''),  # Changed from 0 to '' for string
-                features.get('scale', ''),  # Changed from 0 to '' for string
-                features.get('key_strength', 0.0),  # Added key_strength
-                features.get('onset_rate', 0.0),
-                features.get('zcr', 0.0),
-                safe_json_dumps(features.get('mfcc', [])),
-                safe_json_dumps(features.get('chroma', [])),
-                features.get('spectral_contrast', 0.0),
-                features.get('spectral_flatness', 0.0),
-                features.get('spectral_rolloff', 0.0),
-                safe_json_dumps(features.get('musicnn_embedding')),
-                # Added musicnn_tags
-                safe_json_dumps(features.get('musicnn_tags', {})),
-                features.get('musicnn_skipped', 0),
-                file_info['last_modified'],
-                safe_json_dumps(features.get('metadata', {})),
-                failed
-            )
+            # Prepare values with proper type conversion and error handling
+            try:
+                values_tuple = (
+                    file_info['file_hash'],
+                    file_info['file_path'],
+                    features.get('duration', 0.0),
+                    features.get('bpm', 0.0),
+                    features.get('beat_confidence', 0.0),
+                    features.get('centroid', 0.0),
+                    features.get('loudness', 0.0),
+                    features.get('danceability', 0.0),
+                    features.get('key', ''),  # Changed from 0 to '' for string
+                    features.get('scale', ''),  # Changed from 0 to '' for string
+                    features.get('key_strength', 0.0),  # Added key_strength
+                    features.get('onset_rate', 0.0),
+                    features.get('zcr', 0.0),
+                    safe_json_dumps(features.get('mfcc', [])),
+                    safe_json_dumps(features.get('chroma', [])),
+                    features.get('spectral_contrast', 0.0),
+                    features.get('spectral_flatness', 0.0),
+                    features.get('spectral_rolloff', 0.0),
+                    safe_json_dumps(features.get('musicnn_embedding')),
+                    # Added musicnn_tags
+                    safe_json_dumps(features.get('musicnn_tags', {})),
+                    features.get('musicnn_skipped', 0),
+                    file_info['last_modified'],
+                    safe_json_dumps(features.get('metadata', {})),
+                    failed
+                )
 
-            # Debug: log the values for troubleshooting
-            logger.debug(f"Values count: {len(values_tuple)}")
-            for i, val in enumerate(values_tuple):
-                logger.debug(f"Value {i}: {type(val)} = {val}")
+                # Debug: log the values for troubleshooting
+                logger.debug(f"Values count: {len(values_tuple)}")
+                for i, val in enumerate(values_tuple):
+                    logger.debug(f"Value {i}: {type(val)} = {val}")
 
+            except Exception as e:
+                logger.error(f"Error preparing values tuple: {str(e)}")
+                logger.error(f"Features keys: {list(features.keys())}")
+                logger.error(f"Features types: {[(k, type(v)) for k, v in features.items()]}")
+                raise
+
+            # Use a transaction to ensure atomicity
             with self.conn:
                 cursor = self.conn.execute(
                     """
@@ -2284,6 +2396,7 @@ class AudioAnalyzer:
                     """,
                     values_tuple
                 )
+                
                 # Check if the row was actually inserted/updated
                 if cursor.rowcount > 0:
                     logger.debug(
@@ -2306,13 +2419,23 @@ class AudioAnalyzer:
                 else:
                     logger.error(
                         f"Database verification: Record NOT found for {file_info['file_path']} after save!")
+                    return False
                 
             return True
+            
         except Exception as e:
             logger.error(f"Error saving features to DB: {str(e)}")
             import traceback
             logger.error(
                 f"Database save error traceback: {traceback.format_exc()}")
+            
+            # Try to rollback any pending transaction
+            try:
+                self.conn.rollback()
+                logger.debug("Successfully rolled back database transaction")
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback transaction: {str(rollback_error)}")
+            
             return False
 
     def get_all_features(self, include_failed=False):
@@ -3375,6 +3498,67 @@ class AudioAnalyzer:
             logger.info(f"  ✓ Local BPM extraction succeeded")
         else:
             logger.warning(f"  ✗ BPM extraction failed - no valid BPM found")
+
+    def test_database_connectivity(self):
+        """Test database connectivity and basic operations."""
+        try:
+            logger.info("Testing database connectivity...")
+            
+            # Test basic connection
+            cursor = self.conn.execute("SELECT COUNT(*) FROM audio_features")
+            count = cursor.fetchone()[0]
+            logger.info(f"Database connection successful. Records in audio_features: {count}")
+            
+            # Test table schema
+            cursor = self.conn.execute("PRAGMA table_info(audio_features)")
+            columns = [row[1] for row in cursor.fetchall()]
+            logger.info(f"Table schema: {len(columns)} columns found")
+            logger.debug(f"Columns: {columns}")
+            
+            # Test basic insert/select operations
+            test_hash = "test_connectivity_hash"
+            test_path = "/test/path.mp3"
+            
+            # Try to insert a test record
+            with self.conn:
+                self.conn.execute("""
+                    INSERT OR REPLACE INTO audio_features (
+                        file_hash, file_path, duration, bpm, failed
+                    ) VALUES (?, ?, ?, ?, ?)
+                """, (test_hash, test_path, 0.0, 0.0, 1))
+                
+                # Verify the insert
+                cursor = self.conn.execute(
+                    "SELECT file_path FROM audio_features WHERE file_hash = ?",
+                    (test_hash,)
+                )
+                result = cursor.fetchone()
+                if result:
+                    logger.info("Database write/read test successful")
+                else:
+                    logger.error("Database write/read test failed")
+                
+                # Clean up test record
+                self.conn.execute(
+                    "DELETE FROM audio_features WHERE file_hash = ?",
+                    (test_hash,)
+                )
+            
+            logger.info("Database connectivity test completed successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Database connectivity test failed: {e}")
+            import traceback
+            logger.error(f"Connectivity test error traceback: {traceback.format_exc()}")
+            return False
+
+    def _ensure_float(self, value):
+        """Convert value to float safely"""
+        try:
+            return float(value) if value is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
 
 
 audio_analyzer = AudioAnalyzer()

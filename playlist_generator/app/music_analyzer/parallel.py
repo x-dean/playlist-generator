@@ -284,16 +284,14 @@ class ParallelProcessor:
                                 # Use in-memory retry counter
                                 count = self.retry_counter.get(filepath, 0)
                                 if count >= 3:
-                                    # Mark as failed in DB
-                                    conn = sqlite3.connect(
-                                        os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                                    cur = conn.cursor()
-                                    cur.execute(
-                                        "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                                    conn.commit()
-                                    conn.close()
-                                    logger.warning(
-                                        f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                    # Mark as failed in DB using the AudioAnalyzer instance
+                                    try:
+                                        file_info = audio_analyzer._get_file_info(filepath)
+                                        audio_analyzer._mark_failed(file_info)
+                                        logger.warning(
+                                            f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                    except Exception as db_error:
+                                        logger.error(f"Failed to mark file as failed in DB: {db_error}")
                                     continue
                                 
                                 # Check if this file has been stuck for too long
@@ -302,45 +300,46 @@ class ParallelProcessor:
                                     # Don't mark as failed yet, just skip for now
                                     continue
 
-                            conn = sqlite3.connect(
-                                os.getenv('CACHE_DIR', '/app/cache') + '/audio_analysis.db')
-                            cur = conn.cursor()
-                            cur.execute(
-                                "PRAGMA table_info(audio_features)")
-                            columns = [row[1] for row in cur.fetchall()]
-                            if features and db_write_success:
-                                # On success, reset failed
-                                cur.execute(
-                                    "UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
-                                conn.commit()
-                                conn.close()
-                                successful_files.append(filepath)  # Track successful files
-                                logger.debug(f"🔄 PARALLEL: Yielding successful result for {os.path.basename(filepath)}")
-                                yield features, filepath, db_write_success
-                            else:
-                                if self.enforce_fail_limit:
-                                    count = self.retry_counter.get(
-                                        filepath, 0) + 1
-                                    self.retry_counter[filepath] = count
-                                    logger.warning(
-                                        f"Retrying file {filepath} (retry count: {count})")
-                                    if count >= 3:
-                                        cur.execute(
-                                            "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                                    conn.commit()
-                                    conn.close()
-                                    enrich_later.append(filepath)
-                                    logger.warning(
-                                        f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
-                                    continue
+                            # Use the AudioAnalyzer's database connection instead of creating new ones
+                            try:
+                                if features and db_write_success:
+                                    # On success, reset failed status using AudioAnalyzer
+                                    file_info = audio_analyzer._get_file_info(filepath)
+                                    with audio_analyzer.conn:
+                                        audio_analyzer.conn.execute(
+                                            "UPDATE audio_features SET failed = 0 WHERE file_path = ?", (filepath,))
+                                    successful_files.append(filepath)  # Track successful files
+                                    logger.debug(f"🔄 PARALLEL: Yielding successful result for {os.path.basename(filepath)}")
+                                    yield features, filepath, db_write_success
                                 else:
-                                    cur.execute(
-                                        "UPDATE audio_features SET failed = 1 WHERE file_path = ?", (filepath,))
-                                    conn.commit()
-                                    conn.close()
-                                    # Don't remove failed files from remaining_files - they'll be retried
-                                    logger.debug(f"🔄 PARALLEL: Yielding failed result for {os.path.basename(filepath)}")
-                                    yield None, filepath, False
+                                    if self.enforce_fail_limit:
+                                        count = self.retry_counter.get(
+                                            filepath, 0) + 1
+                                        self.retry_counter[filepath] = count
+                                        logger.warning(
+                                            f"Retrying file {filepath} (retry count: {count})")
+                                        if count >= 3:
+                                            file_info = audio_analyzer._get_file_info(filepath)
+                                            audio_analyzer._mark_failed(file_info)
+                                        enrich_later.append(filepath)
+                                        logger.warning(
+                                            f"File {filepath} failed 3 times in parallel mode. Skipping for the rest of this run.")
+                                        continue
+                                    else:
+                                        file_info = audio_analyzer._get_file_info(filepath)
+                                        audio_analyzer._mark_failed(file_info)
+                                        # Don't remove failed files from remaining_files - they'll be retried
+                                        logger.debug(f"🔄 PARALLEL: Yielding failed result for {os.path.basename(filepath)}")
+                                        yield None, filepath, False
+                            except Exception as db_error:
+                                logger.error(f"Database operation failed for {filepath}: {db_error}")
+                                # Mark as failed and continue
+                                try:
+                                    file_info = audio_analyzer._get_file_info(filepath)
+                                    audio_analyzer._mark_failed(file_info)
+                                except Exception as mark_error:
+                                    logger.error(f"Failed to mark file as failed: {mark_error}")
+                                yield None, filepath, False
                         
                         batch_time = time.time() - batch_start_time
                         logger.info(f"🔄 PARALLEL: Batch {current_batch}/{total_batches} completed in {batch_time:.1f}s")
