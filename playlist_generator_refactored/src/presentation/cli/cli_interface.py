@@ -507,26 +507,81 @@ Examples:
         """Handle the status command."""
         self.console.print("[bold blue]Database and System Status[/bold blue]")
         
-        # This would integrate with database services
+        # Get database path from config
+        db_path = self.config.database.db_path
+        playlist_db_path = self.config.database.playlist_db_path
+        
         table = Table(title="System Status")
         table.add_column("Metric", style="cyan")
         table.add_column("Value", style="green")
         
-        table.add_row("Database Status", "✅ Connected")
-        table.add_row("Audio Files", "1,234")
-        table.add_row("Analyzed Files", "1,100")
-        table.add_row("Failed Files", "134")
-        table.add_row("Playlists", "45")
+        # Check if database exists
+        if db_path.exists():
+            table.add_row("Database Status", "✅ Connected")
+            table.add_row("Database Path", str(db_path))
+            
+            # Try to get actual counts from database
+            try:
+                import sqlite3
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                
+                # Count audio files
+                cursor.execute("SELECT COUNT(*) FROM audio_files")
+                audio_files_count = cursor.fetchone()[0]
+                
+                # Count analyzed files
+                cursor.execute("SELECT COUNT(*) FROM audio_files WHERE analysis_status = 'completed'")
+                analyzed_count = cursor.fetchone()[0]
+                
+                # Count failed files
+                cursor.execute("SELECT COUNT(*) FROM audio_files WHERE analysis_status = 'failed'")
+                failed_count = cursor.fetchone()[0]
+                
+                conn.close()
+                
+                table.add_row("Audio Files", f"{audio_files_count:,}")
+                table.add_row("Analyzed Files", f"{analyzed_count:,}")
+                table.add_row("Failed Files", f"{failed_count:,}")
+                
+            except Exception as e:
+                table.add_row("Audio Files", "Error reading DB")
+                table.add_row("Analyzed Files", "Error reading DB")
+                table.add_row("Failed Files", "Error reading DB")
+                self.console.print(f"[yellow]Database read error: {e}[/yellow]")
+        else:
+            table.add_row("Database Status", "❌ Not Found")
+            table.add_row("Database Path", str(db_path))
+            table.add_row("Audio Files", "0")
+            table.add_row("Analyzed Files", "0")
+            table.add_row("Failed Files", "0")
+        
+        # Check playlist database
+        if playlist_db_path.exists():
+            try:
+                import sqlite3
+                conn = sqlite3.connect(playlist_db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM playlists")
+                playlist_count = cursor.fetchone()[0]
+                conn.close()
+                table.add_row("Playlists", f"{playlist_count}")
+            except:
+                table.add_row("Playlists", "Error reading DB")
+        else:
+            table.add_row("Playlists", "0")
         
         if args.memory_usage:
-            table.add_row("Memory Usage", "2.3GB / 8GB")
-            table.add_row("CPU Usage", "15%")
+            import psutil
+            memory = psutil.virtual_memory()
+            table.add_row("Memory Usage", f"{memory.used / (1024**3):.1f}GB / {memory.total / (1024**3):.1f}GB")
+            table.add_row("CPU Usage", f"{psutil.cpu_percent()}%")
         
         self.console.print(table)
         
         if args.failed_files:
             self.console.print("[yellow]Failed Files:[/yellow]")
-            # This would show actual failed files
+            # This would show actual failed files from database
         
         return 0
     
