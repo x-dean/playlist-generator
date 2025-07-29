@@ -113,6 +113,17 @@ class FileDiscoveryService:
                     # Show progress every 100 files
                     progress_interval = max(1, total_files // 10)  # Show progress every 10% or every file if < 10
                     
+                    # Process files with progress indication
+                    total_files = len(files)
+                    processed_files = 0
+                    db_saved = 0
+                    db_failed = 0
+                    
+                    self.logger.info(f"Starting to process {total_files} files...")
+                    
+                    # Show progress every 100 files
+                    progress_interval = max(1, total_files // 10)  # Show progress every 10% or every file if < 10
+                    
                     for file_path in files:
                         if str(file_path) in seen_files:
                             response.result.duplicate_files += 1
@@ -125,6 +136,8 @@ class FileDiscoveryService:
                             # Show progress periodically
                             if processed_files % progress_interval == 0:
                                 self.logger.info(f"Progress: {processed_files}/{total_files} files processed ({processed_files/total_files*100:.1f}%)")
+                                self.logger.info(f"  - Database saved: {db_saved}, failed: {db_failed}")
+                                self.logger.info(f"  - Discovered: {len(discovered_files)}, skipped: {len(skipped_files)}")
                             
                             # Quick validation
                             if not file_path.exists() or not file_path.is_file():
@@ -187,6 +200,7 @@ class FileDiscoveryService:
             
             # Track database state and clean up missing files
             self.logger.info("Starting database state tracking...")
+            self.logger.info(f"Discovered {len(discovered_files)} files to track")
             tracking_stats = self._track_database_state(discovered_files)
             self.logger.info(f"Database tracking completed: {tracking_stats}")
             
@@ -296,7 +310,7 @@ class FileDiscoveryService:
             self.logger.info("Starting database state tracking")
             
             if self.config.file_discovery.use_hash_tracking:
-                self.logger.info("Using hash-based tracking")
+                self.logger.info("Using hash-based tracking (filename-based)")
                 return self._track_by_hash(discovered_files)
             else:
                 self.logger.info("Using path-based tracking")
