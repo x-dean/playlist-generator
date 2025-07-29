@@ -88,6 +88,13 @@ def setup_logging(
         console_logging = config.logging.console_logging
         log_dir = config.logging.log_dir
         log_file_prefix = config.logging.log_file_prefix
+        colored_output = config.logging.colored_output
+        verbose_output = config.logging.verbose_output
+        show_progress = config.logging.show_progress
+        log_memory_usage = config.logging.log_memory_usage
+        log_performance = config.logging.log_performance
+        max_log_files = config.logging.max_log_files
+        log_file_size_mb = config.logging.log_file_size_mb
     else:
         # Fallback to direct config attributes
         log_level = getattr(config, 'level', 'DEBUG')
@@ -95,6 +102,13 @@ def setup_logging(
         console_logging = getattr(config, 'console_logging', True)
         log_dir = getattr(config, 'log_dir', Path('/app/logs'))
         log_file_prefix = getattr(config, 'log_file_prefix', 'playlista')
+        colored_output = getattr(config, 'colored_output', True)
+        verbose_output = getattr(config, 'verbose_output', True)
+        show_progress = getattr(config, 'show_progress', True)
+        log_memory_usage = getattr(config, 'log_memory_usage', True)
+        log_performance = getattr(config, 'log_performance', True)
+        max_log_files = getattr(config, 'max_log_files', 10)
+        log_file_size_mb = getattr(config, 'log_file_size_mb', 50)
     
     logger.setLevel(getattr(logging, log_level.upper(), logging.DEBUG))
     
@@ -128,11 +142,11 @@ def setup_logging(
         # Ensure log directory exists
         log_file.parent.mkdir(parents=True, exist_ok=True)
         
-        # Use rotating file handler
+        # Use rotating file handler with configurable size
         file_handler = logging.handlers.RotatingFileHandler(
             log_file,
-            maxBytes=10 * 1024 * 1024,  # 10MB
-            backupCount=5
+            maxBytes=log_file_size_mb * 1024 * 1024,  # Configurable size
+            backupCount=max_log_files
         )
         file_formatter = StructuredFormatter()
         file_handler.setFormatter(file_formatter)
@@ -149,11 +163,25 @@ def setup_logging(
     
     _log_setup_complete = True
     
+    # Log memory usage if enabled
+    if log_memory_usage:
+        try:
+            import psutil
+            memory_info = psutil.virtual_memory()
+            memory_mb = memory_info.used / (1024 * 1024)
+            logger.info(f"Memory usage: {memory_mb:.1f}MB / {memory_info.total / (1024 * 1024 * 1024):.1f}GB")
+        except ImportError:
+            logger.debug("psutil not available for memory monitoring")
+    
     logger.info("Logging system initialized", extra={
         'log_level': log_level,
         'file_logging': file_logging,
         'console_logging': console_logging,
-        'log_file': str(log_file) if log_file else None
+        'log_file': str(log_file) if log_file else None,
+        'verbose_output': verbose_output,
+        'show_progress': show_progress,
+        'log_memory_usage': log_memory_usage,
+        'log_performance': log_performance
     })
     
     return logger

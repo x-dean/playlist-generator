@@ -21,15 +21,23 @@ class LoggingConfig:
     
     level: str = field(default_factory=lambda: os.getenv('LOG_LEVEL', 'DEBUG'))
     log_dir: Path = field(default_factory=lambda: Path(os.getenv('LOG_DIR', '/app/logs')))
-    log_file_prefix: str = "playlista"
-    colored_output: bool = True
-    file_logging: bool = True
-    console_logging: bool = True
+    log_file_prefix: str = field(default_factory=lambda: os.getenv('LOG_FILE_PREFIX', 'playlista'))
+    colored_output: bool = field(default_factory=lambda: os.getenv('COLORED_OUTPUT', 'true').lower() == 'true')
+    file_logging: bool = field(default_factory=lambda: os.getenv('FILE_LOGGING', 'true').lower() == 'true')
+    console_logging: bool = field(default_factory=lambda: os.getenv('CONSOLE_LOGGING', 'true').lower() == 'true')
     
     # TensorFlow and Essentia logging
     tensorflow_log_level: str = "2"  # Hide INFO and WARNING, show only ERROR
     essentia_logging_level: str = "error"
     essentia_stream_logging: str = "none"
+    
+    # Troubleshooting settings
+    verbose_output: bool = field(default_factory=lambda: os.getenv('VERBOSE_OUTPUT', 'true').lower() == 'true')
+    show_progress: bool = field(default_factory=lambda: os.getenv('SHOW_PROGRESS', 'true').lower() == 'true')
+    log_memory_usage: bool = field(default_factory=lambda: os.getenv('LOG_MEMORY_USAGE', 'true').lower() == 'true')
+    log_performance: bool = field(default_factory=lambda: os.getenv('LOG_PERFORMANCE', 'true').lower() == 'true')
+    max_log_files: int = field(default_factory=lambda: int(os.getenv('MAX_LOG_FILES', '10')))
+    log_file_size_mb: int = field(default_factory=lambda: int(os.getenv('LOG_FILE_SIZE_MB', '50')))
     
     def __post_init__(self):
         """Validate and normalize configuration after initialization."""
