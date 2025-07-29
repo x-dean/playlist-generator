@@ -54,39 +54,36 @@ class CLIInterface:
     
     def run(self, args: Optional[List[str]] = None) -> int:
         """Run the CLI interface."""
-        try:
-            parser = self._create_argument_parser()
-            parsed_args = parser.parse_args(args)
-            
-            # Handle help
-            if not parsed_args.command:
-                self._show_help()
-                return 0
-            
-            # Route to appropriate handler
-            if parsed_args.command == 'discover':
-                return self._handle_discover(parsed_args)
-            elif parsed_args.command == 'analyze':
-                return self._handle_analyze(parsed_args)
-            elif parsed_args.command == 'enrich':
-                return self._handle_enrich(parsed_args)
-            elif parsed_args.command == 'playlist':
-                return self._handle_playlist(parsed_args)
-            elif parsed_args.command == 'export':
-                return self._handle_export(parsed_args)
-            elif parsed_args.command == 'status':
-                return self._handle_status(parsed_args)
-            elif parsed_args.command == 'pipeline':
-                return self._handle_pipeline(parsed_args)
-            else:
-                self.console.print(f"[red]Unknown command: {parsed_args.command}[/red]")
-                return 1
-                
-        except KeyboardInterrupt:
-            self.console.print("\n[yellow]Interrupted by user[/yellow]")
-            return 130
-        except Exception as e:
-            self.console.print(f"[red]Error: {e}[/red]")
+        import sys
+        # Show help if 'help' or '--help' is used as a subcommand
+        if args is None:
+            args = sys.argv[1:]
+        if args and args[0] in {"help", "--help", "-h"}:
+            self._show_help()
+            return 0
+        parser = self._create_argument_parser()
+        parsed_args = parser.parse_args(args)
+        # Handle help or missing command
+        if not parsed_args.command:
+            self._show_help()
+            return 0
+        # Route to appropriate handler
+        if parsed_args.command == 'discover':
+            return self._handle_discover(parsed_args)
+        elif parsed_args.command == 'analyze':
+            return self._handle_analyze(parsed_args)
+        elif parsed_args.command == 'enrich':
+            return self._handle_enrich(parsed_args)
+        elif parsed_args.command == 'playlist':
+            return self._handle_playlist(parsed_args)
+        elif parsed_args.command == 'export':
+            return self._handle_export(parsed_args)
+        elif parsed_args.command == 'status':
+            return self._handle_status(parsed_args)
+        elif parsed_args.command == 'pipeline':
+            return self._handle_pipeline(parsed_args)
+        else:
+            self.console.print(f"[red]Unknown command: {parsed_args.command}[/red]")
             return 1
     
     def _create_argument_parser(self) -> argparse.ArgumentParser:
@@ -130,7 +127,7 @@ Examples:
         
         # Discover command
         discover_parser = subparsers.add_parser('discover', help='Discover audio files')
-        discover_parser.add_argument('path', help='Directory path to search')
+        discover_parser.add_argument('--path', default='/music', help='Directory path to search (default: /music)')
         discover_parser.add_argument('--recursive', '-r', action='store_true', help='Search recursively')
         discover_parser.add_argument('--extensions', '-e', help='File extensions to include (comma-separated)')
         discover_parser.add_argument('--exclude-dirs', help='Directories to exclude (comma-separated)')
@@ -139,7 +136,7 @@ Examples:
         
         # Analyze command
         analyze_parser = subparsers.add_parser('analyze', help='Analyze audio files')
-        analyze_parser.add_argument('path', help='Directory path or file path to analyze')
+        analyze_parser.add_argument('--path', default='/music', help='Directory path or file path to analyze (default: /music)')
         
         # Processing options
         analyze_parser.add_argument('--parallel', '-p', action='store_true', help='Use parallel processing')
@@ -166,7 +163,7 @@ Examples:
         # Enrich command
         enrich_parser = subparsers.add_parser('enrich', help='Enrich metadata')
         enrich_parser.add_argument('--audio-ids', help='Comma-separated list of audio file IDs')
-        enrich_parser.add_argument('--path', help='Directory path to enrich all files')
+        enrich_parser.add_argument('--path', default='/music', help='Directory path to enrich all files (default: /music)')
         enrich_parser.add_argument('--force', '-f', action='store_true', help='Force re-enrichment')
         enrich_parser.add_argument('--musicbrainz', action='store_true', help='Use MusicBrainz API')
         enrich_parser.add_argument('--lastfm', action='store_true', help='Use Last.fm API')
@@ -178,13 +175,13 @@ Examples:
                                    default='kmeans', help='Playlist generation method')
         playlist_parser.add_argument('--size', '-s', type=int, default=20, help='Playlist size')
         playlist_parser.add_argument('--num-playlists', type=int, default=8, help='Number of playlists to generate')
-        playlist_parser.add_argument('--path', help='Directory path to use for playlist generation')
+        playlist_parser.add_argument('--path', default='/music', help='Directory path to use for playlist generation (default: /music)')
         playlist_parser.add_argument('--min-tracks-per-genre', type=int, default=10, help='Minimum tracks per genre (tags method)')
-        playlist_parser.add_argument('--output-dir', help='Output directory for playlists')
+        playlist_parser.add_argument('--output-dir', default='/app/playlists', help='Output directory for playlists (default: /app/playlists)')
         
         # Export command
         export_parser = subparsers.add_parser('export', help='Export playlists')
-        export_parser.add_argument('playlist_file', help='Playlist file to export')
+        export_parser.add_argument('--playlist-file', default='/app/playlists/playlist.json', help='Playlist file to export (default: /app/playlists/playlist.json)')
         export_parser.add_argument('--format', '-f', choices=['m3u', 'pls', 'xspf', 'json', 'all'],
                                  default='m3u', help='Export format')
         export_parser.add_argument('--output-dir', help='Output directory')
@@ -197,7 +194,7 @@ Examples:
         
         # Pipeline command
         pipeline_parser = subparsers.add_parser('pipeline', help='Run full pipeline')
-        pipeline_parser.add_argument('path', help='Directory path to process')
+        pipeline_parser.add_argument('--path', default='/music', help='Directory path to process (default: /music)')
         pipeline_parser.add_argument('--force', '-f', action='store_true', help='Force re-analysis')
         pipeline_parser.add_argument('--failed', action='store_true', help='Re-analyze failed files')
         pipeline_parser.add_argument('--generate', action='store_true', help='Generate playlists after analysis')
