@@ -68,6 +68,18 @@
           "type": "string",
           "options": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
           "default": "INFO"
+        },
+        "console_logging": {
+          "value": false,
+          "description": "Disable logging to console",
+          "type": "boolean",
+          "default": true
+        },
+        "file_logging": {
+          "value": true,
+          "description": "Enable logging to file",
+          "type": "boolean",
+          "default": true
         }
       }
     },
@@ -116,7 +128,7 @@
       "description": "Processing mode settings",
       "settings": {
         "DEBUG": {
-          "value": false,
+          "value": true,
           "description": "Enable debug mode for detailed logging",
           "type": "boolean",
           "default": false
