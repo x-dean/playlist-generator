@@ -161,7 +161,13 @@ class FileDiscoveryService:
                                 self.logger.warning(f"Failed to save {file_path} to database: {e}")
                             
                             discovered_files.append(audio_file)
-                            self.logger.debug(f"Added file: {file_path} ({size_mb:.1f} MB, hash: {file_hash[:8] if file_hash else 'None'}...)")
+                            
+                            # Debug logging with proper size handling
+                            if hasattr(audio_file, 'file_size_bytes') and audio_file.file_size_bytes:
+                                size_mb = audio_file.file_size_bytes / (1024 * 1024)
+                                self.logger.debug(f"Added file: {file_path} ({size_mb:.1f} MB, hash: {file_hash[:8] if file_hash else 'None'}...)")
+                            else:
+                                self.logger.debug(f"Added file: {file_path} (size unknown, hash: {file_hash[:8] if file_hash else 'None'}...)")
                             
                         except Exception as e:
                             self.logger.warning(f"Could not create AudioFile for {file_path}: {e}")
