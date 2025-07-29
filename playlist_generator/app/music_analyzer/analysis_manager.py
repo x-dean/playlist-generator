@@ -521,17 +521,17 @@ def run_analyze_mode(args, audio_db, cli, force_reextract):
                 else:
                     logger.info(f"Analysis completed for {filepath}")
                 
-                # Start timing the next file
-                logger.debug(f"PROGRESS: Checking if there's a next file to process")
-                if processed_count < len(files_to_analyze) and isinstance(file_start_times, dict):
-                    next_file = files_to_analyze[processed_count]
+                # Start timing the next file (only for big files)
+                logger.debug(f"PROGRESS: Checking if there's a next big file to process")
+                if processed_count < len(big_files) and isinstance(file_start_times, dict):
+                    next_file = big_files[processed_count]
                     next_filepath = next_file[0] if isinstance(next_file, tuple) else next_file
                     file_start_times[next_filepath] = time.time()
                     next_filename = os.path.basename(next_filepath)
                     logger.info(f"SEQUENTIAL: Starting processing {next_filename}")
-                    logger.debug(f"PROGRESS: Next file timing started for {next_filename}")
+                    logger.debug(f"PROGRESS: Next big file timing started for {next_filename}")
                 else:
-                    logger.debug(f"PROGRESS: No next file to process - processed_count={processed_count}, total_files={len(files_to_analyze)}")
+                    logger.debug(f"PROGRESS: No next big file to process - processed_count={processed_count}, total_big_files={len(big_files)}")
 
         # Step 2: Process normal files (parallel or sequential based on workers)
         if normal_files:
