@@ -515,7 +515,7 @@ Examples:
         table.add_column("Metric", style="cyan")
         table.add_column("Value", style="green")
         
-        # Check if database exists
+        # Check if database exists and initialize if needed
         if db_path.exists():
             table.add_row("Database Status", "✅ Connected")
             table.add_row("Database Path", str(db_path))
@@ -526,17 +526,35 @@ Examples:
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
                 
+                # Check if tables exist, if not create them
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='audio_files'")
+                if not cursor.fetchone():
+                    # Initialize database tables
+                    from infrastructure.persistence.repositories import SQLiteAudioFileRepository, SQLiteFeatureSetRepository, SQLiteMetadataRepository
+                    audio_repo = SQLiteAudioFileRepository(db_path)
+                    feature_repo = SQLiteFeatureSetRepository(db_path)
+                    metadata_repo = SQLiteMetadataRepository(db_path)
+                    self.console.print("[yellow]Initializing database tables...[/yellow]")
+                
                 # Count audio files
                 cursor.execute("SELECT COUNT(*) FROM audio_files")
                 audio_files_count = cursor.fetchone()[0]
                 
-                # Count analyzed files
-                cursor.execute("SELECT COUNT(*) FROM audio_files WHERE analysis_status = 'completed'")
-                analyzed_count = cursor.fetchone()[0]
+                # Count analyzed files (check if analysis_status column exists)
+                try:
+                    cursor.execute("SELECT COUNT(*) FROM audio_files WHERE analysis_status = 'completed'")
+                    analyzed_count = cursor.fetchone()[0]
+                except sqlite3.OperationalError:
+                    # analysis_status column doesn't exist, count all files as analyzed
+                    analyzed_count = audio_files_count
                 
                 # Count failed files
-                cursor.execute("SELECT COUNT(*) FROM audio_files WHERE analysis_status = 'failed'")
-                failed_count = cursor.fetchone()[0]
+                try:
+                    cursor.execute("SELECT COUNT(*) FROM audio_files WHERE analysis_status = 'failed'")
+                    failed_count = cursor.fetchone()[0]
+                except sqlite3.OperationalError:
+                    # analysis_status column doesn't exist, count 0 failed
+                    failed_count = 0
                 
                 conn.close()
                 
@@ -562,12 +580,22 @@ Examples:
                 import sqlite3
                 conn = sqlite3.connect(playlist_db_path)
                 cursor = conn.cursor()
+                
+                # Check if playlists table exists
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='playlists'")
+                if not cursor.fetchone():
+                    # Initialize playlist database tables
+                    from infrastructure.persistence.repositories import SQLitePlaylistRepository
+                    playlist_repo = SQLitePlaylistRepository(playlist_db_path)
+                    self.console.print("[yellow]Initializing playlist database tables...[/yellow]")
+                
                 cursor.execute("SELECT COUNT(*) FROM playlists")
                 playlist_count = cursor.fetchone()[0]
                 conn.close()
                 table.add_row("Playlists", f"{playlist_count}")
-            except:
+            except Exception as e:
                 table.add_row("Playlists", "Error reading DB")
+                self.console.print(f"[yellow]Playlist database error: {e}[/yellow]")
         else:
             table.add_row("Playlists", "0")
         
