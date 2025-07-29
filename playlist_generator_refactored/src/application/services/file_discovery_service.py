@@ -151,8 +151,11 @@ class FileDiscoveryService:
                 for entry in entries:
                     if entry.is_file():
                         # Filter by extension
-                        if request.file_extensions and entry.suffix.lower() not in [ext.lower() for ext in request.file_extensions]:
-                            continue
+                        if request.file_extensions:
+                            # Remove dot from suffix for comparison
+                            file_ext = entry.suffix.lower().lstrip('.')
+                            if file_ext not in [ext.lower() for ext in request.file_extensions]:
+                                continue
                         # Filter by size
                         if request.min_file_size_mb is not None or request.max_file_size_mb is not None:
                             try:

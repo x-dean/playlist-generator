@@ -86,7 +86,7 @@ class AudioFile:
     @property
     def supported_formats(self) -> List[str]:
         """Get list of supported audio formats."""
-        return ['.mp3', '.flac', '.wav', '.m4a', '.ogg', '.aac']
+        return ['.mp3', '.flac', '.wav', '.m4a', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.alac']
     
     @property
     def is_supported_format(self) -> bool:

@@ -637,7 +637,7 @@ Examples:
                         self.logger.info(f"File {i+1}: {file_path} (exists: {file_path.exists()})")
                     
                     # Check for audio files specifically
-                    audio_extensions = {'.mp3', '.flac', '.wav', '.m4a', '.ogg'}
+                    audio_extensions = {'.mp3', '.flac', '.wav', '.m4a', '.ogg', '.opus', '.aac', '.wma', '.aiff', '.alac'}
                     audio_files = [f for f in all_files if f.is_file() and f.suffix.lower() in audio_extensions]
                     self.logger.info(f"Audio files found: {len(audio_files)}")
                     for audio_file in audio_files[:5]:
@@ -656,7 +656,7 @@ Examples:
             discovery_request = FileDiscoveryRequest(
                 search_paths=[args.path],
                 recursive=True,
-                file_extensions=['mp3', 'flac', 'wav', 'm4a', 'ogg']
+                file_extensions=['mp3', 'flac', 'wav', 'm4a', 'ogg', 'opus', 'aac', 'wma', 'aiff', 'alac']
             )
             
             discovery_response = self.discovery_service.discover_files(discovery_request)
