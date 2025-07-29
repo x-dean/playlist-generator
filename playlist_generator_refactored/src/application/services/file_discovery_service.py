@@ -84,6 +84,7 @@ class FileDiscoveryService:
                         continue
                     
                     files = self._scan_directory(path_obj, request)
+                    self.logger.info(f"Directory scan found {len(files)} files")
                     for file_path in files:
                         if str(file_path) in seen_files:
                             response.result.duplicate_files += 1
@@ -136,7 +137,11 @@ class FileDiscoveryService:
             if path.is_file():
                 files.append(path)
             elif path.is_dir():
-                for entry in path.rglob("*" if request.recursive else "*"):
+                if request.recursive:
+                    entries = path.rglob("*")
+                else:
+                    entries = path.glob("*")
+                for entry in entries:
                     if entry.is_file():
                         # Filter by extension
                         if request.file_extensions and entry.suffix.lower() not in [ext.lower() for ext in request.file_extensions]:
