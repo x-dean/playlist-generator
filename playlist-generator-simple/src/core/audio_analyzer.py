@@ -499,6 +499,31 @@ class AudioAnalyzer:
         
         return forced_config
 
+    def _get_audio_duration(self, audio_path: str) -> Optional[float]:
+        """
+        Get audio file duration in seconds.
+        
+        Args:
+            audio_path: Path to the audio file
+            
+        Returns:
+            Duration in seconds or None if failed
+        """
+        try:
+            import librosa
+            duration = librosa.get_duration(path=audio_path)
+            return duration
+        except Exception as e:
+            logger.warning(f"⚠️ Could not get duration from librosa: {e}")
+            try:
+                import mutagen
+                audio = mutagen.File(audio_path)
+                if audio is not None:
+                    return audio.info.length
+            except Exception as e2:
+                logger.warning(f"⚠️ Could not get duration from mutagen: {e2}")
+            return None
+
     def _safe_audio_load(self, audio_path: str) -> Optional[np.ndarray]:
         """
         Safely load audio file using streaming loader for large files.
