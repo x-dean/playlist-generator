@@ -24,7 +24,8 @@ def main():
         cli = CLIInterface()
         return cli.run()
     except Exception as e:
-        print(f"Error: {e}")
+        import logging
+        logging.error(f"Error: {e}")
         return 1
 
 

@@ -34,9 +34,9 @@ logging_config = config_loader.get_logging_config()
 # Use config values or defaults
 log_level = logging_config.get('LOG_LEVEL', 'INFO')
 log_file_prefix = logging_config.get('LOG_FILE_PREFIX', 'playlista')
-console_logging = logging_config.get('LOG_CONSOLE_ENABLED', True)
+console_logging = logging_config.get('LOG_CONSOLE_ENABLED', False)  # Default to file-only logging
 file_logging = logging_config.get('LOG_FILE_ENABLED', True)
-colored_output = logging_config.get('LOG_COLORED_OUTPUT', True)
+colored_output = logging_config.get('LOG_COLORED_OUTPUT', False)  # No colors for file logging
 max_log_files = logging_config.get('LOG_MAX_FILES', 10)
 log_file_size_mb = logging_config.get('LOG_FILE_SIZE_MB', 50)
 log_file_format = logging_config.get('LOG_FILE_FORMAT', 'text')
@@ -399,7 +399,7 @@ Examples:
   playlista <command> --help
         """
         
-        print(help_text)
+        logger.info(help_text)
     
     def _handle_analyze(self, args) -> int:
         """Handle analyze command."""
@@ -603,7 +603,7 @@ Examples:
     
     def _handle_playlist_methods(self, args) -> int:
         """Handle playlist-methods command."""
-        print("Available playlist generation methods:")
+        logger.info("Available playlist generation methods:")
         
         methods = [
             ("kmeans", "K-means clustering based on audio features"),
@@ -622,7 +622,7 @@ Examples:
         ]
         
         for method, description in methods:
-            print(f"   {method}: {description}")
+            logger.info(f"   {method}: {description}")
         
         return 0
     
@@ -769,36 +769,36 @@ Examples:
     
     def _handle_config(self, args) -> int:
         """Handle config command."""
-        print("Showing configuration information")
+        logger.info("Showing configuration information")
         
         try:
             # Show configuration
             if args.json:
                 config_json = json.dumps(self.config, indent=2)
-                print(config_json)
+                logger.info(config_json)
             else:
-                print("Configuration:")
+                logger.info("Configuration:")
                 for key, value in self.config.items():
-                    print(f"   {key}: {value}")
+                    logger.info(f"   {key}: {value}")
             
             # Validate configuration if requested
             if args.validate:
                 is_valid = self._validate_configuration()
                 if is_valid:
-                    print("Configuration is valid")
+                    logger.info("Configuration is valid")
                 else:
-                    print("Configuration has issues")
+                    logger.error("Configuration has issues")
                     return 1
             
             # Reload configuration if requested
             if args.reload:
                 self.config = config_loader.load_config()
-                print("Configuration reloaded")
+                logger.info("Configuration reloaded")
             
             return 0
             
         except Exception as e:
-            print(f"Configuration error: {e}")
+            logger.error(f"Configuration error: {e}")
             return 1
     
     def _build_analysis_config(self, args) -> Dict[str, Any]:

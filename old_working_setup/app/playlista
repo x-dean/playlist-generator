@@ -70,8 +70,8 @@ pre_parser.add_argument('--log_level', default='INFO',
 pre_args, _ = pre_parser.parse_known_args(sys.argv[1:])
 os.environ['LOG_LEVEL'] = pre_args.log_level
 
-# Setup colored logging to file only (log file already created above)
-setup_colored_file_logging(log_file)
+# Setup file-only logging (log file already created above)
+setup_file_only_logging(log_file)
 
 # Setup TensorFlow and Essentia logging AFTER log file is created
 import tensorflow as tf

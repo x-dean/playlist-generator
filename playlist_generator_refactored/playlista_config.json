@@ -70,10 +70,10 @@
           "default": "DEBUG"
         },
         "console_logging": {
-          "value": true,
+          "value": false,
           "description": "Enable logging to console for troubleshooting",
           "type": "boolean",
-          "default": true
+          "default": false
         },
         "file_logging": {
           "value": true,
@@ -82,10 +82,10 @@
           "default": true
         },
         "colored_output": {
-          "value": true,
+          "value": false,
           "description": "Enable colored console output",
           "type": "boolean",
-          "default": true
+          "default": false
         },
         "log_file_prefix": {
           "value": "playlista",
