@@ -14,7 +14,6 @@ import numpy as np
 # Import audio processing libraries
 try:
     import essentia.standard as es
-    import essentia
     ESSENTIA_AVAILABLE = True
 except ImportError:
     ESSENTIA_AVAILABLE = False
@@ -28,6 +27,7 @@ except ImportError:
     logging.warning("Librosa not available - limited feature extraction")
 
 try:
+    import mutagen
     from mutagen import File as MutagenFile
     MUTAGEN_AVAILABLE = True
 except ImportError:
@@ -41,6 +41,20 @@ try:
 except ImportError:
     TENSORFLOW_AVAILABLE = False
     logging.warning("TensorFlow not available - MusiCNN features will be limited")
+
+# Try to import wave module for basic WAV support
+try:
+    import wave
+    WAVE_AVAILABLE = True
+except ImportError:
+    WAVE_AVAILABLE = False
+
+# Try to import soundfile for broader format support
+try:
+    import soundfile as sf
+    SOUNDFILE_AVAILABLE = True
+except ImportError:
+    SOUNDFILE_AVAILABLE = False
 
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_performance, log_feature_extraction_step, log_resource_usage
@@ -409,12 +423,20 @@ class AudioAnalyzer:
             # Get file size to decide loading method
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             
+            logger.debug(f"📊 Audio loading decision for {os.path.basename(audio_path)}:")
+            logger.debug(f"   File size: {file_size_mb:.1f}MB")
+            logger.debug(f"   Streaming enabled: {self.streaming_enabled}")
+            logger.debug(f"   Streaming threshold: {self.streaming_large_file_threshold_mb}MB")
+            logger.debug(f"   Streaming memory limit: {self.streaming_memory_limit_percent}%")
+            logger.debug(f"   Streaming chunk duration: {self.streaming_chunk_duration_seconds}s")
+            
             # Use streaming loader for large files if enabled
             if self.streaming_enabled and file_size_mb > self.streaming_large_file_threshold_mb:
                 logger.info(f"📊 Large file detected ({file_size_mb:.1f}MB) - using streaming loader")
                 return self._load_audio_streaming(audio_path)
             else:
                 # Use traditional loading for small files
+                logger.debug(f"📊 Small file detected ({file_size_mb:.1f}MB) - using traditional loading")
                 return self._load_audio_traditional(audio_path)
                 
         except Exception as e:
@@ -435,8 +457,36 @@ class AudioAnalyzer:
                 audio = loader()
                 logger.debug(f"📊 Loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
                 return audio
+            elif SOUNDFILE_AVAILABLE:
+                # Use soundfile for loading
+                audio, sr = sf.read(audio_path)
+                if len(audio.shape) > 1:
+                    audio = audio.mean(axis=1)  # Convert to mono
+                if sr != DEFAULT_SAMPLE_RATE:
+                    # Simple resampling
+                    ratio = DEFAULT_SAMPLE_RATE / sr
+                    new_length = int(len(audio) * ratio)
+                    indices = np.linspace(0, len(audio) - 1, new_length)
+                    audio = np.interp(indices, np.arange(len(audio)), audio)
+                logger.debug(f"📊 Loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                return audio
+            elif WAVE_AVAILABLE and audio_path.lower().endswith('.wav'):
+                # Use wave module for WAV files
+                with wave.open(audio_path, 'rb') as wav_file:
+                    frames = wav_file.readframes(wav_file.getnframes())
+                    sr = wav_file.getframerate()
+                    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+                    if sr != DEFAULT_SAMPLE_RATE:
+                        # Simple resampling
+                        ratio = DEFAULT_SAMPLE_RATE / sr
+                        new_length = int(len(audio) * ratio)
+                        indices = np.linspace(0, len(audio) - 1, new_length)
+                        audio = np.interp(indices, np.arange(len(audio)), audio)
+                    logger.debug(f"📊 Loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                    return audio
             else:
                 logger.error("❌ No audio loading library available")
+                logger.error(f"   Available libraries: Essentia={ESSENTIA_AVAILABLE}, Librosa={LIBROSA_AVAILABLE}, SoundFile={SOUNDFILE_AVAILABLE}, Wave={WAVE_AVAILABLE}")
                 return None
                 
         except Exception as e:
@@ -464,8 +514,9 @@ class AudioAnalyzer:
                 logger.debug(f"📊 Loaded chunk: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
             
             if not chunks:
-                logger.error("❌ No chunks loaded")
-                return None
+                logger.error("❌ No chunks loaded from streaming loader")
+                logger.warning("🔄 Falling back to traditional loading...")
+                return self._load_audio_traditional(audio_path)
             
             # Concatenate all chunks
             audio = np.concatenate(chunks)
@@ -475,7 +526,8 @@ class AudioAnalyzer:
             
         except Exception as e:
             logger.error(f"❌ Error in streaming audio load: {e}")
-            return None
+            logger.warning("🔄 Falling back to traditional loading...")
+            return self._load_audio_traditional(audio_path)
 
     def _extract_metadata(self, audio_path: str) -> Dict[str, Any]:
         """
