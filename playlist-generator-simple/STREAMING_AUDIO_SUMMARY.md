@@ -48,8 +48,8 @@ optimal_duration = min(max(safe_seconds, 5), 120, total_duration)
 ```
 
 ### 3. **Streaming Processing**
-- **Essentia**: Uses `computeChunk()` for efficient streaming
-- **Librosa**: Uses `offset` and `duration` parameters
+- **Essentia**: Loads entire file and extracts chunks (memory-efficient for moderate files)
+- **Librosa**: Uses `offset` and `duration` parameters for true streaming
 - **Chunk concatenation**: Combines chunks for final analysis
 
 ## Benefits

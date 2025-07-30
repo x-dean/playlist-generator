@@ -126,10 +126,10 @@ class StreamingAudioLoader:
         """
         try:
             if ESSENTIA_AVAILABLE:
-                # Use essentia for duration
+                # Use essentia for duration - load audio and calculate duration
                 loader = es.MonoLoader(filename=audio_path, sampleRate=self.sample_rate)
-                # Get duration without loading audio
-                duration = loader.computeDuration()
+                audio = loader()
+                duration = len(audio) / self.sample_rate
                 return duration
             elif LIBROSA_AVAILABLE:
                 # Use librosa for duration
@@ -201,12 +201,12 @@ class StreamingAudioLoader:
                              chunk_duration: float) -> Generator[Tuple[np.ndarray, float, float], None, None]:
         """Load audio chunks using Essentia."""
         try:
-            # Create streaming loader
-            loader = es.MonoLoader(filename=audio_path, sampleRate=self.sample_rate)
+            # Load entire audio file with Essentia (fallback to traditional loading)
+            audio = es.MonoLoader(filename=audio_path, sampleRate=self.sample_rate)()
             
             # Calculate chunk parameters
             samples_per_chunk = int(chunk_duration * self.sample_rate)
-            total_samples = int(total_duration * self.sample_rate)
+            total_samples = len(audio)
             
             current_sample = 0
             chunk_index = 0
@@ -216,8 +216,8 @@ class StreamingAudioLoader:
                 start_sample = current_sample
                 end_sample = min(start_sample + samples_per_chunk, total_samples)
                 
-                # Load chunk
-                chunk = loader.computeChunk(start_sample, end_sample - start_sample)
+                # Extract chunk from loaded audio
+                chunk = audio[start_sample:end_sample]
                 
                 # Calculate time boundaries
                 start_time = start_sample / self.sample_rate
