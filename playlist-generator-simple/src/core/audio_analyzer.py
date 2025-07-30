@@ -506,7 +506,9 @@ class AudioAnalyzer:
             # Get streaming loader with configuration
             streaming_loader = get_streaming_loader(
                 memory_limit_percent=self.streaming_memory_limit_percent,
-                chunk_duration_seconds=self.streaming_chunk_duration_seconds
+                chunk_duration_seconds=self.streaming_chunk_duration_seconds,
+                use_slicer=False,  # Use FrameCutter for better memory management
+                use_streaming=True  # Enable true streaming for large files
             )
             
             # For small files, we can still concatenate chunks
@@ -1192,7 +1194,12 @@ class AudioAnalyzer:
         """Get audio file duration using the streaming loader's method."""
         try:
             from .streaming_audio_loader import get_streaming_loader
-            streaming_loader = get_streaming_loader()
+            streaming_loader = get_streaming_loader(
+                memory_limit_percent=self.streaming_memory_limit_percent,
+                chunk_duration_seconds=self.streaming_chunk_duration_seconds,
+                use_slicer=False,
+                use_streaming=True
+            )
             return streaming_loader._get_audio_duration(audio_path)
         except Exception as e:
             logger.error(f"❌ Error getting duration for {audio_path}: {e}")
