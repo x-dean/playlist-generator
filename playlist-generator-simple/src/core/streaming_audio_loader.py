@@ -28,10 +28,10 @@ logger = get_logger('playlista.streaming_loader')
 
 # Constants
 DEFAULT_SAMPLE_RATE = 44100
-DEFAULT_CHUNK_DURATION_SECONDS = 30  # 30 seconds per chunk
-DEFAULT_MEMORY_LIMIT_PERCENT = 80  # Use up to 80% of available RAM
+DEFAULT_CHUNK_DURATION_SECONDS = 15  # Reduced from 30 to 15 seconds per chunk
+DEFAULT_MEMORY_LIMIT_PERCENT = 50  # Reduced from 80% to 50% of available RAM
 MIN_CHUNK_DURATION_SECONDS = 5  # Minimum chunk duration
-MAX_CHUNK_DURATION_SECONDS = 120  # Maximum chunk duration
+MAX_CHUNK_DURATION_SECONDS = 30  # Reduced from 120 to 30 seconds for memory safety
 
 
 class StreamingAudioLoader:
@@ -89,30 +89,53 @@ class StreamingAudioLoader:
         Returns:
             Optimal chunk duration in seconds
         """
+        # Get current memory usage
+        current_memory = self._get_current_memory_usage()
+        available_memory_gb = current_memory.get('available_gb', 1.0)
+        
+        # Use a more conservative approach - use only 25% of available memory
+        conservative_memory_gb = min(available_memory_gb * 0.25, self.memory_limit_gb * 0.25)
+        
         # Estimate memory usage per second of audio (mono, 44.1kHz, float32)
         bytes_per_second = DEFAULT_SAMPLE_RATE * 4  # 4 bytes per float32 sample
         mb_per_second = bytes_per_second / (1024 ** 2)
         
         # Calculate how many seconds we can fit in memory
-        max_seconds_in_memory = self.memory_limit_gb * 1024 / mb_per_second
+        max_seconds_in_memory = conservative_memory_gb * 1024 / mb_per_second
         
-        # Use a safety factor of 0.5 to leave room for processing
-        safe_seconds = max_seconds_in_memory * 0.5
+        # Use a very conservative safety factor of 0.25 to leave room for processing
+        safe_seconds = max_seconds_in_memory * 0.25
         
         # Calculate optimal chunk duration
         optimal_duration = min(
             max(safe_seconds, MIN_CHUNK_DURATION_SECONDS),
             MAX_CHUNK_DURATION_SECONDS,
-            duration_seconds  # Don't exceed total duration
+            duration_seconds,  # Don't exceed total duration
+            30.0  # Maximum 30 seconds per chunk for memory safety
         )
         
-        logger.debug(f"📊 Chunk calculation:")
-        logger.debug(f"   File size: {file_size_mb:.1f}MB")
-        logger.debug(f"   Duration: {duration_seconds:.1f}s")
-        logger.debug(f"   Memory limit: {self.memory_limit_gb:.1f}GB")
-        logger.debug(f"   Optimal chunk duration: {optimal_duration:.1f}s")
+        logger.info(f"📊 Memory-aware chunk calculation:")
+        logger.info(f"   File size: {file_size_mb:.1f}MB")
+        logger.info(f"   Duration: {duration_seconds:.1f}s")
+        logger.info(f"   Available memory: {available_memory_gb:.1f}GB")
+        logger.info(f"   Conservative memory limit: {conservative_memory_gb:.1f}GB")
+        logger.info(f"   Optimal chunk duration: {optimal_duration:.1f}s")
         
         return optimal_duration
+    
+    def _get_current_memory_usage(self) -> Dict[str, float]:
+        """Get current memory usage information."""
+        try:
+            memory = psutil.virtual_memory()
+            return {
+                'total_gb': memory.total / (1024 ** 3),
+                'available_gb': memory.available / (1024 ** 3),
+                'used_gb': memory.used / (1024 ** 3),
+                'percent_used': memory.percent
+            }
+        except Exception as e:
+            logger.warning(f"⚠️ Could not get memory info: {e}")
+            return {'available_gb': 1.0, 'percent_used': 0.0}
     
     def _get_audio_duration(self, audio_path: str) -> Optional[float]:
         """
@@ -176,6 +199,10 @@ class StreamingAudioLoader:
             logger.error(f"❌ Could not determine duration for {audio_path}")
             return
         
+        # Check memory before starting
+        initial_memory = self._get_current_memory_usage()
+        logger.warning(f"⚠️ Memory usage before processing: {initial_memory['percent_used']:.1f}% ({initial_memory['used_gb']:.1f}GB / {initial_memory['total_gb']:.1f}GB)")
+        
         # Calculate optimal chunk duration
         if chunk_duration is None:
             chunk_duration = self._calculate_optimal_chunk_duration(file_size_mb, total_duration)
@@ -185,28 +212,60 @@ class StreamingAudioLoader:
         logger.info(f"   Chunk duration: {chunk_duration:.1f}s")
         logger.info(f"   Estimated chunks: {int(total_duration / chunk_duration) + 1}")
         
+        chunk_count = 0
         try:
             if ESSENTIA_AVAILABLE:
-                yield from self._load_chunks_essentia(audio_path, total_duration, chunk_duration)
+                for chunk, start_time, end_time in self._load_chunks_essentia(audio_path, total_duration, chunk_duration):
+                    chunk_count += 1
+                    
+                    # Monitor memory every 5 chunks
+                    if chunk_count % 5 == 0:
+                        current_memory = self._get_current_memory_usage()
+                        logger.warning(f"⚠️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                        
+                        # If memory usage is too high, force garbage collection
+                        if current_memory['percent_used'] > 90:
+                            logger.warning(f"⚠️ High memory usage detected! Forcing garbage collection...")
+                            import gc
+                            gc.collect()
+                    
+                    yield chunk, start_time, end_time
+                    
             elif LIBROSA_AVAILABLE:
-                yield from self._load_chunks_librosa(audio_path, total_duration, chunk_duration)
+                for chunk, start_time, end_time in self._load_chunks_librosa(audio_path, total_duration, chunk_duration):
+                    chunk_count += 1
+                    
+                    # Monitor memory every 5 chunks
+                    if chunk_count % 5 == 0:
+                        current_memory = self._get_current_memory_usage()
+                        logger.warning(f"⚠️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                        
+                        # If memory usage is too high, force garbage collection
+                        if current_memory['percent_used'] > 90:
+                            logger.warning(f"⚠️ High memory usage detected! Forcing garbage collection...")
+                            import gc
+                            gc.collect()
+                    
+                    yield chunk, start_time, end_time
             else:
                 logger.error("❌ No audio loading library available")
                 return
                 
         except Exception as e:
             logger.error(f"❌ Error streaming audio {audio_path}: {e}")
+        finally:
+            # Final memory check
+            final_memory = self._get_current_memory_usage()
+            logger.info(f"📊 Final memory usage: {final_memory['percent_used']:.1f}% ({final_memory['used_gb']:.1f}GB / {final_memory['total_gb']:.1f}GB)")
+            logger.info(f"📊 Processed {chunk_count} chunks successfully")
     
     def _load_chunks_essentia(self, audio_path: str, total_duration: float, 
                              chunk_duration: float) -> Generator[Tuple[np.ndarray, float, float], None, None]:
-        """Load audio chunks using Essentia."""
+        """Load audio chunks using Essentia with true streaming."""
         try:
-            # Load entire audio file with Essentia (fallback to traditional loading)
-            audio = es.MonoLoader(filename=audio_path, sampleRate=self.sample_rate)()
-            
             # Calculate chunk parameters
             samples_per_chunk = int(chunk_duration * self.sample_rate)
-            total_samples = len(audio)
+            total_samples = int(total_duration * self.sample_rate)
             
             current_sample = 0
             chunk_index = 0
@@ -216,19 +275,35 @@ class StreamingAudioLoader:
                 start_sample = current_sample
                 end_sample = min(start_sample + samples_per_chunk, total_samples)
                 
-                # Extract chunk from loaded audio
-                chunk = audio[start_sample:end_sample]
+                # Load only this chunk using Essentia with offset and duration
+                chunk_duration_seconds = (end_sample - start_sample) / self.sample_rate
+                start_time_seconds = start_sample / self.sample_rate
+                
+                # Create a new loader for each chunk to avoid memory accumulation
+                loader = es.MonoLoader(
+                    filename=audio_path, 
+                    sampleRate=self.sample_rate,
+                    startTime=start_time_seconds,
+                    endTime=start_time_seconds + chunk_duration_seconds
+                )
+                
+                # Load only this chunk
+                chunk = loader()
                 
                 # Calculate time boundaries
                 start_time = start_sample / self.sample_rate
                 end_time = end_sample / self.sample_rate
                 
-                logger.debug(f"📊 Chunk {chunk_index + 1}: {start_time:.1f}s - {end_time:.1f}s")
+                logger.debug(f"📊 Chunk {chunk_index + 1}: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
                 
                 yield chunk, start_time, end_time
                 
                 current_sample = end_sample
                 chunk_index += 1
+                
+                # Force garbage collection after each chunk to free memory
+                import gc
+                gc.collect()
                 
         except Exception as e:
             logger.error(f"❌ Error in Essentia streaming: {e}")
