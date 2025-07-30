@@ -33,17 +33,27 @@ audio = es.MonoLoader(filename=audio_path, sampleRate=self.sample_rate)()
 chunk = audio[start_sample:end_sample]
 ```
 
-**After (True Streaming):**
+**After (True Streaming with Essentia's Streaming Mode):**
 ```python
-# Load only this chunk using Essentia with offset and duration
-loader = es.MonoLoader(
-    filename=audio_path, 
-    sampleRate=self.sample_rate,
-    startTime=start_time_seconds,
-    endTime=start_time_seconds + chunk_duration_seconds
+# Initialize Essentia streaming network
+loader = es.AudioLoader(filename=audio_path)
+frame_cutter = es.FrameCutter(
+    frameSize=samples_per_chunk,
+    hopSize=samples_per_chunk,  # No overlap for clean chunks
+    startFromZero=True
 )
-# Load only this chunk
-chunk = loader()
+
+# Connect the streaming network
+pool = essentia.Pool()
+loader.audio >> frame_cutter.signal
+frame_cutter.frame >> pool.add('audio_frames')
+
+# Run the streaming network
+essentia.run(loader)
+
+# Process frames one by one
+for frame in pool['audio_frames']:
+    yield frame, start_time, end_time
 ```
 
 ### 2. **Conservative Memory Limits**
