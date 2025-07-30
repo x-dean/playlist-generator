@@ -452,8 +452,13 @@ class AudioAnalyzer:
                 logger.debug(f"📊 Loaded audio: {len(audio)} samples, {sr}Hz")
                 return audio
             elif ESSENTIA_AVAILABLE:
-                # Use essentia for loading
-                loader = es.MonoLoader(filename=audio_path, sampleRate=DEFAULT_SAMPLE_RATE)
+                # Use Essentia MonoLoader with proper parameters
+                loader = es.MonoLoader(
+                    filename=audio_path,
+                    sampleRate=DEFAULT_SAMPLE_RATE,
+                    downmix='mix',  # Mix stereo to mono
+                    resampleQuality=1  # Good quality resampling
+                )
                 audio = loader()
                 logger.debug(f"📊 Loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
                 return audio
