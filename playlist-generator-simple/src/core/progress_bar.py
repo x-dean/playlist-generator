@@ -49,6 +49,9 @@ class SimpleProgressBar:
         if not self.show_progress:
             logger.info(f"🔄 {description}: {total_files} files")
             return
+        
+        # Clean up any existing progress bar
+        self._cleanup_progress()
             
         self.current_progress = Progress(
             SpinnerColumn(),
@@ -121,8 +124,7 @@ class SimpleProgressBar:
         self.console.print(results_table)
         
         # Clean up
-        self.current_progress = None
-        self.current_task = None
+        self._cleanup_progress()
     
     def start_analysis(self, total_files: int, analysis_type: str = "Analysis") -> None:
         """
@@ -135,6 +137,9 @@ class SimpleProgressBar:
         if not self.show_progress:
             logger.info(f"🎵 Starting {analysis_type}: {total_files} files")
             return
+        
+        # Clean up any existing progress bar
+        self._cleanup_progress()
             
         self.current_progress = Progress(
             SpinnerColumn(),
@@ -209,8 +214,7 @@ class SimpleProgressBar:
         self.console.print(results_table)
         
         # Clean up
-        self.current_progress = None
-        self.current_task = None
+        self._cleanup_progress()
     
     def show_status(self, message: str, style: str = "blue") -> None:
         """
@@ -264,6 +268,18 @@ class SimpleProgressBar:
             return
             
         self.console.print(f"[yellow]⚠️ {message}[/yellow]")
+    
+    def _cleanup_progress(self) -> None:
+        """
+        Clean up any existing progress bar to prevent conflicts.
+        """
+        if self.current_progress is not None:
+            try:
+                self.current_progress.stop()
+            except:
+                pass  # Ignore errors during cleanup
+            self.current_progress = None
+            self.current_task = None
 
 
 # Global progress bar instance
@@ -281,6 +297,18 @@ def get_progress_bar(show_progress: bool = True) -> SimpleProgressBar:
         Progress bar instance
     """
     global _progress_bar
+    
+    # Check configuration for progress bar setting
+    try:
+        from .config_loader import config_loader
+        config = config_loader.get_analysis_config()
+        config_show_progress = config.get('PROGRESS_BAR_ENABLED', True)
+        # Use configuration setting if available, otherwise use parameter
+        show_progress = config_show_progress and show_progress
+    except:
+        # If config loading fails, use the parameter
+        pass
+    
     if _progress_bar is None:
         _progress_bar = SimpleProgressBar(show_progress=show_progress)
     return _progress_bar

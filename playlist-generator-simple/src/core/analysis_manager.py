@@ -431,9 +431,8 @@ class AnalysisManager:
         logger.debug(f"   Force re-extract: {force_reextract}")
         logger.debug(f"   Max workers: {max_workers}")
         
-        # Get progress bar for overall analysis
-        progress_bar = get_progress_bar()
-        progress_bar.start_file_processing(len(files), "Overall Analysis")
+        # Note: Individual analyzers will create their own progress bars
+        # No need for overall progress bar here to avoid conflicts
         
         start_time = time.time()
         
@@ -473,12 +472,7 @@ class AnalysisManager:
         total_time = time.time() - start_time
         results['total_time'] = total_time
         
-        # Complete overall progress bar
-        progress_bar.complete_file_processing(
-            len(files), 
-            results['success_count'], 
-            results['failed_count']
-        )
+        # Note: Individual analyzers handle their own progress bars
         
         logger.info(f"✅ Analysis completed in {total_time:.2f}s")
         logger.info(f"📊 Results: {results['success_count']} successful, {results['failed_count']} failed")
