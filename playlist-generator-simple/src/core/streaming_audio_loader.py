@@ -934,12 +934,8 @@ class StreamingAudioLoader:
     
     def _load_chunks_librosa_streaming(self, audio_path: str, total_duration: float, 
                                       chunk_duration: float) -> Generator[Tuple[np.ndarray, float, float], None, None]:
-        """Load audio chunks using Librosa's true streaming capabilities."""
+        """Load audio chunks using Librosa's true streaming capabilities - only one chunk in memory at a time."""
         try:
-            # Calculate chunk parameters
-            samples_per_chunk = int(chunk_duration * self.sample_rate)
-            total_samples = int(total_duration * self.sample_rate)
-            
             logger.info(f"🎵 Using Librosa true streaming for: {os.path.basename(audio_path)}")
             logger.info(f"📊 Total duration: {total_duration:.1f}s, Chunk duration: {chunk_duration:.1f}s")
             logger.info(f"📊 Expected chunks: {int(total_duration / chunk_duration) + 1}")
@@ -947,41 +943,80 @@ class StreamingAudioLoader:
             chunk_index = 0
             current_time = 0.0
             
+            # Use a much smaller processing window to minimize memory usage
+            # Process only 30 seconds at a time to keep memory usage very low
+            processing_window = min(chunk_duration, 30.0)  # Max 30 seconds per processing window
+            
+            logger.info(f"🔄 Using true streaming with {processing_window:.1f}s processing windows")
+            
             while current_time < total_duration:
                 # Calculate time boundaries for this chunk
                 start_time = current_time
                 end_time = min(start_time + chunk_duration, total_duration)
                 duration = end_time - start_time
                 
-                try:
-                    # Load only this chunk using librosa's streaming capabilities
-                    chunk, sr = librosa.load(
-                        audio_path,
-                        sr=self.sample_rate,
-                        mono=True,
-                        offset=start_time,
-                        duration=duration
-                    )
+                # Process this chunk in smaller windows to minimize memory
+                chunk_parts = []
+                window_start = start_time
+                
+                while window_start < end_time:
+                    window_end = min(window_start + processing_window, end_time)
+                    window_duration = window_end - window_start
                     
-                    # Ensure correct sample rate
-                    if sr != self.sample_rate:
-                        chunk = librosa.resample(chunk, orig_sr=sr, target_sr=self.sample_rate)
+                    try:
+                        # Load only this small window using librosa's streaming capabilities
+                        window_chunk, sr = librosa.load(
+                            audio_path,
+                            sr=self.sample_rate,
+                            mono=True,
+                            offset=window_start,
+                            duration=window_duration
+                        )
+                        
+                        # Ensure correct sample rate
+                        if sr != self.sample_rate:
+                            window_chunk = librosa.resample(window_chunk, orig_sr=sr, target_sr=self.sample_rate)
+                        
+                        chunk_parts.append(window_chunk)
+                        
+                        # Force garbage collection after each window to free memory immediately
+                        import gc
+                        gc.collect()
+                        
+                        logger.debug(f"📊 Window {window_start:.1f}s - {window_end:.1f}s ({len(window_chunk)} samples)")
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Error loading window {window_start:.1f}s - {window_end:.1f}s: {e}")
+                        # Skip this window and continue
+                        pass
+                    
+                    window_start = window_end
+                
+                # Combine window chunks into final chunk
+                if chunk_parts:
+                    chunk = np.concatenate(chunk_parts)
                     
                     logger.debug(f"📊 Librosa Streaming Chunk {chunk_index + 1}: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
                     
                     yield chunk, start_time, end_time
                     
+                    # Clear chunk_parts to free memory immediately
+                    chunk_parts.clear()
+                    
                     # Force garbage collection after each chunk
                     import gc
                     gc.collect()
                     
-                except Exception as e:
-                    logger.error(f"❌ Error loading chunk {chunk_index + 1}: {e}")
-                    # Skip this chunk and continue
-                    pass
+                else:
+                    logger.warning(f"⚠️ Empty chunk {chunk_index + 1}")
                 
                 current_time = end_time
                 chunk_index += 1
+                
+                # Monitor memory every 10 chunks
+                if chunk_index % 10 == 0:
+                    current_memory = self._get_current_memory_usage()
+                    logger.warning(f"⚠️ Memory usage after chunk {chunk_index}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
             
             logger.info(f"✅ Librosa streaming completed: {chunk_index} chunks processed")
                 

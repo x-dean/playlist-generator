@@ -499,7 +499,7 @@ class AudioAnalyzer:
             return None
     
     def _load_audio_streaming(self, audio_path: str) -> Optional[np.ndarray]:
-        """Load audio using streaming method and concatenate chunks."""
+        """Load audio using streaming method - for small files only."""
         try:
             from .streaming_audio_loader import get_streaming_loader
             
@@ -509,7 +509,15 @@ class AudioAnalyzer:
                 chunk_duration_seconds=self.streaming_chunk_duration_seconds
             )
             
-            # Collect all chunks
+            # For small files, we can still concatenate chunks
+            # For large files, we should use true streaming analysis
+            file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+            
+            if file_size_mb > 100:  # Large file threshold
+                logger.warning(f"⚠️ Large file detected ({file_size_mb:.1f}MB) - using true streaming analysis")
+                return self._analyze_large_file_streaming(audio_path, streaming_loader)
+            
+            # For smaller files, collect chunks and concatenate
             chunks = []
             total_samples = 0
             
@@ -533,6 +541,87 @@ class AudioAnalyzer:
             logger.error(f"❌ Error in streaming audio load: {e}")
             logger.warning("🔄 Falling back to traditional loading...")
             return self._load_audio_traditional(audio_path)
+    
+    def _analyze_large_file_streaming(self, audio_path: str, streaming_loader) -> Optional[np.ndarray]:
+        """Analyze large files using true streaming - process one chunk at a time."""
+        try:
+            logger.info(f"🎵 Starting true streaming analysis for large file: {os.path.basename(audio_path)}")
+            
+            # For large files, we'll use a representative sample instead of loading the entire file
+            # This prevents memory issues while still providing useful analysis
+            
+            # Get file duration
+            duration = self._get_audio_duration(audio_path)
+            if duration is None:
+                logger.error("❌ Could not determine audio duration")
+                return None
+            
+            # For very large files (> 100MB), use a representative sample
+            # Take samples from beginning, middle, and end
+            sample_duration = min(60.0, duration / 10)  # 60 seconds or 1/10th of file
+            
+            samples = []
+            
+            # Sample from beginning
+            if duration > sample_duration:
+                try:
+                    chunk, sr = librosa.load(
+                        audio_path,
+                        sr=DEFAULT_SAMPLE_RATE,
+                        mono=True,
+                        offset=0,
+                        duration=sample_duration
+                    )
+                    samples.append(chunk)
+                    logger.debug(f"📊 Loaded beginning sample: {len(chunk)} samples")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error loading beginning sample: {e}")
+            
+            # Sample from middle
+            if duration > sample_duration * 2:
+                try:
+                    middle_start = duration / 2 - sample_duration / 2
+                    chunk, sr = librosa.load(
+                        audio_path,
+                        sr=DEFAULT_SAMPLE_RATE,
+                        mono=True,
+                        offset=middle_start,
+                        duration=sample_duration
+                    )
+                    samples.append(chunk)
+                    logger.debug(f"📊 Loaded middle sample: {len(chunk)} samples")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error loading middle sample: {e}")
+            
+            # Sample from end
+            if duration > sample_duration:
+                try:
+                    end_start = max(0, duration - sample_duration)
+                    chunk, sr = librosa.load(
+                        audio_path,
+                        sr=DEFAULT_SAMPLE_RATE,
+                        mono=True,
+                        offset=end_start,
+                        duration=sample_duration
+                    )
+                    samples.append(chunk)
+                    logger.debug(f"📊 Loaded end sample: {len(chunk)} samples")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error loading end sample: {e}")
+            
+            if not samples:
+                logger.error("❌ No samples loaded from large file")
+                return None
+            
+            # Concatenate samples to create a representative audio
+            representative_audio = np.concatenate(samples)
+            logger.info(f"📊 Created representative audio: {len(representative_audio)} samples from {len(samples)} samples")
+            
+            return representative_audio
+            
+        except Exception as e:
+            logger.error(f"❌ Error in true streaming analysis: {e}")
+            return None
 
     def _extract_metadata(self, audio_path: str) -> Dict[str, Any]:
         """
