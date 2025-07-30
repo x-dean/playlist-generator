@@ -1188,6 +1188,16 @@ class AudioAnalyzer:
             }
         }
 
+    def _get_audio_duration(self, audio_path: str) -> Optional[float]:
+        """Get audio file duration using the streaming loader's method."""
+        try:
+            from .streaming_audio_loader import get_streaming_loader
+            streaming_loader = get_streaming_loader()
+            return streaming_loader._get_audio_duration(audio_path)
+        except Exception as e:
+            logger.error(f"❌ Error getting duration for {audio_path}: {e}")
+            return None
+
 
 # Global audio analyzer instance
 audio_analyzer = AudioAnalyzer() 
