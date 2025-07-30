@@ -543,12 +543,9 @@ class AudioAnalyzer:
             return self._load_audio_traditional(audio_path)
     
     def _analyze_large_file_streaming(self, audio_path: str, streaming_loader) -> Optional[np.ndarray]:
-        """Analyze large files using true streaming - process one chunk at a time."""
+        """Analyze large files using true streaming - process multiple segments for mixed tracks."""
         try:
             logger.info(f"🎵 Starting true streaming analysis for large file: {os.path.basename(audio_path)}")
-            
-            # For large files, we'll use a representative sample instead of loading the entire file
-            # This prevents memory issues while still providing useful analysis
             
             # Get file duration
             duration = self._get_audio_duration(audio_path)
@@ -556,66 +553,58 @@ class AudioAnalyzer:
                 logger.error("❌ Could not determine audio duration")
                 return None
             
-            # For very large files (> 100MB), use a representative sample
-            # Take samples from beginning, middle, and end
-            sample_duration = min(60.0, duration / 10)  # 60 seconds or 1/10th of file
+            # For very large files (> 100MB), use multiple segments throughout the file
+            # This is better for mixed tracks that have different characteristics throughout
             
-            samples = []
+            # Calculate segment parameters
+            segment_duration = 120.0  # 2 minutes per segment
+            num_segments = min(10, int(duration / segment_duration))  # Max 10 segments
+            segment_interval = duration / (num_segments + 1)  # Evenly spaced segments
             
-            # Sample from beginning
-            if duration > sample_duration:
+            logger.info(f"📊 Large file analysis: {duration:.1f}s total, {num_segments} segments of {segment_duration}s each")
+            
+            segments = []
+            
+            # Sample segments throughout the file
+            for i in range(num_segments):
+                segment_start = (i + 1) * segment_interval
+                
+                # Ensure we don't exceed file duration
+                if segment_start + segment_duration > duration:
+                    segment_start = max(0, duration - segment_duration)
+                
                 try:
+                    logger.debug(f"📊 Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
+                    
                     chunk, sr = librosa.load(
                         audio_path,
                         sr=DEFAULT_SAMPLE_RATE,
                         mono=True,
-                        offset=0,
-                        duration=sample_duration
+                        offset=segment_start,
+                        duration=segment_duration
                     )
-                    samples.append(chunk)
-                    logger.debug(f"📊 Loaded beginning sample: {len(chunk)} samples")
+                    
+                    segments.append(chunk)
+                    logger.debug(f"📊 Loaded segment {i+1}: {len(chunk)} samples")
+                    
+                    # Force garbage collection after each segment
+                    import gc
+                    gc.collect()
+                    
                 except Exception as e:
-                    logger.warning(f"⚠️ Error loading beginning sample: {e}")
+                    logger.warning(f"⚠️ Error loading segment {i+1}: {e}")
+                    continue
             
-            # Sample from middle
-            if duration > sample_duration * 2:
-                try:
-                    middle_start = duration / 2 - sample_duration / 2
-                    chunk, sr = librosa.load(
-                        audio_path,
-                        sr=DEFAULT_SAMPLE_RATE,
-                        mono=True,
-                        offset=middle_start,
-                        duration=sample_duration
-                    )
-                    samples.append(chunk)
-                    logger.debug(f"📊 Loaded middle sample: {len(chunk)} samples")
-                except Exception as e:
-                    logger.warning(f"⚠️ Error loading middle sample: {e}")
-            
-            # Sample from end
-            if duration > sample_duration:
-                try:
-                    end_start = max(0, duration - sample_duration)
-                    chunk, sr = librosa.load(
-                        audio_path,
-                        sr=DEFAULT_SAMPLE_RATE,
-                        mono=True,
-                        offset=end_start,
-                        duration=sample_duration
-                    )
-                    samples.append(chunk)
-                    logger.debug(f"📊 Loaded end sample: {len(chunk)} samples")
-                except Exception as e:
-                    logger.warning(f"⚠️ Error loading end sample: {e}")
-            
-            if not samples:
-                logger.error("❌ No samples loaded from large file")
+            if not segments:
+                logger.error("❌ No segments loaded from large file")
                 return None
             
-            # Concatenate samples to create a representative audio
-            representative_audio = np.concatenate(samples)
-            logger.info(f"📊 Created representative audio: {len(representative_audio)} samples from {len(samples)} samples")
+            # Concatenate segments to create representative audio
+            representative_audio = np.concatenate(segments)
+            total_duration = len(representative_audio) / DEFAULT_SAMPLE_RATE
+            
+            logger.info(f"📊 Created representative audio: {len(representative_audio)} samples ({total_duration:.1f}s) from {len(segments)} segments")
+            logger.info(f"📊 Representative audio covers {total_duration/duration*100:.1f}% of original file")
             
             return representative_audio
             
