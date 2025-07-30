@@ -56,7 +56,7 @@ class SimpleProgressBar:
             description: Description for the progress bar
         """
         if not self.show_progress:
-            logger.info(f"🔄 {description}: {total_files} files")
+            logger.info(f"{description}: {total_files} files")
             return
         
         # Clear screen before showing progress bar
@@ -89,7 +89,7 @@ class SimpleProgressBar:
         """
         if not self.show_progress or not self.current_progress or not self.current_task:
             if current_file:
-                logger.info(f"📁 Processing: {current_file}")
+                logger.info(f"Processing: {current_file}")
             return
             
         self.current_progress.update(self.current_task, completed=processed_files)
@@ -111,7 +111,7 @@ class SimpleProgressBar:
             failed_count: Number of failed files
         """
         if not self.show_progress or not self.current_progress:
-            logger.info(f"✅ Processing completed: {success_count} successful, {failed_count} failed")
+            logger.info(f"Processing completed: {success_count} successful, {failed_count} failed")
             return
             
         # Update to 100% completion
@@ -147,7 +147,7 @@ class SimpleProgressBar:
             analysis_type: Type of analysis (e.g., "Sequential", "Parallel")
         """
         if not self.show_progress:
-            logger.info(f"🎵 Starting {analysis_type}: {total_files} files")
+            logger.info(f"Starting {analysis_type}: {total_files} files")
             return
         
         # Clear screen before showing progress bar
@@ -180,7 +180,7 @@ class SimpleProgressBar:
         """
         if not self.show_progress or not self.current_progress or not self.current_task:
             if current_file:
-                logger.info(f"🎵 Analyzing: {current_file}")
+                logger.info(f"Analyzing: {current_file}")
             return
             
         self.current_progress.update(self.current_task, completed=processed_files)
@@ -204,7 +204,7 @@ class SimpleProgressBar:
             analysis_type: Type of analysis completed
         """
         if not self.show_progress or not self.current_progress:
-            logger.info(f"✅ {analysis_type} completed: {success_count} successful, {failed_count} failed")
+            logger.info(f"{analysis_type} completed: {success_count} successful, {failed_count} failed")
             return
             
         # Update to 100% completion
@@ -256,7 +256,7 @@ class SimpleProgressBar:
             logger.error(message)
             return
             
-        self.console.print(f"[red]❌ {message}[/red]")
+        self.console.print(f"[red]{message}[/red]")
     
     def show_success(self, message: str) -> None:
         """
@@ -269,7 +269,7 @@ class SimpleProgressBar:
             logger.info(message)
             return
             
-        self.console.print(f"[green]✅ {message}[/green]")
+        self.console.print(f"[green]{message}[/green]")
     
     def show_warning(self, message: str) -> None:
         """
@@ -282,7 +282,7 @@ class SimpleProgressBar:
             logger.warning(message)
             return
             
-        self.console.print(f"[yellow]⚠️ {message}[/yellow]")
+        self.console.print(f"[yellow]{message}[/yellow]")
     
     def _cleanup_progress(self) -> None:
         """

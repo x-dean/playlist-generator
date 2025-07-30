@@ -73,7 +73,7 @@ class ParallelAnalyzer:
         
         logger.info(f"🔧 Initializing ParallelAnalyzer")
         logger.debug(f"📋 Timeout: {self.timeout_seconds}s, Memory threshold: {self.memory_threshold_percent}%")
-        logger.info(f"✅ ParallelAnalyzer initialized successfully")
+        logger.info(f"ParallelAnalyzer initialized successfully")
 
     @log_function_call
     def process_files(self, files: List[str], force_reextract: bool = False,
@@ -90,14 +90,14 @@ class ParallelAnalyzer:
             Dictionary with processing results and statistics
         """
         if not files:
-            logger.warning("⚠️ No files provided for parallel processing")
+            logger.warning("No files provided for parallel processing")
             return {'success_count': 0, 'failed_count': 0, 'total_time': 0}
         
         # Determine optimal worker count
         if max_workers is None:
             max_workers = self.max_workers or self.resource_manager.get_optimal_worker_count()
         
-        logger.info(f"🔄 Starting parallel processing of {len(files)} files")
+        logger.info(f"Starting parallel processing of {len(files)} files")
         logger.debug(f"   Force re-extract: {force_reextract}")
         logger.debug(f"   Max workers: {max_workers}")
         
@@ -140,7 +140,7 @@ class ParallelAnalyzer:
                                 'status': 'success',
                                 'timestamp': datetime.now().isoformat()
                             })
-                            logger.debug(f"✅ Completed: {filename}")
+                            logger.debug(f"Completed: {filename}")
                         else:
                             results['failed_count'] += 1
                             results['processed_files'].append({
@@ -148,13 +148,13 @@ class ParallelAnalyzer:
                                 'status': 'failed',
                                 'timestamp': datetime.now().isoformat()
                             })
-                            logger.debug(f"❌ Failed: {filename}")
+                            logger.debug(f"Failed: {filename}")
                         
                         # Update progress bar
                         progress_bar.update_analysis_progress(completed_count, filename)
                             
                     except Exception as e:
-                        logger.error(f"❌ Error processing {filename}: {e}")
+                        logger.error(f"Error processing {filename}: {e}")
                         results['failed_count'] += 1
                         results['processed_files'].append({
                             'file_path': file_path,
@@ -169,7 +169,7 @@ class ParallelAnalyzer:
                         future.cancel()
                         
         except Exception as e:
-            logger.error(f"❌ Error in parallel processing: {e}")
+            logger.error(f"Error in parallel processing: {e}")
             # Count remaining files as failed
             remaining_files = [f for f in files if f not in [p['file_path'] for p in results['processed_files']]]
             results['failed_count'] += len(remaining_files)
@@ -196,9 +196,9 @@ class ParallelAnalyzer:
         memory_usage_mb = process.memory_info().rss / (1024 * 1024)
         cpu_usage_percent = process.cpu_percent()
         
-        logger.info(f"✅ Parallel processing completed in {total_time:.2f}s")
-        logger.info(f"📊 Results: {results['success_count']} successful, {results['failed_count']} failed")
-        logger.info(f"📊 Success rate: {success_rate:.1f}%, Throughput: {throughput:.2f} files/s")
+        logger.info(f"Parallel processing completed in {total_time:.2f}s")
+        logger.info(f"Results: {results['success_count']} successful, {results['failed_count']} failed")
+        logger.info(f"Success rate: {success_rate:.1f}%, Throughput: {throughput:.2f} files/s")
         
         # Log detailed batch processing statistics
         log_batch_processing_detailed(
@@ -326,7 +326,7 @@ class ParallelAnalyzer:
             return False
         except Exception as e:
             duration = time.time() - start_time
-            logger.error(f"❌ Worker error for {os.path.basename(file_path)}: {e}")
+            logger.error(f"Worker error for {os.path.basename(file_path)}: {e}")
             filename = os.path.basename(file_path)
             self.db_manager.mark_analysis_failed(file_path, filename, str(e))
             
@@ -353,7 +353,7 @@ class ParallelAnalyzer:
             # Get deterministic analysis configuration
             analysis_config = analysis_manager.determine_analysis_type(file_path)
             
-            logger.debug(f"📊 Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
+            logger.debug(f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
             
             return analysis_config
             
@@ -440,7 +440,7 @@ class ParallelAnalyzer:
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error updating parallel analyzer configuration: {e}")
+            logger.error(f"Error updating parallel analyzer configuration: {e}")
             return False
 
 

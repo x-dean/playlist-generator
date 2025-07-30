@@ -107,7 +107,7 @@ class StreamingAudioLoader:
         
         # Check memory again
         current_memory = self._get_current_memory_usage()
-        logger.info(f"📊 Memory after cleanup: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+        logger.info(f"Memory after cleanup: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
         
         if current_memory['percent_used'] > 85:
             logger.error(f"🚨 Memory still critical after cleanup! Consider reducing chunk size or stopping processing.")
@@ -122,7 +122,7 @@ class StreamingAudioLoader:
         if self._check_memory_pressure():
             # Reduce chunk duration by 50% under memory pressure
             adjusted_duration = chunk_duration * 0.5
-            logger.warning(f"⚠️ Memory pressure detected! Reducing chunk duration from {chunk_duration:.1f}s to {adjusted_duration:.1f}s")
+            logger.warning(f"Memory pressure detected! Reducing chunk duration from {chunk_duration:.1f}s to {adjusted_duration:.1f}s")
             return max(adjusted_duration, MIN_CHUNK_DURATION_SECONDS)
         return chunk_duration
     
@@ -150,7 +150,7 @@ class StreamingAudioLoader:
             memory = psutil.virtual_memory()
             return memory.available / (1024 ** 3)  # Convert to GB
         except Exception as e:
-            logger.warning(f"⚠️ Could not get memory info: {e}")
+            logger.warning(f"Could not get memory info: {e}")
             return 4.0  # Default to 4GB
     
     def _calculate_optimal_chunk_duration(self, file_size_mb: float, 
@@ -226,7 +226,7 @@ class StreamingAudioLoader:
         try:
             if ESSENTIA_AVAILABLE:
                 # Use Essentia MonoLoader for duration - load audio and calculate duration
-                logger.debug(f"🔍 Getting duration with Essentia MonoLoader: {os.path.basename(audio_path)}")
+                logger.debug(f"Getting duration with Essentia MonoLoader: {os.path.basename(audio_path)}")
                 loader = es.MonoLoader(
                     filename=audio_path,
                     sampleRate=self.sample_rate,
@@ -235,37 +235,37 @@ class StreamingAudioLoader:
                 )
                 audio = loader()
                 duration = len(audio) / self.sample_rate
-                logger.debug(f"✅ Duration calculated: {duration:.1f}s ({len(audio)} samples)")
+                logger.debug(f"Duration calculated: {duration:.1f}s ({len(audio)} samples)")
                 return duration
             elif LIBROSA_AVAILABLE:
                 # Use librosa for duration
-                logger.debug(f"🔍 Getting duration with Librosa: {os.path.basename(audio_path)}")
+                logger.debug(f"Getting duration with Librosa: {os.path.basename(audio_path)}")
                 duration = librosa.get_duration(path=audio_path, sr=self.sample_rate)
-                logger.debug(f"✅ Duration calculated: {duration:.1f}s")
+                logger.debug(f"Duration calculated: {duration:.1f}s")
                 return duration
             elif SOUNDFILE_AVAILABLE:
                 # Use soundfile for duration
-                logger.debug(f"🔍 Getting duration with SoundFile: {os.path.basename(audio_path)}")
+                logger.debug(f"Getting duration with SoundFile: {os.path.basename(audio_path)}")
                 info = sf.info(audio_path)
                 duration = info.duration
-                logger.debug(f"✅ Duration calculated: {duration:.1f}s")
+                logger.debug(f"Duration calculated: {duration:.1f}s")
                 return duration
             elif WAVE_AVAILABLE and audio_path.lower().endswith('.wav'):
                 # Use wave module for WAV files
-                logger.debug(f"🔍 Getting duration with Wave: {os.path.basename(audio_path)}")
+                logger.debug(f"Getting duration with Wave: {os.path.basename(audio_path)}")
                 with wave.open(audio_path, 'rb') as wav_file:
                     frames = wav_file.getnframes()
                     sample_rate = wav_file.getframerate()
                     duration = frames / sample_rate
-                    logger.debug(f"✅ Duration calculated: {duration:.1f}s")
+                    logger.debug(f"Duration calculated: {duration:.1f}s")
                     return duration
             else:
-                logger.error("❌ No audio library available for duration detection")
+                logger.error("No audio library available for duration detection")
                 logger.error(f"   Available libraries: Essentia={ESSENTIA_AVAILABLE}, Librosa={LIBROSA_AVAILABLE}, SoundFile={SOUNDFILE_AVAILABLE}, Wave={WAVE_AVAILABLE}")
                 return None
                 
         except Exception as e:
-            logger.error(f"❌ Error getting duration for {audio_path}: {e}")
+            logger.error(f"Error getting duration for {audio_path}: {e}")
             return None
     
     def _get_file_size_mb(self, audio_path: str) -> float:
@@ -274,7 +274,7 @@ class StreamingAudioLoader:
             size_bytes = os.path.getsize(audio_path)
             return size_bytes / (1024 ** 2)
         except Exception as e:
-            logger.warning(f"⚠️ Could not get file size: {e}")
+            logger.warning(f"Could not get file size: {e}")
             return 0.0
     
     def load_audio_chunks(self, audio_path: str, 
@@ -303,7 +303,7 @@ class StreamingAudioLoader:
         
         # Check memory before starting
         initial_memory = self._get_current_memory_usage()
-        logger.warning(f"⚠️ Memory usage before processing: {initial_memory['percent_used']:.1f}% ({initial_memory['used_gb']:.1f}GB / {initial_memory['total_gb']:.1f}GB)")
+        logger.warning(f"Memory usage before processing: {initial_memory['percent_used']:.1f}% ({initial_memory['used_gb']:.1f}GB / {initial_memory['total_gb']:.1f}GB)")
         
         # Calculate optimal chunk duration
         if chunk_duration is None:
@@ -312,7 +312,7 @@ class StreamingAudioLoader:
         # Adjust chunk duration for memory pressure
         chunk_duration = self._adjust_for_memory_pressure(chunk_duration)
         
-        logger.info(f"🎵 Streaming audio: {os.path.basename(audio_path)}")
+        logger.info(f"Streaming audio: {os.path.basename(audio_path)}")
         logger.info(f"   Total duration: {total_duration:.1f}s")
         logger.info(f"   Chunk duration: {chunk_duration:.1f}s")
         logger.info(f"   Estimated chunks: {int(total_duration / chunk_duration) + 1}")
@@ -321,18 +321,18 @@ class StreamingAudioLoader:
         try:
             # Prioritize true streaming with librosa if available
             if LIBROSA_AVAILABLE:
-                logger.info(f"🎵 Using Librosa true streaming for: {os.path.basename(audio_path)}")
+                logger.info(f"Using Librosa true streaming for: {os.path.basename(audio_path)}")
                 for chunk, start_time, end_time in self._load_chunks_librosa_streaming(audio_path, total_duration, chunk_duration):
                     chunk_count += 1
                     
                     # Monitor memory every 5 chunks
                     if chunk_count % 5 == 0:
                         current_memory = self._get_current_memory_usage()
-                        logger.warning(f"⚠️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                        logger.warning(f"Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                         
                         # More aggressive memory management - trigger GC at 70% instead of 90%
                         if current_memory['percent_used'] > 70:
-                            logger.warning(f"⚠️ High memory usage detected! Forcing garbage collection...")
+                            logger.warning(f"High memory usage detected! Forcing garbage collection...")
                             import gc
                             gc.collect()
                     
@@ -343,14 +343,14 @@ class StreamingAudioLoader:
                     yield chunk, start_time, end_time
             elif ESSENTIA_AVAILABLE:
                 if self.use_slicer:
-                    logger.info(f"🎵 Using Essentia Slicer for streaming audio: {os.path.basename(audio_path)}")
+                    logger.info(f"Using Essentia Slicer for streaming audio: {os.path.basename(audio_path)}")
                     for chunk, start_time, end_time in self._load_chunks_essentia_slicer(audio_path, total_duration, chunk_duration):
                         chunk_count += 1
                         
                         # Monitor memory every 5 chunks
                         if chunk_count % 5 == 0:
                             current_memory = self._get_current_memory_usage()
-                            logger.warning(f"⚠️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                            logger.warning(f"Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                             
                             # Handle critical memory situations
                             if current_memory['percent_used'] > 85:

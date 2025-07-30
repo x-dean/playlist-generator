@@ -275,12 +275,12 @@ class AudioAnalyzer:
         logger.debug(f"📋 Cache file: {self.cache_file}")
         logger.debug(f"📋 Library path: {self.library}")
         logger.debug(f"📋 Music path: {self.music}")
-        logger.info(f"✅ AudioAnalyzer initialized successfully")
+        logger.info(f"AudioAnalyzer initialized successfully")
 
     def _init_musicnn(self):
         """Initialize MusiCNN model if available."""
         if not TENSORFLOW_AVAILABLE or not ESSENTIA_AVAILABLE:
-            logger.warning("⚠️ TensorFlow or Essentia not available - MusiCNN disabled")
+            logger.warning("TensorFlow or Essentia not available - MusiCNN disabled")
             return
         
         try:
@@ -292,43 +292,43 @@ class AudioAnalyzer:
                     input='model/Placeholder',
                     output='model/Sigmoid'
                 )
-                logger.info("✅ MusiCNN model loaded successfully")
+                logger.info("MusiCNN model loaded successfully")
             else:
-                logger.warning(f"⚠️ MusiCNN model files not found:")
+                logger.warning(f"MusiCNN model files not found:")
                 logger.warning(f"   Model: {self.musicnn_model_path}")
                 logger.warning(f"   Config: {self.musicnn_json_path}")
         except Exception as e:
-            logger.warning(f"⚠️ Could not initialize MusiCNN: {e}")
+            logger.warning(f"Could not initialize MusiCNN: {e}")
             self.musicnn_model = None
 
     def _check_library_availability(self):
         """Check availability of audio processing libraries."""
-        logger.debug("🔍 Checking audio processing library availability")
+        logger.debug("Checking audio processing library availability")
         
         if ESSENTIA_AVAILABLE:
-            logger.info("✅ Essentia available for feature extraction")
+            logger.info("Essentia available for feature extraction")
         else:
-            logger.warning("⚠️ Essentia not available - limited features")
+            logger.warning("Essentia not available - limited features")
         
         if LIBROSA_AVAILABLE:
-            logger.info("✅ Librosa available for feature extraction")
+            logger.info("Librosa available for feature extraction")
         else:
-            logger.warning("⚠️ Librosa not available - limited features")
+            logger.warning("Librosa not available - limited features")
         
         if MUTAGEN_AVAILABLE:
-            logger.info("✅ Mutagen available for metadata extraction")
+            logger.info("Mutagen available for metadata extraction")
         else:
-            logger.warning("⚠️ Mutagen not available - no metadata")
+            logger.warning("Mutagen not available - no metadata")
         
         if TENSORFLOW_AVAILABLE:
-            logger.info("✅ TensorFlow available for MusiCNN features")
+            logger.info("TensorFlow available for MusiCNN features")
         else:
-            logger.warning("⚠️ TensorFlow not available - MusiCNN features disabled")
+            logger.warning("TensorFlow not available - MusiCNN features disabled")
         
         if self.musicnn_model is not None:
-            logger.info("✅ MusiCNN model loaded successfully")
+            logger.info("MusiCNN model loaded successfully")
         else:
-            logger.warning("⚠️ MusiCNN model not available - advanced features disabled")
+            logger.warning("MusiCNN model not available - advanced features disabled")
 
     @log_function_call
     def extract_features(self, audio_path: str, analysis_config: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
@@ -357,7 +357,7 @@ class AudioAnalyzer:
         analysis_type = analysis_config.get('analysis_type', 'basic')
         features_config = analysis_config.get('features_config', {})
         
-        logger.info(f"🎵 Extracting {analysis_type} features from: {filename}")
+        logger.info(f"Extracting {analysis_type} features from: {filename}")
         logger.debug(f"📋 Feature config: {features_config}")
         
         start_time = time.time()
@@ -365,19 +365,19 @@ class AudioAnalyzer:
         try:
             # Check if file exists
             if not os.path.exists(audio_path):
-                logger.error(f"❌ File not found: {audio_path}")
+                logger.error(f"File not found: {audio_path}")
                 return None
             
             # Get file info
             file_size_bytes = os.path.getsize(audio_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
             
-            logger.debug(f"📊 File size: {file_size_mb:.1f}MB")
+            logger.debug(f"File size: {file_size_mb:.1f}MB")
             
             # Load audio
             audio = self._safe_audio_load(audio_path)
             if audio is None:
-                logger.error(f"❌ Failed to load audio: {filename}")
+                logger.error(f"Failed to load audio: {filename}")
                 return None
             
             # Check file size and set appropriate timeout
@@ -390,13 +390,13 @@ class AudioAnalyzer:
             is_extremely_large_for_processing = audio_length > EXTREMELY_LARGE_PROCESSING_THRESHOLD
             
             if is_extremely_large_for_processing:
-                logger.warning(f"⚠️ Extremely large file detected ({audio_length} samples), using minimal features only")
+                logger.warning(f"Extremely large file detected ({audio_length} samples), using minimal features only")
             elif is_extremely_large:
-                logger.warning(f"⚠️ Very large file detected ({audio_length} samples), skipping some features")
+                logger.warning(f"Very large file detected ({audio_length} samples), skipping some features")
             elif is_large_file:
-                logger.info(f"📊 Large file detected ({audio_length} samples), using extended timeout")
+                logger.info(f"Large file detected ({audio_length} samples), using extended timeout")
             
-            logger.info(f"⏱️ Using timeout: {timeout_seconds} seconds")
+            logger.info(f"Using timeout: {timeout_seconds} seconds")
             
             # Extract metadata (always enabled)
             metadata = self._extract_metadata(audio_path)
@@ -410,19 +410,19 @@ class AudioAnalyzer:
                 features = extract_with_timeout()
                 
                 if features is None:
-                    logger.error(f"❌ Failed to extract features: {filename}")
+                    logger.error(f"Failed to extract features: {filename}")
                     return None
                     
             except TimeoutException as te:
-                logger.error(f"❌ Analysis timed out for {filename}: {te}")
+                logger.error(f"Analysis timed out for {filename}: {te}")
                 return None
             except Exception as e:
-                logger.error(f"❌ Analysis failed for {filename}: {e}")
+                logger.error(f"Analysis failed for {filename}: {e}")
                 return None
             
             # Validate features
             if not self._validate_features(features):
-                logger.warning(f"⚠️ Features validation failed: {filename}")
+                logger.warning(f"Features validation failed: {filename}")
                 return None
             
             # Prepare result
@@ -442,7 +442,7 @@ class AudioAnalyzer:
             }
             
             extract_time = time.time() - start_time
-            logger.info(f"✅ Successfully extracted {analysis_type} features from {filename} in {extract_time:.2f}s")
+            logger.info(f"Successfully extracted {analysis_type} features from {filename} in {extract_time:.2f}s")
             
             # Log performance
             log_performance("Audio feature extraction", extract_time,
@@ -454,7 +454,7 @@ class AudioAnalyzer:
             logger.error(f"⏰ Analysis timed out for {filename}")
             return None
         except Exception as e:
-            logger.error(f"❌ Error extracting features from {filename}: {e}")
+            logger.error(f"Error extracting features from {filename}: {e}")
             return None
 
     def _get_default_analysis_config(self) -> Dict[str, Any]:
@@ -514,14 +514,14 @@ class AudioAnalyzer:
             duration = librosa.get_duration(path=audio_path)
             return duration
         except Exception as e:
-            logger.warning(f"⚠️ Could not get duration from librosa: {e}")
+            logger.warning(f"Could not get duration from librosa: {e}")
             try:
                 import mutagen
                 audio = mutagen.File(audio_path)
                 if audio is not None:
                     return audio.info.length
             except Exception as e2:
-                logger.warning(f"⚠️ Could not get duration from mutagen: {e2}")
+                logger.warning(f"Could not get duration from mutagen: {e2}")
             return None
 
     def _safe_audio_load(self, audio_path: str) -> Optional[np.ndarray]:
@@ -538,7 +538,7 @@ class AudioAnalyzer:
             # Get file size to decide loading method
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             
-            logger.debug(f"📊 Audio loading decision for {os.path.basename(audio_path)}:")
+            logger.debug(f"Audio loading decision for {os.path.basename(audio_path)}:")
             logger.debug(f"   File size: {file_size_mb:.1f}MB")
             logger.debug(f"   Streaming enabled: {self.streaming_enabled}")
             logger.debug(f"   Streaming threshold: {self.streaming_large_file_threshold_mb}MB")
@@ -547,15 +547,15 @@ class AudioAnalyzer:
             
             # Use streaming loader for large files if enabled
             if self.streaming_enabled and file_size_mb > self.streaming_large_file_threshold_mb:
-                logger.info(f"📊 Large file detected ({file_size_mb:.1f}MB) - using streaming loader")
+                logger.info(f"Large file detected ({file_size_mb:.1f}MB) - using streaming loader")
                 return self._load_audio_streaming(audio_path)
             else:
                 # Use traditional loading for small files
-                logger.debug(f"📊 Small file detected ({file_size_mb:.1f}MB) - using traditional loading")
+                logger.debug(f"Small file detected ({file_size_mb:.1f}MB) - using traditional loading")
                 return self._load_audio_traditional(audio_path)
                 
         except Exception as e:
-            logger.error(f"❌ Error loading audio {audio_path}: {e}")
+            logger.error(f"Error loading audio {audio_path}: {e}")
             return None
     
     def _load_audio_traditional(self, audio_path: str) -> Optional[np.ndarray]:
@@ -564,7 +564,7 @@ class AudioAnalyzer:
             if LIBROSA_AVAILABLE:
                 # Use librosa for loading
                 audio, sr = librosa.load(audio_path, sr=DEFAULT_SAMPLE_RATE, mono=True)
-                logger.debug(f"📊 Loaded audio: {len(audio)} samples, {sr}Hz")
+                logger.debug(f"Loaded audio: {len(audio)} samples, {sr}Hz")
                 return audio
             elif ESSENTIA_AVAILABLE:
                 # Use Essentia MonoLoader with proper parameters
@@ -575,7 +575,7 @@ class AudioAnalyzer:
                     resampleQuality=1  # Good quality resampling
                 )
                 audio = loader()
-                logger.debug(f"📊 Loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                logger.debug(f"Loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
                 return audio
             elif SOUNDFILE_AVAILABLE:
                 # Use soundfile for loading
@@ -588,7 +588,7 @@ class AudioAnalyzer:
                     new_length = int(len(audio) * ratio)
                     indices = np.linspace(0, len(audio) - 1, new_length)
                     audio = np.interp(indices, np.arange(len(audio)), audio)
-                logger.debug(f"📊 Loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                logger.debug(f"Loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
                 return audio
             elif WAVE_AVAILABLE and audio_path.lower().endswith('.wav'):
                 # Use wave module for WAV files
@@ -602,15 +602,15 @@ class AudioAnalyzer:
                         new_length = int(len(audio) * ratio)
                         indices = np.linspace(0, len(audio) - 1, new_length)
                         audio = np.interp(indices, np.arange(len(audio)), audio)
-                    logger.debug(f"📊 Loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                    logger.debug(f"Loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
                     return audio
             else:
-                logger.error("❌ No audio loading library available")
+                logger.error("No audio loading library available")
                 logger.error(f"   Available libraries: Essentia={ESSENTIA_AVAILABLE}, Librosa={LIBROSA_AVAILABLE}, SoundFile={SOUNDFILE_AVAILABLE}, Wave={WAVE_AVAILABLE}")
                 return None
                 
         except Exception as e:
-            logger.error(f"❌ Error loading audio {audio_path}: {e}")
+            logger.error(f"Error loading audio {audio_path}: {e}")
             return None
     
     def _load_audio_streaming(self, audio_path: str) -> Optional[np.ndarray]:
@@ -631,7 +631,7 @@ class AudioAnalyzer:
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             
             if file_size_mb > 100:  # Large file threshold
-                logger.warning(f"⚠️ Large file detected ({file_size_mb:.1f}MB) - using true streaming analysis")
+                logger.warning(f"Large file detected ({file_size_mb:.1f}MB) - using true streaming analysis")
                 return self._analyze_large_file_streaming(audio_path, streaming_loader)
             
             # For smaller files, collect chunks and concatenate
@@ -641,33 +641,33 @@ class AudioAnalyzer:
             for chunk, start_time, end_time in streaming_loader.load_audio_chunks(audio_path):
                 chunks.append(chunk)
                 total_samples += len(chunk)
-                logger.debug(f"📊 Loaded chunk: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
+                logger.debug(f"Loaded chunk: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
             
             if not chunks:
-                logger.error("❌ No chunks loaded from streaming loader")
-                logger.warning("🔄 Falling back to traditional loading...")
+                logger.error("No chunks loaded from streaming loader")
+                logger.warning("Falling back to traditional loading...")
                 return self._load_audio_traditional(audio_path)
             
             # Concatenate all chunks
             audio = np.concatenate(chunks)
-            logger.debug(f"📊 Concatenated audio: {len(audio)} samples total")
+            logger.debug(f"Concatenated audio: {len(audio)} samples total")
             
             return audio
             
         except Exception as e:
-            logger.error(f"❌ Error in streaming audio load: {e}")
-            logger.warning("🔄 Falling back to traditional loading...")
+            logger.error(f"Error in streaming audio load: {e}")
+            logger.warning("Falling back to traditional loading...")
             return self._load_audio_traditional(audio_path)
     
     def _analyze_large_file_streaming(self, audio_path: str, streaming_loader) -> Optional[np.ndarray]:
         """Analyze large files using true streaming - process multiple segments for mixed tracks."""
         try:
-            logger.info(f"🎵 Starting true streaming analysis for large file: {os.path.basename(audio_path)}")
+            logger.info(f"Starting true streaming analysis for large file: {os.path.basename(audio_path)}")
             
             # Get file duration
             duration = self._get_audio_duration(audio_path)
             if duration is None:
-                logger.error("❌ Could not determine audio duration")
+                logger.error("Could not determine audio duration")
                 return None
             
             # For very large files (> 100MB), use multiple segments throughout the file
@@ -678,7 +678,7 @@ class AudioAnalyzer:
             num_segments = min(10, int(duration / segment_duration))  # Max 10 segments
             segment_interval = duration / (num_segments + 1)  # Evenly spaced segments
             
-            logger.info(f"📊 Large file analysis: {duration:.1f}s total, {num_segments} segments of {segment_duration}s each")
+            logger.info(f"Large file analysis: {duration:.1f}s total, {num_segments} segments of {segment_duration}s each")
             
             segments = []
             
@@ -691,7 +691,7 @@ class AudioAnalyzer:
                     segment_start = max(0, duration - segment_duration)
                 
                 try:
-                    logger.debug(f"📊 Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
+                    logger.debug(f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
                     
                     chunk, sr = librosa.load(
                         audio_path,
@@ -702,31 +702,31 @@ class AudioAnalyzer:
                     )
                     
                     segments.append(chunk)
-                    logger.debug(f"📊 Loaded segment {i+1}: {len(chunk)} samples")
+                    logger.debug(f"Loaded segment {i+1}: {len(chunk)} samples")
                     
                     # Force garbage collection after each segment
                     import gc
                     gc.collect()
                     
                 except Exception as e:
-                    logger.warning(f"⚠️ Error loading segment {i+1}: {e}")
+                    logger.warning(f"Error loading segment {i+1}: {e}")
                     continue
             
             if not segments:
-                logger.error("❌ No segments loaded from large file")
+                logger.error("No segments loaded from large file")
                 return None
             
             # Concatenate segments to create representative audio
             representative_audio = np.concatenate(segments)
             total_duration = len(representative_audio) / DEFAULT_SAMPLE_RATE
             
-            logger.info(f"📊 Created representative audio: {len(representative_audio)} samples ({total_duration:.1f}s) from {len(segments)} segments")
-            logger.info(f"📊 Representative audio covers {total_duration/duration*100:.1f}% of original file")
+            logger.info(f"Created representative audio: {len(representative_audio)} samples ({total_duration:.1f}s) from {len(segments)} segments")
+            logger.info(f"Representative audio covers {total_duration/duration*100:.1f}% of original file")
             
             return representative_audio
             
         except Exception as e:
-            logger.error(f"❌ Error in true streaming analysis: {e}")
+            logger.error(f"Error in true streaming analysis: {e}")
             return None
 
     @timeout(30, "Metadata extraction timed out")  # 30 seconds for metadata
@@ -765,7 +765,7 @@ class AudioAnalyzer:
                 return enriched_metadata
                 
         except Exception as e:
-            logger.warning(f"⚠️ Error extracting metadata from {audio_path}: {e}")
+            logger.warning(f"Error extracting metadata from {audio_path}: {e}")
         
         return metadata
     
@@ -801,7 +801,7 @@ class AudioAnalyzer:
             return enriched_metadata
             
         except Exception as e:
-            logger.warning(f"⚠️ Error enriching metadata with external APIs: {e}")
+            logger.warning(f"Error enriching metadata with external APIs: {e}")
             return metadata
 
     def _extract_features_by_config(self, audio_path: str, audio: np.ndarray, 
@@ -832,7 +832,7 @@ class AudioAnalyzer:
             if original_duration:
                 original_file_size = int(original_duration * DEFAULT_SAMPLE_RATE)
         except Exception as e:
-            logger.warning(f"⚠️ Could not determine original file size: {e}")
+            logger.warning(f"Could not determine original file size: {e}")
         
         # Use original file size if available, otherwise use audio length
         size_for_threshold = original_file_size if original_file_size else audio_length
@@ -843,18 +843,18 @@ class AudioAnalyzer:
         
         # Log the threshold decision
         if original_file_size and original_file_size != audio_length:
-            logger.info(f"📊 File size thresholds: original={original_file_size:,} samples, representative={audio_length:,} samples")
-            logger.info(f"📊 Using original file size for threshold decisions")
+            logger.info(f"File size thresholds: original={original_file_size:,} samples, representative={audio_length:,} samples")
+            logger.info(f"Using original file size for threshold decisions")
         else:
-            logger.debug(f"📊 File size: {audio_length:,} samples")
+                          logger.debug(f"File size: {audio_length:,} samples")
         
         # Log feature skipping decisions
         if is_extremely_large_for_processing:
-            logger.warning(f"⚠️ Extremely large file detected - analyzing representative audio only")
+            logger.warning(f"Extremely large file detected - analyzing representative audio only")
         elif is_extremely_large:
-            logger.warning(f"⚠️ Very large file detected - skipping MFCC and MusiCNN features")
+                          logger.warning(f"Very large file detected - skipping MFCC and MusiCNN features")
         elif is_large_file:
-            logger.info(f"📊 Large file detected - using extended timeouts")
+                          logger.info(f"Large file detected - using extended timeouts")
         
         try:
             # Extract rhythm features (if enabled)
@@ -987,14 +987,14 @@ class AudioAnalyzer:
             try:
                 duration = audio_length / DEFAULT_SAMPLE_RATE
                 features['duration'] = ensure_float(duration)
-                logger.info(f"⏱️ Duration: {features['duration']:.2f}s")
+                logger.info(f"Duration: {features['duration']:.2f}s")
             except Exception as e:
-                logger.warning(f"⚠️ Duration calculation failed: {str(e)}")
+                logger.warning(f"Duration calculation failed: {str(e)}")
                 features['duration'] = 0.0
             
             # Add fallback values for skipped features due to file size
             if is_extremely_large:
-                logger.warning("⚠️ Skipping MFCC and MusiCNN for very large file")
+                logger.warning("Skipping MFCC and MusiCNN for very large file")
                 features.setdefault('mfcc', [-999.0] * 13)  # Invalid MFCC values
                 features.setdefault('musicnn_features', [-999.0] * 50)  # Invalid MusiCNN features
             
@@ -1002,15 +1002,15 @@ class AudioAnalyzer:
             features['metadata'] = metadata
             
             # Log overall feature extraction summary
-            logger.debug(f"📊 Feature extraction summary: {len(extracted_features)} successful, {len(failed_features)} failed")
-            logger.debug(f"✅ Extracted features: {extracted_features}")
+            logger.debug(f"Feature extraction summary: {len(extracted_features)} successful, {len(failed_features)} failed")
+            logger.debug(f"Extracted features: {extracted_features}")
             if failed_features:
-                logger.debug(f"❌ Failed features: {failed_features}")
+                logger.debug(f"Failed features: {failed_features}")
             
             return features
             
         except Exception as e:
-            logger.error(f"❌ Error extracting features: {e}")
+            logger.error(f"Error extracting features: {e}")
             return None
 
     @timeout(300, "Rhythm feature extraction timed out")  # 5 minutes for rhythm analysis
@@ -1087,10 +1087,10 @@ class AudioAnalyzer:
                 except (ValueError, TypeError):
                     pass
             
-            logger.debug(f"🎵 Rhythm features: BPM={features.get('bpm', 'N/A')}")
+            logger.debug(f"Rhythm features: BPM={features.get('bpm', 'N/A')}")
             
         except Exception as e:
-            logger.warning(f"⚠️ Error extracting rhythm features: {e}")
+            logger.warning(f"Error extracting rhythm features: {e}")
             # Return invalid marker like old working version
             features['bpm'] = -999.0
         
@@ -1127,7 +1127,7 @@ class AudioAnalyzer:
                     flatness = es.Flatness()
                     features['spectral_flatness'] = ensure_float(flatness(audio_positive))
                 except Exception as e:
-                    logger.warning(f"⚠️ Spectral flatness failed: {e}, using librosa fallback")
+                    logger.warning(f"Spectral flatness failed: {e}, using librosa fallback")
                     if LIBROSA_AVAILABLE:
                         flatness_librosa = librosa.feature.spectral_flatness(y=audio, sr=DEFAULT_SAMPLE_RATE)
                         features['spectral_flatness'] = ensure_float(np.mean(flatness_librosa))
@@ -1143,10 +1143,10 @@ class AudioAnalyzer:
                 flatness = librosa.feature.spectral_flatness(y=audio, sr=DEFAULT_SAMPLE_RATE)
                 features['spectral_flatness'] = ensure_float(np.mean(flatness))
             
-            logger.debug(f"📊 Spectral features extracted")
+            logger.debug(f"Spectral features extracted")
             
         except Exception as e:
-            logger.warning(f"⚠️ Error extracting spectral features: {e}")
+            logger.warning(f"Error extracting spectral features: {e}")
         
         return features
 
@@ -1175,7 +1175,7 @@ class AudioAnalyzer:
                     else:
                         features['loudness'] = ensure_float(loudness_value)
                 except Exception as e:
-                    logger.warning(f"⚠️ Essentia loudness failed: {e}, using librosa fallback")
+                    logger.warning(f"Essentia loudness failed: {e}, using librosa fallback")
                     if LIBROSA_AVAILABLE:
                         rms = librosa.feature.rms(y=audio)
                         features['loudness'] = ensure_float(np.mean(rms))
@@ -1189,7 +1189,7 @@ class AudioAnalyzer:
                     else:
                         features['dynamic_complexity'] = ensure_float(complexity_value)
                 except Exception as e:
-                    logger.warning(f"⚠️ Dynamic complexity failed: {e}")
+                    logger.warning(f"Dynamic complexity failed: {e}")
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for loudness
@@ -1203,7 +1203,7 @@ class AudioAnalyzer:
             logger.debug(f"🔊 Loudness features extracted")
             
         except Exception as e:
-            logger.warning(f"⚠️ Error extracting loudness features: {e}")
+            logger.warning(f"Error extracting loudness features: {e}")
         
         return features
 
@@ -1242,7 +1242,7 @@ class AudioAnalyzer:
             logger.debug(f"🎼 Key features: {features.get('key', 'N/A')}")
             
         except Exception as e:
-            logger.warning(f"⚠️ Error extracting key features: {e}")
+            logger.warning(f"Error extracting key features: {e}")
         
         return features
 
@@ -1274,10 +1274,10 @@ class AudioAnalyzer:
                 features['mfcc'] = convert_to_python_types(np.mean(mfcc, axis=1))
                 features['mfcc_std'] = convert_to_python_types(np.std(mfcc, axis=1))
             
-            logger.debug(f"📊 MFCC features extracted ({num_coeffs} coefficients)")
+            logger.debug(f"MFCC features extracted ({num_coeffs} coefficients)")
             
         except Exception as e:
-            logger.warning(f"⚠️ Error extracting MFCC features: {e}")
+            logger.warning(f"Error extracting MFCC features: {e}")
         
         return features
 
@@ -1293,7 +1293,7 @@ class AudioAnalyzer:
             Dictionary with MusiCNN features, or None if failed
         """
         if not TENSORFLOW_AVAILABLE or self.musicnn_model is None:
-            logger.warning("⚠️ TensorFlow or MusiCNN model not available - skipping MusiCNN features")
+            logger.warning("TensorFlow or MusiCNN model not available - skipping MusiCNN features")
             return None
         
         try:
@@ -1316,7 +1316,7 @@ class AudioAnalyzer:
                 # Pad audio to the minimum length
                 padding_length = min_audio_length_for_musicnn - len(audio)
                 audio = np.pad(audio, (0, padding_length), 'constant')
-                logger.debug(f"📊 Padded audio for MusiCNN: {len(audio)} samples")
+                logger.debug(f"Padded audio for MusiCNN: {len(audio)} samples")
             
             # Reshape for MusiCNN input (batch_size, frames, channels)
             # MusiCNN expects (batch_size, frames, channels)
@@ -1349,11 +1349,11 @@ class AudioAnalyzer:
             # have features like 'genre_1', 'genre_2', etc.
             # For now, we'll just return the raw output.
             
-            logger.debug(f"📊 MusiCNN features extracted: {len(musicnn_features)}")
+            logger.debug(f"MusiCNN features extracted: {len(musicnn_features)}")
             return {'musicnn_features': musicnn_features}
             
         except Exception as e:
-            logger.warning(f"⚠️ Error extracting MusiCNN features: {e}")
+            logger.warning(f"Error extracting MusiCNN features: {e}")
             return None
 
     def _validate_features(self, features: Dict[str, Any]) -> bool:
@@ -1390,25 +1390,25 @@ class AudioAnalyzer:
             
             for feature, invalid_value in invalid_markers.items():
                 if feature in features and features[feature] == invalid_value:
-                    logger.debug(f"⚠️ Feature '{feature}' has invalid marker: {invalid_value}")
+                    logger.debug(f"Feature '{feature}' has invalid marker: {invalid_value}")
                     return False
             
             # Check for invalid MFCC (all values -999.0)
             mfcc = features.get('mfcc')
             if mfcc and isinstance(mfcc, list) and all(x == -999.0 for x in mfcc):
-                logger.debug("⚠️ MFCC has invalid markers")
+                logger.debug("MFCC has invalid markers")
                 return False
             
             # Check for invalid MusiCNN features (all values -999.0)
             musicnn = features.get('musicnn_features')
             if musicnn and isinstance(musicnn, list) and all(x == -999.0 for x in musicnn):
-                logger.debug("⚠️ MusiCNN features have invalid markers")
+                logger.debug("MusiCNN features have invalid markers")
                 return False
             
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error checking playlist validity: {e}")
+            logger.error(f"Error checking playlist validity: {e}")
             return False
         try:
             # Check for essential features
@@ -1416,56 +1416,56 @@ class AudioAnalyzer:
             missing_features = [f for f in essential_features if f not in features]
             
             if missing_features:
-                logger.warning(f"⚠️ Missing essential features: {missing_features}")
+                logger.warning(f"Missing essential features: {missing_features}")
                 return False
             
             # Check for valid BPM (excluding invalid markers)
             bpm = features.get('bpm')
             if bpm is not None and bpm == -999.0:
-                logger.warning(f"⚠️ BPM extraction failed (invalid marker: {bpm})")
+                logger.warning(f"BPM extraction failed (invalid marker: {bpm})")
                 return False
             elif bpm is not None and (bpm < 30 or bpm > 300):
-                logger.warning(f"⚠️ Invalid BPM value: {bpm}")
+                logger.warning(f"Invalid BPM value: {bpm}")
                 return False
             
             # Check for valid loudness (excluding invalid markers)
             loudness = features.get('loudness')
             if loudness is not None and loudness == -999.0:
-                logger.warning(f"⚠️ Loudness extraction failed (invalid marker: {loudness})")
+                logger.warning(f"Loudness extraction failed (invalid marker: {loudness})")
                 return False
             elif loudness is not None and (loudness < -100 or loudness > 100):
-                logger.warning(f"⚠️ Invalid loudness value: {loudness}")
+                logger.warning(f"Invalid loudness value: {loudness}")
                 return False
             
             # Check for valid spectral centroid (excluding invalid markers)
             spectral_centroid = features.get('spectral_centroid')
             if spectral_centroid is not None and spectral_centroid == -999.0:
-                logger.warning(f"⚠️ Spectral centroid extraction failed (invalid marker: {spectral_centroid})")
+                logger.warning(f"Spectral centroid extraction failed (invalid marker: {spectral_centroid})")
                 return False
             elif spectral_centroid is not None and (spectral_centroid < 0 or spectral_centroid > 22050):
-                logger.warning(f"⚠️ Invalid spectral centroid value: {spectral_centroid}")
+                logger.warning(f"Invalid spectral centroid value: {spectral_centroid}")
                 return False
             
             # Check for valid key (excluding invalid markers)
             key = features.get('key')
             if key is not None and key == 'INVALID':
-                logger.warning(f"⚠️ Key extraction failed (invalid marker: {key})")
+                logger.warning(f"Key extraction failed (invalid marker: {key})")
                 return False
             
             # Check for valid key strength (excluding invalid markers)
             key_strength = features.get('key_strength')
             if key_strength is not None and key_strength == -999.0:
-                logger.warning(f"⚠️ Key strength extraction failed (invalid marker: {key_strength})")
+                logger.warning(f"Key strength extraction failed (invalid marker: {key_strength})")
                 return False
             elif key_strength is not None and (key_strength < 0 or key_strength > 1):
-                logger.warning(f"⚠️ Invalid key strength value: {key_strength}")
+                logger.warning(f"Invalid key strength value: {key_strength}")
                 return False
             
             logger.debug("✅ Features validation passed")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error validating features: {e}")
+            logger.error(f"Error validating features: {e}")
             return False
 
     def get_version(self) -> str:

@@ -8,45 +8,25 @@ services:
     entrypoint: ["playlista"]
     volumes:
       # Music library - mount your music directory here
-      - ./music:/music:ro
+      - /root/music/library:/music:ro
       
       # Playlists output directory
-      - ./playlists:/app/playlists
+      - /root/music/library/playlists/auto:/app/playlists
       
       # Cache directory for analysis results
-      - ./cache:/app/cache
+      - /root/music/playlista/cache:/app/cache
       
       # Logs directory
-      - ./logs:/app/logs
+      - /root/music/playlista/logs:/app/logs
       
       # Failed files directory
-      - ./failed_files:/app/failed_files
+      - /tmp/failed_files:/app/failed_files
       
-      # Models directory (optional - for custom models)
-      - ./models:/app/models:ro
+      # Models directory (for feature extraction models)
+      - /root/music/playlista/models/musicnn:/app/feature_extraction/models/musicnn:ro
       
       # Configuration file
-      - ./playlista.conf:/app/playlista.conf:ro
-    # All configuration comes from playlista.conf file
-    # No environment variables needed - everything is hardcoded in the application
+      - /root/music/playlista/playlista.conf:/app/playlista.conf:ro
     working_dir: /app
     tty: true
     stdin_open: true
-    
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: 8G
-          cpus: '4.0'
-        reservations:
-          memory: 2G
-          cpus: '1.0'
-    
-    # Health check
-    healthcheck:
-      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s 

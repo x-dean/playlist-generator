@@ -46,7 +46,7 @@ COPY playlista.conf /app/playlista.conf
 COPY playlista /app/playlista
 
 # Create directories with proper permissions
-RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/models
+RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/feature_extraction/models
 
 # Make playlista executable
 RUN chmod +x /app/playlista
@@ -56,7 +56,10 @@ ENV PATH="${PATH}:/app"
 
 # Set Python environment variables
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    TF_CPP_MIN_LOG_LEVEL=3 \
+    TF_ENABLE_ONEDNN_OPTS=0 \
+    CUDA_VISIBLE_DEVICES=-1
 
 # Default command
 CMD ["playlista"] 
