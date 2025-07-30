@@ -3,7 +3,13 @@ Enhanced CLI interface for Playlist Generator Simple.
 Integrates all variants from both simple and refactored versions.
 """
 
+# Suppress external library logging BEFORE any imports
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow warnings
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimizations
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU usage
+os.environ['ESSENTIA_LOG_LEVEL'] = 'error'  # Suppress Essentia info/warnings
+
 import sys
 import argparse
 import json

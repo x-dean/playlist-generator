@@ -3,6 +3,7 @@ Simple Progress Bar for Playlist Generator Simple.
 Provides basic progress tracking using rich library.
 """
 
+import os
 import time
 from typing import Optional, Dict, Any, List
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
@@ -37,6 +38,14 @@ class SimpleProgressBar:
         self.console = Console()
         self.current_progress = None
         self.current_task = None
+    
+    def clear_screen(self) -> None:
+        """Clear the terminal screen before showing progress bars."""
+        if self.show_progress:
+            # Clear screen using OS command
+            os.system('cls' if os.name == 'nt' else 'clear')
+            # Also use rich console clear
+            self.console.clear()
         
     def start_file_processing(self, total_files: int, description: str = "Processing files") -> None:
         """
@@ -49,6 +58,9 @@ class SimpleProgressBar:
         if not self.show_progress:
             logger.info(f"🔄 {description}: {total_files} files")
             return
+        
+        # Clear screen before showing progress bar
+        self.clear_screen()
         
         # Clean up any existing progress bar
         self._cleanup_progress()
@@ -137,6 +149,9 @@ class SimpleProgressBar:
         if not self.show_progress:
             logger.info(f"🎵 Starting {analysis_type}: {total_files} files")
             return
+        
+        # Clear screen before showing progress bar
+        self.clear_screen()
         
         # Clean up any existing progress bar
         self._cleanup_progress()

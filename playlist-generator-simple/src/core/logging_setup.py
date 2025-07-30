@@ -248,6 +248,9 @@ def setup_logging(
     if signal_handling:
         setup_signal_handlers()
     
+    # Setup external library logging (TensorFlow, Essentia)
+    _setup_external_logging(logger, log_dir, file_logging)
+    
     _log_setup_complete = True
     
     # Log initialization
@@ -355,6 +358,79 @@ def setup_signal_handlers():
     except (AttributeError, OSError):
         # SIGUSR1 not available on Windows
         pass
+
+
+def _setup_external_logging(logger: logging.Logger, log_dir: str, file_logging: bool) -> None:
+    """
+    Setup logging for external libraries (TensorFlow, Essentia).
+    
+    Args:
+        logger: Main application logger
+        log_dir: Log directory path
+        file_logging: Whether file logging is enabled
+    """
+    try:
+        import tensorflow as tf
+        
+        # Configure TensorFlow logging - suppress all warnings
+        tf_logger = tf.get_logger()
+        tf_logger.handlers.clear()
+        tf_logger.setLevel(logging.ERROR)  # Only show errors
+        
+        # Suppress TensorFlow warnings more aggressively
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TF warnings
+        os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimizations
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU usage
+        
+        # Add file handler for TensorFlow logs if file logging is enabled
+        if file_logging:
+            tf_log_file = os.path.join(log_dir, "tensorflow.log")
+            tf_handler = logging.handlers.RotatingFileHandler(
+                tf_log_file,
+                maxBytes=5 * 1024 * 1024,  # 5MB
+                backupCount=3
+            )
+            tf_formatter = logging.Formatter(
+                '%(asctime)s [TF] %(levelname)s - %(message)s'
+            )
+            tf_handler.setFormatter(tf_formatter)
+            tf_logger.addHandler(tf_handler)
+        
+        logger.debug("TensorFlow logging configured")
+        
+    except ImportError:
+        logger.debug("TensorFlow not available - skipping TF logging setup")
+    
+    try:
+        import essentia
+        
+        # Configure Essentia logging - suppress info and warnings
+        essentia.log.infoActive = False
+        essentia.log.warningActive = False
+        essentia.log.errorActive = True  # Keep errors
+        
+        # Create Essentia logger and redirect to file if enabled
+        if file_logging:
+            essentia_log_file = os.path.join(log_dir, "essentia.log")
+            essentia_logger = logging.getLogger('essentia')
+            essentia_logger.handlers.clear()
+            essentia_logger.setLevel(logging.ERROR)
+            
+            essentia_handler = logging.handlers.RotatingFileHandler(
+                essentia_log_file,
+                maxBytes=5 * 1024 * 1024,  # 5MB
+                backupCount=3
+            )
+            essentia_formatter = logging.Formatter(
+                '%(asctime)s [ESSENTIA] %(levelname)s - %(message)s'
+            )
+            essentia_handler.setFormatter(essentia_formatter)
+            essentia_logger.addHandler(essentia_handler)
+        
+        logger.debug("Essentia logging configured")
+        
+    except ImportError:
+        logger.debug("Essentia not available - skipping Essentia logging setup")
 
 
 def get_logger(name: str = None) -> logging.Logger:
