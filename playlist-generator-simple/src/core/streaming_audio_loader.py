@@ -1142,6 +1142,22 @@ def get_streaming_loader(memory_limit_percent: float = DEFAULT_MEMORY_LIMIT_PERC
     """
     global _streaming_loader
     
+    # Check if we need to create a new instance with different parameters
+    if _streaming_loader is not None:
+        # If parameters are different from current instance, reset it
+        if (memory_limit_percent != _streaming_loader.memory_limit_percent or
+            chunk_duration_seconds != _streaming_loader.chunk_duration_seconds or
+            use_slicer != _streaming_loader.use_slicer or
+            use_streaming != _streaming_loader.use_streaming):
+            
+            logger.info(f"🔧 Parameters changed, creating new StreamingAudioLoader instance:")
+            logger.info(f"   Memory limit: {memory_limit_percent}% (was {_streaming_loader.memory_limit_percent}%)")
+            logger.info(f"   Chunk duration: {chunk_duration_seconds}s (was {_streaming_loader.chunk_duration_seconds}s)")
+            logger.info(f"   Use Slicer: {use_slicer} (was {_streaming_loader.use_slicer})")
+            logger.info(f"   Use Streaming: {use_streaming} (was {_streaming_loader.use_streaming})")
+            
+            _streaming_loader = None  # Reset the global instance
+    
     if _streaming_loader is None:
         logger.info(f"🔧 Creating new StreamingAudioLoader instance:")
         logger.info(f"   Memory limit: {memory_limit_percent}%")
