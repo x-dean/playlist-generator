@@ -17,18 +17,33 @@ from core.audio_analyzer import AudioAnalyzer
 from core.database import DatabaseManager
 from core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
 from core.logging_setup import get_logger, setup_logging
+from core.config_loader import config_loader
 
-# Initialize logging system
+# Initialize logging system from config
+config = config_loader.load_config()
+logging_config = config_loader.get_logging_config()
+
+# Use config values or defaults
+log_level = logging_config.get('LOG_LEVEL', 'INFO')
+log_file_prefix = logging_config.get('LOG_FILE_PREFIX', 'playlista_analysis')
+console_logging = logging_config.get('LOG_CONSOLE_ENABLED', True)
+file_logging = logging_config.get('LOG_FILE_ENABLED', True)
+colored_output = logging_config.get('LOG_COLORED_OUTPUT', True)
+max_log_files = logging_config.get('LOG_MAX_FILES', 10)
+log_file_size_mb = logging_config.get('LOG_FILE_SIZE_MB', 50)
+log_file_format = logging_config.get('LOG_FILE_FORMAT', 'text')
+log_file_encoding = logging_config.get('LOG_FILE_ENCODING', 'utf-8')
+
 setup_logging(
-    log_level='INFO',
-    log_file_prefix='playlista_analysis',
-    console_logging=True,
-    file_logging=True,
-    colored_output=True,
-    max_log_files=10,
-    log_file_size_mb=50,
-    log_file_format='text',
-    log_file_encoding='utf-8'
+    log_level=log_level,
+    log_file_prefix=log_file_prefix,
+    console_logging=console_logging,
+    file_logging=file_logging,
+    colored_output=colored_output,
+    max_log_files=max_log_files,
+    log_file_size_mb=log_file_size_mb,
+    log_file_format=log_file_format,
+    log_file_encoding=log_file_encoding
 )
 
 logger = get_logger('playlista.analysis_cli')

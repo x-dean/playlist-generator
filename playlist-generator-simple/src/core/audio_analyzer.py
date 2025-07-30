@@ -729,6 +729,7 @@ class AudioAnalyzer:
             logger.error(f"❌ Error in true streaming analysis: {e}")
             return None
 
+    @timeout(30, "Metadata extraction timed out")  # 30 seconds for metadata
     def _extract_metadata(self, audio_path: str) -> Dict[str, Any]:
         """
         Extract metadata from audio file and enrich with external APIs.
@@ -768,6 +769,7 @@ class AudioAnalyzer:
         
         return metadata
     
+    @timeout(60, "External API enrichment timed out")  # 1 minute for external APIs
     def _enrich_metadata_with_external_apis(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
         Enrich metadata using external APIs (MusicBrainz and Last.fm).
@@ -822,13 +824,41 @@ class AudioAnalyzer:
         
         # Check file size for feature skipping
         audio_length = len(audio)
-        is_large_file = audio_length > LARGE_FILE_THRESHOLD
-        is_extremely_large = audio_length > EXTREMELY_LARGE_THRESHOLD
-        is_extremely_large_for_processing = audio_length > EXTREMELY_LARGE_PROCESSING_THRESHOLD
+        
+        # Get original file size for proper threshold checking
+        original_file_size = None
+        try:
+            original_duration = self._get_audio_duration(audio_path)
+            if original_duration:
+                original_file_size = int(original_duration * DEFAULT_SAMPLE_RATE)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not determine original file size: {e}")
+        
+        # Use original file size if available, otherwise use audio length
+        size_for_threshold = original_file_size if original_file_size else audio_length
+        
+        is_large_file = size_for_threshold > LARGE_FILE_THRESHOLD
+        is_extremely_large = size_for_threshold > EXTREMELY_LARGE_THRESHOLD
+        is_extremely_large_for_processing = size_for_threshold > EXTREMELY_LARGE_PROCESSING_THRESHOLD
+        
+        # Log the threshold decision
+        if original_file_size and original_file_size != audio_length:
+            logger.info(f"📊 File size thresholds: original={original_file_size:,} samples, representative={audio_length:,} samples")
+            logger.info(f"📊 Using original file size for threshold decisions")
+        else:
+            logger.debug(f"📊 File size: {audio_length:,} samples")
+        
+        # Log feature skipping decisions
+        if is_extremely_large_for_processing:
+            logger.warning(f"⚠️ Extremely large file detected - analyzing representative audio only")
+        elif is_extremely_large:
+            logger.warning(f"⚠️ Very large file detected - skipping MFCC and MusiCNN features")
+        elif is_large_file:
+            logger.info(f"📊 Large file detected - using extended timeouts")
         
         try:
             # Extract rhythm features (if enabled)
-            if features_config.get('extract_rhythm', True) and not is_extremely_large_for_processing:
+            if features_config.get('extract_rhythm', True):
                 start_time = time.time()
                 try:
                     rhythm_features = self._extract_rhythm_features(audio, audio_path, metadata)
@@ -849,7 +879,7 @@ class AudioAnalyzer:
                     log_feature_extraction_step(audio_path, 'rhythm', duration, False, error=str(e))
             
             # Extract spectral features (if enabled)
-            if features_config.get('extract_spectral', True) and not is_extremely_large_for_processing:
+            if features_config.get('extract_spectral', True):
                 start_time = time.time()
                 try:
                     spectral_features = self._extract_spectral_features(audio)
@@ -870,7 +900,7 @@ class AudioAnalyzer:
                     log_feature_extraction_step(audio_path, 'spectral', duration, False, error=str(e))
             
             # Extract loudness (if enabled)
-            if features_config.get('extract_loudness', True) and not is_extremely_large_for_processing:
+            if features_config.get('extract_loudness', True):
                 start_time = time.time()
                 try:
                     loudness_features = self._extract_loudness(audio)
@@ -891,7 +921,7 @@ class AudioAnalyzer:
                     log_feature_extraction_step(audio_path, 'loudness', duration, False, error=str(e))
             
             # Extract key (if enabled)
-            if features_config.get('extract_key', True) and not is_extremely_large_for_processing:
+            if features_config.get('extract_key', True):
                 start_time = time.time()
                 try:
                     key_features = self._extract_key(audio)
@@ -963,15 +993,7 @@ class AudioAnalyzer:
                 features['duration'] = 0.0
             
             # Add fallback values for skipped features due to file size
-            if is_extremely_large_for_processing:
-                logger.warning("⚠️ Using minimal features for extremely large file")
-                features.setdefault('bpm', -999.0)  # Invalid BPM (normal range: 30-300)
-                features.setdefault('spectral_centroid', -999.0)  # Invalid centroid (normal range: 0-22050)
-                features.setdefault('loudness', -999.0)  # Invalid loudness (normal range: 0-1)
-                features.setdefault('key', 'INVALID')  # Invalid key
-                features.setdefault('scale', 'INVALID')  # Invalid scale
-                features.setdefault('key_strength', -999.0)  # Invalid strength (normal range: 0-1)
-            elif is_extremely_large:
+            if is_extremely_large:
                 logger.warning("⚠️ Skipping MFCC and MusiCNN for very large file")
                 features.setdefault('mfcc', [-999.0] * 13)  # Invalid MFCC values
                 features.setdefault('musicnn_features', [-999.0] * 50)  # Invalid MusiCNN features
@@ -991,6 +1013,7 @@ class AudioAnalyzer:
             logger.error(f"❌ Error extracting features: {e}")
             return None
 
+    @timeout(300, "Rhythm feature extraction timed out")  # 5 minutes for rhythm analysis
     def _extract_rhythm_features(self, audio: np.ndarray, audio_path: str = None,
                                 metadata: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -1073,6 +1096,7 @@ class AudioAnalyzer:
         
         return features
 
+    @timeout(120, "Spectral feature extraction timed out")  # 2 minutes for spectral analysis
     def _extract_spectral_features(self, audio: np.ndarray) -> Dict[str, Any]:
         """
         Extract spectral features.
@@ -1126,6 +1150,7 @@ class AudioAnalyzer:
         
         return features
 
+    @timeout(60, "Loudness feature extraction timed out")  # 1 minute for loudness analysis
     def _extract_loudness(self, audio: np.ndarray) -> Dict[str, Any]:
         """
         Extract loudness features.
@@ -1182,6 +1207,7 @@ class AudioAnalyzer:
         
         return features
 
+    @timeout(180, "Key feature extraction timed out")  # 3 minutes for key analysis
     def _extract_key(self, audio: np.ndarray) -> Dict[str, Any]:
         """
         Extract key features.
@@ -1220,6 +1246,7 @@ class AudioAnalyzer:
         
         return features
 
+    @timeout(240, "MFCC feature extraction timed out")  # 4 minutes for MFCC analysis
     def _extract_mfcc(self, audio: np.ndarray, num_coeffs: int = 13) -> Dict[str, Any]:
         """
         Extract MFCC features.
@@ -1254,6 +1281,7 @@ class AudioAnalyzer:
         
         return features
 
+    @timeout(600, "MusiCNN feature extraction timed out")  # 10 minutes for MusiCNN analysis
     def _extract_musicnn_features(self, audio: np.ndarray) -> Optional[Dict[str, Any]]:
         """
         Extract MusiCNN features using TensorFlow.
