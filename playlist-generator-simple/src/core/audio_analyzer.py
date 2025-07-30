@@ -42,19 +42,7 @@ except ImportError:
     TENSORFLOW_AVAILABLE = False
     logging.warning("TensorFlow not available - MusiCNN features will be limited")
 
-# Try to import wave module for basic WAV support
-try:
-    import wave
-    WAVE_AVAILABLE = True
-except ImportError:
-    WAVE_AVAILABLE = False
 
-# Try to import soundfile for broader format support
-try:
-    import soundfile as sf
-    SOUNDFILE_AVAILABLE = True
-except ImportError:
-    SOUNDFILE_AVAILABLE = False
 
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_performance, log_feature_extraction_step, log_resource_usage
@@ -65,7 +53,14 @@ logger = get_logger('playlista.audio_analyzer')
 DEFAULT_SAMPLE_RATE = 44100
 DEFAULT_HOP_SIZE = 512
 DEFAULT_FRAME_SIZE = 2048
-DEFAULT_TIMEOUT_SECONDS = 300  # 5 minutes
+DEFAULT_TIMEOUT_SECONDS = 600  # 10 minutes for large files
+TIMEOUT_LARGE_FILES = 1200  # 20 minutes for very large files
+TIMEOUT_EXTREMELY_LARGE = 1800  # 30 minutes for extremely large files
+
+# File size thresholds (in samples)
+LARGE_FILE_THRESHOLD = 100000000  # ~2.3 hours at 44kHz
+EXTREMELY_LARGE_THRESHOLD = 200000000  # ~4.5 hours at 44kHz
+EXTREMELY_LARGE_PROCESSING_THRESHOLD = 500000000  # ~11.3 hours at 44kHz
 
 
 class TimeoutException(Exception):
@@ -80,6 +75,7 @@ def timeout(seconds=DEFAULT_TIMEOUT_SECONDS, error_message="Processing timed out
         def wrapper(*args, **kwargs):
             import signal
             import platform
+            import threading
             
             # Only use SIGALRM on Unix-like systems
             if platform.system() != 'Windows':
@@ -101,12 +97,42 @@ def timeout(seconds=DEFAULT_TIMEOUT_SECONDS, error_message="Processing timed out
                     signal.alarm(0)  # Cancel alarm
                     raise
             else:
-                # On Windows, just call the function without timeout
-                # TODO: Implement proper timeout for Windows using threading
-                return func(*args, **kwargs)
+                # On Windows, use threading-based timeout
+                result = [None]
+                exception = [None]
+                
+                def target():
+                    try:
+                        result[0] = func(*args, **kwargs)
+                    except Exception as e:
+                        exception[0] = e
+                
+                thread = threading.Thread(target=target)
+                thread.daemon = True
+                thread.start()
+                thread.join(seconds)
+                
+                if thread.is_alive():
+                    # Thread is still running, timeout occurred
+                    raise TimeoutException(error_message)
+                elif exception[0]:
+                    # Exception occurred in thread
+                    raise exception[0]
+                else:
+                    return result[0]
         
         return wrapper
     return decorator
+
+
+def get_timeout_for_file_size(audio_length: int) -> int:
+    """Get appropriate timeout based on file size."""
+    if audio_length > EXTREMELY_LARGE_PROCESSING_THRESHOLD:
+        return TIMEOUT_EXTREMELY_LARGE
+    elif audio_length > EXTREMELY_LARGE_THRESHOLD:
+        return TIMEOUT_LARGE_FILES
+    else:
+        return DEFAULT_TIMEOUT_SECONDS
 
 
 def safe_json_dumps(obj):
@@ -118,6 +144,7 @@ def safe_json_dumps(obj):
     except TypeError as e:
         if "not JSON serializable" in str(e):
             # Convert NumPy types to Python native types
+            import numpy as np
             if isinstance(obj, dict):
                 converted = {}
                 for k, v in obj.items():
@@ -132,18 +159,63 @@ def safe_json_dumps(obj):
                     else:
                         converted[k] = v
                 return json.dumps(converted)
+            elif isinstance(obj, list):
+                converted = []
+                for v in obj:
+                    if isinstance(v, np.floating):
+                        converted.append(float(v))
+                    elif isinstance(v, np.integer):
+                        converted.append(int(v))
+                    elif isinstance(v, np.ndarray):
+                        converted.append(v.tolist())
+                    else:
+                        converted.append(v)
+                return json.dumps(converted)
             else:
-                # Handle non-dict objects
-                if isinstance(obj, np.floating):
-                    return json.dumps(float(obj))
-                elif isinstance(obj, np.integer):
-                    return json.dumps(int(obj))
-                elif isinstance(obj, np.ndarray):
-                    return json.dumps(obj.tolist())
-                else:
-                    return json.dumps(str(obj))
+                return json.dumps(str(obj))
         else:
             raise e
+
+
+def convert_to_python_types(obj):
+    """Convert NumPy types to Python native types for database storage."""
+    if obj is None:
+        return None
+    import numpy as np
+    if isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: convert_to_python_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_python_types(v) for v in obj]
+    else:
+        return obj
+
+
+def ensure_float(value):
+    """Ensure a value is a Python float, handling numpy types."""
+    if value is None:
+        return 0.0
+    try:
+        import numpy as np
+        if isinstance(value, np.ndarray):
+            if value.size == 1:
+                return float(value.item())
+            else:
+                return float(np.mean(value))
+        elif isinstance(value, (np.floating, np.integer)):
+            return float(value)
+        else:
+            return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+
 
 
 class AudioAnalyzer:
@@ -188,19 +260,9 @@ class AudioAnalyzer:
         self.streaming_chunk_duration_seconds = config.get('STREAMING_CHUNK_DURATION_SECONDS', 30)
         self.streaming_large_file_threshold_mb = config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 50)
         
-        # MusiCNN configuration
+        # MusiCNN configuration (simplified)
         self.musicnn_model_path = config.get('MUSICNN_MODEL_PATH', '/app/models/msd-musicnn-1.pb')
         self.musicnn_json_path = config.get('MUSICNN_JSON_PATH', '/app/models/msd-musicnn-1.json')
-        self.musicnn_timeout_seconds = config.get('MUSICNN_TIMEOUT_SECONDS', 60)
-        self.musicnn_batch_size = config.get('MUSICNN_BATCH_SIZE', 1)
-        self.musicnn_min_audio_length_seconds = config.get('MUSICNN_MIN_AUDIO_LENGTH_SECONDS', 1)
-        self.musicnn_sample_rate = config.get('MUSICNN_SAMPLE_RATE', 44100)
-        self.musicnn_memory_limit_gb = config.get('MUSICNN_MEMORY_LIMIT_GB', 2.0)
-        self.musicnn_gpu_enabled = config.get('MUSICNN_GPU_ENABLED', False)
-        self.musicnn_cache_enabled = config.get('MUSICNN_CACHE_ENABLED', True)
-        self.musicnn_feature_dimensions = config.get('MUSICNN_FEATURE_DIMENSIONS', 200)
-        self.musicnn_confidence_threshold = config.get('MUSICNN_CONFIDENCE_THRESHOLD', 0.5)
-        self.musicnn_fallback_enabled = config.get('MUSICNN_FALLBACK_ENABLED', True)
         
         # Initialize MusiCNN model
         self.musicnn_model = None
@@ -213,7 +275,6 @@ class AudioAnalyzer:
         logger.debug(f"📋 Cache file: {self.cache_file}")
         logger.debug(f"📋 Library path: {self.library}")
         logger.debug(f"📋 Music path: {self.music}")
-        logger.debug(f"📋 MusiCNN config: timeout={self.musicnn_timeout_seconds}s, batch_size={self.musicnn_batch_size}")
         logger.info(f"✅ AudioAnalyzer initialized successfully")
 
     def _init_musicnn(self):
@@ -270,7 +331,6 @@ class AudioAnalyzer:
             logger.warning("⚠️ MusiCNN model not available - advanced features disabled")
 
     @log_function_call
-    @timeout(DEFAULT_TIMEOUT_SECONDS)
     def extract_features(self, audio_path: str, analysis_config: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """
         Extract features from an audio file with on/off control.
@@ -320,14 +380,44 @@ class AudioAnalyzer:
                 logger.error(f"❌ Failed to load audio: {filename}")
                 return None
             
+            # Check file size and set appropriate timeout
+            audio_length = len(audio)
+            timeout_seconds = get_timeout_for_file_size(audio_length)
+            
+            # Determine file size categories for feature skipping
+            is_large_file = audio_length > LARGE_FILE_THRESHOLD
+            is_extremely_large = audio_length > EXTREMELY_LARGE_THRESHOLD
+            is_extremely_large_for_processing = audio_length > EXTREMELY_LARGE_PROCESSING_THRESHOLD
+            
+            if is_extremely_large_for_processing:
+                logger.warning(f"⚠️ Extremely large file detected ({audio_length} samples), using minimal features only")
+            elif is_extremely_large:
+                logger.warning(f"⚠️ Very large file detected ({audio_length} samples), skipping some features")
+            elif is_large_file:
+                logger.info(f"📊 Large file detected ({audio_length} samples), using extended timeout")
+            
+            logger.info(f"⏱️ Using timeout: {timeout_seconds} seconds")
+            
             # Extract metadata (always enabled)
             metadata = self._extract_metadata(audio_path)
             
-            # Extract features based on configuration
-            features = self._extract_features_by_config(audio_path, audio, metadata, features_config)
-            
-            if features is None:
-                logger.error(f"❌ Failed to extract features: {filename}")
+            # Extract features based on configuration with timeout
+            try:
+                @timeout(timeout_seconds, f"Analysis timed out for {filename}")
+                def extract_with_timeout():
+                    return self._extract_features_by_config(audio_path, audio, metadata, features_config)
+                
+                features = extract_with_timeout()
+                
+                if features is None:
+                    logger.error(f"❌ Failed to extract features: {filename}")
+                    return None
+                    
+            except TimeoutException as te:
+                logger.error(f"❌ Analysis timed out for {filename}: {te}")
+                return None
+            except Exception as e:
+                logger.error(f"❌ Analysis failed for {filename}: {e}")
                 return None
             
             # Validate features
@@ -705,9 +795,15 @@ class AudioAnalyzer:
         extracted_features = []
         failed_features = []
         
+        # Check file size for feature skipping
+        audio_length = len(audio)
+        is_large_file = audio_length > LARGE_FILE_THRESHOLD
+        is_extremely_large = audio_length > EXTREMELY_LARGE_THRESHOLD
+        is_extremely_large_for_processing = audio_length > EXTREMELY_LARGE_PROCESSING_THRESHOLD
+        
         try:
             # Extract rhythm features (if enabled)
-            if features_config.get('extract_rhythm', True):
+            if features_config.get('extract_rhythm', True) and not is_extremely_large_for_processing:
                 start_time = time.time()
                 try:
                     rhythm_features = self._extract_rhythm_features(audio, audio_path, metadata)
@@ -728,7 +824,7 @@ class AudioAnalyzer:
                     log_feature_extraction_step(audio_path, 'rhythm', duration, False, error=str(e))
             
             # Extract spectral features (if enabled)
-            if features_config.get('extract_spectral', True):
+            if features_config.get('extract_spectral', True) and not is_extremely_large_for_processing:
                 start_time = time.time()
                 try:
                     spectral_features = self._extract_spectral_features(audio)
@@ -749,7 +845,7 @@ class AudioAnalyzer:
                     log_feature_extraction_step(audio_path, 'spectral', duration, False, error=str(e))
             
             # Extract loudness (if enabled)
-            if features_config.get('extract_loudness', True):
+            if features_config.get('extract_loudness', True) and not is_extremely_large_for_processing:
                 start_time = time.time()
                 try:
                     loudness_features = self._extract_loudness(audio)
@@ -770,7 +866,7 @@ class AudioAnalyzer:
                     log_feature_extraction_step(audio_path, 'loudness', duration, False, error=str(e))
             
             # Extract key (if enabled)
-            if features_config.get('extract_key', True):
+            if features_config.get('extract_key', True) and not is_extremely_large_for_processing:
                 start_time = time.time()
                 try:
                     key_features = self._extract_key(audio)
@@ -791,7 +887,7 @@ class AudioAnalyzer:
                     log_feature_extraction_step(audio_path, 'key', duration, False, error=str(e))
             
             # Extract MFCC (if enabled)
-            if features_config.get('extract_mfcc', True):
+            if features_config.get('extract_mfcc', True) and not is_extremely_large:
                 start_time = time.time()
                 try:
                     mfcc_features = self._extract_mfcc(audio)
@@ -812,7 +908,7 @@ class AudioAnalyzer:
                     log_feature_extraction_step(audio_path, 'mfcc', duration, False, error=str(e))
             
             # Extract MusiCNN features (if enabled)
-            if features_config.get('extract_musicnn', False):
+            if features_config.get('extract_musicnn', False) and not is_extremely_large:
                 start_time = time.time()
                 try:
                     musicnn_features = self._extract_musicnn_features(audio)
@@ -831,6 +927,29 @@ class AudioAnalyzer:
                     failed_features.append('musicnn')
                     duration = time.time() - start_time
                     log_feature_extraction_step(audio_path, 'musicnn', duration, False, error=str(e))
+            
+            # Calculate duration (always included)
+            try:
+                duration = audio_length / DEFAULT_SAMPLE_RATE
+                features['duration'] = ensure_float(duration)
+                logger.info(f"⏱️ Duration: {features['duration']:.2f}s")
+            except Exception as e:
+                logger.warning(f"⚠️ Duration calculation failed: {str(e)}")
+                features['duration'] = 0.0
+            
+            # Add fallback values for skipped features due to file size
+            if is_extremely_large_for_processing:
+                logger.warning("⚠️ Using minimal features for extremely large file")
+                features.setdefault('bpm', -999.0)  # Invalid BPM (normal range: 30-300)
+                features.setdefault('spectral_centroid', -999.0)  # Invalid centroid (normal range: 0-22050)
+                features.setdefault('loudness', -999.0)  # Invalid loudness (normal range: 0-1)
+                features.setdefault('key', 'INVALID')  # Invalid key
+                features.setdefault('scale', 'INVALID')  # Invalid scale
+                features.setdefault('key_strength', -999.0)  # Invalid strength (normal range: 0-1)
+            elif is_extremely_large:
+                logger.warning("⚠️ Skipping MFCC and MusiCNN for very large file")
+                features.setdefault('mfcc', [-999.0] * 13)  # Invalid MFCC values
+                features.setdefault('musicnn_features', [-999.0] * 50)  # Invalid MusiCNN features
             
             # Add metadata (always included)
             features['metadata'] = metadata
@@ -866,38 +985,56 @@ class AudioAnalyzer:
             if ESSENTIA_AVAILABLE:
                 # Use essentia for rhythm features
                 rhythm_extractor = es.RhythmExtractor2013()
-                rhythm = rhythm_extractor(audio)
+                rhythm_result = rhythm_extractor(audio)
                 
-                # Handle the rhythm tuple properly
-                if isinstance(rhythm, tuple) and len(rhythm) >= 4:
-                    features['bpm'] = float(rhythm[0])
-                    features['confidence'] = float(rhythm[1])
-                    if hasattr(rhythm[2], 'tolist'):
-                        features['estimates'] = rhythm[2].tolist()
+                # Handle different return types from Essentia (like old working version)
+                if isinstance(rhythm_result, tuple):
+                    # Try to get BPM from the first element
+                    if len(rhythm_result) > 0:
+                        bpm = rhythm_result[0]
+                        logger.debug(f"Extracted BPM from tuple[0]: {bpm}")
                     else:
-                        features['estimates'] = list(rhythm[2])
-                    if hasattr(rhythm[3], 'tolist'):
-                        features['bpm_intervals'] = rhythm[3].tolist()
-                    else:
-                        features['bpm_intervals'] = list(rhythm[3])
+                        logger.warning("Empty rhythm result tuple")
+                        bpm = -1.0  # Special marker for failed BPM extraction
                 else:
-                    # Fallback if rhythm extraction returns unexpected format
-                    logger.warning("⚠️ Unexpected rhythm extraction format, using librosa fallback")
-                    if LIBROSA_AVAILABLE:
-                        tempo, beats = librosa.beat.beat_track(y=audio, sr=DEFAULT_SAMPLE_RATE)
-                        features['bpm'] = float(tempo)
-                        features['confidence'] = 0.5
+                    # Single value return
+                    bpm = rhythm_result
+                    logger.debug(f"Extracted BPM from single value: {bpm}")
+
+                # Ensure BPM is a valid number (like old working version)
+                try:
+                    bpm = ensure_float(bpm)
+                    if not np.isfinite(bpm) or bpm <= 0:
+                        logger.warning(f"Invalid BPM value: {bpm}, using failed marker")
+                        bpm = -999.0  # Invalid BPM marker (normal range: 30-300)
+                except (ValueError, TypeError):
+                    logger.warning(f"Could not convert BPM to float: {bpm}, using failed marker")
+                    bpm = -999.0  # Invalid BPM marker (normal range: 30-300)
+
+                features['bpm'] = bpm
+                
+                # Add additional rhythm features if available
+                if isinstance(rhythm_result, tuple) and len(rhythm_result) >= 4:
+                    features['confidence'] = ensure_float(rhythm_result[1])
+                    if hasattr(rhythm_result[2], 'tolist'):
+                        features['estimates'] = rhythm_result[2].tolist()
+                    else:
+                        features['estimates'] = convert_to_python_types(rhythm_result[2])
+                    if hasattr(rhythm_result[3], 'tolist'):
+                        features['bpm_intervals'] = rhythm_result[3].tolist()
+                    else:
+                        features['bpm_intervals'] = convert_to_python_types(rhythm_result[3])
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for rhythm features
                 tempo, beats = librosa.beat.beat_track(y=audio, sr=DEFAULT_SAMPLE_RATE)
-                features['bpm'] = float(tempo)
+                features['bpm'] = ensure_float(tempo)
                 features['confidence'] = 0.5  # Default confidence for librosa
                 
             # Try to get external BPM from metadata
             if metadata and 'bpm' in metadata:
                 try:
-                    external_bpm = float(metadata['bpm'])
+                    external_bpm = ensure_float(metadata['bpm'])
                     features['external_bpm'] = external_bpm
                 except (ValueError, TypeError):
                     pass
@@ -906,6 +1043,8 @@ class AudioAnalyzer:
             
         except Exception as e:
             logger.warning(f"⚠️ Error extracting rhythm features: {e}")
+            # Return invalid marker like old working version
+            features['bpm'] = -999.0
         
         return features
 
@@ -928,32 +1067,32 @@ class AudioAnalyzer:
                 
                 # Spectral centroid
                 centroid = es.Centroid()
-                features['spectral_centroid'] = float(centroid(audio_positive))
+                features['spectral_centroid'] = ensure_float(centroid(audio_positive))
                 
                 # Spectral rolloff
                 rolloff = es.RollOff()
-                features['spectral_rolloff'] = float(rolloff(audio_positive))
+                features['spectral_rolloff'] = ensure_float(rolloff(audio_positive))
                 
                 # Spectral flatness - handle potential negative values
                 try:
                     flatness = es.Flatness()
-                    features['spectral_flatness'] = float(flatness(audio_positive))
+                    features['spectral_flatness'] = ensure_float(flatness(audio_positive))
                 except Exception as e:
                     logger.warning(f"⚠️ Spectral flatness failed: {e}, using librosa fallback")
                     if LIBROSA_AVAILABLE:
                         flatness_librosa = librosa.feature.spectral_flatness(y=audio, sr=DEFAULT_SAMPLE_RATE)
-                        features['spectral_flatness'] = float(np.mean(flatness_librosa))
+                        features['spectral_flatness'] = ensure_float(np.mean(flatness_librosa))
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for spectral features
                 centroid = librosa.feature.spectral_centroid(y=audio, sr=DEFAULT_SAMPLE_RATE)
-                features['spectral_centroid'] = float(np.mean(centroid))
+                features['spectral_centroid'] = ensure_float(np.mean(centroid))
                 
                 rolloff = librosa.feature.spectral_rolloff(y=audio, sr=DEFAULT_SAMPLE_RATE)
-                features['spectral_rolloff'] = float(np.mean(rolloff))
+                features['spectral_rolloff'] = ensure_float(np.mean(rolloff))
                 
                 flatness = librosa.feature.spectral_flatness(y=audio, sr=DEFAULT_SAMPLE_RATE)
-                features['spectral_flatness'] = float(np.mean(flatness))
+                features['spectral_flatness'] = ensure_float(np.mean(flatness))
             
             logger.debug(f"📊 Spectral features extracted")
             
@@ -982,34 +1121,34 @@ class AudioAnalyzer:
                     loudness_value = loudness(audio)
                     # Handle if loudness returns a tuple
                     if isinstance(loudness_value, tuple):
-                        features['loudness'] = float(loudness_value[0])
+                        features['loudness'] = ensure_float(loudness_value[0])
                     else:
-                        features['loudness'] = float(loudness_value)
+                        features['loudness'] = ensure_float(loudness_value)
                 except Exception as e:
                     logger.warning(f"⚠️ Essentia loudness failed: {e}, using librosa fallback")
                     if LIBROSA_AVAILABLE:
                         rms = librosa.feature.rms(y=audio)
-                        features['loudness'] = float(np.mean(rms))
+                        features['loudness'] = ensure_float(np.mean(rms))
                 
                 # Dynamic complexity
                 try:
                     dynamic_complexity = es.DynamicComplexity()
                     complexity_value = dynamic_complexity(audio)
                     if isinstance(complexity_value, tuple):
-                        features['dynamic_complexity'] = float(complexity_value[0])
+                        features['dynamic_complexity'] = ensure_float(complexity_value[0])
                     else:
-                        features['dynamic_complexity'] = float(complexity_value)
+                        features['dynamic_complexity'] = ensure_float(complexity_value)
                 except Exception as e:
                     logger.warning(f"⚠️ Dynamic complexity failed: {e}")
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for loudness
                 rms = librosa.feature.rms(y=audio)
-                features['loudness'] = float(np.mean(rms))
+                features['loudness'] = ensure_float(np.mean(rms))
                 
                 # Calculate dynamic range
                 dynamic_range = np.max(audio) - np.min(audio)
-                features['dynamic_range'] = float(dynamic_range)
+                features['dynamic_range'] = ensure_float(dynamic_range)
             
             logger.debug(f"🔊 Loudness features extracted")
             
@@ -1035,9 +1174,9 @@ class AudioAnalyzer:
                 # Key detection
                 key = es.Key()
                 key_result = key(audio)
-                features['key'] = key_result[0]
-                features['scale'] = key_result[1]
-                features['key_strength'] = float(key_result[2])
+                features['key'] = str(key_result[0])  # Ensure it's a string
+                features['scale'] = str(key_result[1])  # Ensure it's a string
+                features['key_strength'] = ensure_float(key_result[2])
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for key detection
@@ -1047,7 +1186,7 @@ class AudioAnalyzer:
                 key_idx = np.argmax(chroma_mean)
                 keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
                 features['key'] = keys[key_idx]
-                features['key_strength'] = float(chroma_mean[key_idx])
+                features['key_strength'] = ensure_float(chroma_mean[key_idx])
             
             logger.debug(f"🎼 Key features: {features.get('key', 'N/A')}")
             
@@ -1074,14 +1213,14 @@ class AudioAnalyzer:
                 # MFCC
                 mfcc = es.MFCC(numberCoefficients=num_coeffs)
                 mfcc_result = mfcc(audio)
-                features['mfcc'] = mfcc_result[0].tolist()
-                features['mfcc_bands'] = mfcc_result[1].tolist()
+                features['mfcc'] = convert_to_python_types(mfcc_result[0])
+                features['mfcc_bands'] = convert_to_python_types(mfcc_result[1])
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for MFCC
                 mfcc = librosa.feature.mfcc(y=audio, sr=DEFAULT_SAMPLE_RATE, n_mfcc=num_coeffs)
-                features['mfcc'] = np.mean(mfcc, axis=1).tolist()
-                features['mfcc_std'] = np.std(mfcc, axis=1).tolist()
+                features['mfcc'] = convert_to_python_types(np.mean(mfcc, axis=1))
+                features['mfcc_std'] = convert_to_python_types(np.std(mfcc, axis=1))
             
             logger.debug(f"📊 MFCC features extracted ({num_coeffs} coefficients)")
             
@@ -1174,6 +1313,50 @@ class AudioAnalyzer:
         Returns:
             True if features are valid, False otherwise
         """
+        
+    def _is_valid_for_playlist(self, features: Dict[str, Any]) -> bool:
+        """
+        Check if features are valid for playlist generation (no invalid markers).
+        
+        Args:
+            features: Features dictionary
+            
+        Returns:
+            True if features can be used for playlist generation, False otherwise
+        """
+        try:
+            # Check for invalid markers that indicate failed extraction
+            invalid_markers = {
+                'bpm': -999.0,
+                'loudness': -999.0,
+                'spectral_centroid': -999.0,
+                'key_strength': -999.0,
+                'key': 'INVALID',
+                'scale': 'INVALID'
+            }
+            
+            for feature, invalid_value in invalid_markers.items():
+                if feature in features and features[feature] == invalid_value:
+                    logger.debug(f"⚠️ Feature '{feature}' has invalid marker: {invalid_value}")
+                    return False
+            
+            # Check for invalid MFCC (all values -999.0)
+            mfcc = features.get('mfcc')
+            if mfcc and isinstance(mfcc, list) and all(x == -999.0 for x in mfcc):
+                logger.debug("⚠️ MFCC has invalid markers")
+                return False
+            
+            # Check for invalid MusiCNN features (all values -999.0)
+            musicnn = features.get('musicnn_features')
+            if musicnn and isinstance(musicnn, list) and all(x == -999.0 for x in musicnn):
+                logger.debug("⚠️ MusiCNN features have invalid markers")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error checking playlist validity: {e}")
+            return False
         try:
             # Check for essential features
             essential_features = ['bpm', 'loudness']
@@ -1183,16 +1366,46 @@ class AudioAnalyzer:
                 logger.warning(f"⚠️ Missing essential features: {missing_features}")
                 return False
             
-            # Check for valid BPM
+            # Check for valid BPM (excluding invalid markers)
             bpm = features.get('bpm')
-            if bpm is not None and (bpm < 30 or bpm > 300):
+            if bpm is not None and bpm == -999.0:
+                logger.warning(f"⚠️ BPM extraction failed (invalid marker: {bpm})")
+                return False
+            elif bpm is not None and (bpm < 30 or bpm > 300):
                 logger.warning(f"⚠️ Invalid BPM value: {bpm}")
                 return False
             
-            # Check for valid loudness
+            # Check for valid loudness (excluding invalid markers)
             loudness = features.get('loudness')
-            if loudness is not None and (loudness < -100 or loudness > 100):
+            if loudness is not None and loudness == -999.0:
+                logger.warning(f"⚠️ Loudness extraction failed (invalid marker: {loudness})")
+                return False
+            elif loudness is not None and (loudness < -100 or loudness > 100):
                 logger.warning(f"⚠️ Invalid loudness value: {loudness}")
+                return False
+            
+            # Check for valid spectral centroid (excluding invalid markers)
+            spectral_centroid = features.get('spectral_centroid')
+            if spectral_centroid is not None and spectral_centroid == -999.0:
+                logger.warning(f"⚠️ Spectral centroid extraction failed (invalid marker: {spectral_centroid})")
+                return False
+            elif spectral_centroid is not None and (spectral_centroid < 0 or spectral_centroid > 22050):
+                logger.warning(f"⚠️ Invalid spectral centroid value: {spectral_centroid}")
+                return False
+            
+            # Check for valid key (excluding invalid markers)
+            key = features.get('key')
+            if key is not None and key == 'INVALID':
+                logger.warning(f"⚠️ Key extraction failed (invalid marker: {key})")
+                return False
+            
+            # Check for valid key strength (excluding invalid markers)
+            key_strength = features.get('key_strength')
+            if key_strength is not None and key_strength == -999.0:
+                logger.warning(f"⚠️ Key strength extraction failed (invalid marker: {key_strength})")
+                return False
+            elif key_strength is not None and (key_strength < 0 or key_strength > 1):
+                logger.warning(f"⚠️ Invalid key strength value: {key_strength}")
                 return False
             
             logger.debug("✅ Features validation passed")
@@ -1206,46 +1419,7 @@ class AudioAnalyzer:
         """Get analyzer version."""
         return self.VERSION
     
-    def get_config(self) -> Dict[str, Any]:
-        """Get current analyzer configuration."""
-        return {
-            'version': self.VERSION,
-            'cache_file': self.cache_file,
-            'library': self.library,
-            'music': self.music,
-            'essentia_available': ESSENTIA_AVAILABLE,
-            'librosa_available': LIBROSA_AVAILABLE,
-            'mutagen_available': MUTAGEN_AVAILABLE,
-            'musicnn_config': {
-                'model_path': self.musicnn_model_path,
-                'json_path': self.musicnn_json_path,
-                'timeout_seconds': self.musicnn_timeout_seconds,
-                'batch_size': self.musicnn_batch_size,
-                'min_audio_length_seconds': self.musicnn_min_audio_length_seconds,
-                'sample_rate': self.musicnn_sample_rate,
-                'memory_limit_gb': self.musicnn_memory_limit_gb,
-                'gpu_enabled': self.musicnn_gpu_enabled,
-                'cache_enabled': self.musicnn_cache_enabled,
-                'feature_dimensions': self.musicnn_feature_dimensions,
-                'confidence_threshold': self.musicnn_confidence_threshold,
-                'fallback_enabled': self.musicnn_fallback_enabled
-            }
-        }
 
-    def _get_audio_duration(self, audio_path: str) -> Optional[float]:
-        """Get audio file duration using the streaming loader's method."""
-        try:
-            from .streaming_audio_loader import get_streaming_loader
-            streaming_loader = get_streaming_loader(
-                memory_limit_percent=self.streaming_memory_limit_percent,
-                chunk_duration_seconds=self.streaming_chunk_duration_seconds,
-                use_slicer=False,
-                use_streaming=True
-            )
-            return streaming_loader._get_audio_duration(audio_path)
-        except Exception as e:
-            logger.error(f"❌ Error getting duration for {audio_path}: {e}")
-            return None
 
 
 # Global audio analyzer instance
