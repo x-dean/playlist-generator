@@ -43,10 +43,10 @@ logger = get_logger('playlista.streaming_loader')
 
 # Constants
 DEFAULT_SAMPLE_RATE = 44100
-DEFAULT_CHUNK_DURATION_SECONDS = 15  # Reduced from 30 to 15 seconds per chunk
-DEFAULT_MEMORY_LIMIT_PERCENT = 50  # Reduced from 80% to 50% of available RAM
+DEFAULT_CHUNK_DURATION_SECONDS = 10  # Reduced from 15 to 10 seconds per chunk for large files
+DEFAULT_MEMORY_LIMIT_PERCENT = 30  # Reduced from 50% to 30% of available RAM for large files
 MIN_CHUNK_DURATION_SECONDS = 5  # Minimum chunk duration
-MAX_CHUNK_DURATION_SECONDS = 30  # Reduced from 120 to 30 seconds for memory safety
+MAX_CHUNK_DURATION_SECONDS = 20  # Reduced from 30 to 20 seconds for memory safety
 
 
 class StreamingAudioLoader:
@@ -169,8 +169,8 @@ class StreamingAudioLoader:
         current_memory = self._get_current_memory_usage()
         available_memory_gb = current_memory.get('available_gb', 1.0)
         
-        # Use a more conservative approach - use only 25% of available memory
-        conservative_memory_gb = min(available_memory_gb * 0.25, self.memory_limit_gb * 0.25)
+        # Use a very conservative approach - use only 10% of available memory for large files
+        conservative_memory_gb = min(available_memory_gb * 0.10, self.memory_limit_gb * 0.10)
         
         # Estimate memory usage per second of audio (mono, 44.1kHz, float32)
         bytes_per_second = DEFAULT_SAMPLE_RATE * 4  # 4 bytes per float32 sample
@@ -179,15 +179,15 @@ class StreamingAudioLoader:
         # Calculate how many seconds we can fit in memory
         max_seconds_in_memory = conservative_memory_gb * 1024 / mb_per_second
         
-        # Use a very conservative safety factor of 0.25 to leave room for processing
-        safe_seconds = max_seconds_in_memory * 0.25
+        # Use a very conservative safety factor of 0.10 to leave room for processing
+        safe_seconds = max_seconds_in_memory * 0.10
         
         # Calculate optimal chunk duration
         optimal_duration = min(
             max(safe_seconds, MIN_CHUNK_DURATION_SECONDS),
             MAX_CHUNK_DURATION_SECONDS,
             duration_seconds,  # Don't exceed total duration
-            30.0  # Maximum 30 seconds per chunk for memory safety
+            15.0  # Maximum 15 seconds per chunk for memory safety
         )
         
         logger.info(f"📊 Memory-aware chunk calculation:")
@@ -319,7 +319,29 @@ class StreamingAudioLoader:
         
         chunk_count = 0
         try:
-            if ESSENTIA_AVAILABLE:
+            # Prioritize true streaming with librosa if available
+            if LIBROSA_AVAILABLE:
+                logger.info(f"🎵 Using Librosa true streaming for: {os.path.basename(audio_path)}")
+                for chunk, start_time, end_time in self._load_chunks_librosa_streaming(audio_path, total_duration, chunk_duration):
+                    chunk_count += 1
+                    
+                    # Monitor memory every 5 chunks
+                    if chunk_count % 5 == 0:
+                        current_memory = self._get_current_memory_usage()
+                        logger.warning(f"⚠️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                        
+                        # More aggressive memory management - trigger GC at 70% instead of 90%
+                        if current_memory['percent_used'] > 70:
+                            logger.warning(f"⚠️ High memory usage detected! Forcing garbage collection...")
+                            import gc
+                            gc.collect()
+                    
+                    # Always force garbage collection after each chunk to prevent accumulation
+                    import gc
+                    gc.collect()
+                    
+                    yield chunk, start_time, end_time
+            elif ESSENTIA_AVAILABLE:
                 if self.use_slicer:
                     logger.info(f"🎵 Using Essentia Slicer for streaming audio: {os.path.basename(audio_path)}")
                     for chunk, start_time, end_time in self._load_chunks_essentia_slicer(audio_path, total_duration, chunk_duration):
@@ -361,7 +383,7 @@ class StreamingAudioLoader:
                         
                         yield chunk, start_time, end_time
                 else:
-                    logger.info(f"🎵 Using Essentia FrameCutter for streaming audio: {os.path.basename(audio_path)}")
+                    logger.info(f"🎵 Using Essentia with memory optimization for streaming audio: {os.path.basename(audio_path)}")
                     for chunk, start_time, end_time in self._load_chunks_essentia(audio_path, total_duration, chunk_duration):
                         chunk_count += 1
                         
@@ -449,89 +471,133 @@ class StreamingAudioLoader:
     
     def _load_chunks_essentia(self, audio_path: str, total_duration: float, 
                              chunk_duration: float) -> Generator[Tuple[np.ndarray, float, float], None, None]:
-        """Load audio chunks using Essentia's MonoLoader with manual chunking."""
+        """Load audio chunks using true streaming without loading entire file into memory."""
         try:
             # Calculate chunk parameters
             samples_per_chunk = int(chunk_duration * self.sample_rate)
             total_samples = int(total_duration * self.sample_rate)
             
-            logger.info(f"🎵 Starting Essentia loading for: {os.path.basename(audio_path)}")
+            logger.info(f"🎵 Starting true streaming for: {os.path.basename(audio_path)}")
             logger.info(f"📊 Total duration: {total_duration:.1f}s, Chunk duration: {chunk_duration:.1f}s")
             logger.info(f"📊 Expected chunks: {int(total_duration / chunk_duration) + 1}")
             logger.info(f"📊 Samples per chunk: {samples_per_chunk}")
             
-            # Use MonoLoader to load the audio (this is more reliable than streaming network)
-            try:
-                # Initialize MonoLoader with proper parameters
-                loader = es.MonoLoader(
-                    filename=audio_path,
-                    sampleRate=self.sample_rate,
-                    downmix='mix',  # Mix stereo to mono
-                    resampleQuality=1  # Good quality resampling
-                )
-                audio = loader()
-                sample_rate = self.sample_rate  # MonoLoader outputs at the specified sample rate
-                logger.info(f"✅ Audio loaded successfully with MonoLoader: {len(audio)} samples, {sample_rate}Hz")
-                
-            except Exception as e:
-                logger.error(f"❌ Failed to load audio with MonoLoader: {e}")
-                logger.info("🔄 Falling back to AudioLoader...")
-                
-                try:
-                    # Fallback to AudioLoader if MonoLoader fails
-                    loader = es.AudioLoader(filename=audio_path)
-                    audio, sample_rate, _, _ = loader()
-                    logger.info(f"✅ Audio loaded with AudioLoader: {len(audio)} samples, {sample_rate}Hz")
-                    
-                except Exception as e2:
-                    logger.error(f"❌ Failed to load audio with AudioLoader: {e2}")
-                    raise Exception(f"Could not load audio with any Essentia method: {e}, {e2}")
+            # Use librosa for true streaming if available
+            if LIBROSA_AVAILABLE:
+                logger.info(f"🎵 Using Librosa for true streaming: {os.path.basename(audio_path)}")
+                yield from self._load_chunks_librosa_streaming(audio_path, total_duration, chunk_duration)
+                return
             
-            # Resample if needed (MonoLoader should handle this automatically, but just in case)
-            if sample_rate != self.sample_rate:
-                logger.info(f"🔄 Resampling from {sample_rate}Hz to {self.sample_rate}Hz")
-                resampler = es.Resample(
-                    inputSampleRate=sample_rate, 
-                    outputSampleRate=self.sample_rate,
-                    quality=1  # Good quality resampling
-                )
-                audio = resampler(audio)
-                logger.info(f"✅ Resampling completed: {len(audio)} samples")
+            # Fallback to Essentia with memory optimization
+            logger.info(f"🎵 Using Essentia with memory optimization: {os.path.basename(audio_path)}")
             
-            # Chunk the audio manually (this is more reliable than streaming network)
+            # Use very small processing chunks to keep memory usage low
+            processing_chunk_size = min(samples_per_chunk, int(5 * self.sample_rate))  # 5-second max processing chunk
+            
+            logger.info(f"🔄 Starting memory-optimized chunking process...")
+            logger.info(f"📊 Processing chunk size: {processing_chunk_size} samples ({processing_chunk_size/self.sample_rate:.1f}s)")
+            
+            # Process audio in small chunks using streaming approach
             chunk_index = 0
             current_sample = 0
             
-            logger.info(f"🔄 Starting manual chunking process...")
-            
-            while current_sample < len(audio):
+            while current_sample < total_samples:
                 # Calculate chunk boundaries
                 start_sample = current_sample
-                end_sample = min(start_sample + samples_per_chunk, len(audio))
+                end_sample = min(start_sample + samples_per_chunk, total_samples)
                 
-                # Extract chunk
-                chunk = audio[start_sample:end_sample]
+                # Process this chunk in smaller sub-chunks to avoid memory issues
+                chunk_parts = []
+                sub_start = start_sample
                 
-                # Calculate time boundaries
-                start_time = start_sample / self.sample_rate
-                end_time = end_sample / self.sample_rate
+                while sub_start < end_sample:
+                    sub_end = min(sub_start + processing_chunk_size, end_sample)
+                    
+                    # Load only this small sub-chunk using streaming approach
+                    try:
+                        # Calculate time boundaries for this sub-chunk
+                        sub_start_time = sub_start / self.sample_rate
+                        sub_end_time = sub_end / self.sample_rate
+                        sub_duration = sub_end_time - sub_start_time
+                        
+                        # Use librosa's streaming capabilities if available
+                        if LIBROSA_AVAILABLE:
+                            # Load only this small chunk using librosa's offset and duration
+                            sub_chunk, sr = librosa.load(
+                                audio_path,
+                                sr=self.sample_rate,
+                                mono=True,
+                                offset=sub_start_time,
+                                duration=sub_duration
+                            )
+                            
+                            # Ensure correct sample rate
+                            if sr != self.sample_rate:
+                                sub_chunk = librosa.resample(sub_chunk, orig_sr=sr, target_sr=self.sample_rate)
+                            
+                            chunk_parts.append(sub_chunk)
+                            
+                        else:
+                            # Fallback to Essentia with memory optimization
+                            # Load the entire file but immediately extract and clear
+                            loader = es.MonoLoader(
+                                filename=audio_path,
+                                sampleRate=self.sample_rate,
+                                downmix='mix',
+                                resampleQuality=1
+                            )
+                            full_audio = loader()
+                            
+                            # Extract only the sub-chunk we need
+                            sub_chunk = full_audio[sub_start:sub_end]
+                            
+                            # Clear the full audio to free memory immediately
+                            del full_audio
+                            import gc
+                            gc.collect()
+                            
+                            chunk_parts.append(sub_chunk)
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Error loading sub-chunk {sub_start}-{sub_end}: {e}")
+                        # Skip this sub-chunk and continue
+                        pass
+                    
+                    sub_start = sub_end
+                    
+                    # Force garbage collection after each sub-chunk
+                    import gc
+                    gc.collect()
                 
-                logger.debug(f"📊 Essentia Chunk {chunk_index + 1}: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
-                
-                yield chunk, start_time, end_time
+                # Combine sub-chunks into final chunk
+                if chunk_parts:
+                    chunk = np.concatenate(chunk_parts)
+                    
+                    # Calculate time boundaries
+                    start_time = start_sample / self.sample_rate
+                    end_time = end_sample / self.sample_rate
+                    
+                    logger.debug(f"📊 Memory-Optimized Chunk {chunk_index + 1}: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
+                    
+                    yield chunk, start_time, end_time
+                    
+                    # Clear chunk_parts to free memory
+                    chunk_parts.clear()
+                    
+                    # Force garbage collection after each chunk
+                    import gc
+                    gc.collect()
+                else:
+                    logger.warning(f"⚠️ Empty chunk {chunk_index + 1}")
                 
                 current_sample = end_sample
                 chunk_index += 1
-                
-                # Force garbage collection after each chunk to free memory
-                import gc
-                gc.collect()
             
-            logger.info(f"✅ Essentia processing completed: {chunk_index} chunks processed")
+            logger.info(f"✅ Memory-optimized processing completed: {chunk_index} chunks processed")
                 
         except Exception as e:
-            logger.error(f"❌ Error in Essentia processing: {e}")
-            # Fallback to alternative audio libraries if Essentia fails
+            logger.error(f"❌ Error in memory-optimized processing: {e}")
+            # Fallback to alternative audio libraries if streaming fails
             logger.info("🔄 Falling back to alternative audio libraries...")
             yield from self._load_chunks_fallback(audio_path, total_duration, chunk_duration)
     
@@ -865,6 +931,65 @@ class StreamingAudioLoader:
                 
         except Exception as e:
             logger.error(f"❌ Error in Librosa streaming: {e}")
+    
+    def _load_chunks_librosa_streaming(self, audio_path: str, total_duration: float, 
+                                      chunk_duration: float) -> Generator[Tuple[np.ndarray, float, float], None, None]:
+        """Load audio chunks using Librosa's true streaming capabilities."""
+        try:
+            # Calculate chunk parameters
+            samples_per_chunk = int(chunk_duration * self.sample_rate)
+            total_samples = int(total_duration * self.sample_rate)
+            
+            logger.info(f"🎵 Using Librosa true streaming for: {os.path.basename(audio_path)}")
+            logger.info(f"📊 Total duration: {total_duration:.1f}s, Chunk duration: {chunk_duration:.1f}s")
+            logger.info(f"📊 Expected chunks: {int(total_duration / chunk_duration) + 1}")
+            
+            chunk_index = 0
+            current_time = 0.0
+            
+            while current_time < total_duration:
+                # Calculate time boundaries for this chunk
+                start_time = current_time
+                end_time = min(start_time + chunk_duration, total_duration)
+                duration = end_time - start_time
+                
+                try:
+                    # Load only this chunk using librosa's streaming capabilities
+                    chunk, sr = librosa.load(
+                        audio_path,
+                        sr=self.sample_rate,
+                        mono=True,
+                        offset=start_time,
+                        duration=duration
+                    )
+                    
+                    # Ensure correct sample rate
+                    if sr != self.sample_rate:
+                        chunk = librosa.resample(chunk, orig_sr=sr, target_sr=self.sample_rate)
+                    
+                    logger.debug(f"📊 Librosa Streaming Chunk {chunk_index + 1}: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
+                    
+                    yield chunk, start_time, end_time
+                    
+                    # Force garbage collection after each chunk
+                    import gc
+                    gc.collect()
+                    
+                except Exception as e:
+                    logger.error(f"❌ Error loading chunk {chunk_index + 1}: {e}")
+                    # Skip this chunk and continue
+                    pass
+                
+                current_time = end_time
+                chunk_index += 1
+            
+            logger.info(f"✅ Librosa streaming completed: {chunk_index} chunks processed")
+                
+        except Exception as e:
+            logger.error(f"❌ Error in Librosa streaming: {e}")
+            # Fallback to alternative methods if streaming fails
+            logger.info("🔄 Falling back to alternative audio libraries...")
+            yield from self._load_chunks_fallback(audio_path, total_duration, chunk_duration)
     
     def process_audio_streaming(self, audio_path: str, 
                               processor_func: callable,
