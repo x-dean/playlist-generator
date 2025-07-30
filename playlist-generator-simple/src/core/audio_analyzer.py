@@ -868,10 +868,25 @@ class AudioAnalyzer:
                 rhythm_extractor = es.RhythmExtractor2013()
                 rhythm = rhythm_extractor(audio)
                 
-                features['bpm'] = float(rhythm[0])
-                features['confidence'] = float(rhythm[1])
-                features['estimates'] = rhythm[2].tolist()
-                features['bpm_intervals'] = rhythm[3].tolist()
+                # Handle the rhythm tuple properly
+                if isinstance(rhythm, tuple) and len(rhythm) >= 4:
+                    features['bpm'] = float(rhythm[0])
+                    features['confidence'] = float(rhythm[1])
+                    if hasattr(rhythm[2], 'tolist'):
+                        features['estimates'] = rhythm[2].tolist()
+                    else:
+                        features['estimates'] = list(rhythm[2])
+                    if hasattr(rhythm[3], 'tolist'):
+                        features['bpm_intervals'] = rhythm[3].tolist()
+                    else:
+                        features['bpm_intervals'] = list(rhythm[3])
+                else:
+                    # Fallback if rhythm extraction returns unexpected format
+                    logger.warning("⚠️ Unexpected rhythm extraction format, using librosa fallback")
+                    if LIBROSA_AVAILABLE:
+                        tempo, beats = librosa.beat.beat_track(y=audio, sr=DEFAULT_SAMPLE_RATE)
+                        features['bpm'] = float(tempo)
+                        features['confidence'] = 0.5
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for rhythm features
@@ -908,17 +923,26 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                # Ensure audio is non-negative for Essentia
+                audio_positive = np.abs(audio)
+                
                 # Spectral centroid
                 centroid = es.Centroid()
-                features['spectral_centroid'] = float(centroid(audio))
+                features['spectral_centroid'] = float(centroid(audio_positive))
                 
                 # Spectral rolloff
                 rolloff = es.RollOff()
-                features['spectral_rolloff'] = float(rolloff(audio))
+                features['spectral_rolloff'] = float(rolloff(audio_positive))
                 
-                # Spectral flatness
-                flatness = es.Flatness()
-                features['spectral_flatness'] = float(flatness(audio))
+                # Spectral flatness - handle potential negative values
+                try:
+                    flatness = es.Flatness()
+                    features['spectral_flatness'] = float(flatness(audio_positive))
+                except Exception as e:
+                    logger.warning(f"⚠️ Spectral flatness failed: {e}, using librosa fallback")
+                    if LIBROSA_AVAILABLE:
+                        flatness_librosa = librosa.feature.spectral_flatness(y=audio, sr=DEFAULT_SAMPLE_RATE)
+                        features['spectral_flatness'] = float(np.mean(flatness_librosa))
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for spectral features
@@ -952,13 +976,31 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
-                # Loudness
-                loudness = es.Loudness()
-                features['loudness'] = float(loudness(audio))
+                # Loudness - handle potential tuple return
+                try:
+                    loudness = es.Loudness()
+                    loudness_value = loudness(audio)
+                    # Handle if loudness returns a tuple
+                    if isinstance(loudness_value, tuple):
+                        features['loudness'] = float(loudness_value[0])
+                    else:
+                        features['loudness'] = float(loudness_value)
+                except Exception as e:
+                    logger.warning(f"⚠️ Essentia loudness failed: {e}, using librosa fallback")
+                    if LIBROSA_AVAILABLE:
+                        rms = librosa.feature.rms(y=audio)
+                        features['loudness'] = float(np.mean(rms))
                 
                 # Dynamic complexity
-                dynamic_complexity = es.DynamicComplexity()
-                features['dynamic_complexity'] = float(dynamic_complexity(audio))
+                try:
+                    dynamic_complexity = es.DynamicComplexity()
+                    complexity_value = dynamic_complexity(audio)
+                    if isinstance(complexity_value, tuple):
+                        features['dynamic_complexity'] = float(complexity_value[0])
+                    else:
+                        features['dynamic_complexity'] = float(complexity_value)
+                except Exception as e:
+                    logger.warning(f"⚠️ Dynamic complexity failed: {e}")
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for loudness
