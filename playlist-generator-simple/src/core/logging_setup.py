@@ -108,7 +108,7 @@ class TextFormatter(logging.Formatter):
 
 def setup_logging(
     log_level: str = None,
-    log_dir: str = '/app/logs',  # Fixed Docker internal path
+    log_dir: str = None,  # Will be auto-detected if None
     log_file_prefix: str = 'playlista',
     console_logging: bool = True,
     file_logging: bool = True,
@@ -132,7 +132,7 @@ def setup_logging(
     
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_dir: Directory for log files (fixed to /app/logs in Docker)
+        log_dir: Directory for log files (auto-detected if None)
         log_file_prefix: Prefix for log file names
         console_logging: Enable console output
         file_logging: Enable file logging
@@ -156,10 +156,18 @@ def setup_logging(
     if _log_setup_complete:
         return logging.getLogger('playlista')
     
+    # Auto-detect log directory if not specified
+    if log_dir is None:
+        # Check if we're in Docker (container has /app directory)
+        if os.path.exists('/app'):
+            log_dir = '/app/logs'  # Docker mount point
+        else:
+            log_dir = 'logs'  # Local development
+    
     # Store configuration
     _log_config = {
         'log_level': log_level,
-        'log_dir': log_dir,  # Fixed Docker internal path
+        'log_dir': log_dir,
         'log_file_prefix': log_file_prefix,
         'console_logging': console_logging,
         'file_logging': file_logging,
@@ -211,7 +219,7 @@ def setup_logging(
     
     # File handler (if enabled)
     if file_logging:
-        # Ensure log directory exists (fixed Docker internal path)
+        # Ensure log directory exists
         log_path = Path(log_dir)
         log_path.mkdir(parents=True, exist_ok=True)
         
@@ -256,7 +264,7 @@ def setup_logging(
     # Log initialization
     logger.info("Logging system initialized")
     logger.info(f"Log level: {log_level}")
-    logger.info(f"Log directory: {log_dir} (fixed Docker internal path)")
+    logger.info(f"Log directory: {log_dir}")
     logger.info(f"Console logging: {console_logging}")
     logger.info(f"File logging: {file_logging}")
     logger.info(f"Colored output: {colored_output}")

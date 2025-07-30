@@ -8,12 +8,14 @@ The original implementation was using `get_logger()` without properly initializi
 - Logs were only printed to console
 - No log files were created
 - No persistent logging for debugging and monitoring
+- **Docker Issue**: Logs were not being written to the Docker mount point
 
 ## Root Cause Analysis
 
 1. **Missing Logging Initialization**: Files were using `get_logger()` without calling `setup_logging()`
 2. **No File Handlers**: The logging system wasn't configured to write to files
 3. **Inconsistent Logging**: Different files had different logging approaches
+4. **Docker Mount Point**: Logs were being written to relative `logs/` instead of Docker mount point `/app/logs`
 
 ## Solutions Implemented
 
@@ -25,14 +27,14 @@ from core.logging_setup import get_logger
 logger = get_logger('playlista.enhanced_cli')
 ```
 
-**After**: Proper logging initialization
+**After**: Proper logging initialization with Docker mount point
 ```python
 from core.logging_setup import get_logger, setup_logging
 
 # Initialize logging system
 setup_logging(
     log_level='INFO',
-    log_dir='logs',
+    log_dir='/app/logs',  # Docker mount point
     log_file_prefix='playlista',
     console_logging=True,
     file_logging=True,
@@ -48,38 +50,63 @@ logger = get_logger('playlista.enhanced_cli')
 
 ### 2. Updated Files
 
-The following files were updated to include proper logging initialization:
+The following files were updated to include proper logging initialization with Docker mount point:
 
 #### Enhanced CLI (`src/enhanced_cli.py`)
 - Added `setup_logging()` call
 - Configured for main application logging
 - Log file prefix: `playlista`
+- **Docker mount point**: `/app/logs`
 
 #### Analysis CLI (`src/analysis_cli.py`)
 - Added `setup_logging()` call
 - Configured for analysis-specific logging
 - Log file prefix: `playlista_analysis`
+- **Docker mount point**: `/app/logs`
 
 #### Test Files (`test_streaming_simple.py`)
 - Added `setup_logging()` call
 - Configured for test logging
 - Log file prefix: `test_streaming`
+- **Docker mount point**: `/app/logs`
 
-### 3. Logging Configuration
+### 3. Docker Configuration
+
+The Docker setup includes proper volume mounting for logs:
+
+```yaml
+# docker-compose.yml
+volumes:
+  # Logs directory
+  - ./logs:/app/logs
+```
+
+This ensures that:
+- Logs written to `/app/logs` inside the container
+- Appear in `./logs` directory on the host
+- Persist across container restarts
+- Accessible from the host system
+
+### 4. Logging Configuration
 
 Each application component now has its own logging configuration:
 
-| Component | Log File Prefix | Purpose |
-|-----------|----------------|---------|
-| Main CLI | `playlista` | General application logs |
-| Analysis CLI | `playlista_analysis` | Analysis-specific logs |
-| Tests | `test_streaming` | Test execution logs |
+| Component | Log File Prefix | Docker Path | Host Path |
+|-----------|----------------|-------------|-----------|
+| Main CLI | `playlista` | `/app/logs` | `./logs` |
+| Analysis CLI | `playlista_analysis` | `/app/logs` | `./logs` |
+| Tests | `test_streaming` | `/app/logs` | `./logs` |
 
-### 4. Log File Structure
+### 5. Log File Structure
 
-Log files are created in the `logs/` directory with the following naming convention:
+Log files are created in the Docker mount point with the following naming convention:
 ```
-logs/
+Host: ./logs/
+├── playlista_YYYYMMDD.log          # Main application logs
+├── playlista_analysis_YYYYMMDD.log # Analysis logs
+└── test_streaming_YYYYMMDD.log     # Test logs
+
+Container: /app/logs/
 ├── playlista_YYYYMMDD.log          # Main application logs
 ├── playlista_analysis_YYYYMMDD.log # Analysis logs
 └── test_streaming_YYYYMMDD.log     # Test logs
@@ -88,10 +115,11 @@ logs/
 ## Logging Features
 
 ### 1. File Logging
-- **Location**: `logs/` directory
+- **Location**: `/app/logs` (Docker container) → `./logs` (host)
 - **Format**: Text format with timestamps
 - **Rotation**: Up to 10 log files per component
 - **Size Limit**: 50MB per log file
+- **Persistence**: Logs persist across container restarts
 
 ### 2. Console Logging
 - **Colored Output**: Different colors for different log levels
@@ -127,27 +155,45 @@ The memory management improvements now include detailed logging:
 ## Benefits
 
 1. **Persistent Logging**: All logs are saved to files for later analysis
-2. **Debugging Support**: Detailed logs help identify issues
-3. **Monitoring**: Log files can be monitored for system health
-4. **Audit Trail**: Complete record of all operations
-5. **Memory Tracking**: Detailed memory management logs
-6. **Error Tracking**: All errors are logged with context
+2. **Docker Integration**: Logs properly written to Docker mount point
+3. **Debugging Support**: Detailed logs help identify issues
+4. **Monitoring**: Log files can be monitored for system health
+5. **Audit Trail**: Complete record of all operations
+6. **Memory Tracking**: Detailed memory management logs
+7. **Error Tracking**: All errors are logged with context
+8. **Host Access**: Logs accessible from host system
 
 ## Usage
 
 ### Running the Application
+
+#### Local Development
 ```bash
-# Main application (creates playlista_YYYYMMDD.log)
+# Main application (creates playlista_YYYYMMDD.log in ./logs)
 python playlista analyze /path/to/music
 
-# Analysis CLI (creates playlista_analysis_YYYYMMDD.log)
+# Analysis CLI (creates playlista_analysis_YYYYMMDD.log in ./logs)
 python src/analysis_cli.py analyze /path/to/music
 
-# Tests (creates test_streaming_YYYYMMDD.log)
+# Tests (creates test_streaming_YYYYMMDD.log in ./logs)
 python test_streaming_simple.py
 ```
 
+#### Docker Environment
+```bash
+# Start container with volume mounting
+docker-compose up
+
+# Logs will appear in ./logs directory on host
+ls -la logs/
+
+# View logs from host
+tail -f logs/playlista_$(date +%Y%m%d).log
+```
+
 ### Checking Log Files
+
+#### From Host System
 ```bash
 # View latest log file
 tail -f logs/playlista_$(date +%Y%m%d).log
@@ -157,6 +203,36 @@ grep "memory" logs/playlista_*.log
 
 # Search for errors
 grep "ERROR" logs/playlista_*.log
+
+# List all log files
+ls -la logs/
 ```
 
-This ensures that all logs are properly written to files and can be used for debugging, monitoring, and auditing purposes. 
+#### From Docker Container
+```bash
+# Access container
+docker exec -it playlista-simple bash
+
+# View logs inside container
+tail -f /app/logs/playlista_$(date +%Y%m%d).log
+
+# List log files
+ls -la /app/logs/
+```
+
+### Docker Volume Mounting
+
+The Docker configuration ensures logs are properly mounted:
+
+```yaml
+volumes:
+  - ./logs:/app/logs
+```
+
+This means:
+- **Container path**: `/app/logs/`
+- **Host path**: `./logs/`
+- **Persistence**: Logs survive container restarts
+- **Accessibility**: Logs accessible from both container and host
+
+This ensures that all logs are properly written to files in the Docker mount point and can be used for debugging, monitoring, and auditing purposes. 

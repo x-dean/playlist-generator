@@ -17,7 +17,6 @@ from core.logging_setup import setup_logging, get_logger
 # Initialize logging system
 setup_logging(
     log_level='INFO',
-    log_dir='logs',
     log_file_prefix='test_streaming',
     console_logging=True,
     file_logging=True,

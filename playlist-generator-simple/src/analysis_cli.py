@@ -21,7 +21,6 @@ from core.logging_setup import get_logger, setup_logging
 # Initialize logging system
 setup_logging(
     log_level='INFO',
-    log_dir='logs',
     log_file_prefix='playlista_analysis',
     console_logging=True,
     file_logging=True,

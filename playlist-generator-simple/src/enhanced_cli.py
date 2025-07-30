@@ -27,10 +27,9 @@ from core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
 from core.logging_setup import get_logger, setup_logging
 from core.config_loader import config_loader
 
-# Initialize logging system first
+# Initialize logging system
 setup_logging(
     log_level='INFO',
-    log_dir='logs',
     log_file_prefix='playlista',
     console_logging=True,
     file_logging=True,
