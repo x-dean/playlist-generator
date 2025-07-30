@@ -169,8 +169,8 @@ class AudioAnalyzer:
         self.music = music or '/music'
         
         # MusiCNN configuration
-        self.musicnn_model_path = config.get('MUSICNN_MODEL_PATH', '/app/feature_extraction/models/msd-musicnn-1.pb')
-        self.musicnn_json_path = config.get('MUSICNN_JSON_PATH', '/app/feature_extraction/models/musicnn/msd-musicnn-1.json')
+        self.musicnn_model_path = config.get('MUSICNN_MODEL_PATH', '/app/models/musicnn_model.pb')
+        self.musicnn_json_path = config.get('MUSICNN_JSON_PATH', '/app/models/musicnn_features.json')
         self.musicnn_timeout_seconds = config.get('MUSICNN_TIMEOUT_SECONDS', 60)
         self.musicnn_batch_size = config.get('MUSICNN_BATCH_SIZE', 1)
         self.musicnn_min_audio_length_seconds = config.get('MUSICNN_MIN_AUDIO_LENGTH_SECONDS', 1)

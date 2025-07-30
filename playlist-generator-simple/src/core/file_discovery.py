@@ -42,7 +42,7 @@ class FileDiscovery:
             config = config_loader.load_config()
         
         # Fixed paths for Docker environment
-        self.music_dir = '/app/music'  # Fixed Docker path
+        self.music_dir = '/music'  # Fixed Docker path
         self.failed_dir = '/app/cache/failed_dir'  # Fixed Docker path
         self.db_path = '/app/cache/playlista.db'  # Fixed Docker path
         
