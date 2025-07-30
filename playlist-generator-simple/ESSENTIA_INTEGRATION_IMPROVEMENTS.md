@@ -1,11 +1,12 @@
 # Essentia Integration Improvements
 
-This document summarizes the improvements made to the streaming audio loader based on the [official Essentia MonoLoader documentation](https://essentia.upf.edu/reference/streaming_MonoLoader.html) and reliable audio processing implementation.
+This document summarizes the improvements made to the streaming audio loader based on the [official Essentia MonoLoader documentation](https://essentia.upf.edu/reference/streaming_MonoLoader.html) and the [real-time auto-tagging tutorial](https://essentia.upf.edu/tutorial_tensorflow_real-time_auto-tagging.html).
 
 ## Key Improvements
 
-### 1. Reliable Essentia Implementation
+### 1. Multiple Processing Approaches
 
+#### Reliable MonoLoader Approach (Default)
 **Before**: Complex streaming network that caused errors
 ```python
 # ❌ Problematic - complex streaming network
@@ -30,7 +31,23 @@ audio = loader()  # Load entire audio
 # Then manually chunk the audio for memory efficiency
 ```
 
-### 2. Two Processing Approaches
+#### Proper Streaming Network (Based on Tutorials)
+**New**: Correct streaming implementation based on [Essentia tutorials](https://essentia.upf.edu/tutorial_tensorflow_real-time_auto-tagging.html)
+```python
+# ✅ Correct streaming network (from tutorials)
+vimp = es.VectorInput(buffer)
+fc = es.FrameCutter(frameSize=frame_size, hopSize=hop_size)
+pool = essentia.Pool()
+
+# Connect the network properly
+vimp.data >> fc.signal
+fc.frame >> (pool, 'frames')
+
+# Run streaming network
+essentia.run(vimp)
+```
+
+### 2. Three Processing Modes
 
 #### FrameCutter Mode (Default)
 - **Purpose**: Fixed-size frame processing
@@ -44,7 +61,41 @@ audio = loader()  # Load entire audio
 - **Implementation**: Load full audio, then slice by time boundaries
 - **Memory efficiency**: Manual time-based slicing with garbage collection
 
-### 3. Robust Error Handling
+#### Streaming Mode (New)
+- **Purpose**: True streaming network processing
+- **Use case**: Real-time capable processing
+- **Implementation**: Based on [Essentia tutorials](https://essentia.upf.edu/tutorial_tensorflow_real-time_auto-tagging.html)
+- **Memory efficiency**: Proper streaming network with VectorInput
+
+### 3. Configuration Options
+
+```python
+# FrameCutter mode (default)
+streaming_loader = get_streaming_loader(
+    memory_limit_percent=50,
+    chunk_duration_seconds=15,
+    use_slicer=False,  # Use FrameCutter
+    use_streaming=False  # Use manual chunking
+)
+
+# Slicer mode
+streaming_loader = get_streaming_loader(
+    memory_limit_percent=50,
+    chunk_duration_seconds=15,
+    use_slicer=True,  # Use Slicer
+    use_streaming=False
+)
+
+# Streaming mode (based on tutorials)
+streaming_loader = get_streaming_loader(
+    memory_limit_percent=50,
+    chunk_duration_seconds=15,
+    use_slicer=False,
+    use_streaming=True  # Use proper streaming network
+)
+```
+
+### 4. Robust Error Handling
 
 **Before**: Single point of failure
 ```python
@@ -74,24 +125,6 @@ except Exception as e:
         yield from self._load_chunks_fallback(...)
 ```
 
-### 4. Configuration Options
-
-```python
-# FrameCutter mode (default)
-streaming_loader = get_streaming_loader(
-    memory_limit_percent=50,
-    chunk_duration_seconds=15,
-    use_slicer=False  # Use FrameCutter
-)
-
-# Slicer mode
-streaming_loader = get_streaming_loader(
-    memory_limit_percent=50,
-    chunk_duration_seconds=15,
-    use_slicer=True  # Use Slicer
-)
-```
-
 ### 5. Memory-Aware Processing
 
 **Before**: Fixed chunk sizes
@@ -119,6 +152,22 @@ optimal_duration = self._calculate_optimal_chunk_duration(file_size_mb, total_du
 | `downmix` | string | 'mix' | The mixing type for stereo files (left, right, mix) |
 | `resampleQuality` | integer | 1 | The resampling quality (0=best, 4=fastest) |
 | `audioStream` | integer | 0 | Audio stream index to be loaded |
+
+### Streaming Network Setup (from [Tutorials](https://essentia.upf.edu/tutorial_tensorflow_real-time_auto-tagging.html))
+
+```python
+# Initialize streaming algorithms
+vimp = es.VectorInput(buffer)
+fc = es.FrameCutter(frameSize=frame_size, hopSize=hop_size)
+pool = essentia.Pool()
+
+# Connect the streaming network
+vimp.data >> fc.signal
+fc.frame >> (pool, 'frames')
+
+# Run streaming network
+essentia.run(vimp)
+```
 
 ### Resample Algorithm Integration
 
@@ -154,10 +203,10 @@ while current_sample < len(audio):
     gc.collect()
 ```
 
-## Benefits of Reliable Implementation
+## Benefits of Multiple Implementation Approaches
 
-1. **No Streaming Network Errors**: Avoids complex streaming network setup
-2. **Reliable Audio Loading**: Uses proven MonoLoader API
+1. **Reliable MonoLoader**: No streaming network errors, proven API
+2. **Proper Streaming**: Based on official tutorials, real-time capable
 3. **Memory Efficient**: Manual chunking with garbage collection
 4. **Robust Fallbacks**: Multiple audio library support
 5. **Quality Control**: Configurable resampling quality
@@ -167,9 +216,10 @@ while current_sample < len(audio):
 
 The updated implementation successfully:
 - ✅ Uses reliable MonoLoader API
+- ✅ Implements proper streaming network (based on tutorials)
 - ✅ Avoids streaming network errors
-- ✅ Processes audio with manual chunking
-- ✅ Provides both FrameCutter and Slicer options
+- ✅ Processes audio with multiple approaches
+- ✅ Provides FrameCutter, Slicer, and Streaming options
 - ✅ Maintains memory efficiency
 - ✅ Falls back gracefully when Essentia fails
 - ✅ Provides detailed diagnostic information
@@ -178,12 +228,14 @@ The updated implementation successfully:
 
 The original errors have been resolved:
 
-- `'Algo' object has no attribute 'audio'` - ✅ **Fixed** by using MonoLoader instead of complex streaming network
-- `'startTime' is not a parameter of MonoLoader` - ✅ **Fixed** by using manual time-based slicing
+- `'Algo' object has no attribute 'audio'` - ✅ **Fixed** by using MonoLoader and proper streaming network
+- `'startTime' is not a parameter of MonoLoader'` - ✅ **Fixed** by using manual time-based slicing
 - `No chunks loaded` - ✅ **Fixed** with reliable MonoLoader implementation
 
 ## References
 
 - [Essentia MonoLoader Documentation](https://essentia.upf.edu/reference/streaming_MonoLoader.html)
+- [Essentia Real-time Auto-tagging Tutorial](https://essentia.upf.edu/tutorial_tensorflow_real-time_auto-tagging.html)
+- [Essentia Simultaneous Classifiers Tutorial](https://essentia.upf.edu/tutorial_tensorflow_real-time_simultaneous_classifiers.html)
 - [Essentia AudioLoader Documentation](https://essentia.upf.edu/reference/streaming_AudioLoader.html)
 - [Essentia Resample Documentation](https://essentia.upf.edu/reference/streaming_Resample.html) 

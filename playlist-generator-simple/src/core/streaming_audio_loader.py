@@ -63,7 +63,7 @@ class StreamingAudioLoader:
     
     def __init__(self, memory_limit_percent: float = DEFAULT_MEMORY_LIMIT_PERCENT,
                  chunk_duration_seconds: float = DEFAULT_CHUNK_DURATION_SECONDS,
-                 use_slicer: bool = False):
+                 use_slicer: bool = False, use_streaming: bool = False):
         """
         Initialize the streaming audio loader.
         
@@ -71,11 +71,13 @@ class StreamingAudioLoader:
             memory_limit_percent: Maximum percentage of RAM to use
             chunk_duration_seconds: Default chunk duration in seconds
             use_slicer: If True, use Slicer algorithm instead of FrameCutter
+            use_streaming: If True, use proper streaming network (based on tutorials)
         """
         self.memory_limit_percent = memory_limit_percent
         self.chunk_duration_seconds = chunk_duration_seconds
         self.sample_rate = DEFAULT_SAMPLE_RATE
         self.use_slicer = use_slicer
+        self.use_streaming = use_streaming
         
         # Calculate available memory
         self.available_memory_gb = self._get_available_memory_gb()
@@ -87,6 +89,7 @@ class StreamingAudioLoader:
         logger.info(f"   Default chunk duration: {chunk_duration_seconds}s")
         logger.info(f"   Sample rate: {self.sample_rate}Hz")
         logger.info(f"   Use Slicer: {use_slicer}")
+        logger.info(f"   Use Streaming: {use_streaming}")
         logger.info(f"   Essentia available: {ESSENTIA_AVAILABLE}")
         logger.info(f"   Librosa available: {LIBROSA_AVAILABLE}")
     
@@ -266,6 +269,23 @@ class StreamingAudioLoader:
                 if self.use_slicer:
                     logger.info(f"🎵 Using Essentia Slicer for streaming audio: {os.path.basename(audio_path)}")
                     for chunk, start_time, end_time in self._load_chunks_essentia_slicer(audio_path, total_duration, chunk_duration):
+                        chunk_count += 1
+                        
+                        # Monitor memory every 5 chunks
+                        if chunk_count % 5 == 0:
+                            current_memory = self._get_current_memory_usage()
+                            logger.warning(f"⚠️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                            
+                            # If memory usage is too high, force garbage collection
+                            if current_memory['percent_used'] > 90:
+                                logger.warning(f"⚠️ High memory usage detected! Forcing garbage collection...")
+                                import gc
+                                gc.collect()
+                        
+                        yield chunk, start_time, end_time
+                elif self.use_streaming:
+                    logger.info(f"🎵 Using Essentia Streaming for streaming audio: {os.path.basename(audio_path)}")
+                    for chunk, start_time, end_time in self._load_chunks_essentia_streaming(audio_path, total_duration, chunk_duration):
                         chunk_count += 1
                         
                         # Monitor memory every 5 chunks
@@ -519,6 +539,122 @@ class StreamingAudioLoader:
             logger.info("🔄 Falling back to alternative audio libraries...")
             yield from self._load_chunks_fallback(audio_path, total_duration, chunk_duration)
     
+    def _load_chunks_essentia_streaming(self, audio_path: str, total_duration: float, 
+                                       chunk_duration: float) -> Generator[Tuple[np.ndarray, float, float], None, None]:
+        """Load audio chunks using Essentia's proper streaming mode with VectorInput."""
+        try:
+            # Calculate chunk parameters
+            samples_per_chunk = int(chunk_duration * self.sample_rate)
+            total_samples = int(total_duration * self.sample_rate)
+            
+            logger.info(f"🎵 Starting Essentia streaming for: {os.path.basename(audio_path)}")
+            logger.info(f"📊 Total duration: {total_duration:.1f}s, Chunk duration: {chunk_duration:.1f}s")
+            logger.info(f"📊 Expected chunks: {int(total_duration / chunk_duration) + 1}")
+            logger.info(f"📊 Samples per chunk: {samples_per_chunk}")
+            
+            # Load the full audio first (for file processing)
+            try:
+                # Initialize MonoLoader with proper parameters
+                loader = es.MonoLoader(
+                    filename=audio_path,
+                    sampleRate=self.sample_rate,
+                    downmix='mix',  # Mix stereo to mono
+                    resampleQuality=1  # Good quality resampling
+                )
+                audio = loader()
+                sample_rate = self.sample_rate
+                logger.info(f"✅ Audio loaded successfully with MonoLoader: {len(audio)} samples, {sample_rate}Hz")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to load audio with MonoLoader: {e}")
+                logger.info("🔄 Falling back to AudioLoader...")
+                
+                try:
+                    # Fallback to AudioLoader if MonoLoader fails
+                    loader = es.AudioLoader(filename=audio_path)
+                    audio, sample_rate, _, _ = loader()
+                    logger.info(f"✅ Audio loaded with AudioLoader: {len(audio)} samples, {sample_rate}Hz")
+                    
+                except Exception as e2:
+                    logger.error(f"❌ Failed to load audio with AudioLoader: {e2}")
+                    raise Exception(f"Could not load audio with any Essentia method: {e}, {e2}")
+            
+            # Resample if needed
+            if sample_rate != self.sample_rate:
+                logger.info(f"🔄 Resampling from {sample_rate}Hz to {self.sample_rate}Hz")
+                resampler = es.Resample(
+                    inputSampleRate=sample_rate, 
+                    outputSampleRate=self.sample_rate,
+                    quality=1  # Good quality resampling
+                )
+                audio = resampler(audio)
+                logger.info(f"✅ Resampling completed: {len(audio)} samples")
+            
+            # Process audio in chunks using streaming network
+            chunk_index = 0
+            current_sample = 0
+            
+            logger.info(f"🔄 Starting streaming network processing...")
+            
+            while current_sample < len(audio):
+                # Calculate chunk boundaries
+                start_sample = current_sample
+                end_sample = min(start_sample + samples_per_chunk, len(audio))
+                
+                # Extract chunk
+                chunk = audio[start_sample:end_sample]
+                
+                # Create streaming network for this chunk (based on tutorials)
+                buffer = chunk.astype('float32')
+                
+                # Initialize streaming algorithms
+                vimp = es.VectorInput(buffer)
+                fc = es.FrameCutter(frameSize=min(512, len(chunk)), hopSize=min(256, len(chunk)))
+                
+                # Create pool to collect results
+                pool = essentia.Pool()
+                
+                # Connect the streaming network (following tutorial pattern)
+                vimp.data >> fc.signal
+                fc.frame >> (pool, 'frames')
+                
+                # Run the streaming network for this chunk
+                essentia.run(vimp)
+                
+                # Process the collected frames
+                if 'frames' in pool:
+                    frames = pool['frames']
+                    if len(frames) > 0:
+                        # Use the first frame as the chunk (or combine frames if needed)
+                        processed_chunk = frames[0] if len(frames) == 1 else np.concatenate(frames)
+                        
+                        # Calculate time boundaries
+                        start_time = start_sample / self.sample_rate
+                        end_time = end_sample / self.sample_rate
+                        
+                        logger.debug(f"📊 Essentia Streaming Chunk {chunk_index + 1}: {start_time:.1f}s - {end_time:.1f}s ({len(processed_chunk)} samples)")
+                        
+                        yield processed_chunk, start_time, end_time
+                        
+                        # Force garbage collection after each chunk
+                        import gc
+                        gc.collect()
+                    else:
+                        logger.warning(f"⚠️ No frames generated for chunk {chunk_index + 1}")
+                else:
+                    logger.warning(f"⚠️ No frames in pool for chunk {chunk_index + 1}")
+                
+                current_sample = end_sample
+                chunk_index += 1
+            
+            logger.info(f"✅ Essentia streaming completed: {chunk_index} chunks processed")
+                
+        except Exception as e:
+            logger.error(f"❌ Error in Essentia streaming: {e}")
+            # Fallback to alternative audio libraries if streaming fails
+            logger.info("🔄 Falling back to alternative audio libraries...")
+            yield from self._load_chunks_fallback(audio_path, total_duration, chunk_duration)
+    
     def _load_chunks_fallback(self, audio_path: str, total_duration: float, 
                              chunk_duration: float) -> Generator[Tuple[np.ndarray, float, float], None, None]:
         """Fallback method using alternative audio libraries."""
@@ -753,7 +889,7 @@ _streaming_loader: Optional[StreamingAudioLoader] = None
 
 def get_streaming_loader(memory_limit_percent: float = DEFAULT_MEMORY_LIMIT_PERCENT,
                         chunk_duration_seconds: float = DEFAULT_CHUNK_DURATION_SECONDS,
-                        use_slicer: bool = False) -> StreamingAudioLoader:
+                        use_slicer: bool = False, use_streaming: bool = False) -> StreamingAudioLoader:
     """
     Get the global streaming audio loader instance.
     
@@ -761,21 +897,26 @@ def get_streaming_loader(memory_limit_percent: float = DEFAULT_MEMORY_LIMIT_PERC
         memory_limit_percent: Maximum percentage of RAM to use
         chunk_duration_seconds: Default chunk duration in seconds
         use_slicer: If True, use Slicer algorithm instead of FrameCutter
+        use_streaming: If True, use proper streaming network (based on tutorials)
         
     Returns:
-        Streaming audio loader instance
+        StreamingAudioLoader instance
     """
     global _streaming_loader
+    
     if _streaming_loader is None:
         logger.info(f"🔧 Creating new StreamingAudioLoader instance:")
         logger.info(f"   Memory limit: {memory_limit_percent}%")
         logger.info(f"   Chunk duration: {chunk_duration_seconds}s")
         logger.info(f"   Use Slicer: {use_slicer}")
+        logger.info(f"   Use Streaming: {use_streaming}")
         _streaming_loader = StreamingAudioLoader(
             memory_limit_percent=memory_limit_percent,
             chunk_duration_seconds=chunk_duration_seconds,
-            use_slicer=use_slicer
+            use_slicer=use_slicer,
+            use_streaming=use_streaming
         )
     else:
-        logger.debug(f"🔄 Reusing existing StreamingAudioLoader instance")
+        logger.info(f"🔧 Reusing existing StreamingAudioLoader instance")
+    
     return _streaming_loader 
