@@ -1,0 +1,159 @@
+# Playlista Configuration File
+# Copy this file to playlista.conf and modify as needed
+
+# =============================================================================
+# EXTERNAL API CONFIGURATION
+# =============================================================================
+
+# Enable/disable external API integration
+EXTERNAL_API_ENABLED=true
+
+# MusicBrainz API settings
+MUSICBRAINZ_ENABLED=true
+MUSICBRAINZ_USER_AGENT=playlista-simple/1.0
+MUSICBRAINZ_RATE_LIMIT=1
+
+# Last.fm API settings
+LASTFM_ENABLED=true
+LASTFM_API_KEY=9fd1f789ebdf1297e6aa1590a13d85e0
+LASTFM_RATE_LIMIT=2
+
+# Metadata enrichment settings
+METADATA_ENRICHMENT_ENABLED=true
+METADATA_ENRICHMENT_TIMEOUT=30
+METADATA_ENRICHMENT_MAX_TAGS=15
+METADATA_ENRICHMENT_RETRY_COUNT=3
+
+# =============================================================================
+# ANALYSIS CONFIGURATION
+# =============================================================================
+
+# Analysis settings
+ANALYSIS_TIMEOUT_SECONDS=300
+ANALYSIS_MEMORY_LIMIT_GB=6.0
+ANALYSIS_CPU_LIMIT_PERCENT=90
+
+# Feature extraction settings
+EXTRACT_RHYTHM=true
+EXTRACT_SPECTRAL=true
+EXTRACT_LOUDNESS=true
+EXTRACT_KEY=true
+EXTRACT_MFCC=true
+EXTRACT_MUSICNN=false
+EXTRACT_METADATA=true
+
+# MusiCNN settings
+MUSICNN_MODEL_PATH=/app/feature_extraction/models/msd-musicnn-1.pb
+MUSICNN_JSON_PATH=/app/feature_extraction/models/musicnn/msd-musicnn-1.json
+MUSICNN_TIMEOUT_SECONDS=60
+MUSICNN_BATCH_SIZE=1
+MUSICNN_MIN_AUDIO_LENGTH_SECONDS=1
+MUSICNN_SAMPLE_RATE=44100
+MUSICNN_MEMORY_LIMIT_GB=2.0
+
+# File size thresholds
+MAX_FULL_ANALYSIS_SIZE_MB=100
+PARALLEL_MAX_FILE_SIZE_MB=50
+SEQUENTIAL_MAX_FILE_SIZE_MB=200
+
+# Memory requirements
+PARALLEL_MIN_MEMORY_GB=2.0
+SEQUENTIAL_MIN_MEMORY_GB=3.0
+
+# CPU usage limits
+PARALLEL_MAX_CPU_PERCENT=70
+SEQUENTIAL_MAX_CPU_PERCENT=85
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+
+# Database settings
+DATABASE_PATH=/app/cache/audio_analysis.db
+DATABASE_BACKUP_ENABLED=true
+DATABASE_BACKUP_COUNT=5
+DATABASE_CLEANUP_ENABLED=true
+DATABASE_CLEANUP_DAYS=30
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+
+# Logging settings
+LOG_LEVEL=INFO
+LOG_FILE=/app/logs/playlista.log
+LOG_FORMAT=detailed
+LOG_COLORED=true
+LOG_BUFFERED=true
+
+# Performance logging
+PERFORMANCE_LOGGING_ENABLED=true
+PERFORMANCE_LOG_FILE=/app/logs/performance.log
+
+# =============================================================================
+# RESOURCE MANAGEMENT
+# =============================================================================
+
+# Memory settings
+MEMORY_LIMIT_GB=6.0
+MEMORY_PER_WORKER_GB=0.5
+MEMORY_CLEANUP_ENABLED=true
+
+# CPU settings
+CPU_THRESHOLD_PERCENT=90
+CPU_THROTTLING_ENABLED=true
+
+# Disk settings
+DISK_THRESHOLD_PERCENT=85
+DISK_CLEANUP_ENABLED=true
+
+# Monitoring settings
+MONITORING_INTERVAL_SECONDS=5
+RESOURCE_MONITORING_ENABLED=true
+RESOURCE_HISTORY_SIZE=1000
+RESOURCE_ALERT_THRESHOLD_PERCENT=90
+
+# =============================================================================
+# FILE DISCOVERY
+# =============================================================================
+
+# File discovery settings
+MUSIC_DIRECTORY=/music
+LIBRARY_DIRECTORY=/root/music/library
+SUPPORTED_FORMATS=mp3,flac,wav,m4a,ogg
+RECURSIVE_SCAN=true
+SCAN_HIDDEN_FILES=false
+
+# File filtering
+MIN_FILE_SIZE_MB=0.1
+MAX_FILE_SIZE_MB=500
+EXCLUDE_PATTERNS=.DS_Store,Thumbs.db,*.tmp
+
+# =============================================================================
+# PLAYLIST GENERATION
+# =============================================================================
+
+# Playlist settings
+DEFAULT_PLAYLIST_SIZE=20
+MIN_TRACKS_PER_GENRE=5
+MAX_PLAYLISTS=10
+SIMILARITY_THRESHOLD=0.7
+DIVERSITY_THRESHOLD=0.3
+
+# Output settings
+PLAYLIST_OUTPUT_DIR=/app/playlists
+PLAYLIST_GENERATION_ENABLED=true
+PLAYLIST_SAVE_METADATA=true
+PLAYLIST_OPTIMIZATION_ENABLED=true
+
+# Algorithm settings
+PLAYLIST_DEFAULT_METHOD=kmeans
+PLAYLIST_KMEANS_CLUSTERS=5
+PLAYLIST_SIMILARITY_ALGORITHM=cosine
+PLAYLIST_TIME_SLOTS=4
+PLAYLIST_TAG_PRIORITY=genre,decade,mood
+
+# Feature groups
+PLAYLIST_CACHE_ENABLED=true
+PLAYLIST_FEATURE_GROUPS=rhythm,spectral,metadata
+PLAYLIST_MIXED_WEIGHTS=0.4,0.3,0.3 
