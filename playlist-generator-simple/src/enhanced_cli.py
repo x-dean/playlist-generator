@@ -24,8 +24,22 @@ from core.resource_manager import ResourceManager
 from core.audio_analyzer import AudioAnalyzer
 from core.database import DatabaseManager
 from core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
-from core.logging_setup import get_logger
+from core.logging_setup import get_logger, setup_logging
 from core.config_loader import config_loader
+
+# Initialize logging system first
+setup_logging(
+    log_level='INFO',
+    log_dir='logs',
+    log_file_prefix='playlista',
+    console_logging=True,
+    file_logging=True,
+    colored_output=True,
+    max_log_files=10,
+    log_file_size_mb=50,
+    log_file_format='text',
+    log_file_encoding='utf-8'
+)
 
 logger = get_logger('playlista.enhanced_cli')
 
