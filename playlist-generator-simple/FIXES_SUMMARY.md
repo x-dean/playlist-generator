@@ -19,7 +19,7 @@ Music directory does not exist: /app/music
 - **Result**: Now correctly matches Docker Compose volume mount `./music:/music:ro`
 
 ### 2. MusiCNN Model Path Mismatch
-**Problem**: MusiCNN model paths were pointing to old directory structure
+**Problem**: MusiCNN model paths were pointing to wrong file names
 
 **Error Messages**:
 ```
@@ -29,17 +29,19 @@ Music directory does not exist: /app/music
 ⚠️ MusiCNN model not available - advanced features disabled
 ```
 
-**Root Cause**: Audio analyzer was using old model paths
+**Root Cause**: Application was looking for `musicnn_model.pb` but actual files are `msd-musicnn-1.pb`
 
 **Fix Applied**:
 - **File**: `src/core/audio_analyzer.py`
-- **Change**: Updated default MusiCNN paths:
-  - From: `/app/feature_extraction/models/msd-musicnn-1.pb`
-  - To: `/app/models/musicnn_model.pb`
-  - From: `/app/feature_extraction/models/musicnn/msd-musicnn-1.json`
-  - To: `/app/models/musicnn_features.json`
+- **Change**: Updated default MusiCNN paths to match actual files:
+  - From: `/app/models/musicnn_model.pb`
+  - To: `/app/models/msd-musicnn-1.pb`
+  - From: `/app/models/musicnn_features.json`
+  - To: `/app/models/msd-musicnn-1.json`
+- **File**: `playlista.conf`
+- **Change**: Updated configuration to use correct file names
 - **File**: `playlista.conf.example`
-- **Change**: Updated example configuration to match new paths
+- **Change**: Updated example configuration to match actual files
 
 ### 3. Progress Bar Conflict
 **Problem**: Multiple progress bars were being created simultaneously causing "Only one live display may be active at once" error
@@ -95,7 +97,7 @@ Created test scripts to verify fixes:
 
 ## Test Results
 ✅ **Music Directory Path**: Fixed - now correctly uses `/music`
-✅ **MusiCNN Model Paths**: Fixed - now correctly uses `/app/models/`
+✅ **MusiCNN Model Paths**: Fixed - now correctly uses `/app/models/msd-musicnn-1.pb` and `/app/models/msd-musicnn-1.json`
 ✅ **Progress Bar Conflicts**: Fixed - cleanup prevents conflicts
 ✅ **Configuration Integration**: Fixed - progress bars respect configuration
 

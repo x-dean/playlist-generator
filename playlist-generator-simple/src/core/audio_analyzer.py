@@ -168,9 +168,15 @@ class AudioAnalyzer:
         self.library = library or '/root/music/library'
         self.music = music or '/music'
         
+        # Streaming audio configuration
+        self.streaming_enabled = config.get('STREAMING_AUDIO_ENABLED', True)
+        self.streaming_memory_limit_percent = config.get('STREAMING_MEMORY_LIMIT_PERCENT', 80)
+        self.streaming_chunk_duration_seconds = config.get('STREAMING_CHUNK_DURATION_SECONDS', 30)
+        self.streaming_large_file_threshold_mb = config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 50)
+        
         # MusiCNN configuration
-        self.musicnn_model_path = config.get('MUSICNN_MODEL_PATH', '/app/models/musicnn_model.pb')
-        self.musicnn_json_path = config.get('MUSICNN_JSON_PATH', '/app/models/musicnn_features.json')
+        self.musicnn_model_path = config.get('MUSICNN_MODEL_PATH', '/app/models/msd-musicnn-1.pb')
+        self.musicnn_json_path = config.get('MUSICNN_JSON_PATH', '/app/models/msd-musicnn-1.json')
         self.musicnn_timeout_seconds = config.get('MUSICNN_TIMEOUT_SECONDS', 60)
         self.musicnn_batch_size = config.get('MUSICNN_BATCH_SIZE', 1)
         self.musicnn_min_audio_length_seconds = config.get('MUSICNN_MIN_AUDIO_LENGTH_SECONDS', 1)
@@ -391,7 +397,7 @@ class AudioAnalyzer:
 
     def _safe_audio_load(self, audio_path: str) -> Optional[np.ndarray]:
         """
-        Safely load audio file.
+        Safely load audio file using streaming loader for large files.
         
         Args:
             audio_path: Path to the audio file
@@ -399,6 +405,24 @@ class AudioAnalyzer:
         Returns:
             Audio data as numpy array, or None if failed
         """
+        try:
+            # Get file size to decide loading method
+            file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+            
+            # Use streaming loader for large files if enabled
+            if self.streaming_enabled and file_size_mb > self.streaming_large_file_threshold_mb:
+                logger.info(f"📊 Large file detected ({file_size_mb:.1f}MB) - using streaming loader")
+                return self._load_audio_streaming(audio_path)
+            else:
+                # Use traditional loading for small files
+                return self._load_audio_traditional(audio_path)
+                
+        except Exception as e:
+            logger.error(f"❌ Error loading audio {audio_path}: {e}")
+            return None
+    
+    def _load_audio_traditional(self, audio_path: str) -> Optional[np.ndarray]:
+        """Load audio using traditional method (entire file in memory)."""
         try:
             if LIBROSA_AVAILABLE:
                 # Use librosa for loading
@@ -417,6 +441,40 @@ class AudioAnalyzer:
                 
         except Exception as e:
             logger.error(f"❌ Error loading audio {audio_path}: {e}")
+            return None
+    
+    def _load_audio_streaming(self, audio_path: str) -> Optional[np.ndarray]:
+        """Load audio using streaming method and concatenate chunks."""
+        try:
+            from .streaming_audio_loader import get_streaming_loader
+            
+            # Get streaming loader with configuration
+            streaming_loader = get_streaming_loader(
+                memory_limit_percent=self.streaming_memory_limit_percent,
+                chunk_duration_seconds=self.streaming_chunk_duration_seconds
+            )
+            
+            # Collect all chunks
+            chunks = []
+            total_samples = 0
+            
+            for chunk, start_time, end_time in streaming_loader.load_audio_chunks(audio_path):
+                chunks.append(chunk)
+                total_samples += len(chunk)
+                logger.debug(f"📊 Loaded chunk: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
+            
+            if not chunks:
+                logger.error("❌ No chunks loaded")
+                return None
+            
+            # Concatenate all chunks
+            audio = np.concatenate(chunks)
+            logger.debug(f"📊 Concatenated audio: {len(audio)} samples total")
+            
+            return audio
+            
+        except Exception as e:
+            logger.error(f"❌ Error in streaming audio load: {e}")
             return None
 
     def _extract_metadata(self, audio_path: str) -> Dict[str, Any]:

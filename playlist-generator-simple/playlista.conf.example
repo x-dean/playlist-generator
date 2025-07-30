@@ -43,8 +43,8 @@ EXTRACT_MUSICNN=false
 EXTRACT_METADATA=true
 
 # MusiCNN settings
-MUSICNN_MODEL_PATH=/app/models/musicnn_model.pb
-MUSICNN_JSON_PATH=/app/models/musicnn_features.json
+MUSICNN_MODEL_PATH=/app/models/msd-musicnn-1.pb
+MUSICNN_JSON_PATH=/app/models/msd-musicnn-1.json
 MUSICNN_TIMEOUT_SECONDS=60
 MUSICNN_BATCH_SIZE=1
 MUSICNN_MIN_AUDIO_LENGTH_SECONDS=1
