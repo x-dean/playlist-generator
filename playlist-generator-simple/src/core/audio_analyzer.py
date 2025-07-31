@@ -121,6 +121,11 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
         log_universal('ERROR', 'Audio', f'File does not exist: {audio_path}')
         return None, None
     
+    # Check if file is readable
+    if not os.access(audio_path, os.R_OK):
+        log_universal('ERROR', 'Audio', f'File not readable: {audio_path}')
+        return None, None
+    
     # Check file size
     try:
         file_size = os.path.getsize(audio_path)
@@ -144,6 +149,22 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
             return None, None
     except Exception as e:
         log_universal('ERROR', 'Audio', f'Essentia audio loading failed for {os.path.basename(audio_path)}: {e}')
+        log_universal('DEBUG', 'Audio', f'Full error details: {type(e).__name__}: {str(e)}')
+        
+        # Try librosa as fallback
+        if LIBROSA_AVAILABLE:
+            try:
+                log_universal('DEBUG', 'Audio', f'Trying librosa fallback for {os.path.basename(audio_path)}')
+                import librosa
+                audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
+                if audio is not None and len(audio) > 0:
+                    log_universal('DEBUG', 'Audio', f'Librosa fallback successful: {len(audio)} samples at {sr}Hz')
+                    return audio, sr
+                else:
+                    log_universal('WARNING', 'Audio', f'Librosa fallback returned empty audio for {os.path.basename(audio_path)}')
+            except Exception as librosa_e:
+                log_universal('ERROR', 'Audio', f'Librosa fallback also failed for {os.path.basename(audio_path)}: {librosa_e}')
+        
         return None, None
 
 # Import local modules
