@@ -7,7 +7,12 @@ from .audio_analyzer import AudioAnalyzer
 from .config_loader import config_loader
 from .cpu_optimized_analyzer import CPUOptimizedAnalyzer
 from .database import DatabaseManager
-from .external_apis import MusicBrainzClient, LastFMClient, MetadataEnrichmentService, get_metadata_enrichment_service
+from .external_apis import (
+    MusicBrainzClient,
+    LastFMClient,
+    MetadataEnrichmentService,
+    get_metadata_enrichment_service
+)
 from .file_discovery import FileDiscovery
 from .logging_setup import (
     get_logger,
