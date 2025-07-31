@@ -206,7 +206,8 @@ class CPUOptimizedAnalyzer:
                 audio_file, 
                 sr=self.sample_rate, 
                 mono=True,
-                res_type='kaiser_best'  # Use high-quality resampling
+                res_type='kaiser_best',  # Use high-quality resampling
+                backend='soundfile'  # Explicitly use soundfile backend
             )
             
             # Extract melspectrogram

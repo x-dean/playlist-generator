@@ -375,7 +375,7 @@ class StreamingAudioLoader:
                         # Monitor memory every 5 chunks
                         if chunk_count % 5 == 0:
                             current_memory = self._get_current_memory_usage()
-                            log_universal('WARNING', 'Streaming', f"️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                            log_universal('️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                             
                             # More aggressive memory management - trigger GC at 70% instead of 90%
                             if current_memory['percent_used'] > 70:
@@ -392,7 +392,7 @@ class StreamingAudioLoader:
                         # Monitor memory every 5 chunks
                         if chunk_count % 5 == 0:
                             current_memory = self._get_current_memory_usage()
-                            log_universal('WARNING', 'Streaming', f"️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                            log_universal('️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                             
                             # More aggressive memory management - trigger GC at 70% instead of 90%
                             if current_memory['percent_used'] > 70:
@@ -416,7 +416,7 @@ class StreamingAudioLoader:
                     # Monitor memory every 5 chunks
                     if chunk_count % 5 == 0:
                         current_memory = self._get_current_memory_usage()
-                        log_universal('WARNING', 'Streaming', f"️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                        log_universal('️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                         
                         # More aggressive memory management - trigger GC at 70% instead of 90%
                         if current_memory['percent_used'] > 70:
@@ -440,7 +440,7 @@ class StreamingAudioLoader:
                     # Monitor memory every 5 chunks
                     if chunk_count % 5 == 0:
                         current_memory = self._get_current_memory_usage()
-                        log_universal('WARNING', 'Streaming', f"️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                        log_universal('️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                         
                         # More aggressive memory management - trigger GC at 70% instead of 90%
                         if current_memory['percent_used'] > 70:
@@ -532,7 +532,8 @@ class StreamingAudioLoader:
                                 mono=True,
                                 offset=sub_start_time,
                                 duration=sub_duration,
-                                res_type='kaiser_best'  # Use high-quality resampling
+                                res_type='kaiser_best',  # Use high-quality resampling
+                                backend='soundfile'  # Explicitly use soundfile backend
                             )
                             
                             # Ensure correct sample rate
@@ -825,7 +826,8 @@ class StreamingAudioLoader:
                         audio_path, 
                         sr=self.sample_rate, 
                         mono=True,
-                        res_type='kaiser_best'  # Use high-quality resampling
+                        res_type='kaiser_best',  # Use high-quality resampling
+                        backend='soundfile'  # Explicitly use soundfile backend
                     )
                     log_universal('INFO', 'Streaming', f"Audio loaded with Librosa: {len(audio)} samples, {sample_rate}Hz")
                 except Exception as e:
@@ -926,7 +928,8 @@ class StreamingAudioLoader:
                     mono=True,
                     offset=start_sample / self.sample_rate,
                     duration=(end_sample - start_sample) / self.sample_rate,
-                    res_type='kaiser_best'  # Use high-quality resampling
+                    res_type='kaiser_best',  # Use high-quality resampling
+                    backend='soundfile'  # Explicitly use soundfile backend
                 )
                 
                 # Calculate time boundaries
@@ -983,7 +986,8 @@ class StreamingAudioLoader:
                             mono=True,
                             offset=window_start,
                             duration=window_duration,
-                            res_type='kaiser_best'  # Use high-quality resampling
+                            res_type='kaiser_best',  # Use high-quality resampling
+                            backend='soundfile'  # Explicitly use soundfile backend
                         )
                         
                         # Ensure correct sample rate

@@ -1,64 +1,93 @@
 """
-Audio Analyzer for Playlist Generator Simple.
-Extracts essential audio features for playlist generation with on/off feature control.
+Audio analyzer for playlist generation with comprehensive feature extraction.
+
+Handles audio loading, feature extraction, and metadata enrichment.
+Supports multiple audio libraries with fallbacks.
 """
 
 import os
-import json
+import gc
 import time
-import logging
-from typing import Optional, Dict, Any, List, Tuple
-from functools import wraps
+import json
+import warnings
 import numpy as np
+from typing import Dict, Any, Optional, List, Tuple
+from functools import wraps
+import logging
 
-# Import audio processing libraries
+# Suppress specific warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="librosa")
+warnings.filterwarnings("ignore", category=FutureWarning, module="librosa")
+
+# Constants
+DEFAULT_SAMPLE_RATE = 44100
+DEFAULT_TIMEOUT_SECONDS = 300  # 5 minutes default timeout
+DEFAULT_CHUNK_DURATION = 30.0  # 30 seconds per chunk
+
+# Library availability checks
 try:
     import essentia.standard as es
     ESSENTIA_AVAILABLE = True
 except ImportError:
     ESSENTIA_AVAILABLE = False
-    logging.warning("Essentia not available - limited feature extraction")
 
 try:
     import librosa
     LIBROSA_AVAILABLE = True
 except ImportError:
     LIBROSA_AVAILABLE = False
-    logging.warning("Librosa not available - limited feature extraction")
 
-try:
-    import mutagen
-    from mutagen import File as MutagenFile
-    MUTAGEN_AVAILABLE = True
-except ImportError:
-    MUTAGEN_AVAILABLE = False
-    logging.warning("Mutagen not available - no metadata extraction")
-
-# Import TensorFlow for MusiCNN
-try:
-    import tensorflow as tf
-    TENSORFLOW_AVAILABLE = True
-except ImportError:
-    TENSORFLOW_AVAILABLE = False
-    logging.warning("TensorFlow not available - MusiCNN features will be limited")
-
-# Import SoundFile for audio loading
 try:
     import soundfile as sf
     SOUNDFILE_AVAILABLE = True
 except ImportError:
     SOUNDFILE_AVAILABLE = False
-    logging.warning("SoundFile not available - limited audio loading options")
 
-# Import wave module for WAV files
 try:
     import wave
     WAVE_AVAILABLE = True
 except ImportError:
     WAVE_AVAILABLE = False
-    logging.warning("Wave module not available - WAV file support limited")
 
-
+def safe_librosa_load(audio_path: str, **kwargs) -> Tuple[Optional[np.ndarray], Optional[int]]:
+    """
+    Safely load audio using librosa with proper backend specification and fallbacks.
+    
+    Args:
+        audio_path: Path to audio file
+        **kwargs: Additional arguments for librosa.load
+        
+    Returns:
+        Tuple of (audio_array, sample_rate) or (None, None) if failed
+    """
+    if not LIBROSA_AVAILABLE:
+        return None, None
+    
+    # Default parameters
+    default_params = {
+        'sr': DEFAULT_SAMPLE_RATE,
+        'mono': True,
+        'res_type': 'kaiser_best',
+        'backend': 'soundfile'  # Explicitly use soundfile backend
+    }
+    
+    # Update with provided kwargs
+    default_params.update(kwargs)
+    
+    try:
+        # Try with soundfile backend first
+        audio, sr = librosa.load(audio_path, **default_params)
+        return audio, sr
+    except Exception as e:
+        # If soundfile fails, try without backend specification (will use default)
+        try:
+            params_without_backend = default_params.copy()
+            params_without_backend.pop('backend', None)
+            audio, sr = librosa.load(audio_path, **params_without_backend)
+            return audio, sr
+        except Exception as e2:
+            # If both fail, return None
+            return None, None
 
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
@@ -705,39 +734,26 @@ class AudioAnalyzer:
             if LIBROSA_AVAILABLE:
                 try:
                     log_universal('DEBUG', 'Audio', f"Trying librosa loading for {os.path.basename(audio_path)}")
-                    # Use librosa for loading with newer API to avoid deprecation warnings
-                    import librosa
-                    # Use librosa.load with explicit backend specification
-                    audio, sr = librosa.load(
+                    # Use safe librosa loading with proper backend specification
+                    audio, sr = safe_librosa_load(
                         audio_path, 
                         sr=DEFAULT_SAMPLE_RATE, 
-                        mono=True, 
-                        duration=30.0,
-                        res_type='kaiser_best'  # Use high-quality resampling
+                        duration=30.0
                     )
-                    log_universal('DEBUG', 'Audio', f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
                     
-                    # Force garbage collection for large files
-                    if len(audio) > 500000:  # ~11 seconds at 44kHz - more aggressive
-                        gc.collect()
-                        log_universal('DEBUG', 'Audio', "Forced garbage collection after loading audio file")
-                    
-                    return audio
+                    if audio is not None:
+                        log_universal('DEBUG', 'Audio', f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
+                        
+                        # Force garbage collection for large files
+                        if len(audio) > 500000:  # ~11 seconds at 44kHz - more aggressive
+                            gc.collect()
+                            log_universal('DEBUG', 'Audio', "Forced garbage collection after loading audio file")
+                        
+                        return audio
+                    else:
+                        log_universal('WARNING', 'Audio', "Librosa loading failed with all backends")
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f"Librosa loading failed: {e}")
-                    # Try with different resampling type if kaiser_best fails
-                    try:
-                        audio, sr = librosa.load(
-                            audio_path, 
-                            sr=DEFAULT_SAMPLE_RATE, 
-                            mono=True, 
-                            duration=30.0,
-                            res_type='linear'  # Fallback to linear resampling
-                        )
-                        log_universal('DEBUG', 'Audio', f"Librosa loaded audio (linear): {len(audio)} samples, {sr}Hz")
-                        return audio
-                    except Exception as e2:
-                        log_universal('WARNING', 'Audio', f"Librosa loading with linear resampling also failed: {e2}")
             
             # If all methods failed, create a dummy audio
             log_universal('ERROR', 'Audio', "All audio loading methods failed")
@@ -836,14 +852,11 @@ class AudioAnalyzer:
                     
                     # Use librosa for segment loading
                     if LIBROSA_AVAILABLE:
-                        import librosa
-                        chunk, sr = librosa.load(
+                        chunk, sr = safe_librosa_load(
                             audio_path,
                             sr=DEFAULT_SAMPLE_RATE,
-                            mono=True,
                             offset=segment_start,
-                            duration=segment_duration,
-                            res_type='kaiser_best'  # Use high-quality resampling
+                            duration=segment_duration
                         )
                         
                         segments.append(chunk)
@@ -910,13 +923,11 @@ class AudioAnalyzer:
                     log_universal('DEBUG', 'Audio', f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
                     
                     # Use librosa for segment loading
-                    chunk, sr = librosa.load(
+                    chunk, sr = safe_librosa_load(
                         audio_path,
                         sr=DEFAULT_SAMPLE_RATE,
-                        mono=True,
                         offset=segment_start,
-                        duration=segment_duration,
-                        res_type='kaiser_best'  # Use high-quality resampling
+                        duration=segment_duration
                     )
                     
                     segments.append(chunk)
