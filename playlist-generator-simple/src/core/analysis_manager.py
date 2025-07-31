@@ -99,13 +99,13 @@ class AnalysisManager:
         self.sequential_min_memory_gb = config.get('SEQUENTIAL_MIN_MEMORY_GB', 3.0)
         self.sequential_max_cpu_percent = config.get('SEQUENTIAL_MAX_CPU_PERCENT', 85)
         
-        logger.info(f" Initializing AnalysisManager")
-        logger.debug(f" Analysis configuration: {config}")
+        logger.info(f"Initializing AnalysisManager")
+        logger.debug(f"Analysis configuration: {config}")
         
         # Initialize analyzers
         self._init_analyzers()
         
-        logger.info(f" AnalysisManager initialized successfully")
+        logger.info(f"AnalysisManager initialized successfully")
 
     def _init_analyzers(self):
         """Initialize sequential and parallel analyzers."""
@@ -125,10 +125,10 @@ class AnalysisManager:
                 memory_threshold_percent=self.memory_threshold_percent
             )
             
-            logger.debug(" Analyzers initialized successfully")
+            logger.debug("Analyzers initialized successfully")
             
         except Exception as e:
-            logger.error(f" Error initializing analyzers: {e}")
+            logger.error(f"Error initializing analyzers: {e}")
             raise
 
     @log_function_call
@@ -148,16 +148,16 @@ class AnalysisManager:
         if music_path is None:
             music_path = self.config.get('MUSIC_PATH', '/music')
         
-        logger.info(f" Selecting files for analysis from: {music_path}")
-        logger.debug(f"   Force re-extract: {force_reextract}")
-        logger.debug(f"   Include failed: {include_failed}")
+        logger.info(f"Selecting files for analysis from: {music_path}")
+        logger.debug(f"  Force re-extract: {force_reextract}")
+        logger.debug(f"  Include failed: {include_failed}")
         
         start_time = time.time()
         
         try:
             # Discover audio files
             audio_files = self.file_discovery.discover_files()
-            logger.info(f" Found {len(audio_files)} audio files")
+            logger.info(f"Found {len(audio_files)} audio files")
             
             if not audio_files:
                 logger.warning("️ No audio files found for analysis")
@@ -184,10 +184,10 @@ class AnalysisManager:
                             failed_count += 1
             
             select_time = time.time() - start_time
-            logger.info(f" File selection completed in {select_time:.2f}s")
-            logger.info(f" Selected {len(files_to_analyze)} files for analysis")
+            logger.info(f"File selection completed in {select_time:.2f}s")
+            logger.info(f"Selected {len(files_to_analyze)} files for analysis")
             logger.info(f"⏭️ Skipped {skipped_count} files (already analyzed)")
-            logger.info(f" Previously failed: {failed_count} files")
+            logger.info(f"Previously failed: {failed_count} files")
             
             # Log performance
             log_performance("File selection", select_time, 
@@ -198,7 +198,7 @@ class AnalysisManager:
             return files_to_analyze
             
         except Exception as e:
-            logger.error(f" Error selecting files for analysis: {e}")
+            logger.error(f"Error selecting files for analysis: {e}")
             return []
 
     def _should_analyze_file(self, file_path: str, force_reextract: bool, include_failed: bool) -> bool:
@@ -427,9 +427,9 @@ class AnalysisManager:
             logger.warning("️ No files provided for analysis")
             return {'success_count': 0, 'failed_count': 0, 'total_time': 0}
         
-        logger.info(f" Starting analysis of {len(files)} files")
-        logger.debug(f"   Force re-extract: {force_reextract}")
-        logger.debug(f"   Max workers: {max_workers}")
+        logger.info(f"Starting analysis of {len(files)} files")
+        logger.debug(f"  Force re-extract: {force_reextract}")
+        logger.debug(f"  Max workers: {max_workers}")
         
         # Note: Individual analyzers will create their own progress bars
         # No need for overall progress bar here to avoid conflicts
@@ -439,9 +439,9 @@ class AnalysisManager:
         # Categorize files by size
         big_files, small_files = self._categorize_files_by_size(files)
         
-        logger.info(f" File categorization:")
-        logger.info(f"   Large files (>={self.big_file_size_mb}MB): {len(big_files)}")
-        logger.info(f"   Small files (<{self.big_file_size_mb}MB): {len(small_files)}")
+        logger.info(f"File categorization:")
+        logger.info(f"  Large files (>={self.big_file_size_mb}MB): {len(big_files)}")
+        logger.info(f"  Small files (<{self.big_file_size_mb}MB): {len(small_files)}")
         
         results = {
             'success_count': 0,
@@ -453,7 +453,7 @@ class AnalysisManager:
         
         # Process big files sequentially
         if big_files:
-            logger.info(f" Processing {len(big_files)} large files sequentially")
+            logger.info(f"Processing {len(big_files)} large files sequentially")
             big_results = self.sequential_analyzer.process_files(big_files, force_reextract)
             results['success_count'] += big_results['success_count']
             results['failed_count'] += big_results['failed_count']
@@ -461,7 +461,7 @@ class AnalysisManager:
         
         # Process small files in parallel
         if small_files:
-            logger.info(f" Processing {len(small_files)} small files in parallel")
+            logger.info(f"Processing {len(small_files)} small files in parallel")
             small_results = self.parallel_analyzer.process_files(
                 small_files, force_reextract, max_workers
             )
@@ -474,8 +474,8 @@ class AnalysisManager:
         
         # Note: Individual analyzers handle their own progress bars
         
-        logger.info(f" Analysis completed in {total_time:.2f}s")
-        logger.info(f" Results: {results['success_count']} successful, {results['failed_count']} failed")
+        logger.info(f"Analysis completed in {total_time:.2f}s")
+        logger.info(f"Results: {results['success_count']} successful, {results['failed_count']} failed")
         
         # Log performance
         log_performance("File analysis", total_time,
@@ -520,7 +520,7 @@ class AnalysisManager:
         Returns:
             Dictionary with analysis statistics
         """
-        logger.debug(" Generating analysis statistics")
+        logger.debug("Generating analysis statistics")
         
         try:
             # Get database statistics
@@ -553,15 +553,15 @@ class AnalysisManager:
                 'database_stats': db_stats
             }
             
-            logger.info(f" Analysis statistics generated")
-            logger.info(f" Total analyzed: {total_analyzed}, Failed: {total_failed}")
-            logger.info(f" Success rate: {stats['success_rate']:.1f}%")
-            logger.info(f" Average file size: {avg_size_mb:.1f}MB")
+            logger.info(f"Analysis statistics generated")
+            logger.info(f"Total analyzed: {total_analyzed}, Failed: {total_failed}")
+            logger.info(f"Success rate: {stats['success_rate']:.1f}%")
+            logger.info(f"Average file size: {avg_size_mb:.1f}MB")
             
             return stats
             
         except Exception as e:
-            logger.error(f" Error generating analysis statistics: {e}")
+            logger.error(f"Error generating analysis statistics: {e}")
             return {}
 
     @log_function_call
@@ -575,7 +575,7 @@ class AnalysisManager:
         Returns:
             Number of entries cleaned up
         """
-        logger.info(f" Cleaning up failed analysis entries (max retries: {max_retries})")
+        logger.info(f"Cleaning up failed analysis entries (max retries: {max_retries})")
         
         try:
             failed_files = self.db_manager.get_failed_analysis_files(max_retries)
@@ -586,11 +586,11 @@ class AnalysisManager:
                     if self.db_manager.delete_failed_analysis(failed_file['file_path']):
                         cleaned_count += 1
             
-            logger.info(f" Cleaned up {cleaned_count} failed analysis entries")
+            logger.info(f"Cleaned up {cleaned_count} failed analysis entries")
             return cleaned_count
             
         except Exception as e:
-            logger.error(f" Error cleaning up failed analysis: {e}")
+            logger.error(f"Error cleaning up failed analysis: {e}")
             return 0
 
     def get_config(self) -> Dict[str, Any]:
@@ -615,11 +615,11 @@ class AnalysisManager:
             self.timeout_seconds = self.config.get('ANALYSIS_TIMEOUT_SECONDS', DEFAULT_TIMEOUT_SECONDS)
             self.memory_threshold_percent = self.config.get('MEMORY_THRESHOLD_PERCENT', DEFAULT_MEMORY_THRESHOLD_PERCENT)
             
-            logger.info(f" Updated analysis configuration: {new_config}")
+            logger.info(f"Updated analysis configuration: {new_config}")
             return True
             
         except Exception as e:
-            logger.error(f" Error updating analysis configuration: {e}")
+            logger.error(f"Error updating analysis configuration: {e}")
             return False
 
 

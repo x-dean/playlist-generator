@@ -142,7 +142,7 @@ def safe_json_dumps(obj):
     try:
         return json.dumps(obj)
     except TypeError as e:
-        if "not JSON serializable" in str(e):
+        if "not JSON serializable"in str(e):
             # Convert NumPy types to Python native types
             import numpy as np
             if isinstance(obj, dict):
@@ -271,10 +271,10 @@ class AudioAnalyzer:
         # Check library availability
         self._check_library_availability()
         
-        logger.info(f" Initializing AudioAnalyzer v{self.VERSION}")
-        logger.debug(f" Cache file: {self.cache_file}")
-        logger.debug(f" Library path: {self.library}")
-        logger.debug(f" Music path: {self.music}")
+        logger.info(f"Initializing AudioAnalyzer v{self.VERSION}")
+        logger.debug(f"Cache file: {self.cache_file}")
+        logger.debug(f"Library path: {self.library}")
+        logger.debug(f"Music path: {self.music}")
         logger.info(f"AudioAnalyzer initialized successfully")
 
     def _init_musicnn(self):
@@ -295,8 +295,8 @@ class AudioAnalyzer:
                 logger.info("MusiCNN model loaded successfully")
             else:
                 logger.warning(f"MusiCNN model files not found:")
-                logger.warning(f"   Model: {self.musicnn_model_path}")
-                logger.warning(f"   Config: {self.musicnn_json_path}")
+                logger.warning(f"  Model: {self.musicnn_model_path}")
+                logger.warning(f"  Config: {self.musicnn_json_path}")
         except Exception as e:
             logger.warning(f"Could not initialize MusiCNN: {e}")
             self.musicnn_model = None
@@ -351,14 +351,14 @@ class AudioAnalyzer:
         # Check resource manager for forced guidance
         forced_guidance = self._get_forced_guidance()
         if forced_guidance['force_basic_analysis']:
-            logger.warning(f" Resource manager forcing basic analysis: {forced_guidance['reason']}")
+            logger.warning(f"Resource manager forcing basic analysis: {forced_guidance['reason']}")
             analysis_config = self._apply_forced_basic_config(analysis_config)
         
         analysis_type = analysis_config.get('analysis_type', 'basic')
         features_config = analysis_config.get('features_config', {})
         
         logger.info(f"Extracting {analysis_type} features from: {filename}")
-        logger.debug(f" Feature config: {features_config}")
+        logger.debug(f"Feature config: {features_config}")
         
         start_time = time.time()
         
@@ -539,11 +539,11 @@ class AudioAnalyzer:
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             
             logger.debug(f"Audio loading decision for {os.path.basename(audio_path)}:")
-            logger.debug(f"   File size: {file_size_mb:.1f}MB")
-            logger.debug(f"   Streaming enabled: {self.streaming_enabled}")
-            logger.debug(f"   Streaming threshold: {self.streaming_large_file_threshold_mb}MB")
-            logger.debug(f"   Streaming memory limit: {self.streaming_memory_limit_percent}%")
-            logger.debug(f"   Streaming chunk duration: {self.streaming_chunk_duration_seconds}s")
+            logger.debug(f"  File size: {file_size_mb:.1f}MB")
+            logger.debug(f"  Streaming enabled: {self.streaming_enabled}")
+            logger.debug(f"  Streaming threshold: {self.streaming_large_file_threshold_mb}MB")
+            logger.debug(f"  Streaming memory limit: {self.streaming_memory_limit_percent}%")
+            logger.debug(f"  Streaming chunk duration: {self.streaming_chunk_duration_seconds}s")
             
             # Use streaming loader for large files if enabled
             if self.streaming_enabled and file_size_mb > self.streaming_large_file_threshold_mb:
@@ -606,7 +606,7 @@ class AudioAnalyzer:
                     return audio
             else:
                 logger.error("No audio loading library available")
-                logger.error(f"   Available libraries: Essentia={ESSENTIA_AVAILABLE}, Librosa={LIBROSA_AVAILABLE}, SoundFile={SOUNDFILE_AVAILABLE}, Wave={WAVE_AVAILABLE}")
+                logger.error(f"  Available libraries: Essentia={ESSENTIA_AVAILABLE}, Librosa={LIBROSA_AVAILABLE}, SoundFile={SOUNDFILE_AVAILABLE}, Wave={WAVE_AVAILABLE}")
                 return None
                 
         except Exception as e:
@@ -757,7 +757,7 @@ class AudioAnalyzer:
                         else:
                             metadata[tag] = str(value)
                 
-                logger.debug(f" Extracted basic metadata: {list(metadata.keys())}")
+                logger.debug(f"Extracted basic metadata: {list(metadata.keys())}")
                 
                 # Enrich metadata with external APIs
                 enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
@@ -796,7 +796,7 @@ class AudioAnalyzer:
             if enriched_metadata != metadata:
                 new_fields = set(enriched_metadata.keys()) - set(metadata.keys())
                 if new_fields:
-                    logger.debug(f" Enriched metadata with: {list(new_fields)}")
+                    logger.debug(f"Enriched metadata with: {list(new_fields)}")
             
             return enriched_metadata
             
@@ -1200,7 +1200,7 @@ class AudioAnalyzer:
                 dynamic_range = np.max(audio) - np.min(audio)
                 features['dynamic_range'] = ensure_float(dynamic_range)
             
-            logger.debug(f" Loudness features extracted")
+            logger.debug(f"Loudness features extracted")
             
         except Exception as e:
             logger.warning(f"Error extracting loudness features: {e}")
@@ -1239,7 +1239,7 @@ class AudioAnalyzer:
                 features['key'] = keys[key_idx]
                 features['key_strength'] = ensure_float(chroma_mean[key_idx])
             
-            logger.debug(f" Key features: {features.get('key', 'N/A')}")
+            logger.debug(f"Key features: {features.get('key', 'N/A')}")
             
         except Exception as e:
             logger.warning(f"Error extracting key features: {e}")
@@ -1461,7 +1461,7 @@ class AudioAnalyzer:
                 logger.warning(f"Invalid key strength value: {key_strength}")
                 return False
             
-            logger.debug(" Features validation passed")
+            logger.debug("Features validation passed")
             return True
             
         except Exception as e:

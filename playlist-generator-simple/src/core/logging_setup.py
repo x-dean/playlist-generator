@@ -362,7 +362,7 @@ def setup_signal_handlers():
     try:
         signal.signal(signal.SIGUSR1, cycle_log_level)
         print("Log level control: Send SIGUSR1 signal to cycle through log levels")
-        print("   Example: docker compose exec playlista kill -SIGUSR1 1")
+        print("  Example: docker compose exec playlista kill -SIGUSR1 1")
     except (AttributeError, OSError):
         # SIGUSR1 not available on Windows
         pass
@@ -545,7 +545,7 @@ def log_analysis_operation(operation: str, file_path: str = None, file_size_mb: 
     if not success:
         message_parts.append("FAILED")
     
-    message = " | ".join(message_parts)
+    message = "| ".join(message_parts)
     
     # Create structured record
     record = logger.makeRecord(
@@ -577,7 +577,7 @@ def log_resource_decision(file_path: str, file_size_mb: float, analysis_type: st
     """Log resource-based analysis decisions."""
     logger = get_logger()
     
-    decision_type = "FORCED" if forced else "DETERMINISTIC"
+    decision_type = "FORCED"if forced else "DETERMINISTIC"
     message = f"Resource decision: {decision_type} | {analysis_type} | {reason}"
     
     record = logger.makeRecord(
@@ -605,7 +605,7 @@ def log_feature_extraction(file_path: str, features_enabled: list, features_extr
     """Log feature extraction details."""
     logger = get_logger()
     
-    status = "SUCCESS" if success else "FAILED"
+    status = "SUCCESS"if success else "FAILED"
     message = f"Feature extraction: {status} | {len(features_extracted)}/{len(features_enabled)} features | {duration:.3f}s"
     
     record = logger.makeRecord(
@@ -634,7 +634,7 @@ def log_worker_operation(worker_id: str, operation: str, file_path: str,
     """Log worker operation details."""
     logger = get_logger()
     
-    status = "SUCCESS" if success else "FAILED"
+    status = "SUCCESS"if success else "FAILED"
     message = f"Worker {worker_id}: {operation} | {status} | {duration:.3f}s"
     
     record = logger.makeRecord(
@@ -757,7 +757,7 @@ def log_feature_extraction_step(file_path: str, feature_name: str, duration: flo
     """Log individual feature extraction step with detailed metrics."""
     logger = get_logger()
     
-    status = "SUCCESS" if success else "FAILED"
+    status = "SUCCESS"if success else "FAILED"
     message = f"Feature extraction step: {feature_name} | {status} | {duration:.3f}s"
     
     record = logger.makeRecord(
@@ -787,12 +787,12 @@ def log_worker_performance(worker_id: str, operation: str, file_path: str,
     """Log detailed worker performance metrics."""
     logger = get_logger()
     
-    status = "SUCCESS" if success else "FAILED"
+    status = "SUCCESS"if success else "FAILED"
     message = f"Worker {worker_id}: {operation} | {status} | {duration:.3f}s"
     if memory_usage_mb:
-        message += f" | Memory: {memory_usage_mb:.1f}MB"
+        message += f"| Memory: {memory_usage_mb:.1f}MB"
     if cpu_usage_percent:
-        message += f" | CPU: {cpu_usage_percent:.1f}%"
+        message += f"| CPU: {cpu_usage_percent:.1f}%"
     
     record = logger.makeRecord(
         logger.name, 
@@ -874,7 +874,7 @@ def log_resource_usage(file_path: str = None, operation: str = None,
     if network_usage_mb:
         message_parts.append(f"Network: {network_usage_mb:.1f}MB")
     
-    message = " | ".join(message_parts) if message_parts else "Resource usage logged"
+    message = "| ".join(message_parts) if message_parts else "Resource usage logged"
     
     record = logger.makeRecord(
         logger.name, logging.INFO, __file__, 0, message, (), None
@@ -945,7 +945,7 @@ def log_performance_metrics(operation: str, duration: float, file_count: int = N
     if cpu_peak_percent:
         message_parts.append(f"Peak CPU: {cpu_peak_percent:.1f}%")
     
-    message = " | ".join(message_parts)
+    message = "| ".join(message_parts)
     
     record = logger.makeRecord(
         logger.name, logging.INFO, __file__, 0, message, (), None

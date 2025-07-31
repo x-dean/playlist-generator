@@ -71,8 +71,8 @@ class ParallelAnalyzer:
         self.memory_threshold_percent = memory_threshold_percent or DEFAULT_MEMORY_THRESHOLD_PERCENT
         self.max_workers = max_workers or DEFAULT_MAX_WORKERS
         
-        logger.info(f" Initializing ParallelAnalyzer")
-        logger.debug(f" Timeout: {self.timeout_seconds}s, Memory threshold: {self.memory_threshold_percent}%")
+        logger.info(f"Initializing ParallelAnalyzer")
+        logger.debug(f"Timeout: {self.timeout_seconds}s, Memory threshold: {self.memory_threshold_percent}%")
         logger.info(f"ParallelAnalyzer initialized successfully")
 
     @log_function_call
@@ -98,8 +98,8 @@ class ParallelAnalyzer:
             max_workers = self.max_workers or self.resource_manager.get_optimal_worker_count()
         
         logger.info(f"Starting parallel processing of {len(files)} files")
-        logger.debug(f"   Force re-extract: {force_reextract}")
-        logger.debug(f"   Max workers: {max_workers}")
+        logger.debug(f"  Force re-extract: {force_reextract}")
+        logger.debug(f"  Max workers: {max_workers}")
         
         # Get progress bar
         progress_bar = get_progress_bar()
@@ -436,7 +436,7 @@ class ParallelAnalyzer:
             if 'max_workers' in new_config:
                 self.max_workers = new_config['max_workers']
             
-            logger.info(f" Updated parallel analyzer configuration: {new_config}")
+            logger.info(f"Updated parallel analyzer configuration: {new_config}")
             return True
             
         except Exception as e:
