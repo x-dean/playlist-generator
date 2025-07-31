@@ -15,7 +15,7 @@ from contextlib import contextmanager
 
 # Import configuration and logging
 from .config_loader import config_loader
-from .logging_setup import get_logger, log_function_call, log_performance
+from .logging_setup import get_logger, log_function_call, log_performance, log_universal
 
 logger = get_logger('playlista.database')
 
@@ -88,13 +88,12 @@ class DatabaseManager:
         self._active_connections = 0
         self._max_connections = config.get('DB_MAX_CONNECTIONS', 10)
         
-        logger.info(f"️ Initializing DatabaseManager with path: {db_path}")
-        logger.debug(f"Database configuration: {config}")
+        log_universal('INFO', 'Database', f'Initializing DatabaseManager with path: {db_path}')
         
         # Ensure database directory exists
         db_dir = os.path.dirname(self.db_path)
         os.makedirs(db_dir, exist_ok=True)
-        logger.debug(f"Database directory ready: {db_dir}")
+        log_universal('INFO', 'Database', f'Database directory ready: {db_dir}')
         
         # Initialize database tables
         start_time = time.time()
@@ -102,8 +101,7 @@ class DatabaseManager:
         init_time = time.time() - start_time
         
         # Log performance
-        log_performance("DatabaseManager initialization", init_time)
-        logger.info(f"DatabaseManager initialized successfully in {init_time:.2f}s")
+        log_universal('INFO', 'Database', f"DatabaseManager initialization completed in {init_time:.2f}s")
 
     def _check_and_migrate_schema(self, cursor):
         """Check and migrate database schema if needed."""
@@ -352,7 +350,7 @@ class DatabaseManager:
                 logger.info(f"Created {tables_created} tables and indexes in {init_time:.2f}s")
                 
                 # Log performance
-                log_performance("Database table creation", init_time, tables_created=tables_created)
+                log_universal('INFO', 'Database', f"Database table creation completed in {init_time:.2f}s")
                 
         except Exception as e:
             logger.error(f"Database initialization failed: {e}")
@@ -431,7 +429,7 @@ class DatabaseManager:
                 logger.info(f"Successfully saved playlist '{name}' to database in {save_time:.2f}s")
                 
                 # Log performance
-                log_performance("Playlist save", save_time, playlist_name=name, track_count=len(tracks))
+                log_universal('INFO', 'Database', f"Playlist save completed in {save_time:.2f}s")
                 return True
                 
         except sqlite3.Error as e:
@@ -1060,7 +1058,7 @@ class DatabaseManager:
                 logger.debug(f"Successfully saved analysis results for: {filename} in {save_time:.2f}s")
                 
                 # Log performance
-                log_performance("Analysis result save", save_time, filename=filename, file_size=file_size_bytes)
+                log_universal('INFO', 'Database', f"Analysis result save completed in {save_time:.2f}s")
                 return True
                 
         except Exception as e:
@@ -1263,7 +1261,7 @@ class DatabaseManager:
                 logger.debug(f"Successfully saved cache entry: {key} in {save_time:.2f}s")
                 
                 # Log performance
-                log_performance("Cache save", save_time, cache_key=key, expires_hours=expires_hours)
+                log_universal('INFO', 'Database', f"Cache save completed in {save_time:.2f}s")
                 return True
                 
         except Exception as e:
@@ -1464,7 +1462,7 @@ class DatabaseManager:
                 logger.info(f"Successfully marked analysis as failed for: {filename} in {save_time:.2f}s")
                 
                 # Log performance
-                log_performance("Failed analysis mark", save_time, filename=filename, error_message=error_message)
+                log_universal('INFO', 'Database', f"Failed analysis mark completed in {save_time:.2f}s")
                 return True
                 
         except Exception as e:
@@ -1664,8 +1662,7 @@ class DatabaseManager:
                 logger.info(f"Database statistics generated successfully in {gen_time:.2f}s")
                 
                 # Log performance
-                log_performance("Database statistics generation", gen_time, 
-                              total_records=sum(stats[f'{table}_count'] for table in tables))
+                log_universal('INFO', 'Database', f"Database statistics generation completed in {gen_time:.2f}s")
                 return stats
                 
         except Exception as e:
@@ -1734,8 +1731,7 @@ class DatabaseManager:
                 logger.info(f"Total cleaned: {total_cleaned} entries")
                 
                 # Log performance
-                log_performance("Database cleanup", cleanup_time, 
-                              total_cleaned=total_cleaned, days=days)
+                log_universal('INFO', 'Database', f"Database cleanup completed in {cleanup_time:.2f}s")
                 return results
                 
         except Exception as e:
@@ -1774,9 +1770,7 @@ class DatabaseManager:
             logger.info(f"Export size: {export_size / (1024 * 1024):.2f} MB in {export_time:.2f}s")
             
             # Log performance
-            log_performance("Database export", export_time, 
-                          source_size_mb=source_size/(1024*1024), 
-                          export_size_mb=export_size/(1024*1024))
+            log_universal('INFO', 'Database', f"Database export completed in {export_time:.2f}s")
             return True
             
         except Exception as e:

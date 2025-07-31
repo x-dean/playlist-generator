@@ -12,6 +12,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from .logging_setup import get_logger
+from .utils import log_universal
 
 logger = get_logger('playlista.progress')
 
@@ -56,7 +57,7 @@ class SimpleProgressBar:
             description: Description for the progress bar
         """
         if not self.show_progress:
-            logger.info(f"{description}: {total_files} files")
+            log_universal('INFO', 'Progress', f"{description}: {total_files} files")
             return
         
         # Clear screen before showing progress bar
@@ -89,7 +90,7 @@ class SimpleProgressBar:
         """
         if not self.show_progress or not self.current_progress or not self.current_task:
             if current_file:
-                logger.info(f"Processing: {current_file}")
+                log_universal('INFO', 'Progress', f"Processing: {current_file}")
             return
             
         self.current_progress.update(self.current_task, completed=processed_files)
@@ -111,7 +112,7 @@ class SimpleProgressBar:
             failed_count: Number of failed files
         """
         if not self.show_progress or not self.current_progress:
-            logger.info(f"Processing completed: {success_count} successful, {failed_count} failed")
+            log_universal('INFO', 'Progress', f"Processing completed: {success_count} successful, {failed_count} failed")
             return
             
         # Update to 100% completion
@@ -147,7 +148,7 @@ class SimpleProgressBar:
             analysis_type: Type of analysis (e.g., "Sequential", "Parallel")
         """
         if not self.show_progress:
-            logger.info(f"Starting {analysis_type}: {total_files} files")
+            log_universal('INFO', 'Progress', f"Starting {analysis_type}: {total_files} files")
             return
         
         # Clear screen before showing progress bar
@@ -180,7 +181,7 @@ class SimpleProgressBar:
         """
         if not self.show_progress or not self.current_progress or not self.current_task:
             if current_file:
-                logger.info(f"Analyzing: {current_file}")
+                log_universal('INFO', 'Progress', f"Analyzing: {current_file}")
             return
             
         self.current_progress.update(self.current_task, completed=processed_files)
@@ -204,7 +205,7 @@ class SimpleProgressBar:
             analysis_type: Type of analysis completed
         """
         if not self.show_progress or not self.current_progress:
-            logger.info(f"{analysis_type} completed: {success_count} successful, {failed_count} failed")
+            log_universal('INFO', 'Progress', f"{analysis_type} completed: {success_count} successful, {failed_count} failed")
             return
             
         # Update to 100% completion
@@ -240,7 +241,7 @@ class SimpleProgressBar:
             style: Rich style for the message
         """
         if not self.show_progress:
-            logger.info(message)
+            log_universal('INFO', 'Progress', message)
             return
             
         self.console.print(f"[{style}]{message}[/{style}]")
@@ -253,7 +254,7 @@ class SimpleProgressBar:
             message: Error message to display
         """
         if not self.show_progress:
-            logger.error(message)
+            log_universal('ERROR', 'Progress', message)
             return
             
         self.console.print(f"[red]{message}[/red]")
@@ -266,7 +267,7 @@ class SimpleProgressBar:
             message: Success message to display
         """
         if not self.show_progress:
-            logger.info(message)
+            log_universal('INFO', 'Progress', message)
             return
             
         self.console.print(f"[green]{message}[/green]")
@@ -279,7 +280,7 @@ class SimpleProgressBar:
             message: Warning message to display
         """
         if not self.show_progress:
-            logger.warning(message)
+            log_universal('WARNING', 'Progress', message)
             return
             
         self.console.print(f"[yellow]{message}[/yellow]")

@@ -61,7 +61,7 @@ except ImportError:
 
 
 # Import local modules
-from .logging_setup import get_logger, log_function_call, log_performance, log_feature_extraction_step, log_resource_usage
+from .logging_setup import get_logger, log_function_call, log_universal
 
 logger = get_logger('playlista.audio_analyzer')
 
@@ -459,8 +459,7 @@ class AudioAnalyzer:
             logger.info(f"Successfully extracted {analysis_type} features from {filename} in {extract_time:.2f}s")
             
             # Log performance
-            log_performance("Audio feature extraction", extract_time,
-                          filename=filename, file_size_mb=file_size_mb, analysis_type=analysis_type)
+            log_universal('INFO', 'Audio', f"Audio feature extraction completed in {extract_time:.2f}s")
             
             return result
             
@@ -1189,17 +1188,15 @@ class AudioAnalyzer:
                         features.update(rhythm_features)
                         extracted_features.append('rhythm')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'rhythm', duration, True, 
-                                                  feature_value=len(rhythm_features))
+                        log_universal('INFO', 'Audio', f"Feature extraction step: rhythm completed")
                     else:
                         failed_features.append('rhythm')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'rhythm', duration, False, 
-                                                  error="No rhythm features returned")
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: rhythm failed")
                 except Exception as e:
                     failed_features.append('rhythm')
                     duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'rhythm', duration, False, error=str(e))
+                    log_universal('ERROR', 'Audio', f"Feature extraction step: rhythm error: {e}")
             
             # Extract spectral features (if enabled)
             if features_config.get('extract_spectral', True):
@@ -1210,17 +1207,15 @@ class AudioAnalyzer:
                         features.update(spectral_features)
                         extracted_features.append('spectral')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'spectral', duration, True, 
-                                                  feature_value=len(spectral_features))
+                        log_universal('INFO', 'Audio', f"Feature extraction step: spectral completed")
                     else:
                         failed_features.append('spectral')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'spectral', duration, False, 
-                                                  error="No spectral features returned")
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: spectral failed")
                 except Exception as e:
                     failed_features.append('spectral')
                     duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'spectral', duration, False, error=str(e))
+                    log_universal('ERROR', 'Audio', f"Feature extraction step: spectral error: {e}")
             
             # Extract loudness (if enabled)
             if features_config.get('extract_loudness', True):
@@ -1231,17 +1226,15 @@ class AudioAnalyzer:
                         features.update(loudness_features)
                         extracted_features.append('loudness')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'loudness', duration, True, 
-                                                  feature_value=len(loudness_features))
+                        log_universal('INFO', 'Audio', f"Feature extraction step: loudness completed")
                     else:
                         failed_features.append('loudness')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'loudness', duration, False, 
-                                                  error="No loudness features returned")
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: loudness failed")
                 except Exception as e:
                     failed_features.append('loudness')
                     duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'loudness', duration, False, error=str(e))
+                    log_universal('ERROR', 'Audio', f"Feature extraction step: loudness error: {e}")
             
             # Extract key (if enabled) - disabled for extremely large files
             if features_config.get('extract_key', True):
@@ -1256,17 +1249,15 @@ class AudioAnalyzer:
                             features.update(key_features)
                             extracted_features.append('key')
                             duration = time.time() - start_time
-                            log_feature_extraction_step(audio_path, 'key', duration, True, 
-                                                      feature_value=len(key_features))
+                            log_universal('INFO', 'Audio', f"Feature extraction step: key completed")
                         else:
                             failed_features.append('key')
                             duration = time.time() - start_time
-                            log_feature_extraction_step(audio_path, 'key', duration, False, 
-                                                      error="No key features returned")
+                            log_universal('ERROR', 'Audio', f"Feature extraction step: key failed")
                     except Exception as e:
                         failed_features.append('key')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'key', duration, False, error=str(e))
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: key error: {e}")
             
             # Extract MFCC (if enabled)
             if features_config.get('extract_mfcc', True) and not is_extremely_large:
@@ -1277,17 +1268,15 @@ class AudioAnalyzer:
                         features.update(mfcc_features)
                         extracted_features.append('mfcc')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'mfcc', duration, True, 
-                                                  feature_value=len(mfcc_features))
+                        log_universal('INFO', 'Audio', f"Feature extraction step: mfcc completed")
                     else:
                         failed_features.append('mfcc')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'mfcc', duration, False, 
-                                                  error="No MFCC features returned")
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: mfcc failed")
                 except Exception as e:
                     failed_features.append('mfcc')
                     duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'mfcc', duration, False, error=str(e))
+                    log_universal('ERROR', 'Audio', f"Feature extraction step: mfcc error: {e}")
             
             # Extract MusiCNN features (if enabled)
             if features_config.get('extract_musicnn', False) and not is_extremely_large:
@@ -1298,17 +1287,15 @@ class AudioAnalyzer:
                         features.update(musicnn_features)
                         extracted_features.append('musicnn')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'musicnn', duration, True, 
-                                                  feature_value=len(musicnn_features))
+                        log_universal('INFO', 'Audio', f"Feature extraction step: musicnn completed")
                     else:
                         failed_features.append('musicnn')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'musicnn', duration, False, 
-                                                  error="No MusiCNN features returned")
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: musicnn failed")
                 except Exception as e:
                     failed_features.append('musicnn')
                     duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'musicnn', duration, False, error=str(e))
+                    log_universal('ERROR', 'Audio', f"Feature extraction step: musicnn error: {e}")
             
             # Extract Danceability (if enabled)
             if features_config.get('extract_danceability', True):
@@ -1319,17 +1306,15 @@ class AudioAnalyzer:
                         features.update(danceability_features)
                         extracted_features.append('danceability')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'danceability', duration, True, 
-                                                  feature_value=len(danceability_features))
+                        log_universal('INFO', 'Audio', f"Feature extraction step: danceability completed")
                     else:
                         failed_features.append('danceability')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'danceability', duration, False, 
-                                                  error="No danceability features returned")
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: danceability failed")
                 except Exception as e:
                     failed_features.append('danceability')
                     duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'danceability', duration, False, error=str(e))
+                    log_universal('ERROR', 'Audio', f"Feature extraction step: danceability error: {e}")
             
             # Extract Onset Rate (if enabled)
             if features_config.get('extract_onset_rate', True):
@@ -1340,17 +1325,15 @@ class AudioAnalyzer:
                         features.update(onset_rate_features)
                         extracted_features.append('onset_rate')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'onset_rate', duration, True, 
-                                                  feature_value=len(onset_rate_features))
+                        log_universal('INFO', 'Audio', f"Feature extraction step: onset_rate completed")
                     else:
                         failed_features.append('onset_rate')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'onset_rate', duration, False, 
-                                                  error="No onset rate features returned")
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: onset_rate failed")
                 except Exception as e:
                     failed_features.append('onset_rate')
                     duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'onset_rate', duration, False, error=str(e))
+                    log_universal('ERROR', 'Audio', f"Feature extraction step: onset_rate error: {e}")
             
             # Extract Zero Crossing Rate (if enabled)
             if features_config.get('extract_zcr', True):
@@ -1361,17 +1344,15 @@ class AudioAnalyzer:
                         features.update(zcr_features)
                         extracted_features.append('zcr')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'zcr', duration, True, 
-                                                  feature_value=len(zcr_features))
+                        log_universal('INFO', 'Audio', f"Feature extraction step: zcr completed")
                     else:
                         failed_features.append('zcr')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'zcr', duration, False, 
-                                                  error="No zero crossing rate features returned")
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: zcr failed")
                 except Exception as e:
                     failed_features.append('zcr')
                     duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'zcr', duration, False, error=str(e))
+                    log_universal('ERROR', 'Audio', f"Feature extraction step: zcr error: {e}")
             
             # Extract Spectral Contrast (if enabled)
             if features_config.get('extract_spectral_contrast', True):
@@ -1382,17 +1363,15 @@ class AudioAnalyzer:
                         features.update(spectral_contrast_features)
                         extracted_features.append('spectral_contrast')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'spectral_contrast', duration, True, 
-                                                  feature_value=len(spectral_contrast_features))
+                        log_universal('INFO', 'Audio', f"Feature extraction step: spectral_contrast completed")
                     else:
                         failed_features.append('spectral_contrast')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'spectral_contrast', duration, False, 
-                                                  error="No spectral contrast features returned")
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: spectral_contrast failed")
                 except Exception as e:
                     failed_features.append('spectral_contrast')
                     duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'spectral_contrast', duration, False, error=str(e))
+                    log_universal('ERROR', 'Audio', f"Feature extraction step: spectral_contrast error: {e}")
             
             # Extract Chroma (if enabled)
             if features_config.get('extract_chroma', True):
@@ -1403,17 +1382,15 @@ class AudioAnalyzer:
                         features.update(chroma_features)
                         extracted_features.append('chroma')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'chroma', duration, True, 
-                                                  feature_value=len(chroma_features))
+                        log_universal('INFO', 'Audio', f"Feature extraction step: chroma completed")
                     else:
                         failed_features.append('chroma')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'chroma', duration, False, 
-                                                  error="No chroma features returned")
+                        log_universal('ERROR', 'Audio', f"Feature extraction step: chroma failed")
                 except Exception as e:
                     failed_features.append('chroma')
                     duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'chroma', duration, False, error=str(e))
+                    log_universal('ERROR', 'Audio', f"Feature extraction step: chroma error: {e}")
             
             # Calculate duration (always included)
             try:

@@ -24,7 +24,7 @@ from core.resource_manager import ResourceManager
 from core.audio_analyzer import AudioAnalyzer
 from core.database import DatabaseManager
 from core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
-from core.logging_setup import get_logger, setup_logging
+from core.logging_setup import get_logger, setup_logging, log_universal
 from core.config_loader import config_loader
 
 # Initialize logging system from config
@@ -86,7 +86,7 @@ class EnhancedCLI:
         self.resource_manager = ResourceManager()
         self.playlist_generator = PlaylistGenerator()
         
-        logger.info("Initializing Enhanced CLI")
+        log_universal('INFO', 'CLI', 'Initializing Enhanced CLI')
     
     def run(self, args: Optional[List[str]] = None) -> int:
         """Run the enhanced CLI interface."""
@@ -130,16 +130,16 @@ class EnhancedCLI:
             elif parsed_args.command == 'config':
                 return self._handle_config(parsed_args)
             else:
-                logger.error(f"Unknown command: {parsed_args.command}")
+                log_universal('ERROR', 'CLI', f"Unknown command: {parsed_args.command}")
                 return 1
         except (ValueError, TypeError, OSError) as e:
-            logger.error(f"Command failed due to invalid input or system error: {e}")
+            log_universal('ERROR', 'CLI', f"Command failed due to invalid input or system error: {e}")
             return 1
         except KeyboardInterrupt:
-            logger.info("Operation cancelled by user")
+            log_universal('INFO', 'CLI', 'Operation cancelled by user')
             return 130
         except Exception as e:
-            logger.error(f"Unexpected error occurred: {e}")
+            log_universal('ERROR', 'CLI', f"Unexpected error occurred: {e}")
             return 1
     
     def _create_argument_parser(self) -> argparse.ArgumentParser:
@@ -405,11 +405,11 @@ Examples:
   playlista <command> --help
         """
         
-        logger.info(help_text)
+        log_universal('INFO', 'CLI', help_text)
     
     def _handle_analyze(self, args) -> int:
         """Handle analyze command."""
-        logger.info("Starting file analysis")
+        log_universal('INFO', 'Analysis', 'Starting file analysis')
         
         try:
             # Configure analysis based on arguments
@@ -423,10 +423,10 @@ Examples:
             )
             
             if not files:
-                logger.warning("️ No files found for analysis")
+                log_universal('WARNING', 'Analysis', 'No files found for analysis')
                 return 0
             
-            logger.info(f"Found {len(files)} files to analyze")
+            log_universal('INFO', 'Analysis', f"Found {len(files)} files to analyze")
             
             # Analyze files
             results = self.analysis_manager.analyze_files(
@@ -436,57 +436,57 @@ Examples:
             )
             
             # Display results
-            logger.info("Analysis Results:")
-            logger.info(f"  Success: {results.get('success_count', 0)}")
-            logger.info(f"  Failed: {results.get('failed_count', 0)}")
-            logger.info(f"  Total time: {results.get('total_time', 0):.2f}s")
+            log_universal('INFO', 'Analysis', "Analysis Results:")
+            log_universal('INFO', 'Analysis', f"  Success: {results.get('success_count', 0)}")
+            log_universal('INFO', 'Analysis', f"  Failed: {results.get('failed_count', 0)}")
+            log_universal('INFO', 'Analysis', f"  Total time: {results.get('total_time', 0):.2f}s")
             
             if 'big_files_processed' in results:
-                logger.info(f"  Large files: {results['big_files_processed']}")
+                log_universal('INFO', 'Analysis', f"  Large files: {results['big_files_processed']}")
             if 'small_files_processed' in results:
-                logger.info(f"  Small files: {results['small_files_processed']}")
+                log_universal('INFO', 'Analysis', f"  Small files: {results['small_files_processed']}")
             
             return 0
             
         except FileNotFoundError as e:
-            logger.error(f"Music directory not found: {e}")
+            log_universal('ERROR', 'Analysis', f"Music directory not found: {e}")
             return 1
         except PermissionError as e:
-            logger.error(f"Permission denied accessing music directory: {e}")
+            log_universal('ERROR', 'Analysis', f"Permission denied accessing music directory: {e}")
             return 1
         except OSError as e:
-            logger.error(f"System error during analysis: {e}")
+            log_universal('ERROR', 'Analysis', f"System error during analysis: {e}")
             return 1
         except Exception as e:
-            logger.error(f"Unexpected error during analysis: {e}")
+            log_universal('ERROR', 'Analysis', f"Unexpected error during analysis: {e}")
             return 1
     
     def _handle_stats(self, args) -> int:
         """Handle stats command."""
-        logger.info("Showing statistics")
+        log_universal('INFO', 'CLI', 'Showing statistics')
         
         try:
             # Analysis statistics
             analysis_stats = self.analysis_manager.get_analysis_statistics()
-            logger.info("Analysis Statistics:")
+            log_universal('INFO', 'Analysis', "Analysis Statistics:")
             for key, value in analysis_stats.items():
                 if key != 'database_stats':
-                    logger.info(f"  {key}: {value}")
+                    log_universal('INFO', 'Analysis', f"  {key}: {value}")
             
             # Resource statistics
             resource_stats = self.resource_manager.get_resource_statistics(minutes=60)
-            logger.info("Resource Statistics (last hour):")
+            log_universal('INFO', 'Resource', "Resource Statistics (last hour):")
             for category, stats in resource_stats.items():
                 if category != 'period_minutes' and category != 'data_points':
-                    logger.info(f"  {category}:")
+                    log_universal('INFO', 'Resource', f"  {category}:")
                     for metric, value in stats.items():
-                        logger.info(f"    {metric}: {value:.2f}")
+                        log_universal('INFO', 'Resource', f"    {metric}: {value:.2f}")
             
             # Database statistics
             db_stats = self.db_manager.get_database_statistics()
-            logger.info("Database Statistics:")
+            log_universal('INFO', 'Database', "Database Statistics:")
             for key, value in db_stats.items():
-                logger.info(f"  {key}: {value}")
+                log_universal('INFO', 'Database', f"  {key}: {value}")
             
             # Detailed statistics if requested
             if args.detailed:
@@ -503,18 +503,18 @@ Examples:
             return 0
             
         except sqlite3.Error as e:
-            logger.error(f"Database error getting statistics: {e}")
+            log_universal('ERROR', 'Database', f"Database error getting statistics: {e}")
             return 1
         except OSError as e:
-            logger.error(f"System error getting statistics: {e}")
+            log_universal('ERROR', 'System', f"System error getting statistics: {e}")
             return 1
         except Exception as e:
-            logger.error(f"Unexpected error getting statistics: {e}")
+            log_universal('ERROR', 'CLI', f"Unexpected error getting statistics: {e}")
             return 1
     
     def _handle_test_audio(self, args) -> int:
         """Handle test-audio command."""
-        logger.info(f"Testing audio analyzer with file: {args.file}")
+        log_universal('INFO', 'Audio', f"Testing audio analyzer with file: {args.file}")
         
         try:
             # Test the audio analyzer
@@ -522,31 +522,31 @@ Examples:
             result = analyzer.analyze_file(args.file, force_reextract=args.force)
             
             if result:
-                logger.info("Audio analysis test successful")
-                logger.info(f"  Features extracted: {len(result)}")
+                log_universal('INFO', 'Audio', "Audio analysis test successful")
+                log_universal('INFO', 'Audio', f"  Features extracted: {len(result)}")
                 for key, value in result.items():
                     if isinstance(value, (int, float)):
-                        logger.info(f"  {key}: {value}")
+                        log_universal('INFO', 'Audio', f"  {key}: {value}")
                     elif isinstance(value, list) and len(value) <= 5:
-                        logger.info(f"  {key}: {value}")
+                        log_universal('INFO', 'Audio', f"  {key}: {value}")
                     else:
-                        logger.info(f"  {key}: <complex data>")
+                        log_universal('INFO', 'Audio', f"  {key}: <complex data>")
             else:
-                logger.error("Audio analysis test failed")
+                log_universal('ERROR', 'Audio', "Audio analysis test failed")
                 return 1
             
             return 0
             
         except (FileNotFoundError, PermissionError) as e:
-            logger.error(f"File access error during audio test: {e}")
+            log_universal('ERROR', 'Audio', f"File access error during audio test: {e}")
             return 1
         except Exception as e:
-            logger.error(f"Audio analysis test failed: {e}")
+            log_universal('ERROR', 'Audio', f"Audio analysis test failed: {e}")
             return 1
     
     def _handle_monitor(self, args) -> int:
         """Handle monitor command."""
-        logger.info("Starting resource monitoring")
+        log_universal('INFO', 'Resource', 'Starting resource monitoring')
         
         try:
             # Start monitoring
@@ -555,43 +555,43 @@ Examples:
             # Monitor for specified duration or indefinitely
             if args.duration:
                 import time
-                logger.info(f"⏱️ Monitoring for {args.duration} seconds")
+                log_universal('INFO', 'Resource', f"⏱️ Monitoring for {args.duration} seconds")
                 time.sleep(args.duration)
                 self.resource_manager.stop_monitoring()
             else:
-                logger.info("⏱️ Monitoring indefinitely (press Ctrl+C to stop)")
+                log_universal('INFO', 'Resource', "⏱️ Monitoring indefinitely (press Ctrl+C to stop)")
                 try:
                     while True:
                         import time
                         time.sleep(5)
                 except KeyboardInterrupt:
-                    logger.info("Monitoring stopped by user")
+                    log_universal('INFO', 'Resource', "Monitoring stopped by user")
                     self.resource_manager.stop_monitoring()
             
             return 0
             
         except Exception as e:
-            logger.error(f"Monitoring failed: {e}")
+            log_universal('ERROR', 'Resource', f"Monitoring failed: {e}")
             return 1
     
     def _handle_cleanup(self, args) -> int:
         """Handle cleanup command."""
-        logger.info("Cleaning up failed analysis")
+        log_universal('INFO', 'CLI', 'Cleaning up failed analysis')
         
         try:
             # Clean up failed files using the analysis manager
             cleaned_count = self.analysis_manager.cleanup_failed_analysis(max_retries=args.max_retries)
-            logger.info(f"Cleaned up {cleaned_count} failed files")
+            log_universal('INFO', 'CLI', f"Cleaned up {cleaned_count} failed files")
             
             return 0
             
         except Exception as e:
-            logger.error(f"Cleanup failed: {e}")
+            log_universal('ERROR', 'CLI', f"Cleanup failed: {e}")
             return 1
     
     def _handle_playlist(self, args) -> int:
         """Handle playlist command."""
-        logger.info(f"Generating playlists using method: {args.method}")
+        log_universal('INFO', 'Playlist', f"Generating playlists using method: {args.method}")
         
         try:
             # Generate playlists
@@ -602,32 +602,32 @@ Examples:
                 min_tracks_per_genre=args.min_tracks_per_genre
             )
             
-            logger.info(f"Generated {len(playlists)} playlists")
+            log_universal('INFO', 'Playlist', f"Generated {len(playlists)} playlists")
             
             # Show playlist statistics
             stats = self.playlist_generator.get_playlist_statistics(playlists)
-            logger.info("Playlist Statistics:")
+            log_universal('INFO', 'Playlist', "Playlist Statistics:")
             for key, value in stats.items():
-                logger.info(f"  {key}: {value}")
+                log_universal('INFO', 'Playlist', f"  {key}: {value}")
             
             # Save playlists if requested
             if args.save:
                 success = self.playlist_generator.save_playlists(playlists, args.output_dir)
                 if success:
-                    logger.info(f"Playlists saved to {args.output_dir}")
+                    log_universal('INFO', 'Playlist', f"Playlists saved to {args.output_dir}")
                 else:
-                    logger.error("Failed to save playlists")
+                    log_universal('ERROR', 'Playlist', "Failed to save playlists")
                     return 1
             
             return 0
             
         except Exception as e:
-            logger.error(f"Playlist generation failed: {e}")
+            log_universal('ERROR', 'Playlist', f"Playlist generation failed: {e}")
             return 1
     
     def _handle_playlist_methods(self, args) -> int:
         """Handle playlist-methods command."""
-        logger.info("Available playlist generation methods:")
+        log_universal('INFO', 'Playlist', "Available playlist generation methods:")
         
         methods = [
             ("kmeans", "K-means clustering based on audio features"),
@@ -646,13 +646,13 @@ Examples:
         ]
         
         for method, description in methods:
-            logger.info(f"  {method}: {description}")
+            log_universal('INFO', 'Playlist', f"  {method}: {description}")
         
         return 0
     
     def _handle_discover(self, args) -> int:
         """Handle discover command."""
-        logger.info(f"Discovering audio files in: {args.path}")
+        log_universal('INFO', 'FileDiscovery', f"Discovering audio files in: {args.path}")
         
         try:
             # Use file discovery directly
@@ -662,82 +662,82 @@ Examples:
             # Discover files
             files = file_discovery.discover_files()
             
-            logger.info(f"Discovered {len(files)} audio files")
+            log_universal('INFO', 'FileDiscovery', f"Discovered {len(files)} audio files")
             
             # Save discovered files to database
             if files:
                 stats = file_discovery.save_discovered_files_to_db(files)
-                logger.info(f"Database save results:")
-                logger.info(f"  New files: {stats['new']}")
-                logger.info(f"  Updated files: {stats['updated']}")
-                logger.info(f"  Unchanged files: {stats['unchanged']}")
-                logger.info(f"  Errors: {stats['errors']}")
+                log_universal('INFO', 'FileDiscovery', f"Database save results:")
+                log_universal('INFO', 'FileDiscovery', f"  New files: {stats['new']}")
+                log_universal('INFO', 'FileDiscovery', f"  Updated files: {stats['updated']}")
+                log_universal('INFO', 'FileDiscovery', f"  Unchanged files: {stats['unchanged']}")
+                log_universal('INFO', 'FileDiscovery', f"  Errors: {stats['errors']}")
             
             # Show file details
             for file_path in files[:10]:  # Show first 10 files
-                logger.info(f"  {file_path}")
+                log_universal('INFO', 'FileDiscovery', f"  {file_path}")
             
             if len(files) > 10:
-                logger.info(f"  ... and {len(files) - 10} more files")
+                log_universal('INFO', 'FileDiscovery', f"  ... and {len(files) - 10} more files")
             
             return 0
             
         except Exception as e:
-            logger.error(f"File discovery failed: {e}")
+            log_universal('ERROR', 'FileDiscovery', f"File discovery failed: {e}")
             return 1
     
     def _handle_enrich(self, args) -> int:
         """Handle enrich command."""
-        logger.info("Enriching metadata")
+        log_universal('INFO', 'Enrichment', 'Enriching metadata')
         
         try:
             # For now, just show a placeholder message
             # This would need to be implemented in the analysis manager
-            logger.info("️ Metadata enrichment not yet implemented")
-            logger.info("  This feature requires external API integration")
-            logger.info("  (MusicBrainz, Last.fm, etc.)")
+            log_universal('INFO', 'Enrichment', "️ Metadata enrichment not yet implemented")
+            log_universal('INFO', 'Enrichment', "  This feature requires external API integration")
+            log_universal('INFO', 'Enrichment', "  (MusicBrainz, Last.fm, etc.)")
             
             return 0
             
         except Exception as e:
-            logger.error(f"Metadata enrichment failed: {e}")
+            log_universal('ERROR', 'Enrichment', f"Metadata enrichment failed: {e}")
             return 1
     
     def _handle_export(self, args) -> int:
         """Handle export command."""
-        logger.info(f"Exporting playlists in {args.format} format")
+        log_universal('INFO', 'Export', f"Exporting playlists in {args.format} format")
         
         try:
             # For now, just show a placeholder message
             # This would need to be implemented in the playlist generator
-            logger.info("️ Export functionality not yet implemented")
-            logger.info("  This feature requires playlist export methods")
-            logger.info(f"  Format: {args.format}")
-            logger.info(f"  File: {args.playlist_file}")
+            log_universal('INFO', 'Export', "️ Export functionality not yet implemented")
+            log_universal('INFO', 'Export', "  This feature requires playlist export methods")
+            log_universal('INFO', 'Export', f"  Format: {args.format}")
+            log_universal('INFO', 'Export', f"  File: {args.playlist_file}")
             
             return 0
             
         except Exception as e:
-            logger.error(f"Export failed: {e}")
+            log_universal('ERROR', 'Export', f"Export failed: {e}")
             return 1
     
     def _handle_status(self, args) -> int:
         """Handle status command."""
-        logger.info("Showing system status")
+        log_universal('INFO', 'CLI', 'Showing system status')
         
         try:
             # Database status (using available methods)
             db_stats = self.db_manager.get_database_statistics()
-            logger.info("Database Status:")
+            log_universal('INFO', 'Database', "Database Status:")
             for key, value in db_stats.items():
-                logger.info(f"  {key}: {value}")
+                log_universal('INFO', 'Database', f"  {key}: {value}")
             
             # System status
             system_status = self.resource_manager.get_current_resources()
-            logger.info("System Status:")
-            logger.info(f"  Memory: {system_status['memory']['percent']:.1f}%")
-            logger.info(f"  CPU: {system_status['cpu_percent']:.1f}%")
-            logger.info(f"  Disk: {system_status['disk']['percent']:.1f}%")
+            log_universal('INFO', 'System', "System Status:")
+            log_universal('INFO', 'System', f"  Memory: {system_status['memory']['percent']:.1f}%")
+            log_universal('INFO', 'System', f"  CPU: {system_status['cpu_percent']:.1f}%")
+            log_universal('INFO', 'System', f"  Disk: {system_status['disk']['percent']:.1f}%")
             
             # Detailed status if requested
             if args.detailed:
@@ -754,18 +754,18 @@ Examples:
             return 0
             
         except Exception as e:
-            logger.error(f"Error getting status: {e}")
+            log_universal('ERROR', 'CLI', f"Error getting status: {e}")
             return 1
     
     def _handle_pipeline(self, args) -> int:
         """Handle pipeline command."""
-        logger.info("Running full pipeline")
+        log_universal('INFO', 'CLI', 'Running full pipeline')
         
         try:
             # For now, just run analysis and playlist generation separately
             # This would need to be implemented as a full pipeline
-            logger.info("️ Full pipeline not yet implemented")
-            logger.info("  Running analysis and playlist generation separately")
+            log_universal('INFO', 'Pipeline', "️ Full pipeline not yet implemented")
+            log_universal('INFO', 'Pipeline', "  Running analysis and playlist generation separately")
             
             # Run analysis
             files = self.analysis_manager.select_files_for_analysis(
@@ -779,7 +779,7 @@ Examples:
                     files=files,
                     force_reextract=args.force
                 )
-                logger.info(f"Analysis completed: {results.get('success_count', 0)} files processed")
+                log_universal('INFO', 'Analysis', f"Analysis completed: {results.get('success_count', 0)} files processed")
             
             # Generate playlists if requested
             if args.generate:
@@ -788,50 +788,50 @@ Examples:
                     num_playlists=5,
                     playlist_size=20
                 )
-                logger.info(f"Generated {len(playlists)} playlists")
+                log_universal('INFO', 'Playlist', f"Generated {len(playlists)} playlists")
             
             # Export if requested
             if args.export:
-                logger.info("️ Export functionality not yet implemented")
+                log_universal('INFO', 'Export', "️ Export functionality not yet implemented")
             
             return 0
             
         except Exception as e:
-            logger.error(f"Pipeline failed: {e}")
+            log_universal('ERROR', 'Pipeline', f"Pipeline failed: {e}")
             return 1
     
     def _handle_config(self, args) -> int:
         """Handle config command."""
-        logger.info("Showing configuration information")
+        log_universal('INFO', 'Config', 'Showing configuration information')
         
         try:
             # Show configuration
             if args.json:
                 config_json = json.dumps(self.config, indent=2)
-                logger.info(config_json)
+                log_universal('INFO', 'Config', config_json)
             else:
-                logger.info("Configuration:")
+                log_universal('INFO', 'Config', "Configuration:")
                 for key, value in self.config.items():
-                    logger.info(f"  {key}: {value}")
+                    log_universal('INFO', 'Config', f"  {key}: {value}")
             
             # Validate configuration if requested
             if args.validate:
                 is_valid = self._validate_configuration()
                 if is_valid:
-                    logger.info("Configuration is valid")
+                    log_universal('INFO', 'Config', "Configuration is valid")
                 else:
-                    logger.error("Configuration has issues")
+                    log_universal('ERROR', 'Config', "Configuration has issues")
                     return 1
             
             # Reload configuration if requested
             if args.reload:
                 self.config = config_loader.load_config()
-                logger.info("Configuration reloaded")
+                log_universal('INFO', 'Config', "Configuration reloaded")
             
             return 0
             
         except Exception as e:
-            logger.error(f"Configuration error: {e}")
+            log_universal('ERROR', 'Config', f"Configuration error: {e}")
             return 1
     
     def _build_analysis_config(self, args) -> Dict[str, Any]:
@@ -876,25 +876,25 @@ Examples:
     
     def _show_detailed_statistics(self):
         """Show detailed statistics."""
-        logger.info("Detailed Statistics:")
+        log_universal('INFO', 'CLI', "Detailed Statistics:")
         # Implementation for detailed statistics
         pass
     
     def _show_failed_files(self):
         """Show failed files."""
-        logger.info("Failed Files:")
+        log_universal('INFO', 'CLI', "Failed Files:")
         # Implementation for failed files
         pass
     
     def _show_memory_usage(self):
         """Show memory usage."""
-        logger.info("Memory Usage:")
+        log_universal('INFO', 'CLI', "Memory Usage:")
         # Implementation for memory usage
         pass
     
     def _show_detailed_status(self):
         """Show detailed status."""
-        logger.info("Detailed Status:")
+        log_universal('INFO', 'CLI', "Detailed Status:")
         # Implementation for detailed status
         pass
     
@@ -905,12 +905,12 @@ Examples:
             required_keys = ['MEMORY_LIMIT_GB', 'CPU_THRESHOLD_PERCENT']
             for key in required_keys:
                 if key not in self.config:
-                    logger.error(f"Missing required configuration key: {key}")
+                    log_universal('ERROR', 'Config', f"Missing required configuration key: {key}")
                     return False
             
             return True
         except Exception as e:
-            logger.error(f"Configuration validation failed: {e}")
+            log_universal('ERROR', 'Config', f"Configuration validation failed: {e}")
             return False
 
 

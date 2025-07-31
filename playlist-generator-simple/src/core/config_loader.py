@@ -8,7 +8,10 @@ import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+# Import universal logging
+from .logging_setup import get_logger, log_universal
+
+logger = get_logger(__name__)
 
 
 class ConfigLoader:
@@ -33,7 +36,7 @@ class ConfigLoader:
         Returns:
             Dictionary with configuration settings
         """
-        logger.info(f"Loading configuration from: {self.config_file}")
+        log_universal('INFO', 'Config', f'Loading configuration from: {self.config_file}')
         
         # Load from file
         file_config = self._load_from_file()
@@ -47,12 +50,11 @@ class ConfigLoader:
         # Validate configuration
         validation_result = self._validate_configuration()
         if not validation_result['valid']:
-            logger.warning("Configuration validation warnings:")
+            log_universal('WARNING', 'Config', 'Configuration validation warnings:')
             for warning in validation_result['warnings']:
-                logger.warning(f"  {warning}")
+                log_universal('WARNING', 'Config', f'  {warning}')
         
-        logger.info("Configuration loaded successfully")
-        logger.debug(f"Configuration: {self.config}")
+        log_universal('INFO', 'Config', 'Configuration loaded successfully')
         
         return self.config
     
@@ -66,7 +68,7 @@ class ConfigLoader:
         config = {}
         
         if not os.path.exists(self.config_file):
-            logger.warning(f"Configuration file not found: {self.config_file}")
+            log_universal('WARNING', 'Config', f'Configuration file not found: {self.config_file}')
             return config
         
         try:
@@ -90,11 +92,9 @@ class ConfigLoader:
                         
                         # Convert value types
                         config[key] = self._convert_value(value)
-                        
-                        logger.debug(f"Loaded config: {key} = {config[key]}")
         
         except Exception as e:
-            logger.error(f"Error reading configuration file: {e}")
+            log_universal('ERROR', 'Config', f'Error reading configuration file: {e}')
         
         return config
     

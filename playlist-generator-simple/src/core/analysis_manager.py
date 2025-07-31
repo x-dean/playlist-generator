@@ -13,7 +13,7 @@ from pathlib import Path
 
 # Import local modules
 from .database import DatabaseManager
-from .logging_setup import get_logger, log_function_call, log_performance, log_analysis_operation, log_resource_decision
+from .logging_setup import get_logger, log_function_call, log_universal
 from .file_discovery import FileDiscovery
 from .progress_bar import get_progress_bar
 
@@ -193,16 +193,13 @@ class AnalysisManager:
                             failed_count += 1
             
             select_time = time.time() - start_time
-            logger.info(f"File selection completed in {select_time:.2f}s")
+            log_universal('INFO', 'Analysis', f"File selection completed in {select_time:.2f}s")
             logger.info(f"Selected {len(files_to_analyze)} files for analysis")
             logger.info(f"⏭️ Skipped {skipped_count} files (already analyzed)")
             logger.info(f"Previously failed: {failed_count} files")
             
             # Log performance
-            log_performance("File selection", select_time, 
-                          total_files=len(audio_files),
-                          selected_files=len(files_to_analyze),
-                          skipped_files=skipped_count)
+            log_universal('INFO', 'Analysis', f"File selection completed in {select_time:.2f}s")
             
             return files_to_analyze
             
@@ -285,13 +282,9 @@ class AnalysisManager:
                 analysis_config = self._determine_deterministic_analysis_type(file_path, file_size_mb)
             
             # Log the analysis decision with enhanced details
-            log_analysis_operation(
-                operation="determine_analysis_type",
-                file_path=file_path,
-                file_size_mb=file_size_mb,
-                analysis_type=analysis_config['analysis_type'],
-                success=True,
-                reason=analysis_config.get('reason', 'Unknown')
+            log_universal(
+                'INFO', 'Analysis',
+                f"Determined analysis type for {file_path}: {analysis_config['analysis_type']}"
             )
             
             return analysis_config
@@ -300,13 +293,9 @@ class AnalysisManager:
             logger.warning(f"Error determining analysis type for {file_path}: {e}")
             
             # Log the error
-            log_analysis_operation(
-                operation="determine_analysis_type",
-                file_path=file_path,
-                file_size_mb=0,
-                analysis_type='basic',
-                success=False,
-                error=str(e)
+            log_universal(
+                'WARNING', 'Analysis',
+                f"Error determining analysis type for {file_path}: {e}"
             )
             
             # Default to basic analysis on error
@@ -363,31 +352,46 @@ class AnalysisManager:
         # Check if file meets minimum size for full analysis
         if file_size_mb < self.min_full_analysis_size_mb:
             reason = "File too small for full analysis"
-            log_resource_decision(file_path, file_size_mb, 'basic', reason, memory_available_gb, cpu_percent, forced=False)
+            log_universal(
+                'INFO', 'Analysis',
+                f"Smart analysis: File {file_size_mb:.1f}MB, Memory {memory_available_gb:.1f}GB, CPU {cpu_percent:.1f}%, Reason: {reason}"
+            )
             return self._create_basic_analysis_config(file_size_mb, reason)
         
         # Check memory constraints
         if memory_available_gb < self.min_memory_for_full_analysis_gb:
             reason = f"Insufficient memory: {memory_available_gb:.1f}GB < {self.min_memory_for_full_analysis_gb}GB"
-            log_resource_decision(file_path, file_size_mb, 'basic', reason, memory_available_gb, cpu_percent, forced=True)
+            log_universal(
+                'WARNING', 'Analysis',
+                f"Smart analysis: File {file_size_mb:.1f}MB, Memory {memory_available_gb:.1f}GB, CPU {cpu_percent:.1f}%, Reason: {reason}"
+            )
             return self._create_basic_analysis_config(file_size_mb, reason)
         
         # Check CPU constraints
         if cpu_percent > self.max_cpu_for_full_analysis_percent:
             reason = f"High CPU usage: {cpu_percent:.1f}% > {self.max_cpu_for_full_analysis_percent}%"
-            log_resource_decision(file_path, file_size_mb, 'basic', reason, memory_available_gb, cpu_percent, forced=True)
+            log_universal(
+                'WARNING', 'Analysis',
+                f"Smart analysis: File {file_size_mb:.1f}MB, Memory {memory_available_gb:.1f}GB, CPU {cpu_percent:.1f}%, Reason: {reason}"
+            )
             return self._create_basic_analysis_config(file_size_mb, reason)
         
         # Check file size constraints
         max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 100)
         if file_size_mb > max_full_analysis_size_mb:
             reason = f"File too large: {file_size_mb:.1f}MB > {max_full_analysis_size_mb}MB"
-            log_resource_decision(file_path, file_size_mb, 'basic', reason, memory_available_gb, cpu_percent, forced=False)
+            log_universal(
+                'INFO', 'Analysis',
+                f"Smart analysis: File {file_size_mb:.1f}MB, Memory {memory_available_gb:.1f}GB, CPU {cpu_percent:.1f}%, Reason: {reason}"
+            )
             return self._create_basic_analysis_config(file_size_mb, reason)
         
         # All checks passed - use full analysis
         reason = f"Smart analysis: File {file_size_mb:.1f}MB, Memory {memory_available_gb:.1f}GB, CPU {cpu_percent:.1f}%"
-        log_resource_decision(file_path, file_size_mb, 'full', reason, memory_available_gb, cpu_percent, forced=False)
+        log_universal(
+            'INFO', 'Analysis',
+            f"Smart analysis: File {file_size_mb:.1f}MB, Memory {memory_available_gb:.1f}GB, CPU {cpu_percent:.1f}%, Reason: {reason}"
+        )
         
         features_config = {
             'extract_rhythm': True,
@@ -492,14 +496,12 @@ class AnalysisManager:
         
         # Note: Individual analyzers handle their own progress bars
         
+        log_universal('INFO', 'Analysis', f"File analysis completed in {total_time:.2f}s")
         logger.info(f"Analysis completed in {total_time:.2f}s")
         logger.info(f"Results: {results['success_count']} successful, {results['failed_count']} failed")
         
         # Log performance
-        log_performance("File analysis", total_time,
-                       total_files=len(files),
-                       success_count=results['success_count'],
-                       failed_count=results['failed_count'])
+        log_universal('INFO', 'Analysis', f"File analysis completed in {total_time:.2f}s")
         
         return results
 

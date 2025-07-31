@@ -27,7 +27,7 @@ try:
 except ImportError:
     LIBROSA_AVAILABLE = False
 
-from .logging_setup import get_logger
+from .logging_setup import get_logger, log_universal
 
 logger = get_logger('playlista.cpu_optimizer')
 
@@ -80,23 +80,23 @@ class CPUOptimizedAnalyzer:
         self.pool = None
         self._init_processing_pool()
         
-        logger.info(f"CPU-Optimized Analyzer initialized:")
-        logger.info(f"  Workers: {self.num_workers}")
-        logger.info(f"  Sample rate: {self.sample_rate}Hz")
-        logger.info(f"  Mel bins: {self.n_mels}")
-        logger.info(f"  FFT size: {self.n_fft}")
-        logger.info(f"  Hop length: {self.hop_length}")
+        log_universal('INFO', 'CPU Optimizer', 'CPU-Optimized Analyzer initialized:')
+        log_universal('INFO', 'CPU Optimizer', f'  Workers: {self.num_workers}')
+        log_universal('INFO', 'CPU Optimizer', f'  Sample rate: {self.sample_rate}Hz')
+        log_universal('INFO', f'  Mel bins: {self.n_mels}')
+        log_universal('INFO', 'CPU Optimizer', f'  FFT size: {self.n_fft}')
+        log_universal('INFO', 'CPU Optimizer', f'  Hop length: {self.hop_length}')
     
     def _init_processing_pool(self):
         """Initialize multiprocessing pool."""
         try:
             if self.num_workers > 1:
                 self.pool = mp.Pool(processes=self.num_workers)
-                logger.info(f"Initialized processing pool with {self.num_workers} workers")
+                log_universal('INFO', 'CPU Optimizer', f'Initialized processing pool with {self.num_workers} workers')
             else:
-                logger.info("ℹ️ Using single-threaded processing")
+                log_universal('INFO', 'CPU Optimizer', 'Using single-threaded processing')
         except Exception as e:
-            logger.warning(f"️ Could not initialize processing pool: {e}")
+            log_universal('WARNING', 'CPU Optimizer', f'Could not initialize processing pool: {e}')
             self.pool = None
     
     def extract_melspectrograms_batch(self, audio_files: List[str]) -> List[np.ndarray]:

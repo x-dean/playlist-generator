@@ -15,7 +15,7 @@ from datetime import datetime
 from collections import defaultdict
 
 # Import local modules
-from .logging_setup import get_logger, log_function_call
+from .logging_setup import get_logger, log_function_call, log_universal
 from .database import DatabaseManager
 
 logger = get_logger('playlista.playlist_generator')
@@ -115,9 +115,9 @@ class PlaylistGenerator:
         # Initialize generation methods
         self._init_generation_methods()
         
-        logger.info(f"Initializing PlaylistGenerator")
-        logger.debug(f"Playlist configuration: {config}")
-        logger.info(f"PlaylistGenerator initialized successfully")
+        log_universal('INFO', 'Playlist', f"Initializing PlaylistGenerator")
+        log_universal('DEBUG', 'Playlist', f"Playlist configuration: {config}")
+        log_universal('INFO', 'Playlist', f"PlaylistGenerator initialized successfully")
     
     def _init_generation_methods(self):
         """Initialize all playlist generation methods."""
@@ -133,10 +133,10 @@ class PlaylistGenerator:
             self.cache_generator = CacheBasedPlaylistGenerator(self.db_manager)
             self.feature_group_generator = FeatureGroupPlaylistGenerator(self.db_manager)
             
-            logger.debug("All playlist generation methods initialized")
+            log_universal('DEBUG', 'Playlist', "All playlist generation methods initialized")
             
         except Exception as e:
-            logger.error(f"Error initializing playlist generators: {e}")
+            log_universal('ERROR', 'Playlist', f"Error initializing playlist generators: {e}")
             raise
     
     @log_function_call
@@ -154,17 +154,17 @@ class PlaylistGenerator:
         Returns:
             Dictionary of playlist names to Playlist objects
         """
-        logger.info(f"Starting playlist generation with method: {method}")
+        log_universal('INFO', 'Playlist', f"Starting playlist generation with method: {method}")
         
         try:
             # Get analyzed tracks from database
             tracks = self.db_manager.get_analyzed_tracks()
             
             if not tracks:
-                logger.warning("No analyzed tracks found in database")
+                log_universal('WARNING', 'Playlist', "No analyzed tracks found in database")
                 return {}
             
-            logger.info(f"Found {len(tracks)} analyzed tracks")
+            log_universal('INFO', 'Playlist', f"Found {len(tracks)} analyzed tracks")
             
             # Set defaults
             num_playlists = num_playlists or self.max_playlists
@@ -195,59 +195,59 @@ class PlaylistGenerator:
             # Optimize and finalize playlists
             final_playlists = self._optimize_playlists(playlists, tracks)
             
-            logger.info(f"Generated {len(final_playlists)} playlists")
+            log_universal('INFO', 'Playlist', f"Generated {len(final_playlists)} playlists")
             return final_playlists
             
         except Exception as e:
-            logger.error(f"Playlist generation failed: {e}")
+            log_universal('ERROR', 'Playlist', f"Playlist generation failed: {e}")
             return {}
     
     def _generate_kmeans_playlists(self, tracks: List[Dict], num_playlists: int, 
                                   playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using K-means clustering."""
-        logger.info(f"Generating {num_playlists} K-means playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} K-means playlists")
         return self.kmeans_generator.generate(tracks, num_playlists, playlist_size)
     
     def _generate_similarity_playlists(self, tracks: List[Dict], num_playlists: int, 
                                      playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using similarity-based selection."""
-        logger.info(f"Generating {num_playlists} similarity-based playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} similarity-based playlists")
         return self.similarity_generator.generate(tracks, num_playlists, playlist_size)
     
     def _generate_random_playlists(self, tracks: List[Dict], num_playlists: int, 
                                  playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using random selection."""
-        logger.info(f"Generating {num_playlists} random playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} random playlists")
         return self.random_generator.generate(tracks, num_playlists, playlist_size)
     
     def _generate_time_based_playlists(self, tracks: List[Dict], num_playlists: int, 
                                      playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using time-based scheduling."""
-        logger.info(f"Generating {num_playlists} time-based playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} time-based playlists")
         return self.time_generator.generate(tracks, num_playlists, playlist_size)
     
     def _generate_tag_based_playlists(self, tracks: List[Dict], num_playlists: int, 
                                     playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using tag-based selection."""
-        logger.info(f"Generating {num_playlists} tag-based playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} tag-based playlists")
         return self.tag_generator.generate(tracks, num_playlists, playlist_size)
     
     def _generate_cache_based_playlists(self, tracks: List[Dict], num_playlists: int, 
                                       playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using cache-based selection."""
-        logger.info(f"Generating {num_playlists} cache-based playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} cache-based playlists")
         return self.cache_generator.generate(tracks, num_playlists, playlist_size)
     
     def _generate_feature_group_playlists(self, tracks: List[Dict], num_playlists: int, 
                                         playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using feature group selection."""
-        logger.info(f"Generating {num_playlists} feature group playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} feature group playlists")
         return self.feature_group_generator.generate(tracks, num_playlists, playlist_size)
     
     def _generate_mixed_playlists(self, tracks: List[Dict], num_playlists: int, 
                                 playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using mixed approach."""
-        logger.info(f"Generating {num_playlists} mixed playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} mixed playlists")
         
         # Combine multiple methods
         playlists = {}
@@ -265,7 +265,7 @@ class PlaylistGenerator:
     def _generate_all_playlists(self, tracks: List[Dict], num_playlists: int, 
                                playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using all available methods."""
-        logger.info(f"Generating playlists using all methods")
+        log_universal('INFO', 'Playlist', f"Generating playlists using all methods")
         
         all_playlists = {}
         
@@ -287,7 +287,7 @@ class PlaylistGenerator:
                 method_playlists = self.generate_playlists(method, playlists_per_method, playlist_size)
                 all_playlists.update(method_playlists)
             except Exception as e:
-                logger.warning(f"️ Failed to generate playlists with method {method}: {e}")
+                log_universal('WARNING', 'Playlist', f"️ Failed to generate playlists with method {method}: {e}")
         
         return all_playlists
     
@@ -303,7 +303,7 @@ class PlaylistGenerator:
         Returns:
             Optimized playlists dictionary
         """
-        logger.debug("Optimizing playlists")
+        log_universal('DEBUG', 'Playlist', "Optimizing playlists")
         
         if not playlists:
             return playlists
@@ -317,7 +317,7 @@ class PlaylistGenerator:
         # Ensure minimum playlist sizes
         self._ensure_minimum_sizes(playlists, tracks)
         
-        logger.debug(f"Optimized {len(playlists)} playlists")
+        log_universal('DEBUG', 'Playlist', f"Optimized {len(playlists)} playlists")
         return playlists
     
     def _balance_playlist_sizes(self, playlists: Dict[str, Playlist], tracks: List[Dict]):
@@ -423,7 +423,7 @@ class PlaylistGenerator:
                     for track in playlist.tracks:
                         f.write(f"{track}\n")
                 
-                logger.debug(f"Saved playlist '{name}' to {playlist_file}")
+                log_universal('DEBUG', 'Playlist', f"Saved playlist '{name}' to {playlist_file}")
             
             # Save playlist metadata
             metadata_file = os.path.join(output_dir, "playlists_metadata.json")
@@ -436,11 +436,11 @@ class PlaylistGenerator:
             with open(metadata_file, 'w', encoding='utf-8') as f:
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
             
-            logger.info(f"Saved {len(playlists)} playlists to {output_dir}")
+            log_universal('INFO', 'Playlist', f"Saved {len(playlists)} playlists to {output_dir}")
             return True
             
         except Exception as e:
-            logger.error(f"Error saving playlists: {e}")
+            log_universal('ERROR', 'Playlist', f"Error saving playlists: {e}")
             return False
     
     def get_playlist_statistics(self, playlists: Dict[str, Playlist]) -> Dict[str, Any]:
@@ -498,14 +498,14 @@ class KMeansPlaylistGenerator(BasePlaylistGenerator):
     
     def generate(self, tracks: List[Dict], num_playlists: int, playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using K-means clustering."""
-        self.logger.info(f"Generating {num_playlists} K-means playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} K-means playlists")
         
         try:
             # Extract features for clustering
             features = self._extract_features(tracks)
             
             if len(features) < num_playlists:
-                self.logger.warning(f"️ Not enough tracks for {num_playlists} playlists")
+                log_universal('WARNING', 'Playlist', f"️ Not enough tracks for {num_playlists} playlists")
                 num_playlists = max(1, len(features) // 2)
             
             # Perform K-means clustering
@@ -536,11 +536,11 @@ class KMeansPlaylistGenerator(BasePlaylistGenerator):
                     
                     playlists[playlist_name] = playlist
             
-            self.logger.info(f"Generated {len(playlists)} K-means playlists")
+            log_universal('INFO', 'Playlist', f"Generated {len(playlists)} K-means playlists")
             return playlists
             
         except Exception as e:
-            self.logger.error(f"K-means playlist generation failed: {e}")
+            log_universal('ERROR', 'Playlist', f"K-means playlist generation failed: {e}")
             return {}
     
     def _extract_features(self, tracks: List[Dict]) -> List[Dict]:
@@ -580,7 +580,7 @@ class SimilarityPlaylistGenerator(BasePlaylistGenerator):
     
     def generate(self, tracks: List[Dict], num_playlists: int, playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using similarity-based selection."""
-        self.logger.info(f"Generating {num_playlists} similarity-based playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} similarity-based playlists")
         
         try:
             playlists = {}
@@ -609,11 +609,11 @@ class SimilarityPlaylistGenerator(BasePlaylistGenerator):
                 
                 playlists[playlist_name] = playlist
             
-            self.logger.info(f"Generated {len(playlists)} similarity-based playlists")
+            log_universal('INFO', 'Playlist', f"Generated {len(playlists)} similarity-based playlists")
             return playlists
             
         except Exception as e:
-            self.logger.error(f"Similarity-based playlist generation failed: {e}")
+            log_universal('ERROR', 'Playlist', f"Similarity-based playlist generation failed: {e}")
             return {}
     
     def _find_most_similar(self, reference_track: Dict, candidate_tracks: List[Dict]) -> Optional[Dict]:
@@ -666,7 +666,7 @@ class RandomPlaylistGenerator(BasePlaylistGenerator):
     
     def generate(self, tracks: List[Dict], num_playlists: int, playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using random selection."""
-        self.logger.info(f"Generating {num_playlists} random playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} random playlists")
         
         try:
             playlists = {}
@@ -683,11 +683,11 @@ class RandomPlaylistGenerator(BasePlaylistGenerator):
                 
                 playlists[playlist_name] = playlist
             
-            self.logger.info(f"Generated {len(playlists)} random playlists")
+            log_universal('INFO', 'Playlist', f"Generated {len(playlists)} random playlists")
             return playlists
             
         except Exception as e:
-            self.logger.error(f"Random playlist generation failed: {e}")
+            log_universal('ERROR', 'Playlist', f"Random playlist generation failed: {e}")
             return {}
 
 
@@ -697,7 +697,7 @@ class TimeBasedPlaylistGenerator(BasePlaylistGenerator):
     
     def generate(self, tracks: List[Dict], num_playlists: int, playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using time-based scheduling."""
-        self.logger.info(f"Generating {num_playlists} time-based playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} time-based playlists")
         
         try:
             playlists = {}
@@ -722,11 +722,11 @@ class TimeBasedPlaylistGenerator(BasePlaylistGenerator):
                 
                 playlists[playlist_name] = playlist
             
-            self.logger.info(f"Generated {len(playlists)} time-based playlists")
+            log_universal('INFO', 'Playlist', f"Generated {len(playlists)} time-based playlists")
             return playlists
             
         except Exception as e:
-            self.logger.error(f"Time-based playlist generation failed: {e}")
+            log_universal('ERROR', 'Playlist', f"Time-based playlist generation failed: {e}")
             return {}
     
     def _select_tracks_for_time(self, tracks: List[Dict], start_hour: int, end_hour: int) -> List[Dict]:
@@ -764,7 +764,7 @@ class TagBasedPlaylistGenerator(BasePlaylistGenerator):
     
     def generate(self, tracks: List[Dict], num_playlists: int, playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using tag-based selection."""
-        self.logger.info(f"Generating {num_playlists} tag-based playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} tag-based playlists")
         
         try:
             playlists = {}
@@ -785,11 +785,11 @@ class TagBasedPlaylistGenerator(BasePlaylistGenerator):
                 
                 playlists[playlist_name] = playlist
             
-            self.logger.info(f"Generated {len(playlists)} tag-based playlists")
+            log_universal('INFO', 'Playlist', f"Generated {len(playlists)} tag-based playlists")
             return playlists
             
         except Exception as e:
-            self.logger.error(f"Tag-based playlist generation failed: {e}")
+            log_universal('ERROR', 'Playlist', f"Tag-based playlist generation failed: {e}")
             return {}
     
     def _group_tracks_by_tags(self, tracks: List[Dict]) -> Dict[str, List[Dict]]:
@@ -835,7 +835,7 @@ class CacheBasedPlaylistGenerator(BasePlaylistGenerator):
     
     def generate(self, tracks: List[Dict], num_playlists: int, playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using cache-based selection."""
-        self.logger.info(f"Generating {num_playlists} cache-based playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} cache-based playlists")
         
         try:
             playlists = {}
@@ -861,11 +861,11 @@ class CacheBasedPlaylistGenerator(BasePlaylistGenerator):
                 random_generator = RandomPlaylistGenerator(self.db_manager)
                 playlists = random_generator.generate(tracks, num_playlists, playlist_size)
             
-            self.logger.info(f"Generated {len(playlists)} cache-based playlists")
+            log_universal('INFO', 'Playlist', f"Generated {len(playlists)} cache-based playlists")
             return playlists
             
         except Exception as e:
-            self.logger.error(f"Cache-based playlist generation failed: {e}")
+            log_universal('ERROR', 'Playlist', f"Cache-based playlist generation failed: {e}")
             return {}
     
     def _select_tracks_for_cached_playlist(self, tracks: List[Dict], cached_playlist: Dict) -> List[Dict]:
@@ -893,7 +893,7 @@ class FeatureGroupPlaylistGenerator(BasePlaylistGenerator):
     
     def generate(self, tracks: List[Dict], num_playlists: int, playlist_size: int) -> Dict[str, Playlist]:
         """Generate playlists using feature group selection."""
-        self.logger.info(f"Generating {num_playlists} feature group playlists")
+        log_universal('INFO', 'Playlist', f"Generating {num_playlists} feature group playlists")
         
         try:
             playlists = {}
@@ -914,11 +914,11 @@ class FeatureGroupPlaylistGenerator(BasePlaylistGenerator):
                 
                 playlists[playlist_name] = playlist
             
-            self.logger.info(f"Generated {len(playlists)} feature group playlists")
+            log_universal('INFO', 'Playlist', f"Generated {len(playlists)} feature group playlists")
             return playlists
             
         except Exception as e:
-            self.logger.error(f"Feature group playlist generation failed: {e}")
+            log_universal('ERROR', 'Playlist', f"Feature group playlist generation failed: {e}")
             return {}
     
     def _group_tracks_by_features(self, tracks: List[Dict]) -> Dict[str, List[Dict]]:

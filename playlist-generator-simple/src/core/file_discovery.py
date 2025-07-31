@@ -12,7 +12,7 @@ from datetime import datetime
 
 # Import configuration loader and logging
 from .config_loader import config_loader
-from .logging_setup import get_logger, log_function_call, log_performance
+from .logging_setup import get_logger, log_function_call, log_universal
 from .database import get_db_manager
 
 logger = get_logger('playlista.file_discovery')
@@ -59,15 +59,15 @@ class FileDiscovery:
         self.current_files = set()
         
         # Database manager is already initialized globally
-        logger.info(f"FileDiscovery initialized with config:")
-        logger.info(f"  Music directory: {self.music_dir} (fixed)")
-        logger.info(f"  Failed directory: {self.failed_dir} (fixed)")
-        logger.info(f"  Database path: {self.db_path} (fixed)")
-        logger.info(f"  Min file size: {self.min_file_size_bytes} bytes")
-        logger.info(f"  Valid extensions: {', '.join(self.valid_extensions)}")
-        logger.info(f"  Hash algorithm: {self.hash_algorithm}")
-        logger.info(f"  Max retry count: {self.max_retry_count}")
-        logger.info(f"  Recursive scan: {self.enable_recursive_scan}")
+        log_universal('INFO', 'FileDiscovery', 'Initialized with config:')
+        log_universal('INFO', 'FileDiscovery', f'  Music directory: {self.music_dir} (fixed)')
+        log_universal('INFO', 'FileDiscovery', f'  Failed directory: {self.failed_dir} (fixed)')
+        log_universal('INFO', 'FileDiscovery', f'  Database path: {self.db_path} (fixed)')
+        log_universal('INFO', 'FileDiscovery', f'  Min file size: {self.min_file_size_bytes} bytes')
+        log_universal('INFO', 'FileDiscovery', f'  Valid extensions: {", ".join(self.valid_extensions)}')
+        log_universal('INFO', 'FileDiscovery', f'  Hash algorithm: {self.hash_algorithm}')
+        log_universal('INFO', 'FileDiscovery', f'  Max retry count: {self.max_retry_count}')
+        log_universal('INFO', 'FileDiscovery', f'  Recursive scan: {self.enable_recursive_scan}')
 
     @log_function_call
     def _get_file_hash(self, filepath: str) -> str:

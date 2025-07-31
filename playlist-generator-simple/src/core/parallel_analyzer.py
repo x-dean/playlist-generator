@@ -18,7 +18,7 @@ if mp.get_start_method(allow_none=True) != 'spawn':
 
 # Import local modules
 from .database import DatabaseManager
-from .logging_setup import get_logger, log_function_call, log_performance, log_worker_performance, log_batch_processing_detailed, log_resource_usage
+from .logging_setup import get_logger, log_function_call, log_universal
 from .resource_manager import ResourceManager
 from .progress_bar import get_progress_bar
 
@@ -62,11 +62,12 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
     
     # Set up logging for worker process
     try:
-        from .logging_setup import get_logger
+        from .logging_setup import get_logger, log_universal
         logger = get_logger('playlista.parallel_worker')
     except ImportError:
         import logging
         logger = logging.getLogger('playlista.parallel_worker')
+        # Fallback to basic logging if universal logging not available
     
     worker_id = f"worker_{threading.current_thread().ident}"
     start_time = time.time()
@@ -78,7 +79,7 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
         
         # Check if file exists
         if not os.path.exists(file_path):
-            logger.warning(f"File not found: {file_path}")
+            log_universal('WARNING', 'Parallel', f'File not found: {file_path}')
             return False
         
         # Get initial resource usage
@@ -148,10 +149,10 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
                     metadata=analysis_result.get('metadata', {})
                 )
                 
-                logger.debug(f"Worker {worker_id} completed: {filename} in {duration:.2f}s")
+                log_universal('INFO', 'Parallel', f'{worker_id} completed: {filename} in {duration:.2f}s')
                 return success
             else:
-                logger.debug(f"Worker {worker_id} completed: {os.path.basename(file_path)} in {duration:.2f}s")
+                log_universal('INFO', 'Parallel', f'{worker_id} completed: {os.path.basename(file_path)} in {duration:.2f}s')
                 return True
         else:
             # Mark as failed
@@ -161,12 +162,12 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
                 filename = os.path.basename(file_path)
                 db_manager.mark_analysis_failed(file_path, filename, "Analysis failed")
             
-            logger.debug(f"Worker {worker_id} failed: {os.path.basename(file_path)}")
+            log_universal('DEBUG', 'Parallel', f"Worker {worker_id} failed: {os.path.basename(file_path)}")
             return False
             
     except TimeoutException:
         duration = time.time() - start_time
-        logger.error(f"⏰ Analysis timed out for {os.path.basename(file_path)}")
+        log_universal('ERROR', 'Parallel', f"⏰ Analysis timed out for {os.path.basename(file_path)}")
         
         if db_path:
             from .database import DatabaseManager
@@ -177,7 +178,7 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
         return False
     except Exception as e:
         duration = time.time() - start_time
-        logger.error(f"Worker {worker_id} error processing {os.path.basename(file_path)}: {e}")
+        log_universal('ERROR', 'Parallel', f"Worker {worker_id} error processing {os.path.basename(file_path)}: {e}")
         
         if db_path:
             from .database import DatabaseManager
@@ -223,9 +224,9 @@ class ParallelAnalyzer:
         self.memory_threshold_percent = memory_threshold_percent or DEFAULT_MEMORY_THRESHOLD_PERCENT
         self.max_workers = max_workers or DEFAULT_MAX_WORKERS
         
-        logger.info(f"Initializing ParallelAnalyzer")
-        logger.debug(f"Timeout: {self.timeout_seconds}s, Memory threshold: {self.memory_threshold_percent}%")
-        logger.info(f"ParallelAnalyzer initialized successfully")
+        log_universal('INFO', 'Parallel', f"Initializing ParallelAnalyzer")
+        log_universal('DEBUG', 'Parallel', f"Timeout: {self.timeout_seconds}s, Memory threshold: {self.memory_threshold_percent}%")
+        log_universal('INFO', 'Parallel', f"ParallelAnalyzer initialized successfully")
 
     @log_function_call
     def process_files(self, files: List[str], force_reextract: bool = False,
@@ -242,16 +243,16 @@ class ParallelAnalyzer:
             Dictionary with processing results and statistics
         """
         if not files:
-            logger.warning("No files provided for parallel processing")
+            log_universal('WARNING', 'Parallel', "No files provided for parallel processing")
             return {'success_count': 0, 'failed_count': 0, 'total_time': 0}
         
         # Determine optimal worker count
         if max_workers is None:
             max_workers = self.max_workers or self.resource_manager.get_optimal_worker_count()
         
-        logger.info(f"Starting parallel processing of {len(files)} files")
-        logger.debug(f"  Force re-extract: {force_reextract}")
-        logger.debug(f"  Max workers: {max_workers}")
+        log_universal('INFO', 'Parallel', f"Starting parallel processing of {len(files)} files")
+        log_universal('DEBUG', 'Parallel', f"  Force re-extract: {force_reextract}")
+        log_universal('DEBUG', 'Parallel', f"  Max workers: {max_workers}")
         
         # Get progress bar
         progress_bar = get_progress_bar()
@@ -278,7 +279,7 @@ class ParallelAnalyzer:
                                                   self.timeout_seconds, self.db_manager.db_path)
                             future_to_file[future] = file_path
                         except Exception as e:
-                            logger.error(f"Failed to submit task for {file_path}: {e}")
+                            log_universal('ERROR', 'Parallel', f"Failed to submit task for {file_path}: {e}")
                             results['failed_count'] += 1
                             results['processed_files'].append({
                                 'file_path': file_path,
@@ -304,7 +305,7 @@ class ParallelAnalyzer:
                                     'status': 'success',
                                     'timestamp': datetime.now().isoformat()
                                 })
-                                logger.debug(f"Completed: {filename}")
+                                log_universal('DEBUG', 'Parallel', f"Completed: {filename}")
                             else:
                                 results['failed_count'] += 1
                                 results['processed_files'].append({
@@ -312,13 +313,13 @@ class ParallelAnalyzer:
                                     'status': 'failed',
                                     'timestamp': datetime.now().isoformat()
                                 })
-                                logger.debug(f"Failed: {filename}")
+                                log_universal('DEBUG', 'Parallel', f"Failed: {filename}")
                             
                             # Update progress bar
                             progress_bar.update_analysis_progress(completed_count, filename)
                                 
                         except Exception as e:
-                            logger.error(f"Error processing {filename}: {e}")
+                            log_universal('ERROR', 'Parallel', f"Error processing {filename}: {e}")
                             results['failed_count'] += 1
                             results['processed_files'].append({
                                 'file_path': file_path,
@@ -332,9 +333,9 @@ class ParallelAnalyzer:
                         if not future.done():
                             future.cancel()
             except Exception as e:
-                logger.error(f"Error creating process pool: {e}")
+                log_universal('ERROR', 'Parallel', f"Error creating process pool: {e}")
                 # Fall back to sequential processing
-                logger.info("Falling back to sequential processing due to multiprocessing error")
+                log_universal('INFO', 'Parallel', "Falling back to sequential processing due to multiprocessing error")
                 for file_path in files:
                     try:
                         success = _standalone_worker_process(file_path, force_reextract, 
@@ -344,11 +345,11 @@ class ParallelAnalyzer:
                         else:
                             results['failed_count'] += 1
                     except Exception as worker_error:
-                        logger.error(f"Sequential processing failed for {file_path}: {worker_error}")
+                        log_universal('ERROR', 'Parallel', f"Sequential processing failed for {file_path}: {worker_error}")
                         results['failed_count'] += 1
                         
         except Exception as e:
-            logger.error(f"Error in parallel processing: {e}")
+            log_universal('ERROR', 'Parallel', f"Error in parallel processing: {e}")
             # Count remaining files as failed
             remaining_files = [f for f in files if f not in [p['file_path'] for p in results['processed_files']]]
             results['failed_count'] += len(remaining_files)
@@ -375,33 +376,19 @@ class ParallelAnalyzer:
         memory_usage_mb = process.memory_info().rss / (1024 * 1024)
         cpu_usage_percent = process.cpu_percent()
         
-        logger.info(f"Parallel processing completed in {total_time:.2f}s")
-        logger.info(f"Results: {results['success_count']} successful, {results['failed_count']} failed")
-        logger.info(f"Success rate: {success_rate:.1f}%, Throughput: {throughput:.2f} files/s")
+        log_universal('INFO', 'Parallel', f"Parallel processing completed in {total_time:.2f}s")
+        log_universal('INFO', 'Parallel', f"Results: {results['success_count']} successful, {results['failed_count']} failed")
+        log_universal('INFO', 'Parallel', f"Success rate: {success_rate:.1f}%, Throughput: {throughput:.2f} files/s")
         
         # Log detailed batch processing statistics
-        log_batch_processing_detailed(
-            batch_id=f"parallel_{int(start_time)}",
-            total_files=len(files),
-            successful_files=results['success_count'],
-            failed_files=results['failed_count'],
-            total_duration=total_time,
-            processing_mode='parallel',
-            avg_memory_usage_mb=memory_usage_mb,
-            avg_cpu_usage_percent=cpu_usage_percent,
-            peak_memory_mb=memory_usage_mb,
-            peak_cpu_percent=cpu_usage_percent,
-            worker_count=max_workers,
-            success_rate=success_rate,
-            throughput_files_per_second=throughput
-        )
+        log_universal('INFO', 'Parallel', f"Parallel file processing completed in {total_time:.2f}s")
+        log_universal('INFO', 'Parallel', f"Results: {results['success_count']} successful, {results['failed_count']} failed")
+        log_universal('INFO', 'Parallel', f"Success rate: {success_rate:.1f}%, Throughput: {throughput:.2f} files/s")
         
         # Log performance
-        log_performance("Parallel file processing", total_time,
-                       total_files=len(files),
-                       success_count=results['success_count'],
-                       failed_count=results['failed_count'],
-                       worker_count=max_workers)
+        log_universal('INFO', 'Parallel', f"Parallel file processing completed in {total_time:.2f}s")
+        log_universal('INFO', 'Parallel', f"Results: {results['success_count']} successful, {results['failed_count']} failed")
+        log_universal('INFO', 'Parallel', f"Success rate: {success_rate:.1f}%, Throughput: {throughput:.2f} files/s")
         
         return results
 
@@ -430,9 +417,9 @@ class ParallelAnalyzer:
             
             # Check if file exists
             if not os.path.exists(file_path):
-                logger.warning(f"File not found: {file_path}")
+                log_universal('WARNING', 'Parallel', f"File not found: {file_path}")
                 duration = time.time() - start_time
-                log_worker_performance(worker_id, "file_check", file_path, duration, success=False, error="File not found")
+                log_universal('INFO', 'Parallel', f"Worker {worker_id} file check failed: {os.path.basename(file_path)}")
                 return False
             
             # Get initial resource usage
@@ -480,9 +467,7 @@ class ParallelAnalyzer:
                 )
                 
                 # Log successful worker performance
-                log_worker_performance(worker_id, "file_analysis", file_path, duration, 
-                                    memory_usage_mb=memory_usage, cpu_usage_percent=cpu_usage, 
-                                    success=success, file_size_mb=file_size_bytes/(1024*1024))
+                log_universal('INFO', 'Parallel', f"Worker {worker_id} file analysis completed: {os.path.basename(file_path)}")
                 
                 return success
             else:
@@ -491,32 +476,28 @@ class ParallelAnalyzer:
                 self.db_manager.mark_analysis_failed(file_path, filename, "Analysis failed")
                 
                 # Log failed worker performance
-                log_worker_performance(worker_id, "file_analysis", file_path, duration, 
-                                    memory_usage_mb=memory_usage, cpu_usage_percent=cpu_usage, 
-                                    success=False, error="Analysis failed")
+                log_universal('ERROR', 'Parallel', f"Worker {worker_id} file analysis failed: {os.path.basename(file_path)}")
                 
                 return False
                 
         except TimeoutException:
             duration = time.time() - start_time
-            logger.error(f"⏰ Analysis timed out for {os.path.basename(file_path)}")
+            log_universal('ERROR', 'Parallel', f"⏰ Analysis timed out for {os.path.basename(file_path)}")
             filename = os.path.basename(file_path)
             self.db_manager.mark_analysis_failed(file_path, filename, "Analysis timed out")
             
             # Log timeout worker performance
-            log_worker_performance(worker_id, "file_analysis", file_path, duration, 
-                                success=False, error="Analysis timed out")
+            log_universal('ERROR', 'Parallel', f"Worker {worker_id} file analysis timeout: {os.path.basename(file_path)}")
             
             return False
         except Exception as e:
             duration = time.time() - start_time
-            logger.error(f"Worker error for {os.path.basename(file_path)}: {e}")
+            log_universal('ERROR', 'Parallel', f"Worker error for {os.path.basename(file_path)}: {e}")
             filename = os.path.basename(file_path)
             self.db_manager.mark_analysis_failed(file_path, filename, str(e))
             
             # Log error worker performance
-            log_worker_performance(worker_id, "file_analysis", file_path, duration, 
-                                success=False, error=str(e))
+            log_universal('ERROR', 'Parallel', f"Worker {worker_id} file analysis error: {os.path.basename(file_path)}")
             
             return False
 
@@ -557,12 +538,12 @@ class ParallelAnalyzer:
                 }
             }
             
-            logger.debug(f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
+            log_universal('DEBUG', 'Parallel', f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
             
             return analysis_config
             
         except Exception as e:
-            logger.warning(f"Error getting analysis config for {file_path}: {e}")
+            log_universal('WARNING', 'Parallel', f"Error getting analysis config for {file_path}: {e}")
             # Return basic analysis config as fallback
             return {
                 'analysis_type': 'basic',
@@ -599,7 +580,7 @@ class ParallelAnalyzer:
             return hashlib.md5(content.encode()).hexdigest()
             
         except Exception as e:
-            logger.warning(f"Could not calculate hash for {file_path}: {e}")
+            log_universal('WARNING', 'Parallel', f"Could not calculate hash for {file_path}: {e}")
             return "unknown"
 
     @log_function_call
@@ -641,11 +622,11 @@ class ParallelAnalyzer:
             if 'max_workers' in new_config:
                 self.max_workers = new_config['max_workers']
             
-            logger.info(f"Updated parallel analyzer configuration: {new_config}")
+            log_universal('INFO', 'Parallel', f"Updated parallel analyzer configuration: {new_config}")
             return True
             
         except Exception as e:
-            logger.error(f"Error updating parallel analyzer configuration: {e}")
+            log_universal('ERROR', 'Parallel', f"Error updating parallel analyzer configuration: {e}")
             return False
 
 
