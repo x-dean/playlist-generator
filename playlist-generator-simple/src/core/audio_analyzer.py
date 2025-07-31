@@ -652,33 +652,36 @@ class AudioAnalyzer:
         return None
 
     def _safe_audio_load(self, audio_path: str) -> Optional[np.ndarray]:
-        """
-        Safely load audio file using streaming loader for large files.
-        
-        Args:
-            audio_path: Path to the audio file
-            
-        Returns:
-            Audio data as numpy array, or None if failed
-        """
+        """Safely load audio file using Essentia (like old setup)."""
         try:
-            # Get file size to decide loading method
-            file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+            log_universal('DEBUG', 'Audio', f"Loading audio: {os.path.basename(audio_path)}")
             
-            log_universal('DEBUG', 'Audio', f"Audio loading decision for {os.path.basename(audio_path)}:")
-            log_universal('DEBUG', 'Audio', f"  File size: {file_size_mb:.1f}MB")
-            log_universal('DEBUG', 'Audio', f"  Streaming enabled: {self.streaming_enabled}")
-            log_universal('DEBUG', 'Audio', f"  Streaming threshold: {self.streaming_large_file_threshold_mb}MB")
-            log_universal('DEBUG', 'Audio', f"  Streaming memory limit: {self.streaming_memory_limit_percent}%")
-            log_universal('DEBUG', 'Audio', f"  Streaming chunk duration: {self.streaming_chunk_duration_seconds}s")
-            
-            # Use streaming for large files to save memory
-            if file_size_mb > self.streaming_large_file_threshold_mb and self.streaming_enabled:
-                log_universal('DEBUG', 'Audio', f"Using streaming loading for {file_size_mb:.1f}MB file")
-                return self._load_audio_streaming(audio_path)
+            # Use Essentia MonoLoader (like old setup)
+            if ESSENTIA_AVAILABLE:
+                try:
+                    import essentia.standard as es
+                    log_universal('DEBUG', 'Audio', f"Using Essentia MonoLoader for {os.path.basename(audio_path)}")
+                    loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
+                    audio = loader()
+                    
+                    if audio is not None and len(audio) > 0:
+                        log_universal('DEBUG', 'Audio', f"Essentia loaded audio: {len(audio)} samples at 44.1kHz ({len(audio)/44100:.2f}s)")
+                        
+                        # Force garbage collection for large files (like old setup)
+                        if len(audio) > 100000000:  # ~3.8 hours at 44kHz
+                            gc.collect()
+                            log_universal('DEBUG', 'Audio', "Forced garbage collection after loading large audio file")
+                        
+                        return audio
+                    else:
+                        log_universal('WARNING', 'Audio', "Essentia returned empty audio")
+                        return None
+                except Exception as e:
+                    log_universal('ERROR', 'Audio', f"Essentia loading failed for {audio_path}: {e}")
+                    return None
             else:
-                log_universal('DEBUG', 'Audio', f"Using traditional loading for {file_size_mb:.1f}MB file")
-                return self._load_audio_traditional(audio_path)
+                log_universal('ERROR', 'Audio', "Essentia not available for audio loading")
+                return None
                 
         except Exception as e:
             log_universal('ERROR', 'Audio', f"Error loading audio {audio_path}: {e}")
