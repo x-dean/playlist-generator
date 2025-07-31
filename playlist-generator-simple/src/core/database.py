@@ -1029,6 +1029,10 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
+                # Ensure analysis status is set to 'analyzed' when saving complete analysis results
+                if analysis_data and 'status' not in analysis_data:
+                    analysis_data['status'] = 'analyzed'
+                
                 # Convert numpy arrays and other non-serializable objects to JSON-compatible format
                 analysis_data_serializable = self._convert_to_json_serializable(analysis_data)
                 metadata_serializable = self._convert_to_json_serializable(metadata) if metadata else None

@@ -133,12 +133,16 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
                 with open(file_path, 'rb') as f:
                     file_hash = hashlib.md5(f.read(1024)).hexdigest()
                 
+                # Prepare analysis data with status
+                analysis_data = analysis_result.get('features', {})
+                analysis_data['status'] = 'analyzed'
+                
                 success = db_manager.save_analysis_result(
                     file_path=file_path,
                     filename=filename,
                     file_size_bytes=file_size_bytes,
                     file_hash=file_hash,
-                    analysis_data=analysis_result.get('features', {}),
+                    analysis_data=analysis_data,
                     metadata=analysis_result.get('metadata', {})
                 )
                 
@@ -460,12 +464,16 @@ class ParallelAnalyzer:
                 file_size_bytes = os.path.getsize(file_path)
                 file_hash = self._calculate_file_hash(file_path)
                 
+                # Prepare analysis data with status
+                analysis_data = analysis_result.get('features', {})
+                analysis_data['status'] = 'analyzed'
+                
                 success = self.db_manager.save_analysis_result(
                     file_path=file_path,
                     filename=filename,
                     file_size_bytes=file_size_bytes,
                     file_hash=file_hash,
-                    analysis_data=analysis_result.get('features', {}),
+                    analysis_data=analysis_data,
                     metadata=analysis_result.get('metadata', {})
                 )
                 

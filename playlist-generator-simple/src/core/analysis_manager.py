@@ -242,8 +242,17 @@ class AnalysisManager:
             # Check if file has changed (using file size as simple indicator)
             current_size = os.path.getsize(file_path)
             if analysis_result['file_size_bytes'] == current_size:
-                logger.debug(f"File already analyzed and unchanged: {file_path}")
-                return False
+                # Check if file has been fully analyzed (not just discovered)
+                analysis_status = analysis_result.get('analysis_data', {}).get('status', 'unknown')
+                if analysis_status == 'analyzed':
+                    logger.debug(f"File already analyzed and unchanged: {file_path}")
+                    return False
+                elif analysis_status == 'discovered':
+                    logger.debug(f"File discovered but not yet analyzed: {file_path}")
+                    return True
+                else:
+                    logger.debug(f"File has unknown status '{analysis_status}', will analyze: {file_path}")
+                    return True
         
         # Check if file previously failed
         if not include_failed:
