@@ -497,8 +497,8 @@ class AudioAnalyzer:
     def _get_forced_guidance(self) -> Dict[str, Any]:
         """Get forced guidance from resource manager."""
         try:
-            from .resource_manager import resource_manager
-            return resource_manager.get_forced_analysis_guidance()
+            from .resource_manager import get_resource_manager
+            return get_resource_manager().get_forced_analysis_guidance()
         except Exception as e:
             logger.warning(f"Could not get resource manager guidance: {e}")
             return {
