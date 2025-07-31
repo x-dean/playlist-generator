@@ -60,13 +60,13 @@ def check_verbose_args():
             return verbosity_map.get(args.verbose, 'TRACE')
     except:
         pass
-    return log_level
+    return None  # Return None if no verbose flags, so we use config default
 
 # Get initial log level considering verbose flags
-initial_log_level = check_verbose_args()
+verbose_level = check_verbose_args()
 
 setup_logging(
-    log_level=initial_log_level,
+    log_level=verbose_level if verbose_level is not None else log_level,
     log_file_prefix=log_file_prefix,
     console_logging=console_logging,
     file_logging=file_logging,
@@ -75,7 +75,8 @@ setup_logging(
     max_log_files=max_log_files,
     log_file_size_mb=log_file_size_mb,
     log_file_format=log_file_format,
-    log_file_encoding=log_file_encoding
+    log_file_encoding=log_file_encoding,
+    environment_monitoring=verbose_level is None  # Disable env monitoring if verbose flags used
 )
 
 logger = get_logger('playlista.enhanced_cli')
