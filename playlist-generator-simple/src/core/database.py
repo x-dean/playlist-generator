@@ -301,11 +301,27 @@ class DatabaseManager:
                 # Create indexes for better query performance
                 logger.debug("Creating database indexes...")
                 
-                # Indexes for analysis_results table
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_artist ON analysis_results(artist)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_album ON analysis_results(album)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_genre ON analysis_results(genre)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_year ON analysis_results(year)")
+                # Indexes for analysis_results table - with error handling for missing columns
+                try:
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_artist ON analysis_results(artist)")
+                except sqlite3.OperationalError:
+                    logger.debug("Skipping artist index - column may not exist yet")
+                
+                try:
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_album ON analysis_results(album)")
+                except sqlite3.OperationalError:
+                    logger.debug("Skipping album index - column may not exist yet")
+                
+                try:
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_genre ON analysis_results(genre)")
+                except sqlite3.OperationalError:
+                    logger.debug("Skipping genre index - column may not exist yet")
+                
+                try:
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_year ON analysis_results(year)")
+                except sqlite3.OperationalError:
+                    logger.debug("Skipping year index - column may not exist yet")
+                
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_date ON analysis_results(analysis_date)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_filename ON analysis_results(filename)")
                 
