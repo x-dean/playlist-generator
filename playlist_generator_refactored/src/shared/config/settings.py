@@ -22,9 +22,9 @@ class LoggingConfig:
     level: str = field(default_factory=lambda: os.getenv('LOG_LEVEL', 'DEBUG'))
     log_dir: Path = field(default_factory=lambda: Path(os.getenv('LOG_DIR', '/app/logs')))
     log_file_prefix: str = field(default_factory=lambda: os.getenv('LOG_FILE_PREFIX', 'playlista'))
-    colored_output: bool = field(default_factory=lambda: os.getenv('COLORED_OUTPUT', 'false').lower() == 'true')
+    colored_output: bool = field(default_factory=lambda: os.getenv('COLORED_OUTPUT', 'true').lower() == 'true')
     file_logging: bool = field(default_factory=lambda: os.getenv('FILE_LOGGING', 'true').lower() == 'true')
-    console_logging: bool = field(default_factory=lambda: os.getenv('CONSOLE_LOGGING', 'false').lower() == 'true')
+    console_logging: bool = field(default_factory=lambda: os.getenv('CONSOLE_LOGGING', 'true').lower() == 'true')
     
     # TensorFlow and Essentia logging
     tensorflow_log_level: str = "2"  # Hide INFO and WARNING, show only ERROR

@@ -7,13 +7,13 @@ import json
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+# Try to use colorama for Windows color support
 try:
-    from colorlog import ColoredFormatter as BaseColoredFormatter
+    import colorama
+    colorama.init()  # Initialize colorama for Windows
+    COLORAMA_AVAILABLE = True
 except ImportError:
-    # Fallback if colorlog is not available
-    class BaseColoredFormatter(logging.Formatter):
-        def format(self, record):
-            return super().format(record)
+    COLORAMA_AVAILABLE = False
 
 
 class StructuredFormatter(logging.Formatter):
@@ -102,23 +102,43 @@ class StructuredFormatter(logging.Formatter):
         return json.dumps(log_entry, ensure_ascii=False, default=str)
 
 
-class ColoredFormatter(BaseColoredFormatter):
-    """Colored formatter for console output."""
+class ColoredFormatter(logging.Formatter):
+    """Colored formatter for console output using ANSI color codes."""
+    
+    # ANSI color codes
+    COLORS = {
+        'DEBUG': '\033[36m',      # Cyan
+        'INFO': '\033[32m',       # Green
+        'WARNING': '\033[33m',    # Yellow
+        'ERROR': '\033[31m',      # Red
+        'CRITICAL': '\033[35m',   # Magenta
+        'RESET': '\033[0m'        # Reset
+    }
     
     def __init__(self, fmt: Optional[str] = None):
         if fmt is None:
-            fmt = '%(log_color)s%(asctime)s [%(correlation_id)s] %(name)s - %(levelname)s - %(message)s'
+            fmt = '%(asctime)s [%(correlation_id)s] %(name)s - %(levelname)s - %(message)s'
+        super().__init__(fmt, datefmt='%Y-%m-%d %H:%M:%S')
         
-        # Define colors for different log levels
-        colors = {
-            'DEBUG': 'cyan',
-            'INFO': 'green',
-            'WARNING': 'yellow',
-            'ERROR': 'red',
-            'CRITICAL': 'red,bg_white'
-        }
+        # Check if terminal supports colors
+        self.supports_color = self._supports_color()
+    
+    def _supports_color(self) -> bool:
+        """Check if the terminal supports color output."""
+        import os
+        import sys
         
-        super().__init__(fmt, datefmt='%Y-%m-%d %H:%M:%S', log_colors=colors)
+        # If colorama is available, use it for Windows
+        if COLORAMA_AVAILABLE:
+            return True
+        
+        # Check if we're on Windows
+        if os.name == 'nt':
+            # On Windows, check if we're in a terminal that supports colors
+            return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+        else:
+            # On Unix-like systems, assume colors are supported
+            return True
     
     def format(self, record: logging.LogRecord) -> str:
         """Format log record with colors and correlation ID."""
@@ -126,7 +146,18 @@ class ColoredFormatter(BaseColoredFormatter):
         if not hasattr(record, 'correlation_id'):
             record.correlation_id = 'N/A'
         
-        return super().format(record)
+        # Create a copy of the record to avoid modifying the original
+        import copy
+        record_copy = copy.copy(record)
+        
+        # Add color to levelname if colors are supported
+        if self.supports_color and record_copy.levelname in self.COLORS:
+            levelname = record_copy.levelname
+            color_start = self.COLORS[levelname]
+            color_end = self.COLORS['RESET']
+            record_copy.levelname = f"{color_start}{levelname}{color_end}"
+        
+        return super().format(record_copy)
 
 
 class JsonFormatter(logging.Formatter):

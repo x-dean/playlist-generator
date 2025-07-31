@@ -13,8 +13,8 @@ import uuid
 from typing import Optional, Dict, Any
 from pathlib import Path
 
-from shared.config import get_config
-from shared.exceptions import ConfigurationError
+from src.shared.config import get_config
+from src.shared.exceptions import ConfigurationError
 
 # Global state
 _log_level_monitor_thread: Optional[threading.Thread] = None
@@ -115,6 +115,16 @@ def setup_logging(
     # Clear existing handlers
     logger.handlers.clear()
     
+    # Also clear root logger handlers to prevent duplicate output
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    
+    # Clear handlers for all other loggers to prevent interference
+    for name in logging.root.manager.loggerDict:
+        other_logger = logging.getLogger(name)
+        other_logger.handlers.clear()
+        other_logger.propagate = False  # Prevent propagation to root logger
+    
     # Add correlation ID filter
     correlation_filter = CorrelationIdFilter()
     logger.addFilter(correlation_filter)
@@ -142,13 +152,17 @@ def setup_logging(
         # Set encoding to handle Unicode characters
         if hasattr(console_handler.stream, 'reconfigure'):
             console_handler.stream.reconfigure(encoding='utf-8')
-        # Use simple formatter for console to avoid JSON spam
-        console_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s'
-        )
+        
+        # Use colored formatter if enabled, otherwise simple formatter
+        if colored_output:
+            console_formatter = ColoredFormatter()
+        else:
+            console_formatter = logging.Formatter(
+                '%(asctime)s - %(levelname)s - %(message)s'
+            )
         console_handler.setFormatter(console_formatter)
-        # Set console to only show WARNING and above by default
-        console_handler.setLevel(logging.WARNING)
+        # Set console to show INFO and above by default for better user experience
+        console_handler.setLevel(logging.INFO)
         logger.addHandler(console_handler)
     
     # File handler (if enabled) - full JSON logging

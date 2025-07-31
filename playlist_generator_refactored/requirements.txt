@@ -5,7 +5,7 @@ tqdm
 numpy
 matplotlib
 psutil
-colorlog
+colorama
 scipy
 pydub
 rich
