@@ -66,10 +66,7 @@ class ColoredFormatter(logging.Formatter):
     
     def _supports_color(self):
         """Check if the terminal supports color output."""
-        if os.name == 'nt':
-            return hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
-        else:
-            return True
+        return True  # Force color support
     
     def format(self, record):
         # Color the level name
