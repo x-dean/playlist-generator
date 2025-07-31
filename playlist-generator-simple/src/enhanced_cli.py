@@ -55,7 +55,7 @@ verbose_level = check_verbose_args()
 # --- Stage 1: Set initial log level based on CLI verbose flags immediately ---
 # This ensures that any logs from config_loader.load_config() respect the CLI verbosity
 if verbose_level:
-    setup_logging(log_level=verbose_level, console_logging=True, file_logging=False, environment_monitoring=False)
+    setup_logging(log_level=verbose_level, console_logging=True, file_logging=False)
 
 # Now load the config. Logs from config_loader will now respect the verbose_level.
 config = config_loader.load_config()
@@ -80,12 +80,9 @@ setup_logging(
     console_logging=console_logging,
     file_logging=file_logging,
     colored_output=colored_output,
-    file_colored_output=file_colored_output,
     max_log_files=max_log_files,
     log_file_size_mb=log_file_size_mb,
-    log_file_format=log_file_format,
-    log_file_encoding=log_file_encoding,
-    environment_monitoring=verbose_level is None  # Disable env monitoring if verbose flags used
+    log_file_format=log_file_format
 )
 
 logger = get_logger('playlista.enhanced_cli')
