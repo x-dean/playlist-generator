@@ -576,6 +576,8 @@ class AudioAnalyzer:
     
     def _load_audio_traditional(self, audio_path: str) -> Optional[np.ndarray]:
         """Load audio using traditional method (entire file in memory)."""
+        import gc
+        
         try:
             # Try librosa first with timeout
             if LIBROSA_AVAILABLE:
@@ -583,6 +585,12 @@ class AudioAnalyzer:
                     logger.debug(f"Trying librosa loading for {os.path.basename(audio_path)}")
                     audio, sr = librosa.load(audio_path, sr=DEFAULT_SAMPLE_RATE, mono=True, duration=30.0)  # Limit to 30 seconds
                     logger.debug(f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
+                    
+                    # Force garbage collection for large files
+                    if len(audio) > 1000000:  # ~23 seconds at 44kHz
+                        gc.collect()
+                        logger.debug("Forced garbage collection after loading large audio file")
+                    
                     return audio
                 except Exception as e:
                     logger.warning(f"Librosa loading failed: {e}")
@@ -604,6 +612,12 @@ class AudioAnalyzer:
                         audio = audio[:max_samples]
                         logger.debug(f"Truncated audio to 30 seconds")
                     logger.debug(f"Essentia loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                    
+                    # Force garbage collection for large files
+                    if len(audio) > 1000000:  # ~23 seconds at 44kHz
+                        gc.collect()
+                        logger.debug("Forced garbage collection after loading large audio file")
+                    
                     return audio
                 except Exception as e:
                     logger.warning(f"Essentia loading failed: {e}")

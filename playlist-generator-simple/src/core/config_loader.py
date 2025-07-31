@@ -44,6 +44,13 @@ class ConfigLoader:
         # Merge configurations (env vars override file)
         self.config = {**file_config, **env_config}
         
+        # Validate configuration
+        validation_result = self._validate_configuration()
+        if not validation_result['valid']:
+            logger.warning("Configuration validation warnings:")
+            for warning in validation_result['warnings']:
+                logger.warning(f"  {warning}")
+        
         logger.info("Configuration loaded successfully")
         logger.debug(f"Configuration: {self.config}")
         
@@ -499,6 +506,87 @@ class ConfigLoader:
             self.load_config()
         
         return self.config.get(key, default)
+    
+    def _validate_configuration(self) -> Dict[str, Any]:
+        """
+        Validate configuration settings.
+        
+        Returns:
+            Dictionary with validation result and warnings
+        """
+        warnings = []
+        valid = True
+        
+        # Required fields
+        required_fields = {
+            'MUSIC_PATH': 'Music directory path',
+            'DB_PATH': 'Database file path',
+            'LOG_LEVEL': 'Logging level'
+        }
+        
+        for field, description in required_fields.items():
+            if field not in self.config:
+                warnings.append(f"Missing required field: {field} ({description})")
+                valid = False
+        
+        # Validate numeric fields
+        numeric_fields = {
+            'ANALYSIS_TIMEOUT_SECONDS': (1, 3600),
+            'ANALYSIS_RETRY_ATTEMPTS': (0, 10),
+            'DB_CACHE_MAX_SIZE_MB': (1, 1000),
+            'LOG_FILE_SIZE_MB': (1, 100)
+        }
+        
+        for field, (min_val, max_val) in numeric_fields.items():
+            if field in self.config:
+                try:
+                    value = float(self.config[field])
+                    if value < min_val or value > max_val:
+                        warnings.append(f"{field} value {value} is outside valid range [{min_val}, {max_val}]")
+                        valid = False
+                except (ValueError, TypeError):
+                    warnings.append(f"{field} value '{self.config[field]}' is not a valid number")
+                    valid = False
+        
+        # Validate boolean fields
+        boolean_fields = [
+            'EXTERNAL_API_ENABLED',
+            'MUSICBRAINZ_ENABLED',
+            'LASTFM_ENABLED',
+            'METADATA_ENRICHMENT_ENABLED',
+            'LOG_CONSOLE_ENABLED',
+            'LOG_FILE_ENABLED',
+            'ANALYSIS_CACHE_ENABLED'
+        ]
+        
+        for field in boolean_fields:
+            if field in self.config:
+                value = self.config[field]
+                if not isinstance(value, bool):
+                    warnings.append(f"{field} should be boolean, got {type(value).__name__}")
+                    valid = False
+        
+        # Validate log level
+        if 'LOG_LEVEL' in self.config:
+            valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+            if self.config['LOG_LEVEL'] not in valid_levels:
+                warnings.append(f"LOG_LEVEL '{self.config['LOG_LEVEL']}' is not valid. Use one of: {valid_levels}")
+                valid = False
+        
+        # Validate file paths exist (if not Docker paths)
+        path_fields = ['MUSIC_PATH', 'DB_PATH']
+        for field in path_fields:
+            if field in self.config:
+                path = self.config[field]
+                if not path.startswith('/app/') and not path.startswith('/music') and not path.startswith('/root/'):
+                    # Only check non-Docker paths
+                    if not os.path.exists(os.path.dirname(path)):
+                        warnings.append(f"Directory for {field} does not exist: {os.path.dirname(path)}")
+        
+        return {
+            'valid': valid,
+            'warnings': warnings
+        }
 
 
 # Global config loader instance

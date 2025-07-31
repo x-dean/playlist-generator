@@ -7,9 +7,11 @@ import sqlite3
 import json
 import os
 import time
+import threading
 from typing import Dict, Any, List, Optional, Set
 from datetime import datetime, timedelta
 from pathlib import Path
+from contextlib import contextmanager
 
 # Import configuration and logging
 from .config_loader import config_loader
@@ -70,6 +72,11 @@ class DatabaseManager:
         self.max_connections = config.get('DB_MAX_CONNECTIONS', 10)
         self.wal_mode_enabled = config.get('DB_WAL_MODE_ENABLED', True)
         self.synchronous_mode = config.get('DB_SYNCHRONOUS_MODE', 'NORMAL')
+        
+        # Connection pooling
+        self._connection_lock = threading.Lock()
+        self._active_connections = 0
+        self._max_connections = config.get('DB_MAX_CONNECTIONS', 10)
         
         logger.info(f"️ Initializing DatabaseManager with path: {db_path}")
         logger.debug(f"Database configuration: {config}")
@@ -196,10 +203,42 @@ class DatabaseManager:
                 tables_created += 1
                 logger.debug("Statistics table ready")
                 
+                # Create indexes for better query performance
+                logger.debug("Creating database indexes...")
+                
+                # Indexes for analysis_results table
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_artist ON analysis_results(artist)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_album ON analysis_results(album)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_genre ON analysis_results(genre)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_year ON analysis_results(year)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_date ON analysis_results(analysis_date)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_filename ON analysis_results(filename)")
+                
+                # Indexes for cache table
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_cache_created ON cache(created_at)")
+                
+                # Indexes for tags table
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_tags_source ON tags(source)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_tags_updated ON tags(updated_at)")
+                
+                # Indexes for failed_analysis table
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_failed_retry_count ON failed_analysis(retry_count)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_failed_date ON failed_analysis(failed_date)")
+                
+                # Indexes for statistics table
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_stats_category ON statistics(category)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_stats_timestamp ON statistics(timestamp)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_stats_category_key ON statistics(category, key)")
+                
+                # Indexes for playlists table
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlists_created ON playlists(created_at)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlists_updated ON playlists(updated_at)")
+                
                 conn.commit()
                 init_time = time.time() - start_time
                 logger.info(f"Database initialization completed successfully")
-                logger.info(f"Created {tables_created} tables in {init_time:.2f}s")
+                logger.info(f"Created {tables_created} tables and indexes in {init_time:.2f}s")
                 
                 # Log performance
                 log_performance("Database table creation", init_time, tables_created=tables_created)
@@ -207,6 +246,36 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Database initialization failed: {e}")
             raise
+
+    @contextmanager
+    def _get_db_connection(self):
+        """
+        Get a database connection with connection pooling.
+        
+        Yields:
+            SQLite connection object
+        """
+        with self._connection_lock:
+            if self._active_connections >= self._max_connections:
+                logger.warning(f"Maximum database connections reached ({self._max_connections})")
+            
+            self._active_connections += 1
+            logger.debug(f"Database connection acquired ({self._active_connections}/{self._max_connections})")
+        
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=self.connection_timeout_seconds)
+            
+            # Configure connection
+            if self.wal_mode_enabled:
+                conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute(f"PRAGMA synchronous={self.synchronous_mode}")
+            
+            yield conn
+        finally:
+            conn.close()
+            with self._connection_lock:
+                self._active_connections -= 1
+                logger.debug(f"Database connection released ({self._active_connections}/{self._max_connections})")
 
     # =============================================================================
     # PLAYLIST OPERATIONS
@@ -233,7 +302,7 @@ class DatabaseManager:
         start_time = time.time()
         
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
                 tracks_json = json.dumps(tracks)
@@ -254,8 +323,11 @@ class DatabaseManager:
                 log_performance("Playlist save", save_time, playlist_name=name, track_count=len(tracks))
                 return True
                 
+        except sqlite3.Error as e:
+            logger.error(f"Database error saving playlist '{name}': {e}")
+            return False
         except Exception as e:
-            logger.error(f"Error saving playlist '{name}': {e}")
+            logger.error(f"Unexpected error saving playlist '{name}': {e}")
             return False
 
     @log_function_call

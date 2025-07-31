@@ -97,6 +97,9 @@ class MusicBrainzClient:
         Returns:
             API response data or empty dict on error
         """
+        # Rate limiting
+        time.sleep(self._rate_limit_delay)
+        
         try:
             url = f"{self.BASE_URL}/{endpoint}"
             params = params or {}
@@ -278,7 +281,7 @@ class LastFMClient:
             
             response = self.session.get(self.BASE_URL, params=params, timeout=30)
             
-            # Rate limiting
+            # Rate limiting - moved before response to ensure proper timing
             time.sleep(self._rate_limit_delay)
             
             if response.status_code == 200:

@@ -442,8 +442,18 @@ Examples:
             
             return 0
             
+        except FileNotFoundError as e:
+            logger.error(f"Music directory not found: {e}")
+            return 1
+        except PermissionError as e:
+            logger.error(f"Permission denied accessing music directory: {e}")
+            return 1
+        except OSError as e:
+            logger.error(f"System error during analysis: {e}")
+            return 1
         except Exception as e:
-            logger.error(f"Analysis failed: {e}")
+            logger.error(f"Unexpected error during analysis: {e}")
+            logger.debug(f"Analysis error details: {type(e).__name__}: {str(e)}")
             return 1
     
     def _handle_stats(self, args) -> int:
@@ -487,8 +497,15 @@ Examples:
             
             return 0
             
+        except sqlite3.Error as e:
+            logger.error(f"Database error getting statistics: {e}")
+            return 1
+        except OSError as e:
+            logger.error(f"System error getting statistics: {e}")
+            return 1
         except Exception as e:
-            logger.error(f"Error getting statistics: {e}")
+            logger.error(f"Unexpected error getting statistics: {e}")
+            logger.debug(f"Statistics error details: {type(e).__name__}: {str(e)}")
             return 1
     
     def _handle_test_audio(self, args) -> int:
