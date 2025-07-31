@@ -1197,7 +1197,11 @@ class AudioAnalyzer:
                 except (ValueError, TypeError):
                     pass
             
-            logger.debug(f"Rhythm features: BPM={features.get('bpm', 'N/A')}")
+            logger.info(f"BPM extracted: {features.get('bpm', 'N/A')}")
+            if 'confidence' in features:
+                logger.info(f"Rhythm confidence: {features['confidence']:.3f}")
+            if 'external_bpm' in features:
+                logger.info(f"External BPM: {features['external_bpm']:.1f}")
             
         except Exception as e:
             logger.warning(f"Error extracting rhythm features: {e}")
@@ -1253,7 +1257,9 @@ class AudioAnalyzer:
                 flatness = librosa.feature.spectral_flatness(y=audio, sr=DEFAULT_SAMPLE_RATE)
                 features['spectral_flatness'] = ensure_float(np.mean(flatness))
             
-            logger.debug(f"Spectral features extracted")
+            logger.info(f"Spectral centroid extracted: {features.get('spectral_centroid', 'N/A'):.3f}")
+            logger.info(f"Spectral rolloff extracted: {features.get('spectral_rolloff', 'N/A'):.3f}")
+            logger.info(f"Spectral flatness extracted: {features.get('spectral_flatness', 'N/A'):.3f}")
             
         except Exception as e:
             logger.warning(f"Error extracting spectral features: {e}")
@@ -1310,7 +1316,11 @@ class AudioAnalyzer:
                 dynamic_range = np.max(audio) - np.min(audio)
                 features['dynamic_range'] = ensure_float(dynamic_range)
             
-            logger.debug(f"Loudness features extracted")
+            logger.info(f"Loudness extracted: {features.get('loudness', 'N/A'):.3f}")
+            if 'dynamic_complexity' in features:
+                logger.info(f"Dynamic complexity extracted: {features['dynamic_complexity']:.3f}")
+            if 'dynamic_range' in features:
+                logger.info(f"Dynamic range extracted: {features['dynamic_range']:.3f}")
             
         except Exception as e:
             logger.warning(f"Error extracting loudness features: {e}")
@@ -1349,7 +1359,9 @@ class AudioAnalyzer:
                 features['key'] = keys[key_idx]
                 features['key_strength'] = ensure_float(chroma_mean[key_idx])
             
-            logger.debug(f"Key features: {features.get('key', 'N/A')}")
+            logger.info(f"Key extracted: {features.get('key', 'N/A')}")
+            logger.info(f"Scale extracted: {features.get('scale', 'N/A')}")
+            logger.info(f"Key strength extracted: {features.get('key_strength', 'N/A'):.3f}")
             
         except Exception as e:
             logger.warning(f"Error extracting key features: {e}")
@@ -1384,7 +1396,11 @@ class AudioAnalyzer:
                 features['mfcc'] = convert_to_python_types(np.mean(mfcc, axis=1))
                 features['mfcc_std'] = convert_to_python_types(np.std(mfcc, axis=1))
             
-            logger.debug(f"MFCC features extracted ({num_coeffs} coefficients)")
+            logger.info(f"MFCC extracted: {num_coeffs} coefficients")
+            if 'mfcc_bands' in features:
+                logger.info(f"MFCC bands extracted: {len(features['mfcc_bands'])} bands")
+            if 'mfcc_std' in features:
+                logger.info(f"MFCC std extracted: {len(features['mfcc_std'])} values")
             
         except Exception as e:
             logger.warning(f"Error extracting MFCC features: {e}")
@@ -1432,7 +1448,9 @@ class AudioAnalyzer:
             # Convert to list for JSON serialization
             embedding_list = embeddings.tolist() if hasattr(embeddings, 'tolist') else list(embeddings)
             
-            logger.info(f"MusiCNN extraction completed: {len(embedding_list)} dimensions")
+            logger.info(f"MusiCNN extracted: {len(embedding_list)} dimensions")
+            if tags:
+                logger.info(f"MusiCNN tags extracted: {len(tags)} tags")
             return {
                 'musicnn_embedding': embedding_list,
                 'musicnn_tags': tags
@@ -1504,7 +1522,7 @@ class AudioAnalyzer:
                     logger.warning(f"Danceability value out of expected range: {dance_mean}, using default")
                     dance_mean = 0.0
             
-            logger.info(f"Danceability extraction completed: {dance_mean:.3f}")
+            logger.info(f"Danceability extracted: {dance_mean:.3f}")
             return {'danceability': ensure_float(dance_mean)}
             
         except Exception as e:
@@ -1558,7 +1576,7 @@ class AudioAnalyzer:
                 logger.warning(f"Invalid onset rate value: {onset_rate}, using default")
                 onset_rate = 0.0
             
-            logger.info(f"Onset rate extraction completed: {onset_rate:.2f} onsets/sec")
+            logger.info(f"Onset rate extracted: {onset_rate:.2f} onsets/sec")
             return {'onset_rate': ensure_float(onset_rate)}
             
         except Exception as e:
@@ -1590,7 +1608,7 @@ class AudioAnalyzer:
             zcr_mean = float(np.nanmean(zcr_values)) if isinstance(
                 zcr_values, (list, np.ndarray)) else float(zcr_values)
             
-            logger.info(f"Zero crossing rate extraction completed: {zcr_mean:.3f}")
+            logger.info(f"Zero crossing rate extracted: {zcr_mean:.3f}")
             return {'zcr': ensure_float(zcr_mean)}
             
         except Exception as e:
@@ -1660,7 +1678,7 @@ class AudioAnalyzer:
             # Return mean contrast across all frames
             if contrast_list:
                 contrast_mean = float(np.mean(contrast_list))
-                logger.info(f"Spectral contrast extraction completed: {contrast_mean:.3f}")
+                logger.info(f"Spectral contrast extracted: {contrast_mean:.3f}")
                 return {'spectral_contrast': ensure_float(contrast_mean)}
             else:
                 logger.warning("No valid contrast values calculated, returning 0.0")
@@ -1697,7 +1715,7 @@ class AudioAnalyzer:
             # Convert to list for JSON serialization
             chroma_list = chroma_mean.tolist()
             
-            logger.info(f"Chroma extraction completed: {len(chroma_list)} features")
+            logger.info(f"Chroma extracted: {len(chroma_list)} features, values: {[f'{x:.3f}' for x in chroma_list]}")
             return {'chroma': [ensure_float(x) for x in chroma_list]}
             
         except Exception as e:
