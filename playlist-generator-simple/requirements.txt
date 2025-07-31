@@ -4,7 +4,7 @@
 # Audio processing
 essentia-tensorflow
 librosa
-soundfile>=0.12.1
+soundfile
 mutagen
 
 # Data processing
