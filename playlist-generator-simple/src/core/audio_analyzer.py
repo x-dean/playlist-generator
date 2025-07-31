@@ -799,12 +799,20 @@ class AudioAnalyzer:
         metadata = {}
         
         if not MUTAGEN_AVAILABLE:
+            logger.warning("Mutagen not available - skipping metadata extraction")
             return metadata
         
         try:
+            logger.debug(f"Starting metadata extraction for: {os.path.basename(audio_path)}")
             audio_file = MutagenFile(audio_path)
+            
             if audio_file is not None:
+                # Log all available tags for debugging
+                all_tags = list(audio_file.keys())
+                logger.debug(f"Available tags in file: {all_tags}")
+                
                 # Extract common metadata fields
+                extracted_tags = []
                 for tag in ['title', 'artist', 'album', 'genre', 'year', 'tracknumber']:
                     if tag in audio_file:
                         value = audio_file[tag]
@@ -812,13 +820,29 @@ class AudioAnalyzer:
                             metadata[tag] = str(value[0])
                         else:
                             metadata[tag] = str(value)
+                        extracted_tags.append(f"{tag}: {metadata[tag]}")
                 
-                logger.debug(f"Extracted basic metadata: {list(metadata.keys())}")
+                if extracted_tags:
+                    logger.info(f"Mutagen extracted metadata: {extracted_tags}")
+                else:
+                    logger.info("No metadata tags found in audio file")
+                
+                logger.debug(f"Extracted basic metadata keys: {list(metadata.keys())}")
                 
                 # Enrich metadata with external APIs
                 enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
                 
+                # Log final metadata summary
+                if enriched_metadata:
+                    logger.info(f"Final metadata summary: {list(enriched_metadata.keys())}")
+                    for key, value in enriched_metadata.items():
+                        logger.debug(f"  {key}: {value}")
+                else:
+                    logger.info("No metadata available after extraction and enrichment")
+                
                 return enriched_metadata
+            else:
+                logger.warning("MutagenFile returned None - no metadata available")
                 
         except Exception as e:
             logger.warning(f"Error extracting metadata from {audio_path}: {e}")
@@ -837,13 +861,25 @@ class AudioAnalyzer:
             Enriched metadata dictionary
         """
         try:
+            logger.debug("Starting external API metadata enrichment")
+            
             # Import external APIs module
             from .external_apis import metadata_enrichment_service
             
             # Check if external APIs are available
             if not metadata_enrichment_service.is_available():
-                logger.debug("External APIs not available - skipping enrichment")
+                logger.info("External APIs not available - skipping enrichment")
                 return metadata
+            
+            logger.info("External APIs available - attempting enrichment")
+            
+            # Log input metadata for enrichment
+            if metadata:
+                logger.debug(f"Input metadata for enrichment: {list(metadata.keys())}")
+                for key, value in metadata.items():
+                    logger.debug(f"  {key}: {value}")
+            else:
+                logger.debug("No input metadata for enrichment")
             
             # Enrich metadata
             enriched_metadata = metadata_enrichment_service.enrich_metadata(metadata)
@@ -852,7 +888,14 @@ class AudioAnalyzer:
             if enriched_metadata != metadata:
                 new_fields = set(enriched_metadata.keys()) - set(metadata.keys())
                 if new_fields:
-                    logger.debug(f"Enriched metadata with: {list(new_fields)}")
+                    logger.info(f"External APIs enriched metadata with: {list(new_fields)}")
+                    for field in new_fields:
+                        if field in enriched_metadata:
+                            logger.debug(f"  {field}: {enriched_metadata[field]}")
+                else:
+                    logger.debug("No new fields added by external APIs")
+            else:
+                logger.info("No enrichment from external APIs - metadata unchanged")
             
             return enriched_metadata
             
