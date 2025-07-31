@@ -677,11 +677,9 @@ class AudioAnalyzer:
             # Try librosa as last resort with soundfile backend to avoid audioread warnings
             if LIBROSA_AVAILABLE:
                 try:
-                    logger.debug(f"Trying librosa loading with soundfile backend for {os.path.basename(audio_path)}")
-                    # Configure librosa to use soundfile backend to avoid audioread warnings
+                    logger.debug(f"Trying librosa loading for {os.path.basename(audio_path)}")
+                    # Use librosa for loading
                     import librosa
-                    # Set the backend to soundfile to avoid audioread warnings
-                    librosa.set_backend('soundfile')
                     audio, sr = librosa.load(audio_path, sr=DEFAULT_SAMPLE_RATE, mono=True, duration=30.0)
                     logger.debug(f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
                     
@@ -792,7 +790,6 @@ class AudioAnalyzer:
                     # Use librosa for segment loading
                     if LIBROSA_AVAILABLE:
                         import librosa
-                        librosa.set_backend('soundfile')
                         chunk, sr = librosa.load(
                             audio_path,
                             sr=DEFAULT_SAMPLE_RATE,
@@ -864,8 +861,7 @@ class AudioAnalyzer:
                 try:
                     logger.debug(f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
                     
-                    # Configure librosa to use soundfile backend to avoid audioread warnings
-                    librosa.set_backend('soundfile')
+                    # Use librosa for segment loading
                     chunk, sr = librosa.load(
                         audio_path,
                         sr=DEFAULT_SAMPLE_RATE,
