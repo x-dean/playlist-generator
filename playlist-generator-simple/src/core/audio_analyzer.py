@@ -814,14 +814,57 @@ class AudioAnalyzer:
                 # Extract common metadata fields
                 extracted_tags = []
                 
-                # ID3 tag mapping
+                # ID3 tag mapping - expanded with more useful tags
                 tag_mapping = {
+                    # Basic metadata
                     'title': ['TIT2', 'title'],
                     'artist': ['TPE1', 'artist'],
                     'album': ['TALB', 'album'],
                     'genre': ['TCON', 'genre'],
                     'year': ['TDRC', 'year'],
-                    'tracknumber': ['TRCK', 'tracknumber']
+                    'tracknumber': ['TRCK', 'tracknumber'],
+                    
+                    # Additional metadata
+                    'composer': ['TCOM', 'composer'],
+                    'lyricist': ['TEXT', 'lyricist'],
+                    'band': ['TPE2', 'band'],
+                    'conductor': ['TPE3', 'conductor'],
+                    'remixer': ['TPE4', 'remixer'],
+                    'subtitle': ['TIT3', 'subtitle'],
+                    'grouping': ['TIT1', 'grouping'],
+                    'publisher': ['TPUB', 'publisher'],
+                    'copyright': ['TCOP', 'copyright'],
+                    'encoded_by': ['TENC', 'encoded_by'],
+                    
+                    # Music-specific metadata
+                    'key': ['TKEY', 'key'],
+                    'bpm': ['TBPM', 'bpm'],
+                    'tempo': ['TBPM', 'tempo'],
+                    'length': ['TLEN', 'length'],
+                    'language': ['TLAN', 'language'],
+                    'mood': ['TMOO', 'mood'],
+                    'style': ['TSTYLE', 'style'],
+                    'quality': ['TQUAL', 'quality'],
+                    
+                    # Extended metadata
+                    'original_artist': ['TOPE', 'original_artist'],
+                    'original_album': ['TOAL', 'original_album'],
+                    'original_year': ['TORY', 'original_year'],
+                    'original_filename': ['TOFN', 'original_filename'],
+                    'content_group': ['TIT1', 'content_group'],
+                    'encoder': ['TSSE', 'encoder'],
+                    'file_type': ['TFLT', 'file_type'],
+                    'playlist_delay': ['TDLY', 'playlist_delay'],
+                    'recording_time': ['TDTG', 'recording_time'],
+                    
+                    # User-defined tags (TXXX frames)
+                    'musicbrainz_artist_id': ['TXXX:MusicBrainz Artist Id', 'musicbrainz_artist_id'],
+                    'musicbrainz_album_id': ['TXXX:MusicBrainz Album Id', 'musicbrainz_album_id'],
+                    'musicbrainz_track_id': ['TXXX:MusicBrainz Track Id', 'musicbrainz_track_id'],
+                    'replaygain_track_gain': ['TXXX:ReplayGain_Track_Gain', 'replaygain_track_gain'],
+                    'replaygain_album_gain': ['TXXX:ReplayGain_Album_Gain', 'replaygain_album_gain'],
+                    'replaygain_track_peak': ['TXXX:ReplayGain_Track_Peak', 'replaygain_track_peak'],
+                    'replaygain_album_peak': ['TXXX:ReplayGain_Album_Peak', 'replaygain_album_peak']
                 }
                 
                 logger.debug(f"Looking for ID3 tags: {list(tag_mapping.keys())}")
