@@ -26,7 +26,8 @@ except ImportError:
 # Import colorama for cross-platform color support
 try:
     from colorama import init, Fore
-    init(autoreset=True)  # Initialize colorama
+    # Initialize colorama with proper settings for Windows
+    init(autoreset=True, convert=True)
     COLORAMA_AVAILABLE = True
 except ImportError:
     COLORAMA_AVAILABLE = False
@@ -160,7 +161,7 @@ def setup_logging(
         # Console handler with color support
         if console_logging:
             if console_format is None:
-                console_format = "{time:HH:mm:ss} | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - {message}"
+                console_format = "{time:HH:mm:ss} | <level>{level: <8}</level> | <cyan>{extra[extra][component]}</cyan> - {message}"
             
             logger.add(
                 sys.stdout,
@@ -197,7 +198,7 @@ def setup_logging(
                     # Colored format for file logs
                     logger.add(
                         log_file,
-                        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}:{function}:{line}</cyan> | <level>{message}</level>",
+                        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}:{function}:{line}</cyan> | <cyan>{extra[extra][component]}</cyan> | <level>{message}</level>",
                         level=log_level,
                         rotation=f"{log_file_size_mb} MB",
                         retention=max_log_files,
@@ -209,7 +210,7 @@ def setup_logging(
                     # Plain text format
                     logger.add(
                         log_file,
-                        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
+                        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra[extra][component]} | {message}",
                         level=log_level,
                         rotation=f"{log_file_size_mb} MB",
                         retention=max_log_files,
@@ -320,35 +321,8 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     caller_module = inspect.getmodule(caller_frame)
     module_name = caller_module.__name__ if caller_module else 'unknown'
     
-    # Create structured message with component prefix and color
-    if LOGURU_AVAILABLE and component in COMPONENT_COLORS:
-        color_map = {
-            'MB API': '<blue>',
-            'LF API': '<magenta>',
-            'Enrichment': '<cyan>',
-            'Analysis': '<yellow>',
-            'Database': '<green>',
-            'Cache': '<white>',
-            'Worker': '<white>',
-            'Sequential': '<blue>',
-            'Parallel': '<magenta>',
-            'Resource': '<cyan>',
-            'Progress': '<yellow>',
-            'Playlist': '<green>',
-            'Streaming': '<white>',
-            'CLI': '<white>',
-            'Config': '<blue>',
-            'Export': '<magenta>',
-            'Pipeline': '<cyan>',
-            'System': '<yellow>',
-            'Audio': '<green>',
-            'CPU Optimizer': '<cyan>',
-            'FileDiscovery': '<blue>'
-        }
-        color_tag = color_map.get(component, '<white>')
-        structured_message = f"{color_tag}{component}</>: {message}"
-    else:
-        structured_message = f"{component}: {message}"
+    # Create structured message without color tags
+    structured_message = message
     
     # Handle TRACE level mapping
     if level.upper() == 'TRACE':
@@ -366,13 +340,19 @@ def log_universal(level: str, component: str, message: str, **kwargs):
         # Use opt() to set caller information
         log_method = getattr(logger.opt(depth=1), log_level, logger.info)
         
-        # Use the component directly in the message
-        if kwargs:
-            log_method(structured_message, extra=kwargs)
+        # Add component to extra data for proper formatting
+        extra_data = kwargs.copy()
+        extra_data['component'] = component
+        
+        # Use the message directly without color tags
+        if extra_data:
+            log_method(structured_message, extra=extra_data)
         else:
-            log_method(structured_message)
+            log_method(structured_message, extra={'component': component})
     else:
         log_method = getattr(logger, log_level, logger.info)
+        # For standard logging, include component in message
+        structured_message = f"{component}: {message}"
         log_method(structured_message, extra=kwargs)
 
 
@@ -454,11 +434,41 @@ def change_log_level(new_level: str) -> bool:
         
         if LOGURU_AVAILABLE:
             logger.remove()
-            logger.add(sys.stdout, level=level_name)
+            # Re-add handlers with new level and proper format
             logger.add(
-                os.path.join(_log_config.get('log_dir', './logs'), f"{_log_config.get('log_file_prefix', 'playlista')}.log"),
-                level=level_name
+                sys.stdout,
+                format="{time:HH:mm:ss} | <level>{level: <8}</level> | <cyan>{extra[extra][component]}</cyan> - {message}",
+                level=level_name,
+                colorize=_log_config.get('colored_output', True),
+                backtrace=True,
+                diagnose=True
             )
+            
+            log_file = os.path.join(_log_config.get('log_dir', './logs'), f"{_log_config.get('log_file_prefix', 'playlista')}.log")
+            file_colors = _log_config.get('file_colored_output', _log_config.get('colored_output', True))
+            
+            if file_colors:
+                logger.add(
+                    log_file,
+                    format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}:{function}:{line}</cyan> | <cyan>{extra[extra][component]}</cyan> | <level>{message}</level>",
+                    level=level_name,
+                    rotation=f"{_log_config.get('log_file_size_mb', 50)} MB",
+                    retention=_log_config.get('max_log_files', 10),
+                    compression="zip",
+                    backtrace=True,
+                    diagnose=True
+                )
+            else:
+                logger.add(
+                    log_file,
+                    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra[extra][component]} | {message}",
+                    level=level_name,
+                    rotation=f"{_log_config.get('log_file_size_mb', 50)} MB",
+                    retention=_log_config.get('max_log_files', 10),
+                    compression="zip",
+                    backtrace=True,
+                    diagnose=True
+                )
         else:
             logger.setLevel(level)
             for handler in logger.handlers:
