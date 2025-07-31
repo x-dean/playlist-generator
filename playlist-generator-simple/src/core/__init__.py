@@ -26,7 +26,7 @@ from .logging_setup import (
 )
 from .parallel_analyzer import ParallelAnalyzer
 from .playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
-from .progress_bar import ProgressBar
+from .progress_bar import SimpleProgressBar, get_progress_bar
 from .resource_manager import ResourceManager
 from .sequential_analyzer import SequentialAnalyzer
 from .streaming_audio_loader import StreamingAudioLoader, get_streaming_loader
@@ -53,7 +53,8 @@ __all__ = [
     'ParallelAnalyzer',
     'PlaylistGenerator',
     'PlaylistGenerationMethod',
-    'ProgressBar',
+    'SimpleProgressBar',
+    'get_progress_bar',
     'ResourceManager',
     'SequentialAnalyzer',
     'StreamingAudioLoader',
