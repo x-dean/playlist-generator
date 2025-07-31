@@ -1091,8 +1091,8 @@ class AudioAnalyzer:
                     duration = time.time() - start_time
                     log_feature_extraction_step(audio_path, 'loudness', duration, False, error=str(e))
             
-            # Extract key (if enabled)
-            if features_config.get('extract_key', True):
+            # Extract key (if enabled) - temporarily disabled for large files
+            if features_config.get('extract_key', True) and not is_extremely_large:
                 start_time = time.time()
                 try:
                     key_features = self._extract_key(audio)
@@ -1111,6 +1111,9 @@ class AudioAnalyzer:
                     failed_features.append('key')
                     duration = time.time() - start_time
                     log_feature_extraction_step(audio_path, 'key', duration, False, error=str(e))
+            elif features_config.get('extract_key', True) and is_extremely_large:
+                logger.warning(f"Skipping key extraction for extremely large file")
+                failed_features.append('key')
             
             # Extract MFCC (if enabled)
             if features_config.get('extract_mfcc', True) and not is_extremely_large:
@@ -1597,15 +1600,21 @@ class AudioAnalyzer:
         features = {}
         
         try:
+            logger.debug(f"Starting key extraction for audio with {len(audio)} samples")
+            
             if ESSENTIA_AVAILABLE:
+                logger.debug("Using Essentia for key detection")
                 # Key detection
                 key = es.Key()
+                logger.debug("Created Essentia Key object")
                 key_result = key(audio)
+                logger.debug(f"Essentia key result: {key_result}")
                 features['key'] = str(key_result[0])  # Ensure it's a string
                 features['scale'] = str(key_result[1])  # Ensure it's a string
                 features['key_strength'] = ensure_float(key_result[2])
                 
             elif LIBROSA_AVAILABLE:
+                logger.debug("Using Librosa for key detection")
                 # Use librosa for key detection
                 chroma = librosa.feature.chroma_cqt(y=audio, sr=DEFAULT_SAMPLE_RATE)
                 # Simple key detection (simplified)
