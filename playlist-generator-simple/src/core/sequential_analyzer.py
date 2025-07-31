@@ -318,11 +318,31 @@ class SequentialAnalyzer:
             Analysis configuration dictionary
         """
         try:
-            # Import analysis manager to get deterministic analysis type
-            from .analysis_manager import analysis_manager
+            # Get file size for analysis type determination
+            file_size_bytes = os.path.getsize(file_path)
+            file_size_mb = file_size_bytes / (1024 * 1024)
             
-            # Get deterministic analysis configuration
-            analysis_config = analysis_manager.determine_analysis_type(file_path)
+            # Simple analysis type determination based on file size
+            if file_size_mb > 50:  # Large files
+                analysis_type = 'basic'
+                use_full_analysis = False
+            else:  # Smaller files
+                analysis_type = 'basic'
+                use_full_analysis = False
+            
+            analysis_config = {
+                'analysis_type': analysis_type,
+                'use_full_analysis': use_full_analysis,
+                'features_config': {
+                    'extract_rhythm': True,
+                    'extract_spectral': True,
+                    'extract_loudness': True,
+                    'extract_key': True,
+                    'extract_mfcc': True,
+                    'extract_musicnn': False,
+                    'extract_metadata': True
+                }
+            }
             
             logger.debug(f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
             
@@ -417,5 +437,12 @@ class SequentialAnalyzer:
             return False
 
 
-# Global sequential analyzer instance
-sequential_analyzer = SequentialAnalyzer() 
+# Global sequential analyzer instance - created lazily to avoid circular imports
+_sequential_analyzer_instance = None
+
+def get_sequential_analyzer() -> 'SequentialAnalyzer':
+    """Get the global sequential analyzer instance, creating it if necessary."""
+    global _sequential_analyzer_instance
+    if _sequential_analyzer_instance is None:
+        _sequential_analyzer_instance = SequentialAnalyzer()
+    return _sequential_analyzer_instance 

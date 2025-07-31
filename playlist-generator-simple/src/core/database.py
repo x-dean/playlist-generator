@@ -41,7 +41,17 @@ class DatabaseManager:
             config: Optional configuration dictionary (uses global config if None)
         """
         if db_path is None:
-            db_path = '/app/cache/playlista.db'  # Fixed Docker internal path
+            # Use local path for development, Docker path for production
+            if os.path.exists('/app/cache'):
+                db_path = '/app/cache/playlista.db'  # Docker internal path
+            else:
+                # Local development path
+                import sys
+                if hasattr(sys, '_MEIPASS'):  # PyInstaller
+                    base_path = sys._MEIPASS
+                else:
+                    base_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                db_path = os.path.join(base_path, 'cache', 'playlista.db')
         
         self.db_path = db_path
         
@@ -95,6 +105,88 @@ class DatabaseManager:
         log_performance("DatabaseManager initialization", init_time)
         logger.info(f"DatabaseManager initialized successfully in {init_time:.2f}s")
 
+    def _check_and_migrate_schema(self, cursor):
+        """Check and migrate database schema if needed."""
+        try:
+            logger.info("Checking database schema...")
+            
+            # Check if schema_version table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='schema_version'
+            """)
+            
+            if not cursor.fetchone():
+                # Create schema_version table
+                cursor.execute("""
+                    CREATE TABLE schema_version (
+                        version INTEGER PRIMARY KEY,
+                        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("INSERT INTO schema_version (version) VALUES (1)")
+                logger.info("Created schema_version table")
+                return
+            
+            # Check current schema version
+            cursor.execute("SELECT MAX(version) FROM schema_version")
+            current_version = cursor.fetchone()[0] or 0
+            logger.info(f"Current schema version: {current_version}")
+            
+            if current_version < 2:
+                # Migrate to version 2 (add missing columns)
+                logger.info("Migrating database schema to version 2...")
+                
+                # Check if analysis_results table exists
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='analysis_results'
+                """)
+                
+                if cursor.fetchone():
+                    logger.info("analysis_results table exists, adding missing columns...")
+                    # Add missing columns if they don't exist
+                    try:
+                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN artist TEXT")
+                        logger.info("Added artist column")
+                    except sqlite3.OperationalError as e:
+                        logger.info(f"artist column already exists: {e}")
+                    
+                    try:
+                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN album TEXT")
+                        logger.info("Added album column")
+                    except sqlite3.OperationalError as e:
+                        logger.info(f"album column already exists: {e}")
+                    
+                    try:
+                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN title TEXT")
+                        logger.info("Added title column")
+                    except sqlite3.OperationalError as e:
+                        logger.info(f"title column already exists: {e}")
+                    
+                    try:
+                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN genre TEXT")
+                        logger.info("Added genre column")
+                    except sqlite3.OperationalError as e:
+                        logger.info(f"genre column already exists: {e}")
+                    
+                    try:
+                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN year INTEGER")
+                        logger.info("Added year column")
+                    except sqlite3.OperationalError as e:
+                        logger.info(f"year column already exists: {e}")
+                else:
+                    logger.info("analysis_results table does not exist yet")
+                
+                cursor.execute("INSERT INTO schema_version (version) VALUES (2)")
+                logger.info("Database schema migrated to version 2")
+            else:
+                logger.info("Database schema is up to date")
+            
+        except Exception as e:
+            logger.error(f"Error during schema migration: {e}")
+            # Continue with normal initialization
+
     @log_function_call
     def _init_database(self):
         """Initialize the database with all required tables."""
@@ -106,6 +198,9 @@ class DatabaseManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                
+                # Check if database needs migration
+                self._check_and_migrate_schema(cursor)
                 
                 # Create playlists table
                 logger.debug("Creating playlists table...")
@@ -1693,5 +1788,12 @@ class DatabaseManager:
             return False
 
 
-# Global database manager instance
-db_manager = DatabaseManager() 
+# Global database manager instance - created lazily to avoid circular imports
+_db_manager_instance = None
+
+def get_db_manager() -> 'DatabaseManager':
+    """Get the global database manager instance, creating it if necessary."""
+    global _db_manager_instance
+    if _db_manager_instance is None:
+        _db_manager_instance = DatabaseManager()
+    return _db_manager_instance 

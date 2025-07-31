@@ -716,5 +716,12 @@ class ResourceManager:
             return 'stable'
 
 
-# Global resource manager instance
-resource_manager = ResourceManager() 
+# Global resource manager instance - created lazily to avoid circular imports
+_resource_manager_instance = None
+
+def get_resource_manager() -> 'ResourceManager':
+    """Get the global resource manager instance, creating it if necessary."""
+    global _resource_manager_instance
+    if _resource_manager_instance is None:
+        _resource_manager_instance = ResourceManager()
+    return _resource_manager_instance 

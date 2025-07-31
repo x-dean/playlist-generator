@@ -13,7 +13,7 @@ from datetime import datetime
 # Import configuration loader and logging
 from .config_loader import config_loader
 from .logging_setup import get_logger, log_function_call, log_performance
-from .database import db_manager
+from .database import get_db_manager
 
 logger = get_logger('playlista.file_discovery')
 
@@ -263,7 +263,7 @@ class FileDiscovery:
                     modified_time = stat.st_mtime
                     
                     # Check if file with same hash already exists in database
-                    existing_result = db_manager.get_analysis_result(filepath)
+                    existing_result = get_db_manager().get_analysis_result(filepath)
                     
                     if existing_result:
                         existing_hash = existing_result.get('file_hash')
@@ -275,7 +275,7 @@ class FileDiscovery:
                             logger.debug(f"File unchanged: {filename}")
                         else:
                             # File modified
-                            db_manager.save_analysis_result(
+                            get_db_manager().save_analysis_result(
                                 file_path=filepath,
                                 filename=filename,
                                 file_size_bytes=file_size,
@@ -287,7 +287,7 @@ class FileDiscovery:
                             logger.debug(f"Updated modified file in database: {filepath}")
                     else:
                         # New file
-                        db_manager.save_analysis_result(
+                        get_db_manager().save_analysis_result(
                             file_path=filepath,
                             filename=filename,
                             file_size_bytes=file_size,
@@ -328,7 +328,7 @@ class FileDiscovery:
         logger.debug("Retrieving files from database...")
         
         try:
-            results = db_manager.get_all_analysis_results()
+            results = get_db_manager().get_all_analysis_results()
             file_paths = {result['file_path'] for result in results 
                          if result.get('analysis_data', {}).get('status') == 'discovered'}
             
@@ -350,7 +350,7 @@ class FileDiscovery:
         logger.debug("Retrieving failed files from database...")
         
         try:
-            failed_files = db_manager.get_failed_analysis_files()
+            failed_files = get_db_manager().get_failed_analysis_files()
             failed_paths = {failed_file['file_path'] for failed_file in failed_files}
             
             logger.debug(f"Retrieved {len(failed_paths)} failed files from database")
@@ -376,7 +376,7 @@ class FileDiscovery:
             file_hash = self._get_file_hash(filepath)
             
             # Use DatabaseManager's failed analysis tracking
-            db_manager.mark_analysis_failed(filepath, filename, error_message)
+            get_db_manager().mark_analysis_failed(filepath, filename, error_message)
             
             logger.info(f"Successfully marked file as failed: {filename}")
             
@@ -413,9 +413,9 @@ class FileDiscovery:
                 for filepath in removed_files:
                     try:
                         # Remove from analysis results
-                        db_manager.delete_analysis_result(filepath)
+                        get_db_manager().delete_analysis_result(filepath)
                         # Remove from failed analysis
-                        db_manager.delete_failed_analysis(filepath)
+                        get_db_manager().delete_failed_analysis(filepath)
                         logger.debug(f"Removed from database: {filepath}")
                     except Exception as e:
                         logger.error(f"Error removing file {filepath}: {e}")
@@ -479,7 +479,7 @@ class FileDiscovery:
             for filepath in current_files.intersection(db_files):
                 try:
                     current_hash = self._get_file_hash(filepath)
-                    existing_result = db_manager.get_analysis_result(filepath)
+                    existing_result = get_db_manager().get_analysis_result(filepath)
                     if existing_result and existing_result.get('file_hash') != current_hash:
                         modified_files.add(filepath)
                 except Exception as e:
@@ -516,7 +516,7 @@ class FileDiscovery:
             file_hash = self._get_file_hash(filepath)
             
             # Get database info
-            db_info = db_manager.get_analysis_result(filepath)
+            db_info = get_db_manager().get_analysis_result(filepath)
             
             file_info = {
                 'filepath': filepath,

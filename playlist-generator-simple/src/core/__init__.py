@@ -7,7 +7,7 @@ from .playlist_generator import (
     PlaylistGenerator,
     Playlist,
     PlaylistGenerationMethod,
-    playlist_generator
+    get_playlist_generator
 )
 from .logging_setup import (
     setup_logging,
@@ -24,7 +24,7 @@ __all__ = [
     'PlaylistGenerator',
     'Playlist',
     'PlaylistGenerationMethod',
-    'playlist_generator',
+    'get_playlist_generator',
     'setup_logging',
     'get_logger', 
     'change_log_level',

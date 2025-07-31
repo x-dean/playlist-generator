@@ -2097,5 +2097,12 @@ class AudioAnalyzer:
 
 
 
-# Global audio analyzer instance
-audio_analyzer = AudioAnalyzer() 
+# Global audio analyzer instance - created lazily to avoid circular imports
+_audio_analyzer_instance = None
+
+def get_audio_analyzer() -> 'AudioAnalyzer':
+    """Get the global audio analyzer instance, creating it if necessary."""
+    global _audio_analyzer_instance
+    if _audio_analyzer_instance is None:
+        _audio_analyzer_instance = AudioAnalyzer()
+    return _audio_analyzer_instance 

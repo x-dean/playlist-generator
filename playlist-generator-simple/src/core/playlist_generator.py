@@ -957,5 +957,12 @@ class FeatureGroupPlaylistGenerator(BasePlaylistGenerator):
         return "Unknown_Features"
 
 
-# Global playlist generator instance
-playlist_generator = PlaylistGenerator() 
+# Global playlist generator instance - created lazily to avoid circular imports
+_playlist_generator_instance = None
+
+def get_playlist_generator() -> 'PlaylistGenerator':
+    """Get the global playlist generator instance, creating it if necessary."""
+    global _playlist_generator_instance
+    if _playlist_generator_instance is None:
+        _playlist_generator_instance = PlaylistGenerator()
+    return _playlist_generator_instance 

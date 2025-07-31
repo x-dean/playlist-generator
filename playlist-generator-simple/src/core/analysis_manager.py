@@ -623,5 +623,12 @@ class AnalysisManager:
             return False
 
 
-# Global analysis manager instance
-analysis_manager = AnalysisManager() 
+# Global analysis manager instance - created lazily to avoid circular imports
+_analysis_manager_instance = None
+
+def get_analysis_manager() -> 'AnalysisManager':
+    """Get the global analysis manager instance, creating it if necessary."""
+    global _analysis_manager_instance
+    if _analysis_manager_instance is None:
+        _analysis_manager_instance = AnalysisManager()
+    return _analysis_manager_instance 

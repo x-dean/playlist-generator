@@ -77,8 +77,8 @@ class EnhancedCLI:
         """Initialize the enhanced CLI interface."""
         self.config = config_loader.load_config()
         
-        # Fixed Docker database path
-        db_path = '/app/cache/playlista.db'
+        # Use local database path for development
+        db_path = os.path.join(os.path.dirname(__file__), '..', 'cache', 'playlista.db')
         self.db_manager = DatabaseManager(db_path=db_path)
         
         # Pass the database manager to other components
