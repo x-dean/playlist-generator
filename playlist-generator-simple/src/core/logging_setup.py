@@ -81,6 +81,7 @@ def setup_logging(
     console_logging: bool = True,
     file_logging: bool = True,
     colored_output: bool = True,
+    file_colored_output: bool = None,  # Will use colored_output if None
     max_log_files: int = 10,
     log_file_size_mb: int = 50,
     log_file_format: str = 'json',
@@ -183,17 +184,34 @@ def setup_logging(
                     diagnose=True
                 )
             else:
-                # Text format
-                logger.add(
-                    log_file,
-                    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
-                    level=log_level,
-                    rotation=f"{log_file_size_mb} MB",
-                    retention=max_log_files,
-                    compression="zip",
-                    backtrace=True,
-                    diagnose=True
-                )
+                # Text format with optional colors
+                # Use file_colored_output if specified, otherwise use colored_output
+                file_colors = file_colored_output if file_colored_output is not None else colored_output
+                
+                if file_colors:
+                    # Colored format for file logs
+                    logger.add(
+                        log_file,
+                        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}:{function}:{line}</cyan> | <level>{message}</level>",
+                        level=log_level,
+                        rotation=f"{log_file_size_mb} MB",
+                        retention=max_log_files,
+                        compression="zip",
+                        backtrace=True,
+                        diagnose=True
+                    )
+                else:
+                    # Plain text format
+                    logger.add(
+                        log_file,
+                        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
+                        level=log_level,
+                        rotation=f"{log_file_size_mb} MB",
+                        retention=max_log_files,
+                        compression="zip",
+                        backtrace=True,
+                        diagnose=True
+                    )
     else:
         # Fallback to standard logging
         logger.setLevel(getattr(logging, log_level, logging.INFO))
@@ -236,6 +254,7 @@ def setup_logging(
         'console_logging': console_logging,
         'file_logging': file_logging,
         'colored_output': colored_output,
+        'file_colored_output': file_colored_output,
         'log_file_format': log_file_format
     }
     
