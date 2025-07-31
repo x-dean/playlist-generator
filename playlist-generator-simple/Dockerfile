@@ -22,29 +22,11 @@ RUN pip install --prefix=/install/deps --no-cache-dir -r requirements.txt
 # --- Final stage ---
 FROM python:3.7-slim-bullseye
 
-# Install runtime dependencies including comprehensive audio codec support
+# Install runtime dependencies only
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ffmpeg \
     libavcodec-extra \
-    libavformat-extra \
-    libavutil-extra \
-    libswresample-extra \
-    libavfilter-extra \
-    libavdevice-extra \
-    libpostproc-extra \
-    libswscale-extra \
-    # Additional audio codec libraries
-    libmp3lame0 \
-    libvorbis0a \
-    libvorbisenc2 \
-    libflac8 \
-    libopus0 \
-    libfaad2 \
-    libfaac0 \
-    libmad0 \
-    libmpg123-0 \
-    # Additional system libraries
     libfftw3-3 \
     libtag1v5 \
     sqlite3 \

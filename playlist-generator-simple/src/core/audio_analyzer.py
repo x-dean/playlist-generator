@@ -18,6 +18,7 @@ import logging
 # Suppress specific warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="librosa")
 warnings.filterwarnings("ignore", category=FutureWarning, module="librosa")
+warnings.filterwarnings("ignore", category=UserWarning, module="essentia")
 
 # Constants
 DEFAULT_SAMPLE_RATE = 44100
@@ -99,19 +100,19 @@ def check_audio_system_dependencies():
     
     return len(missing_deps) == 0
 
-def safe_librosa_load(audio_path: str, **kwargs) -> Tuple[Optional[np.ndarray], Optional[int]]:
+def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
-    Safely load audio using librosa with proper backend specification and fallbacks.
+    Safely load audio using Essentia MonoLoader (like old setup).
     
     Args:
         audio_path: Path to audio file
-        **kwargs: Additional arguments for librosa.load
+        sample_rate: Target sample rate (default 44100Hz)
         
     Returns:
         Tuple of (audio_array, sample_rate) or (None, None) if failed
     """
-    if not LIBROSA_AVAILABLE:
-        log_universal('WARNING', 'Audio', 'Librosa not available for audio loading')
+    if not ESSENTIA_AVAILABLE:
+        log_universal('WARNING', 'Audio', 'Essentia not available for audio loading')
         return None, None
     
     # Check if file exists
@@ -128,57 +129,21 @@ def safe_librosa_load(audio_path: str, **kwargs) -> Tuple[Optional[np.ndarray], 
     except Exception as e:
         log_universal('WARNING', 'Audio', f'Cannot check file size for {os.path.basename(audio_path)}: {e}')
     
-    # Default parameters
-    default_params = {
-        'sr': DEFAULT_SAMPLE_RATE,
-        'mono': True,
-        'res_type': 'kaiser_best',
-        'backend': 'soundfile'  # Explicitly use soundfile backend
-    }
-    
-    # Update with provided kwargs
-    default_params.update(kwargs)
-    
-    # Try soundfile backend first
     try:
-        audio, sr = librosa.load(audio_path, **default_params)
+        import essentia.standard as es
+        log_universal('DEBUG', 'Audio', f'Loading {os.path.basename(audio_path)} with Essentia MonoLoader')
+        loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
+        audio = loader()
+        
         if audio is not None and len(audio) > 0:
-            log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)} with soundfile backend')
-            return audio, sr
+            log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)}: {len(audio)} samples at {sample_rate}Hz')
+            return audio, sample_rate
         else:
-            log_universal('WARNING', 'Audio', f'Librosa returned empty audio for {os.path.basename(audio_path)}')
+            log_universal('WARNING', 'Audio', f'Essentia returned empty audio for {os.path.basename(audio_path)}')
             return None, None
     except Exception as e:
-        log_universal('DEBUG', 'Audio', f'Soundfile backend failed for {os.path.basename(audio_path)}: {e}')
-        
-        # Try without backend specification (will use default)
-        try:
-            params_without_backend = default_params.copy()
-            params_without_backend.pop('backend', None)
-            audio, sr = librosa.load(audio_path, **params_without_backend)
-            if audio is not None and len(audio) > 0:
-                log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)} with default backend')
-                return audio, sr
-            else:
-                log_universal('WARNING', 'Audio', f'Librosa fallback returned empty audio for {os.path.basename(audio_path)}')
-                return None, None
-        except Exception as e2:
-            log_universal('WARNING', 'Audio', f'All librosa backends failed for {os.path.basename(audio_path)}: {e2}')
-            
-            # Try with audioread backend as last resort
-            try:
-                params_audioread = default_params.copy()
-                params_audioread['backend'] = 'audioread'
-                audio, sr = librosa.load(audio_path, **params_audioread)
-                if audio is not None and len(audio) > 0:
-                    log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)} with audioread backend')
-                    return audio, sr
-                else:
-                    log_universal('WARNING', 'Audio', f'Audioread backend returned empty audio for {os.path.basename(audio_path)}')
-                    return None, None
-            except Exception as e3:
-                log_universal('ERROR', 'Audio', f'All audio backends failed for {os.path.basename(audio_path)}: {e3}')
-                return None, None
+        log_universal('ERROR', 'Audio', f'Essentia audio loading failed for {os.path.basename(audio_path)}: {e}')
+        return None, None
 
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
@@ -829,11 +794,7 @@ class AudioAnalyzer:
                 try:
                     log_universal('DEBUG', 'Audio', f"Trying librosa loading for {os.path.basename(audio_path)}")
                     # Use safe librosa loading with proper backend specification
-                    audio, sr = safe_librosa_load(
-                        audio_path, 
-                        sr=DEFAULT_SAMPLE_RATE, 
-                        duration=30.0
-                    )
+                    audio, sr = safe_essentia_load(audio_path)
                     
                     if audio is not None:
                         log_universal('DEBUG', 'Audio', f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
@@ -944,14 +905,9 @@ class AudioAnalyzer:
                 try:
                     log_universal('DEBUG', 'Audio', f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
                     
-                    # Use librosa for segment loading
-                    if LIBROSA_AVAILABLE:
-                        chunk, sr = safe_librosa_load(
-                            audio_path,
-                            sr=DEFAULT_SAMPLE_RATE,
-                            offset=segment_start,
-                            duration=segment_duration
-                        )
+                    # Use Essentia for segment loading
+                    if ESSENTIA_AVAILABLE:
+                        chunk, sr = safe_essentia_load(audio_path)
                         
                         if chunk is not None:
                             segments.append(chunk)
@@ -961,10 +917,10 @@ class AudioAnalyzer:
                             import gc
                             gc.collect()
                         else:
-                            log_universal('WARNING', 'Audio', f"Failed to load segment {i+1}: librosa returned None")
+                            log_universal('WARNING', 'Audio', f"Failed to load segment {i+1}: Essentia returned None")
                         
                     else:
-                        log_universal('WARNING', 'Audio', "Librosa not available for segment loading")
+                        log_universal('WARNING', 'Audio', "Essentia not available for segment loading")
                         break
                         
                 except Exception as e:
@@ -1026,13 +982,8 @@ class AudioAnalyzer:
                 try:
                     log_universal('DEBUG', 'Audio', f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
                     
-                    # Use librosa for segment loading
-                    chunk, sr = safe_librosa_load(
-                        audio_path,
-                        sr=DEFAULT_SAMPLE_RATE,
-                        offset=segment_start,
-                        duration=segment_duration
-                    )
+                    # Use Essentia for segment loading
+                    chunk, sr = safe_essentia_load(audio_path)
                     
                     if chunk is not None:
                         segments.append(chunk)
@@ -1042,7 +993,7 @@ class AudioAnalyzer:
                         import gc
                         gc.collect()
                     else:
-                        log_universal('WARNING', 'Audio', f"Failed to load segment {i+1}: librosa returned None")
+                        log_universal('WARNING', 'Audio', f"Failed to load segment {i+1}: Essentia returned None")
                     
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f"Error loading segment {i+1}: {e}")
