@@ -42,6 +42,7 @@ except ImportError:
     TENSORFLOW_AVAILABLE = False
     logging.warning("TensorFlow not available - MusiCNN features will be limited")
 
+
 # Import SoundFile for audio loading
 try:
     import soundfile as sf
@@ -57,7 +58,6 @@ try:
 except ImportError:
     WAVE_AVAILABLE = False
     logging.warning("Wave module not available - WAV file support limited")
-
 
 
 # Import local modules

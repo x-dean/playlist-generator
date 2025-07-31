@@ -1,0 +1,29 @@
+# Docker Compose configuration for Playlist Generator Simple
+# All configuration is handled via playlista.conf file
+
+services:
+  playlista-simple:
+    container_name: playlista-simple
+    build: .
+    entrypoint: []  # Override entrypoint for testing
+    volumes:
+      # Music library - mount your music directory here
+      - C:\Users\Dean\Documents\test_music:/music:ro
+      
+      # Playlists output directory
+      - ./playlists:/app/playlists
+      
+      # Cache directory for analysis results
+      - ./cache:/app/cache
+      
+      # Logs directory
+      - ./logs:/app/logs
+            
+      # Models directory (for feature extraction models)
+      - ./models:/app/models:ro
+      
+      # Configuration file
+      - ./playlista.conf:/app/playlista.conf:ro
+    working_dir: /app
+    tty: true
+    stdin_open: true
