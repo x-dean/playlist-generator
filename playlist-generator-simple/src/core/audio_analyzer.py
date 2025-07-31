@@ -1085,7 +1085,10 @@ class AudioAnalyzer:
             logger.debug("Starting external API metadata enrichment")
             
             # Import external APIs module
-            from .external_apis import metadata_enrichment_service
+            from .external_apis import get_metadata_enrichment_service
+            
+            # Get metadata enrichment service
+            metadata_enrichment_service = get_metadata_enrichment_service()
             
             # Check if external APIs are available
             if not metadata_enrichment_service.is_available():

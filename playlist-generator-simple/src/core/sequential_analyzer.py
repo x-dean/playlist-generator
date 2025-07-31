@@ -321,7 +321,7 @@ class SequentialAnalyzer:
 
     def _calculate_file_hash(self, file_path: str) -> str:
         """
-        Calculate a simple hash for file change detection.
+        Calculate a hash for file change detection.
         
         Args:
             file_path: Path to the file
@@ -332,11 +332,12 @@ class SequentialAnalyzer:
         try:
             import hashlib
             
-            # Use file size and modification time as simple hash
+            # Use filename + modification time + size for hash (consistent with file discovery)
             stat = os.stat(file_path)
-            hash_data = f"{stat.st_size}_{stat.st_mtime}"
+            filename = os.path.basename(file_path)
+            content = f"{filename}:{stat.st_mtime}:{stat.st_size}"
             
-            return hashlib.md5(hash_data.encode()).hexdigest()
+            return hashlib.md5(content.encode()).hexdigest()
             
         except Exception as e:
             logger.warning(f"Could not calculate hash for {file_path}: {e}")
