@@ -20,6 +20,8 @@ try:
 except ImportError:
     LOGURU_AVAILABLE = False
     logger = logging.getLogger('playlista')
+    # Import handlers for fallback logging
+    from logging import handlers
 
 # Import colorama for cross-platform color support
 try:
@@ -231,7 +233,7 @@ def setup_logging(
         
         if file_logging:
             log_file = os.path.join(log_dir, f"{log_file_prefix}.log")
-            file_handler = logging.handlers.RotatingFileHandler(
+            file_handler = handlers.RotatingFileHandler(
                 log_file,
                 maxBytes=log_file_size_mb * 1024 * 1024,
                 backupCount=max_log_files,
@@ -304,7 +306,7 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     Universal logging function with component-based formatting.
     
     Args:
-        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL, TRACE)
         component: Component name for color coding
         message: Log message
         **kwargs: Additional fields for structured logging
@@ -316,12 +318,23 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     if COLORAMA_AVAILABLE and component in COMPONENT_COLORS:
         structured_message = f"{COMPONENT_COLORS[component]}{component}{Fore.RESET}: {message}"
     
+    # Handle TRACE level mapping
+    if level.upper() == 'TRACE':
+        if LOGURU_AVAILABLE:
+            # Loguru supports TRACE level
+            log_level = 'trace'
+        else:
+            # Standard logging doesn't support TRACE, map to DEBUG
+            log_level = 'debug'
+    else:
+        log_level = level.lower()
+    
     # Use appropriate log method
     if LOGURU_AVAILABLE:
-        log_method = getattr(logger, level.lower(), logger.info)
+        log_method = getattr(logger, log_level, logger.info)
         log_method(structured_message, extra=kwargs)
     else:
-        log_method = getattr(logger, level.lower(), logger.info)
+        log_method = getattr(logger, log_level, logger.info)
         log_method(structured_message, extra=kwargs)
 
 
@@ -373,29 +386,40 @@ def change_log_level(new_level: str) -> bool:
     Change the log level dynamically.
     
     Args:
-        new_level: New log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        new_level: New log level (DEBUG, INFO, WARNING, ERROR, CRITICAL, TRACE)
     
     Returns:
         True if successful, False otherwise
     """
     try:
-        level = getattr(logging, new_level.upper(), None)
+        # Handle TRACE level mapping
+        if new_level.upper() == 'TRACE':
+            if LOGURU_AVAILABLE:
+                # Loguru supports TRACE level
+                level_name = 'TRACE'
+            else:
+                # Standard logging doesn't support TRACE, map to DEBUG
+                level_name = 'DEBUG'
+        else:
+            level_name = new_level.upper()
+        
+        level = getattr(logging, level_name, None)
         if level is None:
             return False
         
         if LOGURU_AVAILABLE:
             logger.remove()
-            logger.add(sys.stdout, level=new_level.upper())
+            logger.add(sys.stdout, level=level_name)
             logger.add(
                 os.path.join(_log_config.get('log_dir', './logs'), f"{_log_config.get('log_file_prefix', 'playlista')}.log"),
-                level=new_level.upper()
+                level=level_name
             )
         else:
             logger.setLevel(level)
             for handler in logger.handlers:
                 handler.setLevel(level)
         
-        log_universal('INFO', 'System', f"Log level changed to: {new_level.upper()}")
+        log_universal('INFO', 'System', f"Log level changed to: {level_name}")
         return True
         
     except Exception as e:

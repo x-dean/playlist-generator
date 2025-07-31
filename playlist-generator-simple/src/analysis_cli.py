@@ -35,8 +35,30 @@ log_file_size_mb = logging_config.get('LOG_FILE_SIZE_MB', 50)
 log_file_format = logging_config.get('LOG_FILE_FORMAT', 'text')
 log_file_encoding = logging_config.get('LOG_FILE_ENCODING', 'utf-8')
 
+# Check for verbose arguments before setting up logging
+def check_verbose_args():
+    """Check for verbose arguments in sys.argv and return appropriate log level."""
+    import argparse
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument('-v', '--verbose', action='count', default=0)
+    try:
+        args, _ = parser.parse_known_args()
+        if args.verbose > 0:
+            verbosity_map = {
+                1: 'INFO',
+                2: 'DEBUG', 
+                3: 'TRACE'
+            }
+            return verbosity_map.get(args.verbose, 'TRACE')
+    except:
+        pass
+    return log_level
+
+# Get initial log level considering verbose flags
+initial_log_level = check_verbose_args()
+
 setup_logging(
-    log_level=log_level,
+    log_level=initial_log_level,
     log_file_prefix=log_file_prefix,
     console_logging=console_logging,
     file_logging=file_logging,
@@ -316,6 +338,10 @@ Examples:
   python analysis_cli.py playlist-methods
         """
     )
+    
+    # Global verbose options
+    parser.add_argument('-v', '--verbose', action='count', default=0,
+                       help='Increase verbosity (-v: INFO, -vv: DEBUG, -vvv: TRACE)')
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
