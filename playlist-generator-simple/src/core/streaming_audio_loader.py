@@ -375,11 +375,11 @@ class StreamingAudioLoader:
                         # Monitor memory every 5 chunks
                         if chunk_count % 5 == 0:
                             current_memory = self._get_current_memory_usage()
-                            log_universal('️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                            log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                             
                             # More aggressive memory management - trigger GC at 70% instead of 90%
                             if current_memory['percent_used'] > 70:
-                                log_universal('WARNING', 'Streaming', f"️ High memory usage detected! Forcing garbage collection...")
+                                log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing garbage collection...")
                                 import gc
                                 gc.collect()
                         
@@ -392,11 +392,11 @@ class StreamingAudioLoader:
                         # Monitor memory every 5 chunks
                         if chunk_count % 5 == 0:
                             current_memory = self._get_current_memory_usage()
-                            log_universal('️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                            log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                             
                             # More aggressive memory management - trigger GC at 70% instead of 90%
                             if current_memory['percent_used'] > 70:
-                                log_universal('WARNING', 'Streaming', f"️ High memory usage detected! Forcing garbage collection...")
+                                log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing garbage collection...")
                                 import gc
                                 gc.collect()
                                 # Force a second collection to be more thorough
@@ -416,11 +416,11 @@ class StreamingAudioLoader:
                     # Monitor memory every 5 chunks
                     if chunk_count % 5 == 0:
                         current_memory = self._get_current_memory_usage()
-                        log_universal('️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                        log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                         
                         # More aggressive memory management - trigger GC at 70% instead of 90%
                         if current_memory['percent_used'] > 70:
-                            log_universal('WARNING', 'Streaming', f"️ High memory usage detected! Forcing garbage collection...")
+                            log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing garbage collection...")
                             import gc
                             gc.collect()
                             # Force a second collection to be more thorough
@@ -440,11 +440,11 @@ class StreamingAudioLoader:
                     # Monitor memory every 5 chunks
                     if chunk_count % 5 == 0:
                         current_memory = self._get_current_memory_usage()
-                        log_universal('️ Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                        log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                         
                         # More aggressive memory management - trigger GC at 70% instead of 90%
                         if current_memory['percent_used'] > 70:
-                            log_universal('WARNING', 'Streaming', f"️ High memory usage detected! Forcing garbage collection...")
+                            log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing garbage collection...")
                             import gc
                             gc.collect()
                             # Force a second collection to be more thorough
