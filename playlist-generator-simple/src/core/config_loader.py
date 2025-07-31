@@ -136,6 +136,11 @@ class ConfigLoader:
             'EXCLUDE_PATTERNS': 'EXCLUDE_PATTERNS',
             'INCLUDE_PATTERNS': 'INCLUDE_PATTERNS',
             'ENABLE_DETAILED_LOGGING': 'ENABLE_DETAILED_LOGGING',
+            # External API settings
+            'LASTFM_API_KEY': 'LASTFM_API_KEY',
+            'MUSICBRAINZ_USER_AGENT': 'MUSICBRAINZ_USER_AGENT',
+            'MUSICBRAINZ_RATE_LIMIT': 'MUSICBRAINZ_RATE_LIMIT',
+            'LASTFM_RATE_LIMIT': 'LASTFM_RATE_LIMIT',
             # Database settings
             'DB_CACHE_DEFAULT_EXPIRY_HOURS': 'DB_CACHE_DEFAULT_EXPIRY_HOURS',
             'DB_CACHE_CLEANUP_FREQUENCY_HOURS': 'DB_CACHE_CLEANUP_FREQUENCY_HOURS',
@@ -177,6 +182,15 @@ class ConfigLoader:
         Returns:
             Converted value
         """
+        # Handle environment variable substitution
+        if value.startswith('${') and value.endswith('}'):
+            env_var = value[2:-1]  # Remove ${ and }
+            env_value = os.getenv(env_var)
+            if env_value is not None:
+                value = env_value
+            else:
+                log_universal('WARNING', 'Config', f'Environment variable {env_var} not found, using literal value')
+        
         # Handle boolean values
         if value.lower() in ('true', 'false'):
             return value.lower() == 'true'
