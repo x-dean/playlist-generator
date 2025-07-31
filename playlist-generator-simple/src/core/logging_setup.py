@@ -99,58 +99,26 @@ COMPONENT_COLORS = {
 
 def setup_logging(
     log_level: str = None,
-    log_dir: str = None,  # Will be auto-detected if None
+    log_dir: str = None,
     log_file_prefix: str = 'playlista',
     console_logging: bool = True,
     file_logging: bool = True,
     colored_output: bool = True,
-    file_colored_output: bool = None,  # Will use colored_output if None
     max_log_files: int = 10,
     log_file_size_mb: int = 50,
-    log_file_format: str = 'json',
-    log_file_encoding: str = 'utf-8',
-    console_format: str = None,
-    console_date_format: str = None,
-    include_extra_fields: bool = True,
-    include_exception_details: bool = True,
-    environment_monitoring: bool = True,
-    signal_handling: bool = True,
-    function_calls_enabled: bool = True,
-    signal_cycle_levels: bool = True
+    log_file_format: str = 'json'
 ) -> 'logger':
     """
     Setup production-grade logging with Loguru.
-    
-    Args:
-        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_dir: Directory for log files (auto-detected if None)
-        log_file_prefix: Prefix for log files
-        console_logging: Enable console output
-        file_logging: Enable file output
-        colored_output: Enable colored console output
-        max_log_files: Maximum number of log files to keep
-        log_file_size_mb: Maximum size of each log file in MB
-        log_file_format: Format for log files ('json' or 'text')
-        log_file_encoding: Encoding for log files
-        console_format: Custom format for console output
-        console_date_format: Custom date format for console output
-        include_extra_fields: Include extra fields in structured logging
-        include_exception_details: Include exception details in logs
-        environment_monitoring: Enable environment variable monitoring
-        signal_handling: Enable signal handlers for log level cycling
-        performance_enabled: Enable performance logging
-        function_calls_enabled: Enable function call logging
-        signal_cycle_levels: Enable signal-based log level cycling
-    
-    Returns:
-        Configured logger instance
+    Console: Colored output
+    File: Plain text (no colors)
     """
     global _log_setup_complete, _log_config
     
     if _log_setup_complete:
         return logger
     
-    # Auto-detect log directory if not provided
+    # Auto-detect log directory
     if log_dir is None:
         if os.path.exists('/app/logs'):
             log_dir = '/app/logs'  # Docker container
@@ -159,14 +127,12 @@ def setup_logging(
         else:
             log_dir = os.path.join(os.getcwd(), 'logs')
     
-    # Create log directory if it doesn't exist
     os.makedirs(log_dir, exist_ok=True)
     
-    # Set default log level
+    # Set log level
     if log_level is None:
         log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
     
-    # Validate log level
     if LOGURU_AVAILABLE:
         valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'TRACE']
     else:
@@ -174,39 +140,26 @@ def setup_logging(
     if log_level not in valid_levels:
         log_level = 'INFO'
     
-    # Detect environment for color support
-    import sys
-    has_terminal = hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
-    is_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER', False)
-    force_color = os.environ.get('FORCE_COLOR', '0') == '1'
-    
-    # Determine if colors should be enabled
-    should_use_colors = colored_output and (has_terminal or force_color)
-    
-    # Remove default handlers if using Loguru
+    # Remove default handlers
     if LOGURU_AVAILABLE:
-        logger.remove()  # Remove default handler
+        logger.remove()
         
-        # Console handler with color support
+        # Console handler - ALWAYS colored
         if console_logging:
-            if console_format is None:
-                console_format = "{time:HH:mm:ss} | <level>{level: <8}</level> | <cyan>{extra[extra][component]}</cyan> - {message}"
-            
             logger.add(
                 sys.stdout,
-                format=console_format,
+                format="{time:HH:mm:ss} | <level>{level: <8}</level> | <cyan>{extra[extra][component]}</cyan> - {message}",
                 level=log_level,
-                colorize=should_use_colors,
+                colorize=True,
                 backtrace=True,
                 diagnose=True
             )
         
-        # File handler
+        # File handler - NEVER colored
         if file_logging:
             log_file = os.path.join(log_dir, f"{log_file_prefix}.log")
             
             if log_file_format == 'json':
-                # JSON format for structured logging
                 logger.add(
                     log_file,
                     format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra} | {message}",
@@ -214,39 +167,21 @@ def setup_logging(
                     rotation=f"{log_file_size_mb} MB",
                     retention=max_log_files,
                     compression="zip",
-                    serialize=True,  # JSON serialization
+                    serialize=True,
                     backtrace=True,
                     diagnose=True
                 )
             else:
-                # Text format with optional colors
-                # Use file_colored_output if specified, otherwise use colored_output
-                file_colors = file_colored_output if file_colored_output is not None else should_use_colors
-                
-                if file_colors:
-                    # Colored format for file logs
-                    logger.add(
-                        log_file,
-                        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}:{function}:{line}</cyan> | <cyan>{extra[extra][component]}</cyan> | <level>{message}</level>",
-                        level=log_level,
-                        rotation=f"{log_file_size_mb} MB",
-                        retention=max_log_files,
-                        compression="zip",
-                        backtrace=True,
-                        diagnose=True
-                    )
-                else:
-                    # Plain text format
-                    logger.add(
-                        log_file,
-                        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra[extra][component]} | {message}",
-                        level=log_level,
-                        rotation=f"{log_file_size_mb} MB",
-                        retention=max_log_files,
-                        compression="zip",
-                        backtrace=True,
-                        diagnose=True
-                    )
+                logger.add(
+                    log_file,
+                    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra[extra][component]} | {message}",
+                    level=log_level,
+                    rotation=f"{log_file_size_mb} MB",
+                    retention=max_log_files,
+                    compression="zip",
+                    backtrace=True,
+                    diagnose=True
+                )
     else:
         # Fallback to standard logging
         logger.setLevel(getattr(logging, log_level, logging.INFO))
@@ -254,13 +189,7 @@ def setup_logging(
         if console_logging:
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(getattr(logging, log_level, logging.INFO))
-            
-            if console_format is None:
-                console_format = '%(asctime)s - %(levelname)s - %(message)s'
-            if console_date_format is None:
-                console_date_format = '%H:%M:%S'
-            
-            formatter = logging.Formatter(console_format, console_date_format)
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S')
             console_handler.setFormatter(formatter)
             logger.addHandler(console_handler)
         
@@ -270,7 +199,7 @@ def setup_logging(
                 log_file,
                 maxBytes=log_file_size_mb * 1024 * 1024,
                 backupCount=max_log_files,
-                encoding=log_file_encoding
+                encoding='utf-8'
             )
             file_handler.setLevel(getattr(logging, log_level, logging.INFO))
             
@@ -288,33 +217,18 @@ def setup_logging(
         'log_dir': log_dir,
         'console_logging': console_logging,
         'file_logging': file_logging,
-        'colored_output': should_use_colors,
-        'file_colored_output': file_colored_output,
+        'colored_output': True,  # Console always colored
         'log_file_format': log_file_format
     }
     
     # Setup external library logging
     _setup_external_logging(log_dir, file_logging)
     
-    # Setup signal handlers if enabled
-    if signal_handling:
-        setup_signal_handlers()
-    
-    # Start log level monitoring if enabled
-    if environment_monitoring:
-        start_log_level_monitor()
-    
     # Log initialization
     log_universal('INFO', 'System', "Logging system initialized")
     log_universal('INFO', 'System', f"Log level: {log_level}")
-    log_universal('INFO', 'System', f"Log directory: {log_dir}")
-    log_universal('INFO', 'System', f"Console logging: {console_logging}")
-    log_universal('INFO', 'System', f"File logging: {file_logging}")
-    log_universal('INFO', 'System', f"Colored output: {should_use_colors}")
-    log_universal('INFO', 'System', f"File format: {log_file_format}")
-    log_universal('INFO', 'System', f"Using Loguru: {LOGURU_AVAILABLE}")
-    log_universal('INFO', 'System', f"Docker environment: {is_docker}")
-    log_universal('INFO', 'System', f"Terminal support: {has_terminal}")
+    log_universal('INFO', 'System', f"Console logging: {console_logging} (colored)")
+    log_universal('INFO', 'System', f"File logging: {file_logging} (plain text)")
     
     _log_setup_complete = True
     return logger
@@ -457,10 +371,8 @@ def change_log_level(new_level: str) -> bool:
         # Handle TRACE level mapping
         if new_level.upper() == 'TRACE':
             if LOGURU_AVAILABLE:
-                # Loguru supports TRACE level
                 level_name = 'TRACE'
             else:
-                # Standard logging doesn't support TRACE, map to DEBUG
                 level_name = 'DEBUG'
         else:
             level_name = new_level.upper()
@@ -472,48 +384,27 @@ def change_log_level(new_level: str) -> bool:
         if LOGURU_AVAILABLE:
             logger.remove()
             
-            # Detect environment for color support
-            import sys
-            has_terminal = hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
-            is_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER', False)
-            force_color = os.environ.get('FORCE_COLOR', '0') == '1'
-            should_use_colors = (has_terminal or force_color)
-            
-            # Re-add handlers with new level and proper format
+            # Re-add handlers with new level
             logger.add(
                 sys.stdout,
                 format="{time:HH:mm:ss} | <level>{level: <8}</level> | <cyan>{extra[extra][component]}</cyan> - {message}",
                 level=level_name,
-                colorize=should_use_colors,
+                colorize=True,
                 backtrace=True,
                 diagnose=True
             )
             
             log_file = os.path.join(_log_config.get('log_dir', './logs'), f"{_log_config.get('log_file_prefix', 'playlista')}.log")
-            file_colors = _log_config.get('file_colored_output', should_use_colors)
-            
-            if file_colors:
-                logger.add(
-                    log_file,
-                    format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}:{function}:{line}</cyan> | <cyan>{extra[extra][component]}</cyan> | <level>{message}</level>",
-                    level=level_name,
-                    rotation=f"{_log_config.get('log_file_size_mb', 50)} MB",
-                    retention=_log_config.get('max_log_files', 10),
-                    compression="zip",
-                    backtrace=True,
-                    diagnose=True
-                )
-            else:
-                logger.add(
-                    log_file,
-                    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra[extra][component]} | {message}",
-                    level=level_name,
-                    rotation=f"{_log_config.get('log_file_size_mb', 50)} MB",
-                    retention=_log_config.get('max_log_files', 10),
-                    compression="zip",
-                    backtrace=True,
-                    diagnose=True
-                )
+            logger.add(
+                log_file,
+                format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra[extra][component]} | {message}",
+                level=level_name,
+                rotation=f"{_log_config.get('log_file_size_mb', 50)} MB",
+                retention=_log_config.get('max_log_files', 10),
+                compression="zip",
+                backtrace=True,
+                diagnose=True
+            )
         else:
             logger.setLevel(level)
             for handler in logger.handlers:
