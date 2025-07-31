@@ -71,9 +71,9 @@ class SequentialAnalyzer:
         self.memory_threshold_percent = memory_threshold_percent or DEFAULT_MEMORY_THRESHOLD_PERCENT
         self.rss_limit_gb = rss_limit_gb or DEFAULT_RSS_LIMIT_GB
         
-        logger.info(f"🔧 Initializing SequentialAnalyzer")
-        logger.debug(f"📋 Timeout: {self.timeout_seconds}s, Memory threshold: {self.memory_threshold_percent}%")
-        logger.info(f"✅ SequentialAnalyzer initialized successfully")
+        logger.info(f" Initializing SequentialAnalyzer")
+        logger.debug(f" Timeout: {self.timeout_seconds}s, Memory threshold: {self.memory_threshold_percent}%")
+        logger.info(f" SequentialAnalyzer initialized successfully")
 
     @log_function_call
     def process_files(self, files: List[str], force_reextract: bool = False) -> Dict[str, Any]:
@@ -88,10 +88,10 @@ class SequentialAnalyzer:
             Dictionary with processing results and statistics
         """
         if not files:
-            logger.warning("⚠️ No files provided for sequential processing")
+            logger.warning("️ No files provided for sequential processing")
             return {'success_count': 0, 'failed_count': 0, 'total_time': 0}
         
-        logger.info(f"🔄 Starting sequential processing of {len(files)} files")
+        logger.info(f" Starting sequential processing of {len(files)} files")
         logger.debug(f"   Force re-extract: {force_reextract}")
         
         # Get progress bar
@@ -133,7 +133,7 @@ class SequentialAnalyzer:
                 self._cleanup_memory()
                 
             except Exception as e:
-                logger.error(f"❌ Error processing {file_path}: {e}")
+                logger.error(f" Error processing {file_path}: {e}")
                 results['failed_count'] += 1
                 results['processed_files'].append({
                     'file_path': file_path,
@@ -153,8 +153,8 @@ class SequentialAnalyzer:
             "Sequential Analysis"
         )
         
-        logger.info(f"✅ Sequential processing completed in {total_time:.2f}s")
-        logger.info(f"📊 Results: {results['success_count']} successful, {results['failed_count']} failed")
+        logger.info(f" Sequential processing completed in {total_time:.2f}s")
+        logger.info(f" Results: {results['success_count']} successful, {results['failed_count']} failed")
         
         # Log performance
         log_performance("Sequential file processing", total_time,
@@ -176,7 +176,7 @@ class SequentialAnalyzer:
             True if successful, False otherwise
         """
         filename = os.path.basename(file_path)
-        logger.debug(f"🎵 Processing: {filename}")
+        logger.debug(f" Processing: {filename}")
         
         try:
             # Check if file exists
@@ -189,25 +189,25 @@ class SequentialAnalyzer:
             file_size_bytes = os.path.getsize(file_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
             
-            logger.debug(f"📊 File size: {file_size_mb:.1f}MB")
+            logger.debug(f" File size: {file_size_mb:.1f}MB")
             
             # Check memory before processing
             if self.resource_manager.is_memory_critical():
-                logger.warning(f"⚠️ High memory usage before processing {filename}")
+                logger.warning(f"️ High memory usage before processing {filename}")
                 self._cleanup_memory()
             
             # Process file in separate process to isolate memory
             success = self._extract_features_in_process(file_path, force_reextract)
             
             if success:
-                logger.info(f"✅ Successfully processed: {filename}")
+                logger.info(f" Successfully processed: {filename}")
                 return True
             else:
-                logger.error(f"❌ Failed to process: {filename}")
+                logger.error(f" Failed to process: {filename}")
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ Error processing {filename}: {e}")
+            logger.error(f" Error processing {filename}: {e}")
             self.db_manager.mark_analysis_failed(file_path, filename, str(e))
             return False
 
@@ -238,7 +238,7 @@ class SequentialAnalyzer:
             
             # Check if worker completed
             if worker.is_alive():
-                logger.warning(f"⚠️ Analysis timed out for {os.path.basename(file_path)}")
+                logger.warning(f"️ Analysis timed out for {os.path.basename(file_path)}")
                 worker.terminate()
                 worker.join(timeout=5)
                 return False
@@ -248,11 +248,11 @@ class SequentialAnalyzer:
                 result = result_queue.get()
                 return result
             else:
-                logger.error(f"❌ No result received for {os.path.basename(file_path)}")
+                logger.error(f" No result received for {os.path.basename(file_path)}")
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ Error in process extraction: {e}")
+            logger.error(f" Error in process extraction: {e}")
             return False
 
     def _extract_features_worker(self, file_path: str, force_reextract: bool, result_queue: mp.Queue):
@@ -304,7 +304,7 @@ class SequentialAnalyzer:
             logger.error(f"⏰ Analysis timed out for {os.path.basename(file_path)}")
             result_queue.put(False)
         except Exception as e:
-            logger.error(f"❌ Worker error for {os.path.basename(file_path)}: {e}")
+            logger.error(f" Worker error for {os.path.basename(file_path)}: {e}")
             result_queue.put(False)
 
     def _get_analysis_config(self, file_path: str) -> Dict[str, Any]:
@@ -324,7 +324,7 @@ class SequentialAnalyzer:
             # Get deterministic analysis configuration
             analysis_config = analysis_manager.determine_analysis_type(file_path)
             
-            logger.debug(f"📊 Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
+            logger.debug(f" Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
             
             return analysis_config
             
@@ -378,10 +378,10 @@ class SequentialAnalyzer:
             import psutil
             memory = psutil.virtual_memory()
             memory_used_gb = memory.used / (1024**3)
-            logger.debug(f"🧹 Memory cleanup completed: {memory_used_gb:.2f}GB used")
+            logger.debug(f" Memory cleanup completed: {memory_used_gb:.2f}GB used")
             
         except Exception as e:
-            logger.error(f"❌ Error during memory cleanup: {e}")
+            logger.error(f" Error during memory cleanup: {e}")
 
     def get_config(self) -> Dict[str, Any]:
         """Get current analyzer configuration."""
@@ -409,11 +409,11 @@ class SequentialAnalyzer:
             if 'rss_limit_gb' in new_config:
                 self.rss_limit_gb = new_config['rss_limit_gb']
             
-            logger.info(f"📋 Updated sequential analyzer configuration: {new_config}")
+            logger.info(f" Updated sequential analyzer configuration: {new_config}")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error updating sequential analyzer configuration: {e}")
+            logger.error(f" Error updating sequential analyzer configuration: {e}")
             return False
 
 

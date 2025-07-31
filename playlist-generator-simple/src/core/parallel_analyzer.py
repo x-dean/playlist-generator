@@ -71,8 +71,8 @@ class ParallelAnalyzer:
         self.memory_threshold_percent = memory_threshold_percent or DEFAULT_MEMORY_THRESHOLD_PERCENT
         self.max_workers = max_workers or DEFAULT_MAX_WORKERS
         
-        logger.info(f"🔧 Initializing ParallelAnalyzer")
-        logger.debug(f"📋 Timeout: {self.timeout_seconds}s, Memory threshold: {self.memory_threshold_percent}%")
+        logger.info(f" Initializing ParallelAnalyzer")
+        logger.debug(f" Timeout: {self.timeout_seconds}s, Memory threshold: {self.memory_threshold_percent}%")
         logger.info(f"ParallelAnalyzer initialized successfully")
 
     @log_function_call
@@ -436,7 +436,7 @@ class ParallelAnalyzer:
             if 'max_workers' in new_config:
                 self.max_workers = new_config['max_workers']
             
-            logger.info(f"📋 Updated parallel analyzer configuration: {new_config}")
+            logger.info(f" Updated parallel analyzer configuration: {new_config}")
             return True
             
         except Exception as e:

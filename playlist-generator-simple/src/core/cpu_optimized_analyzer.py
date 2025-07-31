@@ -80,7 +80,7 @@ class CPUOptimizedAnalyzer:
         self.pool = None
         self._init_processing_pool()
         
-        logger.info(f"🔧 CPU-Optimized Analyzer initialized:")
+        logger.info(f" CPU-Optimized Analyzer initialized:")
         logger.info(f"   Workers: {self.num_workers}")
         logger.info(f"   Sample rate: {self.sample_rate}Hz")
         logger.info(f"   Mel bins: {self.n_mels}")
@@ -92,11 +92,11 @@ class CPUOptimizedAnalyzer:
         try:
             if self.num_workers > 1:
                 self.pool = mp.Pool(processes=self.num_workers)
-                logger.info(f"✅ Initialized processing pool with {self.num_workers} workers")
+                logger.info(f" Initialized processing pool with {self.num_workers} workers")
             else:
                 logger.info("ℹ️ Using single-threaded processing")
         except Exception as e:
-            logger.warning(f"⚠️ Could not initialize processing pool: {e}")
+            logger.warning(f"️ Could not initialize processing pool: {e}")
             self.pool = None
     
     def extract_melspectrograms_batch(self, audio_files: List[str]) -> List[np.ndarray]:
@@ -109,27 +109,27 @@ class CPUOptimizedAnalyzer:
         Returns:
             List of melspectrogram arrays
         """
-        logger.info(f"🎵 Extracting melspectrograms for {len(audio_files)} files")
+        logger.info(f" Extracting melspectrograms for {len(audio_files)} files")
         start_time = time.time()
         
         try:
             if self.pool and len(audio_files) > 1:
                 # Parallel processing
                 results = self.pool.map(self._extract_melspectrogram_worker, audio_files)
-                logger.info(f"✅ Parallel extraction completed in {time.time() - start_time:.2f}s")
+                logger.info(f" Parallel extraction completed in {time.time() - start_time:.2f}s")
             else:
                 # Sequential processing
                 results = [self._extract_melspectrogram_worker(file) for file in audio_files]
-                logger.info(f"✅ Sequential extraction completed in {time.time() - start_time:.2f}s")
+                logger.info(f" Sequential extraction completed in {time.time() - start_time:.2f}s")
             
             # Filter out None results (failed extractions)
             valid_results = [r for r in results if r is not None]
-            logger.info(f"📊 Successfully extracted {len(valid_results)}/{len(audio_files)} melspectrograms")
+            logger.info(f" Successfully extracted {len(valid_results)}/{len(audio_files)} melspectrograms")
             
             return valid_results
             
         except Exception as e:
-            logger.error(f"❌ Error in batch melspectrogram extraction: {e}")
+            logger.error(f" Error in batch melspectrogram extraction: {e}")
             return []
     
     def _extract_melspectrogram_worker(self, audio_file: str) -> Optional[np.ndarray]:
@@ -148,11 +148,11 @@ class CPUOptimizedAnalyzer:
             elif LIBROSA_AVAILABLE:
                 return self._extract_melspectrogram_librosa(audio_file)
             else:
-                logger.error("❌ No audio library available for melspectrogram extraction")
+                logger.error(" No audio library available for melspectrogram extraction")
                 return None
                 
         except Exception as e:
-            logger.warning(f"⚠️ Failed to extract melspectrogram from {audio_file}: {e}")
+            logger.warning(f"️ Failed to extract melspectrogram from {audio_file}: {e}")
             return None
     
     def _extract_melspectrogram_essentia(self, audio_file: str) -> Optional[np.ndarray]:
@@ -195,7 +195,7 @@ class CPUOptimizedAnalyzer:
                 return None
                 
         except Exception as e:
-            logger.warning(f"⚠️ Essentia melspectrogram extraction failed: {e}")
+            logger.warning(f"️ Essentia melspectrogram extraction failed: {e}")
             return None
     
     def _extract_melspectrogram_librosa(self, audio_file: str) -> Optional[np.ndarray]:
@@ -221,7 +221,7 @@ class CPUOptimizedAnalyzer:
             return mel_spectrogram_db.T
             
         except Exception as e:
-            logger.warning(f"⚠️ Librosa melspectrogram extraction failed: {e}")
+            logger.warning(f"️ Librosa melspectrogram extraction failed: {e}")
             return None
     
     def process_audio_batch(self, audio_files: List[str], 
@@ -236,7 +236,7 @@ class CPUOptimizedAnalyzer:
         Returns:
             List of processing results
         """
-        logger.info(f"🔄 Processing {len(audio_files)} audio files in batches of {batch_size}")
+        logger.info(f" Processing {len(audio_files)} audio files in batches of {batch_size}")
         
         results = []
         total_batches = (len(audio_files) + batch_size - 1) // batch_size
@@ -246,7 +246,7 @@ class CPUOptimizedAnalyzer:
             end_idx = min(start_idx + batch_size, len(audio_files))
             batch_files = audio_files[start_idx:end_idx]
             
-            logger.info(f"📦 Processing batch {batch_idx + 1}/{total_batches} ({len(batch_files)} files)")
+            logger.info(f" Processing batch {batch_idx + 1}/{total_batches} ({len(batch_files)} files)")
             
             # Extract melspectrograms for this batch
             melspectrograms = self.extract_melspectrograms_batch(batch_files)
@@ -275,7 +275,7 @@ class CPUOptimizedAnalyzer:
         
         # Log summary
         successful = sum(1 for r in results if r['success'])
-        logger.info(f"📊 Batch processing completed: {successful}/{len(results)} successful")
+        logger.info(f" Batch processing completed: {successful}/{len(results)} successful")
         
         return results
     
@@ -289,7 +289,7 @@ class CPUOptimizedAnalyzer:
         Returns:
             List of MusicNN-ready features
         """
-        logger.info(f"🎵 Optimizing for MusicNN: {len(audio_files)} files")
+        logger.info(f" Optimizing for MusicNN: {len(audio_files)} files")
         
         # MusicNN-specific parameters
         musicnn_sample_rate = 16000  # MusicNN expects 16kHz
@@ -337,7 +337,7 @@ class CPUOptimizedAnalyzer:
         if self.pool:
             self.pool.close()
             self.pool.join()
-            logger.info("✅ Processing pool closed")
+            logger.info(" Processing pool closed")
 
 
 # Global analyzer instance

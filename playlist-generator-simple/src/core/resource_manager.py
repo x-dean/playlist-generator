@@ -84,38 +84,38 @@ class ResourceManager:
         self._forced_basic_analysis = False
         self._forced_reason = None
         
-        logger.info(f"🔧 Initializing ResourceManager")
-        logger.debug(f"📋 Resource configuration: {config}")
-        logger.info(f"✅ ResourceManager initialized successfully")
+        logger.info(f" Initializing ResourceManager")
+        logger.debug(f" Resource configuration: {config}")
+        logger.info(f" ResourceManager initialized successfully")
 
     @log_function_call
     def start_monitoring(self):
         """Start resource monitoring in a background thread."""
         if not self.resource_monitoring_enabled:
-            logger.info("🔍 Resource monitoring disabled in configuration")
+            logger.info(" Resource monitoring disabled in configuration")
             return
             
         if self._monitoring:
-            logger.warning("⚠️ Resource monitoring already active")
+            logger.warning("️ Resource monitoring already active")
             return
         
-        logger.info(f"🔍 Starting resource monitoring (interval: {self.monitoring_interval}s)")
+        logger.info(f" Starting resource monitoring (interval: {self.monitoring_interval}s)")
         
         self._monitoring = True
         self._stop_monitoring.clear()
         self._monitor_thread = threading.Thread(target=self._monitor_resources, daemon=True)
         self._monitor_thread.start()
         
-        logger.info(f"✅ Resource monitoring started")
+        logger.info(f" Resource monitoring started")
 
     @log_function_call
     def stop_monitoring(self):
         """Stop resource monitoring."""
         if not self._monitoring:
-            logger.warning("⚠️ Resource monitoring not active")
+            logger.warning("️ Resource monitoring not active")
             return
         
-        logger.info(f"🛑 Stopping resource monitoring")
+        logger.info(f" Stopping resource monitoring")
         
         self._monitoring = False
         self._stop_monitoring.set()
@@ -123,11 +123,11 @@ class ResourceManager:
         if self._monitor_thread and self._monitor_thread.is_alive():
             self._monitor_thread.join(timeout=10)
         
-        logger.info(f"✅ Resource monitoring stopped")
+        logger.info(f" Resource monitoring stopped")
 
     def _monitor_resources(self):
         """Background thread for monitoring system resources."""
-        logger.debug("🔍 Resource monitoring thread started")
+        logger.debug(" Resource monitoring thread started")
         
         while not self._stop_monitoring.is_set():
             try:
@@ -144,10 +144,10 @@ class ResourceManager:
                 self._stop_monitoring.wait(self.monitoring_interval)
                 
             except Exception as e:
-                logger.error(f"❌ Error in resource monitoring: {e}")
+                logger.error(f" Error in resource monitoring: {e}")
                 time.sleep(1)  # Brief pause on error
         
-        logger.debug("🔍 Resource monitoring thread stopped")
+        logger.debug(" Resource monitoring thread stopped")
 
     def _get_current_resources(self) -> Dict[str, Any]:
         """
@@ -197,7 +197,7 @@ class ResourceManager:
             return resource_data
             
         except Exception as e:
-            logger.error(f"❌ Error getting resource data: {e}")
+            logger.error(f" Error getting resource data: {e}")
             return {
                 'timestamp': datetime.now(),
                 'error': str(e)
@@ -231,15 +231,15 @@ class ResourceManager:
         
         # Handle critical conditions
         if memory_used_gb > self.memory_limit_gb or memory_percent > 90:
-            logger.warning(f"⚠️ High memory usage: {memory_used_gb:.2f}GB ({memory_percent:.1f}%)")
+            logger.warning(f"️ High memory usage: {memory_used_gb:.2f}GB ({memory_percent:.1f}%)")
             self._handle_high_memory()
         
         if cpu_percent > self.cpu_threshold_percent:
-            logger.warning(f"⚠️ High CPU usage: {cpu_percent:.1f}%")
+            logger.warning(f"️ High CPU usage: {cpu_percent:.1f}%")
             self._handle_high_cpu()
         
         if disk_percent > self.disk_threshold_percent:
-            logger.warning(f"⚠️ High disk usage: {disk_percent:.1f}%")
+            logger.warning(f"️ High disk usage: {disk_percent:.1f}%")
             self._handle_high_disk()
         
         # Notify callbacks
@@ -281,15 +281,15 @@ class ResourceManager:
             self._forced_reason = reason
             
             if force_basic:
-                logger.warning(f"🔒 Forcing basic analysis: {reason}")
+                logger.warning(f" Forcing basic analysis: {reason}")
             else:
-                logger.info(f"🔓 Resuming normal analysis (resources recovered)")
+                logger.info(f" Resuming normal analysis (resources recovered)")
         
-        logger.debug(f"📊 Resource state: Memory {memory_percent:.1f}%, CPU {cpu_percent:.1f}%, Disk {disk_percent:.1f}%")
+        logger.debug(f" Resource state: Memory {memory_percent:.1f}%, CPU {cpu_percent:.1f}%, Disk {disk_percent:.1f}%")
 
     def _handle_high_memory(self):
         """Handle high memory usage."""
-        logger.info(f"🧹 Initiating memory cleanup")
+        logger.info(f" Initiating memory cleanup")
         
         try:
             # Force garbage collection
@@ -298,10 +298,10 @@ class ResourceManager:
             
             # Log memory after cleanup
             memory = psutil.virtual_memory()
-            logger.info(f"✅ Memory cleanup completed: {memory.used / (1024**3):.2f}GB used")
+            logger.info(f" Memory cleanup completed: {memory.used / (1024**3):.2f}GB used")
             
         except Exception as e:
-            logger.error(f"❌ Error during memory cleanup: {e}")
+            logger.error(f" Error during memory cleanup: {e}")
 
     def _handle_high_cpu(self):
         """Handle high CPU usage."""
@@ -312,17 +312,17 @@ class ResourceManager:
 
     def _handle_high_disk(self):
         """Handle high disk usage."""
-        logger.info(f"💾 High disk usage detected - consider cleanup")
+        logger.info(f" High disk usage detected - consider cleanup")
         
         try:
             # Clean up old cache entries
             from .database import DatabaseManager
             db_manager = DatabaseManager()
             cleaned_count = db_manager.cleanup_cache()
-            logger.info(f"✅ Cleaned up {cleaned_count} cache entries")
+            logger.info(f" Cleaned up {cleaned_count} cache entries")
             
         except Exception as e:
-            logger.error(f"❌ Error during disk cleanup: {e}")
+            logger.error(f" Error during disk cleanup: {e}")
 
     def _notify_callbacks(self, resource_data: Dict[str, Any]):
         """Notify registered callbacks of resource changes."""
@@ -330,7 +330,7 @@ class ResourceManager:
             try:
                 callback(resource_data)
             except Exception as e:
-                logger.error(f"❌ Error in resource callback: {e}")
+                logger.error(f" Error in resource callback: {e}")
 
     def get_forced_analysis_guidance(self) -> Dict[str, Any]:
         """
@@ -382,7 +382,7 @@ class ResourceManager:
             if data.get('timestamp', datetime.min) >= cutoff_time
         ]
         
-        logger.debug(f"📊 Retrieved {len(history)} resource history entries")
+        logger.debug(f" Retrieved {len(history)} resource history entries")
         return history
 
     @log_function_call
@@ -426,7 +426,7 @@ class ResourceManager:
             }
         }
         
-        logger.info(f"📊 Resource statistics generated for {minutes} minutes")
+        logger.info(f" Resource statistics generated for {minutes} minutes")
         return stats
 
     def register_callback(self, callback: Callable[[Dict[str, Any]], None]):
@@ -437,7 +437,7 @@ class ResourceManager:
             callback: Function to call with resource data
         """
         self._resource_callbacks.append(callback)
-        logger.debug(f"📝 Registered resource callback")
+        logger.debug(f" Registered resource callback")
 
     def unregister_callback(self, callback: Callable[[Dict[str, Any]], None]):
         """
@@ -448,7 +448,7 @@ class ResourceManager:
         """
         if callback in self._resource_callbacks:
             self._resource_callbacks.remove(callback)
-            logger.debug(f"📝 Unregistered resource callback")
+            logger.debug(f" Unregistered resource callback")
 
     @log_function_call
     def get_optimal_worker_count(self, max_workers: int = None, memory_limit_str: str = None) -> int:
@@ -500,7 +500,7 @@ class ResourceManager:
             if max_workers:
                 optimal_workers = min(optimal_workers, max_workers)
             
-            logger.info(f"🔧 Optimal worker count: {optimal_workers}")
+            logger.info(f" Optimal worker count: {optimal_workers}")
             logger.debug(f"   Available memory: {available_gb:.2f}GB")
             logger.debug(f"   CPU count: {cpu_count}")
             logger.debug(f"   Memory-based workers: {memory_based_workers}")
@@ -522,7 +522,7 @@ class ResourceManager:
             memory = psutil.virtual_memory()
             return memory.percent > 90 or memory.used / (1024**3) > self.memory_limit_gb
         except Exception as e:
-            logger.error(f"❌ Error checking memory status: {e}")
+            logger.error(f" Error checking memory status: {e}")
             return False
 
     def get_config(self) -> Dict[str, Any]:
@@ -560,11 +560,11 @@ class ResourceManager:
             # Update history size
             self.max_history_size = self.resource_history_size
             
-            logger.info(f"📋 Updated resource configuration: {new_config}")
+            logger.info(f" Updated resource configuration: {new_config}")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error updating resource configuration: {e}")
+            logger.error(f" Error updating resource configuration: {e}")
             return False
 
 
@@ -589,24 +589,24 @@ class ResourceManager:
             memory_percent = current_resources['memory']['percent']
             if memory_percent > self.resource_alert_threshold_percent:
                 alerts['memory_alert'] = True
-                logger.warning(f"🚨 Memory alert: {memory_percent:.1f}% > {self.resource_alert_threshold_percent}%")
+                logger.warning(f" Memory alert: {memory_percent:.1f}% > {self.resource_alert_threshold_percent}%")
             
             # Check CPU alerts
             cpu_percent = current_resources['cpu_percent']
             if cpu_percent > self.resource_alert_threshold_percent:
                 alerts['cpu_alert'] = True
-                logger.warning(f"🚨 CPU alert: {cpu_percent:.1f}% > {self.resource_alert_threshold_percent}%")
+                logger.warning(f" CPU alert: {cpu_percent:.1f}% > {self.resource_alert_threshold_percent}%")
             
             # Check disk alerts
             disk_percent = current_resources['disk']['percent']
             if disk_percent > self.resource_alert_threshold_percent:
                 alerts['disk_alert'] = True
-                logger.warning(f"🚨 Disk alert: {disk_percent:.1f}% > {self.resource_alert_threshold_percent}%")
+                logger.warning(f" Disk alert: {disk_percent:.1f}% > {self.resource_alert_threshold_percent}%")
             
             return alerts
             
         except Exception as e:
-            logger.error(f"❌ Error checking resource alerts: {e}")
+            logger.error(f" Error checking resource alerts: {e}")
             return {'error': str(e)}
 
     def perform_auto_cleanup(self) -> Dict[str, Any]:
@@ -630,19 +630,19 @@ class ResourceManager:
             if self.is_memory_critical():
                 self._handle_high_memory()
                 cleanup_results['memory_cleanup'] = True
-                logger.info("🧹 Performed automatic memory cleanup")
+                logger.info(" Performed automatic memory cleanup")
             
             # Disk cleanup
             current_resources = self.get_current_resources()
             if current_resources['disk']['percent'] > self.disk_threshold_percent:
                 self._handle_high_disk()
                 cleanup_results['disk_cleanup'] = True
-                logger.info("🧹 Performed automatic disk cleanup")
+                logger.info(" Performed automatic disk cleanup")
             
             return cleanup_results
             
         except Exception as e:
-            logger.error(f"❌ Error during auto cleanup: {e}")
+            logger.error(f" Error during auto cleanup: {e}")
             return {'error': str(e)}
 
     def get_resource_performance_metrics(self) -> Dict[str, Any]:
@@ -682,7 +682,7 @@ class ResourceManager:
             return metrics
             
         except Exception as e:
-            logger.error(f"❌ Error getting performance metrics: {e}")
+            logger.error(f" Error getting performance metrics: {e}")
             return {'error': str(e)}
 
     def _calculate_trend(self, values: List[float]) -> str:

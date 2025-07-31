@@ -84,7 +84,7 @@ class MusicBrainzClient:
         })
         self._rate_limit_delay = 1.0 / rate_limit
         
-        logger.info(f"🔧 Initialized MusicBrainz client (rate limit: {rate_limit}/s)")
+        logger.info(f" Initialized MusicBrainz client (rate limit: {rate_limit}/s)")
     
     def _make_request(self, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -234,7 +234,7 @@ class LastFMClient:
         self.session = requests.Session()
         self._rate_limit_delay = 1.0 / rate_limit
         
-        logger.info(f"🔧 Initialized Last.fm client (rate limit: {rate_limit}/s)")
+        logger.info(f" Initialized Last.fm client (rate limit: {rate_limit}/s)")
     
     def _make_request(self, method: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -390,19 +390,19 @@ class MetadataEnrichmentService:
         if musicbrainz_enabled:
             try:
                 self.musicbrainz_client = MusicBrainzClient()
-                logger.info("✅ MusicBrainz client initialized")
+                logger.info(" MusicBrainz client initialized")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to initialize MusicBrainz client: {e}")
+                logger.warning(f"️ Failed to initialize MusicBrainz client: {e}")
         
         self.lastfm_client = None
         if lastfm_enabled:
             try:
                 self.lastfm_client = LastFMClient()
-                logger.info("✅ Last.fm client initialized")
+                logger.info(" Last.fm client initialized")
             except Exception as e:
-                logger.warning(f"⚠️ Failed to initialize Last.fm client: {e}")
+                logger.warning(f"️ Failed to initialize Last.fm client: {e}")
         
-        logger.info(f"🔧 Metadata enrichment service initialized")
+        logger.info(f" Metadata enrichment service initialized")
     
     def enrich_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """

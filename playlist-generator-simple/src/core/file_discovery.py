@@ -195,7 +195,7 @@ class FileDiscovery:
         Returns:
             List of valid audio file paths
         """
-        logger.info(f"🔍 Starting file discovery in: {self.music_dir}")
+        logger.info(f" Starting file discovery in: {self.music_dir}")
         
         if not os.path.exists(self.music_dir):
             logger.warning(f" Music directory does not exist: {self.music_dir}")
@@ -224,11 +224,11 @@ class FileDiscovery:
             # Sort files by size (largest first for better progress indication)
             discovered_files.sort(key=lambda x: os.path.getsize(x), reverse=True)
             
-            logger.info(f"✅ File discovery complete: {len(discovered_files)} files found")
+            logger.info(f" File discovery complete: {len(discovered_files)} files found")
             return discovered_files
             
         except Exception as e:
-            logger.error(f"❌ File discovery failed: {e}")
+            logger.error(f" File discovery failed: {e}")
             return []
 
     @log_function_call
@@ -246,12 +246,12 @@ class FileDiscovery:
             logger.info(" No files to save to database")
             return {'new': 0, 'updated': 0, 'unchanged': 0, 'errors': 0}
         
-        logger.info(f"💾 Starting database save for {len(filepaths)} files...")
+        logger.info(f" Starting database save for {len(filepaths)} files...")
         
         stats = {'new': 0, 'updated': 0, 'unchanged': 0, 'errors': 0}
         
         try:
-            logger.debug("🔗 Database connection established")
+            logger.debug(" Database connection established")
             
             for filepath in filepaths:
                 try:
@@ -309,7 +309,7 @@ class FileDiscovery:
             logger.error(f" Database operation failed: {e}")
             stats['errors'] = len(filepaths)
         
-        logger.info(f"💾 Database save complete:")
+        logger.info(f" Database save complete:")
         logger.info(f"   New files: {stats['new']}")
         logger.info(f"   Updated files: {stats['updated']}")
         logger.info(f"   Unchanged files: {stats['unchanged']}")
@@ -391,10 +391,10 @@ class FileDiscovery:
         Returns:
             Number of files removed from database
         """
-        logger.info("🧹 Starting cleanup of removed files from database...")
+        logger.info(" Starting cleanup of removed files from database...")
         
         try:
-            logger.debug("🔗 Database connection established for cleanup")
+            logger.debug(" Database connection established for cleanup")
             
             # Get all files from database
             db_files = self.get_db_files()
@@ -442,7 +442,7 @@ class FileDiscovery:
         Returns:
             List of file paths that need analysis
         """
-        logger.info(f"📋 Getting files for analysis (force={force}, failed_mode={failed_mode})")
+        logger.info(f" Getting files for analysis (force={force}, failed_mode={failed_mode})")
         
         try:
             if failed_mode:
@@ -487,7 +487,7 @@ class FileDiscovery:
             
             files_for_analysis = list(new_files.union(retry_files).union(modified_files))
             
-            logger.info(f"📋 Analysis queue prepared:")
+            logger.info(f" Analysis queue prepared:")
             logger.info(f"   New files: {len(new_files)}")
             logger.info(f"   Retry files: {len(retry_files)}")
             logger.info(f"   Modified files: {len(modified_files)}")
@@ -547,7 +547,7 @@ class FileDiscovery:
         Returns:
             List of valid file paths
         """
-        logger.info(f"🔍 Validating {len(filepaths)} file paths...")
+        logger.info(f" Validating {len(filepaths)} file paths...")
         
         valid_files = []
         invalid_files = []
@@ -558,7 +558,7 @@ class FileDiscovery:
             else:
                 invalid_files.append(filepath)
         
-        logger.info(f"✅ Validation complete:")
+        logger.info(f" Validation complete:")
         logger.info(f"   Valid files: {len(valid_files)}")
         logger.info(f"   Invalid files: {len(invalid_files)}")
         
@@ -575,7 +575,7 @@ class FileDiscovery:
         Returns:
             Dictionary with statistics
         """
-        logger.debug("📊 Generating discovery statistics...")
+        logger.debug(" Generating discovery statistics...")
         
         try:
             # Get current files on disk
@@ -607,7 +607,7 @@ class FileDiscovery:
                 'enable_recursive_scan': self.enable_recursive_scan
             }
             
-            logger.info(f"📊 Statistics generated successfully")
+            logger.info(f" Statistics generated successfully")
             return stats
             
         except Exception as e:

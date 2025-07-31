@@ -71,13 +71,13 @@ class DatabaseManager:
         self.wal_mode_enabled = config.get('DB_WAL_MODE_ENABLED', True)
         self.synchronous_mode = config.get('DB_SYNCHRONOUS_MODE', 'NORMAL')
         
-        logger.info(f"🗄️ Initializing DatabaseManager with path: {db_path}")
-        logger.debug(f"📋 Database configuration: {config}")
+        logger.info(f"️ Initializing DatabaseManager with path: {db_path}")
+        logger.debug(f" Database configuration: {config}")
         
         # Ensure database directory exists
         db_dir = os.path.dirname(self.db_path)
         os.makedirs(db_dir, exist_ok=True)
-        logger.debug(f"📁 Database directory ready: {db_dir}")
+        logger.debug(f" Database directory ready: {db_dir}")
         
         # Initialize database tables
         start_time = time.time()
@@ -86,12 +86,12 @@ class DatabaseManager:
         
         # Log performance
         log_performance("DatabaseManager initialization", init_time)
-        logger.info(f"✅ DatabaseManager initialized successfully in {init_time:.2f}s")
+        logger.info(f" DatabaseManager initialized successfully in {init_time:.2f}s")
 
     @log_function_call
     def _init_database(self):
         """Initialize the database with all required tables."""
-        logger.info("🗄️ Initializing database tables...")
+        logger.info("️ Initializing database tables...")
         
         tables_created = 0
         start_time = time.time()
@@ -101,7 +101,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 # Create playlists table
-                logger.debug("📋 Creating playlists table...")
+                logger.debug(" Creating playlists table...")
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS playlists (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,10 +115,10 @@ class DatabaseManager:
                     )
                 """)
                 tables_created += 1
-                logger.debug("✅ Playlists table ready")
+                logger.debug(" Playlists table ready")
                 
                 # Create analysis_results table
-                logger.debug("📊 Creating analysis_results table...")
+                logger.debug(" Creating analysis_results table...")
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS analysis_results (
                         file_path TEXT PRIMARY KEY,
@@ -137,10 +137,10 @@ class DatabaseManager:
                     )
                 """)
                 tables_created += 1
-                logger.debug("✅ Analysis results table ready")
+                logger.debug(" Analysis results table ready")
                 
                 # Create cache table
-                logger.debug("💾 Creating cache table...")
+                logger.debug(" Creating cache table...")
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS cache (
                         key TEXT PRIMARY KEY,
@@ -150,10 +150,10 @@ class DatabaseManager:
                     )
                 """)
                 tables_created += 1
-                logger.debug("✅ Cache table ready")
+                logger.debug(" Cache table ready")
                 
                 # Create tags table
-                logger.debug("🏷️ Creating tags table...")
+                logger.debug("️ Creating tags table...")
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS tags (
                         file_path TEXT PRIMARY KEY,
@@ -164,10 +164,10 @@ class DatabaseManager:
                     )
                 """)
                 tables_created += 1
-                logger.debug("✅ Tags table ready")
+                logger.debug(" Tags table ready")
                 
                 # Create failed_analysis table
-                logger.debug("❌ Creating failed_analysis table...")
+                logger.debug(" Creating failed_analysis table...")
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS failed_analysis (
                         file_path TEXT PRIMARY KEY,
@@ -179,10 +179,10 @@ class DatabaseManager:
                     )
                 """)
                 tables_created += 1
-                logger.debug("✅ Failed analysis table ready")
+                logger.debug(" Failed analysis table ready")
                 
                 # Create statistics table
-                logger.debug("📈 Creating statistics table...")
+                logger.debug(" Creating statistics table...")
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS statistics (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,18 +194,18 @@ class DatabaseManager:
                     )
                 """)
                 tables_created += 1
-                logger.debug("✅ Statistics table ready")
+                logger.debug(" Statistics table ready")
                 
                 conn.commit()
                 init_time = time.time() - start_time
-                logger.info(f"✅ Database initialization completed successfully")
-                logger.info(f"📊 Created {tables_created} tables in {init_time:.2f}s")
+                logger.info(f" Database initialization completed successfully")
+                logger.info(f" Created {tables_created} tables in {init_time:.2f}s")
                 
                 # Log performance
                 log_performance("Database table creation", init_time, tables_created=tables_created)
                 
         except Exception as e:
-            logger.error(f"❌ Database initialization failed: {e}")
+            logger.error(f" Database initialization failed: {e}")
             raise
 
     # =============================================================================
@@ -228,7 +228,7 @@ class DatabaseManager:
         Returns:
             True if successful, False otherwise
         """
-        logger.info(f"📋 Saving playlist '{name}' with {len(tracks)} tracks")
+        logger.info(f" Saving playlist '{name}' with {len(tracks)} tracks")
         
         start_time = time.time()
         
@@ -248,14 +248,14 @@ class DatabaseManager:
                 
                 conn.commit()
                 save_time = time.time() - start_time
-                logger.info(f"✅ Successfully saved playlist '{name}' to database in {save_time:.2f}s")
+                logger.info(f" Successfully saved playlist '{name}' to database in {save_time:.2f}s")
                 
                 # Log performance
                 log_performance("Playlist save", save_time, playlist_name=name, track_count=len(tracks))
                 return True
                 
         except Exception as e:
-            logger.error(f"❌ Error saving playlist '{name}': {e}")
+            logger.error(f" Error saving playlist '{name}': {e}")
             return False
 
     @log_function_call
@@ -412,11 +412,11 @@ class DatabaseManager:
                     }
                     tracks.append(track)
                 
-                logger.debug(f"📁 Retrieved {len(tracks)} analyzed tracks")
+                logger.debug(f" Retrieved {len(tracks)} analyzed tracks")
                 return tracks
                 
         except Exception as e:
-            logger.error(f"❌ Error getting analyzed tracks: {e}")
+            logger.error(f" Error getting analyzed tracks: {e}")
             return []
     
     @log_function_call
@@ -452,11 +452,11 @@ class DatabaseManager:
                     }
                     cached_playlists.append(playlist)
                 
-                logger.debug(f"📁 Retrieved {len(cached_playlists)} cached playlists")
+                logger.debug(f" Retrieved {len(cached_playlists)} cached playlists")
                 return cached_playlists
                 
         except Exception as e:
-            logger.error(f"❌ Error getting cached playlists: {e}")
+            logger.error(f" Error getting cached playlists: {e}")
             return []
     
     @log_function_call
@@ -499,7 +499,7 @@ class DatabaseManager:
                     return None
                     
         except Exception as e:
-            logger.error(f"❌ Error getting track features for {file_path}: {e}")
+            logger.error(f" Error getting track features for {file_path}: {e}")
             return None
     
     @log_function_call
@@ -513,7 +513,7 @@ class DatabaseManager:
         Returns:
             List of track dictionaries
         """
-        logger.debug(f"🎤 Getting tracks by artist: {artist}")
+        logger.debug(f" Getting tracks by artist: {artist}")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -540,11 +540,11 @@ class DatabaseManager:
                     }
                     tracks.append(track)
                 
-                logger.debug(f"🎤 Retrieved {len(tracks)} tracks by artist: {artist}")
+                logger.debug(f" Retrieved {len(tracks)} tracks by artist: {artist}")
                 return tracks
                 
         except Exception as e:
-            logger.error(f"❌ Error getting tracks by artist: {e}")
+            logger.error(f" Error getting tracks by artist: {e}")
             return []
 
     @log_function_call
@@ -558,7 +558,7 @@ class DatabaseManager:
         Returns:
             List of track dictionaries
         """
-        logger.debug(f"💿 Getting tracks by album: {album}")
+        logger.debug(f" Getting tracks by album: {album}")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -585,11 +585,11 @@ class DatabaseManager:
                     }
                     tracks.append(track)
                 
-                logger.debug(f"💿 Retrieved {len(tracks)} tracks from album: {album}")
+                logger.debug(f" Retrieved {len(tracks)} tracks from album: {album}")
                 return tracks
                 
         except Exception as e:
-            logger.error(f"❌ Error getting tracks by album: {e}")
+            logger.error(f" Error getting tracks by album: {e}")
             return []
 
     @log_function_call
@@ -603,7 +603,7 @@ class DatabaseManager:
         Returns:
             List of track dictionaries
         """
-        logger.debug(f"🎵 Getting tracks by genre: {genre}")
+        logger.debug(f" Getting tracks by genre: {genre}")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -630,11 +630,11 @@ class DatabaseManager:
                     }
                     tracks.append(track)
                 
-                logger.debug(f"🎵 Retrieved {len(tracks)} tracks of genre: {genre}")
+                logger.debug(f" Retrieved {len(tracks)} tracks of genre: {genre}")
                 return tracks
                 
         except Exception as e:
-            logger.error(f"❌ Error getting tracks by genre: {e}")
+            logger.error(f" Error getting tracks by genre: {e}")
             return []
 
     @log_function_call
@@ -645,7 +645,7 @@ class DatabaseManager:
         Returns:
             List of artist names
         """
-        logger.debug("🎤 Getting all unique artists...")
+        logger.debug(" Getting all unique artists...")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -659,11 +659,11 @@ class DatabaseManager:
                 """)
                 
                 artists = [row[0] for row in cursor.fetchall()]
-                logger.debug(f"🎤 Found {len(artists)} unique artists")
+                logger.debug(f" Found {len(artists)} unique artists")
                 return artists
                 
         except Exception as e:
-            logger.error(f"❌ Error getting all artists: {e}")
+            logger.error(f" Error getting all artists: {e}")
             return []
 
     @log_function_call
@@ -674,7 +674,7 @@ class DatabaseManager:
         Returns:
             List of album names
         """
-        logger.debug("💿 Getting all unique albums...")
+        logger.debug(" Getting all unique albums...")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -688,11 +688,11 @@ class DatabaseManager:
                 """)
                 
                 albums = [row[0] for row in cursor.fetchall()]
-                logger.debug(f"💿 Found {len(albums)} unique albums")
+                logger.debug(f" Found {len(albums)} unique albums")
                 return albums
                 
         except Exception as e:
-            logger.error(f"❌ Error getting all albums: {e}")
+            logger.error(f" Error getting all albums: {e}")
             return []
 
     @log_function_call
@@ -703,7 +703,7 @@ class DatabaseManager:
         Returns:
             List of genre names
         """
-        logger.debug("🎵 Getting all unique genres...")
+        logger.debug(" Getting all unique genres...")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -717,11 +717,11 @@ class DatabaseManager:
                 """)
                 
                 genres = [row[0] for row in cursor.fetchall()]
-                logger.debug(f"🎵 Found {len(genres)} unique genres")
+                logger.debug(f" Found {len(genres)} unique genres")
                 return genres
                 
         except Exception as e:
-            logger.error(f"❌ Error getting all genres: {e}")
+            logger.error(f" Error getting all genres: {e}")
             return []
 
     @log_function_call
@@ -735,7 +735,7 @@ class DatabaseManager:
         Returns:
             List of track dictionaries
         """
-        logger.debug(f"📅 Getting tracks from year: {year}")
+        logger.debug(f" Getting tracks from year: {year}")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -762,11 +762,11 @@ class DatabaseManager:
                     }
                     tracks.append(track)
                 
-                logger.debug(f"📅 Retrieved {len(tracks)} tracks from year: {year}")
+                logger.debug(f" Retrieved {len(tracks)} tracks from year: {year}")
                 return tracks
                 
         except Exception as e:
-            logger.error(f"❌ Error getting tracks by year: {e}")
+            logger.error(f" Error getting tracks by year: {e}")
             return []
 
     @log_function_call
@@ -789,7 +789,7 @@ class DatabaseManager:
                 # Validate feature name to prevent SQL injection
                 valid_features = ['bpm', 'centroid', 'danceability', 'loudness', 'key', 'scale', 'onset_rate', 'zcr']
                 if feature not in valid_features:
-                    logger.error(f"❌ Invalid feature name: {feature}")
+                    logger.error(f" Invalid feature name: {feature}")
                     return []
                 
                 cursor.execute(f"""
@@ -809,11 +809,11 @@ class DatabaseManager:
                     }
                     tracks.append(track)
                 
-                logger.debug(f"📁 Retrieved {len(tracks)} tracks with {feature} between {min_value} and {max_value}")
+                logger.debug(f" Retrieved {len(tracks)} tracks with {feature} between {min_value} and {max_value}")
                 return tracks
                 
         except Exception as e:
-            logger.error(f"❌ Error getting tracks by feature range: {e}")
+            logger.error(f" Error getting tracks by feature range: {e}")
             return []
 
     # =============================================================================
@@ -838,7 +838,7 @@ class DatabaseManager:
         Returns:
             True if successful, False otherwise
         """
-        logger.debug(f"📊 Saving analysis results for: {filename}")
+        logger.debug(f" Saving analysis results for: {filename}")
         
         start_time = time.time()
         
@@ -866,14 +866,14 @@ class DatabaseManager:
                 
                 conn.commit()
                 save_time = time.time() - start_time
-                logger.debug(f"✅ Successfully saved analysis results for: {filename} in {save_time:.2f}s")
+                logger.debug(f" Successfully saved analysis results for: {filename} in {save_time:.2f}s")
                 
                 # Log performance
                 log_performance("Analysis result save", save_time, filename=filename, file_size=file_size_bytes)
                 return True
                 
         except Exception as e:
-            logger.error(f"❌ Error saving analysis results for {filename}: {e}")
+            logger.error(f" Error saving analysis results for {filename}: {e}")
             return False
 
     @log_function_call
@@ -1051,7 +1051,7 @@ class DatabaseManager:
         if expires_hours is None:
             expires_hours = self.config.get('DB_CACHE_DEFAULT_EXPIRY_HOURS', 24)
         
-        logger.debug(f"💾 Saving cache entry: {key} (expires in {expires_hours}h)")
+        logger.debug(f" Saving cache entry: {key} (expires in {expires_hours}h)")
         
         start_time = time.time()
         
@@ -1069,14 +1069,14 @@ class DatabaseManager:
                 
                 conn.commit()
                 save_time = time.time() - start_time
-                logger.debug(f"✅ Successfully saved cache entry: {key} in {save_time:.2f}s")
+                logger.debug(f" Successfully saved cache entry: {key} in {save_time:.2f}s")
                 
                 # Log performance
                 log_performance("Cache save", save_time, cache_key=key, expires_hours=expires_hours)
                 return True
                 
         except Exception as e:
-            logger.error(f"❌ Error saving cache entry {key}: {e}")
+            logger.error(f" Error saving cache entry {key}: {e}")
             return False
 
     @log_function_call
@@ -1128,7 +1128,7 @@ class DatabaseManager:
         if max_age_hours is None:
             max_age_hours = self.config.get('DB_CACHE_CLEANUP_FREQUENCY_HOURS', 24)
         
-        logger.info(f"🧹 Cleaning up cache entries older than {max_age_hours} hours")
+        logger.info(f" Cleaning up cache entries older than {max_age_hours} hours")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -1144,11 +1144,11 @@ class DatabaseManager:
                 deleted_count = cursor.rowcount
                 conn.commit()
                 
-                logger.info(f"✅ Cleaned up {deleted_count} expired cache entries")
+                logger.info(f" Cleaned up {deleted_count} expired cache entries")
                 return deleted_count
                 
         except Exception as e:
-            logger.error(f"❌ Error cleaning up cache: {e}")
+            logger.error(f" Error cleaning up cache: {e}")
             return 0
 
     # =============================================================================
@@ -1250,7 +1250,7 @@ class DatabaseManager:
         Returns:
             True if successful, False otherwise
         """
-        logger.info(f"❌ Marking analysis as failed for: {filename}")
+        logger.info(f" Marking analysis as failed for: {filename}")
         logger.debug(f"   Error: {error_message}")
         
         start_time = time.time()
@@ -1270,14 +1270,14 @@ class DatabaseManager:
                 
                 conn.commit()
                 save_time = time.time() - start_time
-                logger.info(f"✅ Successfully marked analysis as failed for: {filename} in {save_time:.2f}s")
+                logger.info(f" Successfully marked analysis as failed for: {filename} in {save_time:.2f}s")
                 
                 # Log performance
                 log_performance("Failed analysis mark", save_time, filename=filename, error_message=error_message)
                 return True
                 
         except Exception as e:
-            logger.error(f"❌ Error marking analysis as failed for {filename}: {e}")
+            logger.error(f" Error marking analysis as failed for {filename}: {e}")
             return False
 
     @log_function_call
@@ -1377,7 +1377,7 @@ class DatabaseManager:
         if hours is None:
             hours = self.config.get('DB_STATISTICS_COLLECTION_FREQUENCY_HOURS', 24)
         
-        logger.debug(f"📈 Retrieving statistics (category: {category}, hours: {hours})")
+        logger.debug(f" Retrieving statistics (category: {category}, hours: {hours})")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -1413,11 +1413,11 @@ class DatabaseManager:
                             'timestamp': timestamp
                         }
                 
-                logger.info(f"✅ Retrieved statistics: {len(stats)} categories")
+                logger.info(f" Retrieved statistics: {len(stats)} categories")
                 return stats
                 
         except Exception as e:
-            logger.error(f"❌ Error retrieving statistics: {e}")
+            logger.error(f" Error retrieving statistics: {e}")
             return {}
 
     # =============================================================================
@@ -1432,7 +1432,7 @@ class DatabaseManager:
         Returns:
             Dictionary with database statistics
         """
-        logger.debug("📈 Generating database statistics")
+        logger.debug(" Generating database statistics")
         
         start_time = time.time()
         
@@ -1448,13 +1448,13 @@ class DatabaseManager:
                     cursor.execute(f"SELECT COUNT(*) FROM {table}")
                     count = cursor.fetchone()[0]
                     stats[f'{table}_count'] = count
-                    logger.debug(f"📊 {table}: {count} records")
+                    logger.debug(f" {table}: {count} records")
                 
                 # Get database file size
                 db_size = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
                 stats['database_size_bytes'] = db_size
                 stats['database_size_mb'] = db_size / (1024 * 1024)
-                logger.debug(f"📁 Database size: {stats['database_size_mb']:.2f} MB")
+                logger.debug(f" Database size: {stats['database_size_mb']:.2f} MB")
                 
                 # Get recent activity
                 cursor.execute("""
@@ -1470,7 +1470,7 @@ class DatabaseManager:
                 stats['recent_playlist_updates'] = cursor.fetchone()[0]
                 
                 gen_time = time.time() - start_time
-                logger.info(f"✅ Database statistics generated successfully in {gen_time:.2f}s")
+                logger.info(f" Database statistics generated successfully in {gen_time:.2f}s")
                 
                 # Log performance
                 log_performance("Database statistics generation", gen_time, 
@@ -1478,7 +1478,7 @@ class DatabaseManager:
                 return stats
                 
         except Exception as e:
-            logger.error(f"❌ Error generating database statistics: {e}")
+            logger.error(f" Error generating database statistics: {e}")
             return {}
 
     @log_function_call
@@ -1499,7 +1499,7 @@ class DatabaseManager:
         failed_retention_days = self.config.get('DB_FAILED_ANALYSIS_RETENTION_DAYS', 7)
         stats_retention_days = self.config.get('DB_STATISTICS_RETENTION_DAYS', 90)
         
-        logger.info(f"🧹 Cleaning up data older than {days} days")
+        logger.info(f" Cleaning up data older than {days} days")
         logger.debug(f"   Failed analysis retention: {failed_retention_days} days")
         logger.debug(f"   Statistics retention: {stats_retention_days} days")
         
@@ -1517,7 +1517,7 @@ class DatabaseManager:
                     WHERE created_at < ?
                 """, (cutoff_time,))
                 results['cache_cleaned'] = cursor.rowcount
-                logger.debug(f"🗑️ Cleaned {results['cache_cleaned']} cache entries")
+                logger.debug(f"️ Cleaned {results['cache_cleaned']} cache entries")
                 
                 # Clean up old statistics
                 cursor.execute("""
@@ -1525,7 +1525,7 @@ class DatabaseManager:
                     WHERE timestamp < datetime('now', '-{} days')
                 """.format(stats_retention_days))
                 results['statistics_cleaned'] = cursor.rowcount
-                logger.debug(f"🗑️ Cleaned {results['statistics_cleaned']} statistics entries")
+                logger.debug(f"️ Cleaned {results['statistics_cleaned']} statistics entries")
                 
                 # Clean up old failed analysis (keep for shorter time)
                 cursor.execute("""
@@ -1533,14 +1533,14 @@ class DatabaseManager:
                     WHERE failed_date < datetime('now', '-{} days')
                 """.format(failed_retention_days))
                 results['failed_analysis_cleaned'] = cursor.rowcount
-                logger.debug(f"🗑️ Cleaned {results['failed_analysis_cleaned']} failed analysis entries")
+                logger.debug(f"️ Cleaned {results['failed_analysis_cleaned']} failed analysis entries")
                 
                 conn.commit()
                 
                 cleanup_time = time.time() - start_time
                 total_cleaned = sum(results.values())
-                logger.info(f"✅ Cleanup completed in {cleanup_time:.2f}s: {results}")
-                logger.info(f"📊 Total cleaned: {total_cleaned} entries")
+                logger.info(f" Cleanup completed in {cleanup_time:.2f}s: {results}")
+                logger.info(f" Total cleaned: {total_cleaned} entries")
                 
                 # Log performance
                 log_performance("Database cleanup", cleanup_time, 
@@ -1548,7 +1548,7 @@ class DatabaseManager:
                 return results
                 
         except Exception as e:
-            logger.error(f"❌ Error during cleanup: {e}")
+            logger.error(f" Error during cleanup: {e}")
             return {}
 
     @log_function_call
@@ -1562,14 +1562,14 @@ class DatabaseManager:
         Returns:
             True if successful, False otherwise
         """
-        logger.info(f"📤 Exporting database to: {export_path}")
+        logger.info(f" Exporting database to: {export_path}")
         
         start_time = time.time()
         
         try:
             # Get source database size
             source_size = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
-            logger.debug(f"📁 Source database size: {source_size / (1024 * 1024):.2f} MB")
+            logger.debug(f" Source database size: {source_size / (1024 * 1024):.2f} MB")
             
             with sqlite3.connect(self.db_path) as source_conn:
                 with sqlite3.connect(export_path) as dest_conn:
@@ -1579,8 +1579,8 @@ class DatabaseManager:
             export_size = os.path.getsize(export_path) if os.path.exists(export_path) else 0
             export_time = time.time() - start_time
             
-            logger.info(f"✅ Successfully exported database to: {export_path}")
-            logger.info(f"📊 Export size: {export_size / (1024 * 1024):.2f} MB in {export_time:.2f}s")
+            logger.info(f" Successfully exported database to: {export_path}")
+            logger.info(f" Export size: {export_size / (1024 * 1024):.2f} MB in {export_time:.2f}s")
             
             # Log performance
             log_performance("Database export", export_time, 
@@ -1589,7 +1589,7 @@ class DatabaseManager:
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error exporting database: {e}")
+            logger.error(f" Error exporting database: {e}")
             return False
 
 
@@ -1614,10 +1614,10 @@ class DatabaseManager:
         """
         try:
             self.config.update(new_config)
-            logger.info(f"📋 Updated database configuration: {new_config}")
+            logger.info(f" Updated database configuration: {new_config}")
             return True
         except Exception as e:
-            logger.error(f"❌ Error updating database configuration: {e}")
+            logger.error(f" Error updating database configuration: {e}")
             return False
 
 

@@ -51,7 +51,7 @@ logger = get_logger('playlista.analysis_cli')
 
 def analyze_files(args):
     """Analyze audio files using the analysis manager."""
-    logger.info("🎵 Starting file analysis")
+    logger.info(" Starting file analysis")
     
     try:
         # Create analysis manager
@@ -65,10 +65,10 @@ def analyze_files(args):
         )
         
         if not files:
-            logger.warning("⚠️ No files found for analysis")
+            logger.warning("️ No files found for analysis")
             return
         
-        logger.info(f"📁 Found {len(files)} files to analyze")
+        logger.info(f" Found {len(files)} files to analyze")
         
         # Analyze files
         results = analysis_manager.analyze_files(
@@ -78,7 +78,7 @@ def analyze_files(args):
         )
         
         # Display results
-        logger.info("📊 Analysis Results:")
+        logger.info(" Analysis Results:")
         logger.info(f"   Success: {results['success_count']}")
         logger.info(f"   Failed: {results['failed_count']}")
         logger.info(f"   Total time: {results['total_time']:.2f}s")
@@ -89,12 +89,12 @@ def analyze_files(args):
             logger.info(f"   Small files: {results['small_files_processed']}")
         
     except Exception as e:
-        logger.error(f"❌ Analysis failed: {e}")
+        logger.error(f" Analysis failed: {e}")
 
 
 def show_statistics(args):
     """Show analysis and resource statistics."""
-    logger.info("📊 Showing statistics")
+    logger.info(" Showing statistics")
     
     try:
         # Create managers
@@ -104,14 +104,14 @@ def show_statistics(args):
         
         # Analysis statistics
         analysis_stats = analysis_manager.get_analysis_statistics()
-        logger.info("📊 Analysis Statistics:")
+        logger.info(" Analysis Statistics:")
         for key, value in analysis_stats.items():
             if key != 'database_stats':
                 logger.info(f"   {key}: {value}")
         
         # Resource statistics
         resource_stats = resource_manager.get_resource_statistics(minutes=60)
-        logger.info("📊 Resource Statistics (last hour):")
+        logger.info(" Resource Statistics (last hour):")
         for category, stats in resource_stats.items():
             if category != 'period_minutes' and category != 'data_points':
                 logger.info(f"   {category}:")
@@ -120,24 +120,24 @@ def show_statistics(args):
         
         # Database statistics
         db_stats = db_manager.get_database_statistics()
-        logger.info("📊 Database Statistics:")
+        logger.info(" Database Statistics:")
         for key, value in db_stats.items():
             logger.info(f"   {key}: {value}")
         
     except Exception as e:
-        logger.error(f"❌ Error getting statistics: {e}")
+        logger.error(f" Error getting statistics: {e}")
 
 
 def test_audio_analyzer(args):
     """Test the audio analyzer with a specific file."""
-    logger.info("🧪 Testing audio analyzer")
+    logger.info(" Testing audio analyzer")
     
     if not args.file:
-        logger.error("❌ Please specify a file with --file")
+        logger.error(" Please specify a file with --file")
         return
     
     if not os.path.exists(args.file):
-        logger.error(f"❌ File not found: {args.file}")
+        logger.error(f" File not found: {args.file}")
         return
     
     try:
@@ -148,34 +148,34 @@ def test_audio_analyzer(args):
         result = audio_analyzer.extract_features(args.file, force_reextract=args.force)
         
         if result:
-            logger.info("✅ Feature extraction successful")
-            logger.info(f"📊 Features extracted: {len(result.get('features', {}))}")
+            logger.info(" Feature extraction successful")
+            logger.info(f" Features extracted: {len(result.get('features', {}))}")
             
             # Show some key features
             features = result.get('features', {})
             if 'bpm' in features:
-                logger.info(f"🎵 BPM: {features['bpm']}")
+                logger.info(f" BPM: {features['bpm']}")
             if 'loudness' in features:
-                logger.info(f"🔊 Loudness: {features['loudness']}")
+                logger.info(f" Loudness: {features['loudness']}")
             if 'key' in features:
-                logger.info(f"🎼 Key: {features['key']}")
+                logger.info(f" Key: {features['key']}")
             
             # Show metadata
             metadata = result.get('metadata', {})
             if metadata:
-                logger.info("📋 Metadata:")
+                logger.info(" Metadata:")
                 for key, value in metadata.items():
                     logger.info(f"   {key}: {value}")
         else:
-            logger.error("❌ Feature extraction failed")
+            logger.error(" Feature extraction failed")
         
     except Exception as e:
-        logger.error(f"❌ Audio analyzer test failed: {e}")
+        logger.error(f" Audio analyzer test failed: {e}")
 
 
 def monitor_resources(args):
     """Monitor system resources in real-time."""
-    logger.info("🔍 Starting resource monitoring")
+    logger.info(" Starting resource monitoring")
     
     try:
         # Create resource manager
@@ -184,8 +184,8 @@ def monitor_resources(args):
         # Start monitoring
         resource_manager.start_monitoring()
         
-        logger.info("📊 Resource monitoring started (press Ctrl+C to stop)")
-        logger.info("📊 Monitoring interval: {} seconds".format(
+        logger.info(" Resource monitoring started (press Ctrl+C to stop)")
+        logger.info(" Monitoring interval: {} seconds".format(
             resource_manager.monitoring_interval
         ))
         
@@ -201,21 +201,21 @@ def monitor_resources(args):
                     resources = resource_manager.get_current_resources()
                     if 'memory' in resources:
                         memory = resources['memory']
-                        logger.info(f"💾 Memory: {memory['used_gb']:.2f}GB used ({memory['percent']:.1f}%)")
+                        logger.info(f" Memory: {memory['used_gb']:.2f}GB used ({memory['percent']:.1f}%)")
                     if 'cpu_percent' in resources:
-                        logger.info(f"🖥️ CPU: {resources['cpu_percent']:.1f}%")
+                        logger.info(f"️ CPU: {resources['cpu_percent']:.1f}%")
         except KeyboardInterrupt:
-            logger.info("🛑 Stopping resource monitoring")
+            logger.info(" Stopping resource monitoring")
         finally:
             resource_manager.stop_monitoring()
         
     except Exception as e:
-        logger.error(f"❌ Resource monitoring failed: {e}")
+        logger.error(f" Resource monitoring failed: {e}")
 
 
 def cleanup_failed(args):
     """Clean up failed analysis entries."""
-    logger.info("🧹 Cleaning up failed analysis entries")
+    logger.info(" Cleaning up failed analysis entries")
     
     try:
         # Create analysis manager
@@ -226,15 +226,15 @@ def cleanup_failed(args):
             max_retries=args.max_retries
         )
         
-        logger.info(f"✅ Cleaned up {cleaned_count} failed analysis entries")
+        logger.info(f" Cleaned up {cleaned_count} failed analysis entries")
         
     except Exception as e:
-        logger.error(f"❌ Cleanup failed: {e}")
+        logger.error(f" Cleanup failed: {e}")
 
 
 def generate_playlists(args):
     """Generate playlists using analyzed tracks."""
-    logger.info("🎵 Starting playlist generation")
+    logger.info(" Starting playlist generation")
     
     try:
         # Create playlist generator
@@ -248,11 +248,11 @@ def generate_playlists(args):
         )
         
         if not playlists:
-            logger.warning("⚠️ No playlists generated")
+            logger.warning("️ No playlists generated")
             return
         
         # Display results
-        logger.info("📊 Playlist Generation Results:")
+        logger.info(" Playlist Generation Results:")
         logger.info(f"   Total playlists: {len(playlists)}")
         
         for name, playlist in playlists.items():
@@ -263,24 +263,24 @@ def generate_playlists(args):
             output_dir = args.output_dir or 'playlists'
             success = playlist_generator.save_playlists(playlists, output_dir)
             if success:
-                logger.info(f"✅ Playlists saved to {output_dir}")
+                logger.info(f" Playlists saved to {output_dir}")
             else:
-                logger.error(f"❌ Failed to save playlists")
+                logger.error(f" Failed to save playlists")
         
         # Show statistics
         stats = playlist_generator.get_playlist_statistics(playlists)
-        logger.info("📊 Playlist Statistics:")
+        logger.info(" Playlist Statistics:")
         logger.info(f"   Total tracks: {stats.get('total_tracks', 0)}")
         logger.info(f"   Average size: {stats.get('average_playlist_size', 0):.1f}")
         logger.info(f"   Size range: {stats.get('min_playlist_size', 0)} - {stats.get('max_playlist_size', 0)}")
         
     except Exception as e:
-        logger.error(f"❌ Playlist generation failed: {e}")
+        logger.error(f" Playlist generation failed: {e}")
 
 
 def list_playlist_methods(args):
     """List available playlist generation methods."""
-    logger.info("🎵 Available playlist generation methods:")
+    logger.info(" Available playlist generation methods:")
     
     methods = [
         ("kmeans", "K-means clustering based on audio features"),
@@ -384,7 +384,7 @@ Examples:
     try:
         args.func(args)
     except Exception as e:
-        logger.error(f"❌ Command failed: {e}")
+        logger.error(f" Command failed: {e}")
         return 1
     
     return 0
