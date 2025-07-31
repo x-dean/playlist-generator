@@ -146,7 +146,10 @@ def setup_logging(
         log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
     
     # Validate log level
-    valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+    if LOGURU_AVAILABLE:
+        valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'TRACE']
+    else:
+        valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
     if log_level not in valid_levels:
         log_level = 'INFO'
     
@@ -332,7 +335,10 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     # Use appropriate log method
     if LOGURU_AVAILABLE:
         log_method = getattr(logger, log_level, logger.info)
-        log_method(structured_message, extra=kwargs)
+        if kwargs:
+            log_method(structured_message, extra=kwargs)
+        else:
+            log_method(structured_message)
     else:
         log_method = getattr(logger, log_level, logger.info)
         log_method(structured_message, extra=kwargs)
@@ -370,7 +376,14 @@ def log_api_call(api_name: str, operation: str, target: str, success: bool = Tru
 def log_function_call(func):
     """Decorator to log function calls."""
     def wrapper(*args, **kwargs):
-        log_universal('DEBUG', 'System', f"Calling {func.__name__} with args={args}, kwargs={kwargs}")
+        # Safely format arguments for logging
+        try:
+            args_str = str(args) if len(args) <= 3 else f"({len(args)} args)"
+            kwargs_str = str(kwargs) if len(kwargs) <= 3 else f"({len(kwargs)} kwargs)"
+            log_universal('DEBUG', 'System', f"Calling {func.__name__} with args={args_str}, kwargs={kwargs_str}")
+        except:
+            log_universal('DEBUG', 'System', f"Calling {func.__name__}")
+        
         try:
             result = func(*args, **kwargs)
             log_universal('DEBUG', 'System', f"{func.__name__} completed successfully")
