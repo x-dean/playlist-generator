@@ -500,14 +500,7 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     else:
         extra_fields = {}
     
-    # Create log record with extra fields
-    record = logger.makeRecord(
-        logger.name, logging.INFO, __file__, 0, structured_message, (), None
-    )
-    record.extra_fields = extra_fields
-    logger.handle(record)
-    
-    # Use appropriate log method
+    # Use appropriate log method with correct level
     log_method = getattr(logger, level.lower(), logger.info)
     log_method(structured_message, extra=extra_fields)
 
