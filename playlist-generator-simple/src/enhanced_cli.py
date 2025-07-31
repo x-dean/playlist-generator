@@ -34,7 +34,7 @@ logging_config = config_loader.get_logging_config()
 # Use config values or defaults
 log_level = logging_config.get('LOG_LEVEL', 'INFO')
 log_file_prefix = logging_config.get('LOG_FILE_PREFIX', 'playlista')
-console_logging = logging_config.get('LOG_CONSOLE_ENABLED', False)  # Default to file-only logging
+console_logging = logging_config.get('LOG_CONSOLE_ENABLED', True)  # Default to console logging
 file_logging = logging_config.get('LOG_FILE_ENABLED', True)
 colored_output = logging_config.get('LOG_COLORED_OUTPUT', True)
 file_colored_output = logging_config.get('LOG_FILE_COLORED_OUTPUT', None)  # None means use colored_output

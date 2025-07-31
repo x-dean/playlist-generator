@@ -61,6 +61,44 @@ try:
 except ImportError:
     MUTAGEN_AVAILABLE = False
 
+def check_audio_system_dependencies():
+    """Check if system audio dependencies are available."""
+    import subprocess
+    import shutil
+    
+    missing_deps = []
+    
+    # Check for ffmpeg
+    if not shutil.which('ffmpeg'):
+        missing_deps.append('ffmpeg')
+    
+    # Check for common audio libraries
+    try:
+        import soundfile as sf
+        # Try to get available formats
+        formats = sf.available_formats()
+        if not formats:
+            missing_deps.append('soundfile formats')
+    except Exception:
+        missing_deps.append('soundfile')
+    
+    # Check for librosa backends
+    if LIBROSA_AVAILABLE:
+        try:
+            import librosa
+            # Test if librosa can load a simple test
+            test_audio = np.zeros(1000)
+            librosa.util.normalize(test_audio)
+        except Exception as e:
+            missing_deps.append(f'librosa backend: {e}')
+    
+    if missing_deps:
+        log_universal('WARNING', 'Audio', f'Missing audio dependencies: {", ".join(missing_deps)}')
+    else:
+        log_universal('DEBUG', 'Audio', 'All audio system dependencies available')
+    
+    return len(missing_deps) == 0
+
 def safe_librosa_load(audio_path: str, **kwargs) -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
     Safely load audio using librosa with proper backend specification and fallbacks.
@@ -73,7 +111,22 @@ def safe_librosa_load(audio_path: str, **kwargs) -> Tuple[Optional[np.ndarray], 
         Tuple of (audio_array, sample_rate) or (None, None) if failed
     """
     if not LIBROSA_AVAILABLE:
+        log_universal('WARNING', 'Audio', 'Librosa not available for audio loading')
         return None, None
+    
+    # Check if file exists
+    if not os.path.exists(audio_path):
+        log_universal('ERROR', 'Audio', f'File does not exist: {audio_path}')
+        return None, None
+    
+    # Check file size
+    try:
+        file_size = os.path.getsize(audio_path)
+        if file_size < 1024:  # Less than 1KB
+            log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
+            return None, None
+    except Exception as e:
+        log_universal('WARNING', 'Audio', f'Cannot check file size for {os.path.basename(audio_path)}: {e}')
     
     # Default parameters
     default_params = {
@@ -86,20 +139,46 @@ def safe_librosa_load(audio_path: str, **kwargs) -> Tuple[Optional[np.ndarray], 
     # Update with provided kwargs
     default_params.update(kwargs)
     
+    # Try soundfile backend first
     try:
-        # Try with soundfile backend first
         audio, sr = librosa.load(audio_path, **default_params)
-        return audio, sr
+        if audio is not None and len(audio) > 0:
+            log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)} with soundfile backend')
+            return audio, sr
+        else:
+            log_universal('WARNING', 'Audio', f'Librosa returned empty audio for {os.path.basename(audio_path)}')
+            return None, None
     except Exception as e:
-        # If soundfile fails, try without backend specification (will use default)
+        log_universal('DEBUG', 'Audio', f'Soundfile backend failed for {os.path.basename(audio_path)}: {e}')
+        
+        # Try without backend specification (will use default)
         try:
             params_without_backend = default_params.copy()
             params_without_backend.pop('backend', None)
             audio, sr = librosa.load(audio_path, **params_without_backend)
-            return audio, sr
+            if audio is not None and len(audio) > 0:
+                log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)} with default backend')
+                return audio, sr
+            else:
+                log_universal('WARNING', 'Audio', f'Librosa fallback returned empty audio for {os.path.basename(audio_path)}')
+                return None, None
         except Exception as e2:
-            # If both fail, return None
-            return None, None
+            log_universal('WARNING', 'Audio', f'All librosa backends failed for {os.path.basename(audio_path)}: {e2}')
+            
+            # Try with audioread backend as last resort
+            try:
+                params_audioread = default_params.copy()
+                params_audioread['backend'] = 'audioread'
+                audio, sr = librosa.load(audio_path, **params_audioread)
+                if audio is not None and len(audio) > 0:
+                    log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)} with audioread backend')
+                    return audio, sr
+                else:
+                    log_universal('WARNING', 'Audio', f'Audioread backend returned empty audio for {os.path.basename(audio_path)}')
+                    return None, None
+            except Exception as e3:
+                log_universal('ERROR', 'Audio', f'All audio backends failed for {os.path.basename(audio_path)}: {e3}')
+                return None, None
 
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
@@ -320,6 +399,9 @@ class AudioAnalyzer:
         # MusiCNN configuration (simplified)
         self.musicnn_model_path = config.get('MUSICNN_MODEL_PATH', '/app/models/msd-musicnn-1.pb')
         self.musicnn_json_path = config.get('MUSICNN_JSON_PATH', '/app/models/msd-musicnn-1.json')
+        
+        # Check audio system dependencies
+        check_audio_system_dependencies()
         
         # Initialize MusiCNN model
         self.musicnn_model = None
@@ -871,12 +953,15 @@ class AudioAnalyzer:
                             duration=segment_duration
                         )
                         
-                        segments.append(chunk)
-                        log_universal('DEBUG', 'Audio', f"Loaded segment {i+1}: {len(chunk)} samples")
-                        
-                        # Force garbage collection after each segment
-                        import gc
-                        gc.collect()
+                        if chunk is not None:
+                            segments.append(chunk)
+                            log_universal('DEBUG', 'Audio', f"Loaded segment {i+1}: {len(chunk)} samples")
+                            
+                            # Force garbage collection after each segment
+                            import gc
+                            gc.collect()
+                        else:
+                            log_universal('WARNING', 'Audio', f"Failed to load segment {i+1}: librosa returned None")
                         
                     else:
                         log_universal('WARNING', 'Audio', "Librosa not available for segment loading")
@@ -890,9 +975,16 @@ class AudioAnalyzer:
                 log_universal('ERROR', 'Audio', "No segments loaded successfully")
                 return None
             
+            # Filter out None segments and check if we have valid segments
+            valid_segments = [seg for seg in segments if seg is not None and len(seg) > 0]
+            
+            if not valid_segments:
+                log_universal('ERROR', 'Audio', "No valid segments loaded")
+                return None
+            
             # Concatenate segments
-            audio = np.concatenate(segments)
-            log_universal('INFO', 'Audio', f"Sampled audio: {len(audio)} samples total from {len(segments)} segments")
+            audio = np.concatenate(valid_segments)
+            log_universal('INFO', 'Audio', f"Sampled audio: {len(audio)} samples total from {len(valid_segments)} segments")
             
             return audio
             
@@ -942,12 +1034,15 @@ class AudioAnalyzer:
                         duration=segment_duration
                     )
                     
-                    segments.append(chunk)
-                    log_universal('DEBUG', 'Audio', f"Loaded segment {i+1}: {len(chunk)} samples")
-                    
-                    # Force garbage collection after each segment
-                    import gc
-                    gc.collect()
+                    if chunk is not None:
+                        segments.append(chunk)
+                        log_universal('DEBUG', 'Audio', f"Loaded segment {i+1}: {len(chunk)} samples")
+                        
+                        # Force garbage collection after each segment
+                        import gc
+                        gc.collect()
+                    else:
+                        log_universal('WARNING', 'Audio', f"Failed to load segment {i+1}: librosa returned None")
                     
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f"Error loading segment {i+1}: {e}")
@@ -957,11 +1052,18 @@ class AudioAnalyzer:
                 log_universal('ERROR', 'Audio', "No segments loaded from large file")
                 return None
             
+            # Filter out None segments and check if we have valid segments
+            valid_segments = [seg for seg in segments if seg is not None and len(seg) > 0]
+            
+            if not valid_segments:
+                log_universal('ERROR', 'Audio', "No valid segments loaded from large file")
+                return None
+            
             # Concatenate segments to create representative audio
-            representative_audio = np.concatenate(segments)
+            representative_audio = np.concatenate(valid_segments)
             total_duration = len(representative_audio) / DEFAULT_SAMPLE_RATE
             
-            log_universal('INFO', 'Audio', f"Created representative audio: {len(representative_audio)} samples ({total_duration:.1f}s) from {len(segments)} segments")
+            log_universal('INFO', 'Audio', f"Created representative audio: {len(representative_audio)} samples ({total_duration:.1f}s) from {len(valid_segments)} segments")
             log_universal('INFO', 'Audio', f"Representative audio covers {total_duration/duration*100:.1f}% of original file")
             
             return representative_audio

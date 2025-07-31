@@ -366,11 +366,7 @@ class ConfigLoader:
             'SEQUENTIAL_MAX_CPU_PERCENT',
             'SMART_ANALYSIS_ENABLED',
             'ANALYSIS_TYPE_FALLBACK',
-            'RESOURCE_MONITORING_ENABLED',
-            'PROGRESS_BAR_ENABLED',
-            'PROGRESS_BAR_SHOW_PERCENTAGE',
-            'PROGRESS_BAR_SHOW_TIME_ELAPSED',
-            'PROGRESS_BAR_SHOW_CURRENT_FILE'
+            'RESOURCE_MONITORING_ENABLED'
         ]
         
         for key in analysis_keys:

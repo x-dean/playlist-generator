@@ -314,6 +314,12 @@ def log_universal(level: str, component: str, message: str, **kwargs):
         message: Log message
         **kwargs: Additional fields for structured logging
     """
+    # Get caller's module name for proper logging context
+    import inspect
+    caller_frame = inspect.currentframe().f_back
+    caller_module = inspect.getmodule(caller_frame)
+    module_name = caller_module.__name__ if caller_module else 'unknown'
+    
     # Create structured message with component prefix
     structured_message = f"{component}: {message}"
     
@@ -334,7 +340,8 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     
     # Use appropriate log method
     if LOGURU_AVAILABLE:
-        log_method = getattr(logger, log_level, logger.info)
+        # Use opt() to set caller information
+        log_method = getattr(logger.opt(depth=1), log_level, logger.info)
         if kwargs:
             log_method(structured_message, extra=kwargs)
         else:

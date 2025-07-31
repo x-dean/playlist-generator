@@ -20,7 +20,6 @@ if mp.get_start_method(allow_none=True) != 'spawn':
 from .database import DatabaseManager
 from .logging_setup import get_logger, log_function_call, log_universal
 from .resource_manager import ResourceManager
-from .progress_bar import get_progress_bar
 
 logger = get_logger('playlista.parallel_analyzer')
 
@@ -254,10 +253,6 @@ class ParallelAnalyzer:
         log_universal('DEBUG', 'Parallel', f"  Force re-extract: {force_reextract}")
         log_universal('DEBUG', 'Parallel', f"  Max workers: {max_workers}")
         
-        # Get progress bar
-        progress_bar = get_progress_bar()
-        progress_bar.start_analysis(len(files), "Parallel Analysis")
-        
         start_time = time.time()
         results = {
             'success_count': 0,
@@ -315,8 +310,7 @@ class ParallelAnalyzer:
                                 })
                                 log_universal('DEBUG', 'Parallel', f"Failed: {filename}")
                             
-                            # Update progress bar
-                            progress_bar.update_analysis_progress(completed_count, filename)
+                            log_universal('INFO', 'Parallel', f"Completed {completed_count}/{len(files)}: {filename}")
                                 
                         except Exception as e:
                             log_universal('ERROR', 'Parallel', f"Error processing {filename}: {e}")
@@ -356,14 +350,6 @@ class ParallelAnalyzer:
         
         total_time = time.time() - start_time
         results['total_time'] = total_time
-        
-        # Complete progress bar
-        progress_bar.complete_analysis(
-            len(files), 
-            results['success_count'], 
-            results['failed_count'], 
-            "Parallel Analysis"
-        )
         
         # Calculate batch processing statistics
         success_rate = (results['success_count'] / len(files) * 100) if files else 0

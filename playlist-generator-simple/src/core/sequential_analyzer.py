@@ -15,7 +15,6 @@ from datetime import datetime
 from .database import DatabaseManager
 from .logging_setup import get_logger, log_function_call, log_universal
 from .resource_manager import ResourceManager
-from .progress_bar import get_progress_bar
 
 logger = get_logger('playlista.sequential_analyzer')
 
@@ -93,10 +92,6 @@ class SequentialAnalyzer:
         log_universal('INFO', 'Sequential', f'Starting sequential processing of {len(files)} files')
         log_universal('INFO', 'Sequential', f'Force re-extract: {force_reextract}')
         
-        # Get progress bar
-        progress_bar = get_progress_bar()
-        progress_bar.start_analysis(len(files), "Sequential Analysis")
-        
         start_time = time.time()
         results = {
             'success_count': 0,
@@ -108,7 +103,7 @@ class SequentialAnalyzer:
         for i, file_path in enumerate(files, 1):
             try:
                 filename = os.path.basename(file_path)
-                progress_bar.update_analysis_progress(i, filename)
+                log_universal('INFO', 'Sequential', f'Processing file {i}/{len(files)}: {filename}')
                 
                 # Process single file
                 success = self._process_single_file(file_path, force_reextract)
@@ -143,14 +138,6 @@ class SequentialAnalyzer:
         
         total_time = time.time() - start_time
         results['total_time'] = total_time
-        
-        # Complete progress bar
-        progress_bar.complete_analysis(
-            len(files), 
-            results['success_count'], 
-            results['failed_count'], 
-            "Sequential Analysis"
-        )
         
         log_universal('INFO', 'Sequential', f"Sequential file processing completed in {total_time:.2f}s")
         log_universal('INFO', 'Sequential', f"Results: {results['success_count']} successful, {results['failed_count']} failed")

@@ -15,7 +15,6 @@ from pathlib import Path
 from .database import DatabaseManager
 from .logging_setup import get_logger, log_function_call, log_universal
 from .file_discovery import FileDiscovery
-from .progress_bar import get_progress_bar
 
 logger = get_logger('playlista.analysis_manager')
 
@@ -34,7 +33,7 @@ class AnalysisManager:
     - Analyzer type selection (sequential vs parallel)
     - Database integration for results
     - Analysis decision making (deterministic based on file size)
-    - Progress tracking
+    - Analysis coordination
     """
     
     def __init__(self, db_manager: DatabaseManager = None, config: Dict[str, Any] = None):
@@ -74,7 +73,7 @@ class AnalysisManager:
         self.analysis_cache_expiry_hours = config.get('ANALYSIS_CACHE_EXPIRY_HOURS', 24)
         self.analysis_retry_attempts = config.get('ANALYSIS_RETRY_ATTEMPTS', 3)
         self.analysis_retry_delay_seconds = config.get('ANALYSIS_RETRY_DELAY_SECONDS', 5)
-        self.analysis_progress_reporting = config.get('ANALYSIS_PROGRESS_REPORTING', True)
+        self.analysis_progress_reporting = config.get('ANALYSIS_PROGRESS_REPORTING', False)
         self.analysis_statistics_collection = config.get('ANALYSIS_STATISTICS_COLLECTION', True)
         self.analysis_cleanup_enabled = config.get('ANALYSIS_CLEANUP_ENABLED', True)
         self.extract_musicnn = config.get('EXTRACT_MUSICNN', True)
@@ -453,8 +452,7 @@ class AnalysisManager:
         log_universal('DEBUG', 'Analysis', f"  Force re-extract: {force_reextract}")
         log_universal('DEBUG', 'Analysis', f"  Max workers: {max_workers}")
         
-        # Note: Individual analyzers will create their own progress bars
-        # No need for overall progress bar here to avoid conflicts
+        # Note: Individual analyzers handle their own logging
         
         start_time = time.time()
         
@@ -494,7 +492,7 @@ class AnalysisManager:
         total_time = time.time() - start_time
         results['total_time'] = total_time
         
-        # Note: Individual analyzers handle their own progress bars
+        # Note: Individual analyzers handle their own logging
         
         log_universal('INFO', 'Analysis', f"File analysis completed in {total_time:.2f}s")
         log_universal('INFO', 'Analysis', f"Analysis completed in {total_time:.2f}s")
