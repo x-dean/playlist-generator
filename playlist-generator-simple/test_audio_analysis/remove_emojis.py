@@ -35,15 +35,19 @@ def remove_emojis_from_file(file_path):
     for pattern in emoji_patterns:
         content = re.sub(pattern, '', content)
     
+    # Clean up extra spaces that might have been left
+    content = re.sub(r'f"(\s+)([^"]*)"', r'f"\2"', content)
+    content = re.sub(r'f"([^"]*)(\s+)"', r'f"\1"', content)
+    
     # Check if any changes were made
     if content != original_content:
         # Write back to file
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        print(f"  ✅ Removed emojis from {file_path}")
+        print(f"  Removed emojis from {file_path}")
         return True
     else:
-        print(f"  ℹ️ No emojis found in {file_path}")
+        print(f"  No emojis found in {file_path}")
         return False
 
 def main():
@@ -52,10 +56,10 @@ def main():
     print("EMOJI REMOVAL SCRIPT")
     print("=" * 60)
     
-    # Files to process
+    # Files to process - using relative paths from current directory
     files_to_process = [
-        "playlist-generator-simple/src/core/external_apis.py",
-        "playlist-generator-simple/test_audio_analysis/src/core/external_apis.py"
+        "../src/core/external_apis.py",
+        "src/core/external_apis.py"
     ]
     
     total_changes = 0
@@ -65,7 +69,7 @@ def main():
             if remove_emojis_from_file(file_path):
                 total_changes += 1
         else:
-            print(f"  ❌ File not found: {file_path}")
+            print(f"  File not found: {file_path}")
     
     print("\n" + "=" * 60)
     print(f"SUMMARY: Processed {len(files_to_process)} files, made changes to {total_changes} files")

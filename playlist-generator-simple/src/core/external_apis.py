@@ -102,8 +102,8 @@ class MusicBrainzClient:
             params = params or {}
             
             self.logger.info(f"MusicBrainz API call: {endpoint}")
-            self.logger.debug(f"  URL: {url}")
-            self.logger.debug(f"  Params: {params}")
+            self.logger.debug(f"URL: {url}")
+            self.logger.debug(f"Params: {params}")
             
             response = self.session.get(url, params=params, timeout=30)
             
@@ -205,9 +205,9 @@ class MusicBrainzClient:
             
             self.logger.info(f"MusicBrainz search successful: '{track.artist}' - '{track.title}' (ID: {track.id})")
             if tags:
-                self.logger.debug(f"  Tags: {tags}")
+                self.logger.debug(f"Tags: {tags}")
             if release_date:
-                self.logger.debug(f"  Release date: {release_date}")
+                self.logger.debug(f"Release date: {release_date}")
             
             return track
             
@@ -273,8 +273,8 @@ class LastFMClient:
             })
             
             self.logger.info(f"Last.fm API call: {method}")
-            self.logger.debug(f"  URL: {self.BASE_URL}")
-            self.logger.debug(f"  Params: {dict((k, v) for k, v in params.items() if k != 'api_key')}")
+            self.logger.debug(f"URL: {self.BASE_URL}")
+            self.logger.debug(f"Params: {dict((k, v) for k, v in params.items() if k != 'api_key')}")
             
             response = self.session.get(self.BASE_URL, params=params, timeout=30)
             
@@ -409,7 +409,7 @@ class MetadataEnrichmentService:
                 self.musicbrainz_client = MusicBrainzClient()
                 logger.info("MusicBrainz client initialized")
             except Exception as e:
-                logger.warning(f"️ Failed to initialize MusicBrainz client: {e}")
+                logger.warning(f"Failed to initialize MusicBrainz client: {e}")
         
         self.lastfm_client = None
         if lastfm_enabled:
@@ -417,7 +417,7 @@ class MetadataEnrichmentService:
                 self.lastfm_client = LastFMClient()
                 logger.info("Last.fm client initialized")
             except Exception as e:
-                logger.warning(f"️ Failed to initialize Last.fm client: {e}")
+                logger.warning(f"Failed to initialize Last.fm client: {e}")
         
         logger.info(f"Metadata enrichment service initialized")
     
@@ -441,10 +441,10 @@ class MetadataEnrichmentService:
             artist = metadata.get('artist', '')
             
             if not title or not artist:
-                self.logger.info(f" Skipping enrichment - missing title or artist: title='{title}', artist='{artist}'")
+                self.logger.info(f"Skipping enrichment - missing title or artist: title='{title}', artist='{artist}'")
                 return metadata
             
-            self.logger.info(f" Starting metadata enrichment for: '{artist}' - '{title}'")
+            self.logger.info(f"Starting metadata enrichment for: '{artist}' - '{title}'")
             
             enriched_metadata = metadata.copy()
             enrichment_results = []
@@ -452,7 +452,7 @@ class MetadataEnrichmentService:
             # Try MusicBrainz enrichment
             if self.musicbrainz_client:
                 try:
-                    self.logger.info(f" Calling MusicBrainz API for enrichment...")
+                    self.logger.info(f"Calling MusicBrainz API for enrichment...")
                     mb_track = self.musicbrainz_client.search_track(title, artist)
                     if mb_track:
                         # Add MusicBrainz data
@@ -473,18 +473,18 @@ class MetadataEnrichmentService:
                         enriched_metadata['album_id'] = mb_track.album_id
                         enrichment_results.append(f"musicbrainz_id: {mb_track.id}")
                         
-                        self.logger.info(f" MusicBrainz enrichment successful: {', '.join(enrichment_results)}")
+                        self.logger.info(f"MusicBrainz enrichment successful: {', '.join(enrichment_results)}")
                     else:
-                        self.logger.info(f" MusicBrainz enrichment: No data found")
+                        self.logger.info(f"MusicBrainz enrichment: No data found")
                 except Exception as e:
-                    self.logger.warning(f"️ MusicBrainz enrichment failed: {e}")
+                    self.logger.warning(f"MusicBrainz enrichment failed: {e}")
             else:
-                self.logger.info(f"️ MusicBrainz client not available")
+                self.logger.info(f"MusicBrainz client not available")
             
             # Try Last.fm enrichment
             if self.lastfm_client:
                 try:
-                    self.logger.info(f" Calling Last.fm API for enrichment...")
+                    self.logger.info(f"Calling Last.fm API for enrichment...")
                     lf_track = self.lastfm_client.get_track_info(title, artist)
                     if lf_track:
                         # Add Last.fm data
@@ -503,13 +503,13 @@ class MetadataEnrichmentService:
                         enriched_metadata['lastfm_url'] = lf_track.url
                         enrichment_results.append(f"lastfm_url: {lf_track.url}")
                         
-                        self.logger.info(f" Last.fm enrichment successful: {', '.join(enrichment_results)}")
+                        self.logger.info(f"Last.fm enrichment successful: {', '.join(enrichment_results)}")
                     else:
-                        self.logger.info(f" Last.fm enrichment: No data found")
+                        self.logger.info(f"Last.fm enrichment: No data found")
                 except Exception as e:
-                    self.logger.warning(f"️ Last.fm enrichment failed: {e}")
+                    self.logger.warning(f"Last.fm enrichment failed: {e}")
             else:
-                self.logger.info(f"️ Last.fm client not available")
+                self.logger.info(f"Last.fm client not available")
             
             # Combine tags from both sources
             all_tags = []
@@ -525,13 +525,13 @@ class MetadataEnrichmentService:
                     if tag.lower() not in [t.lower() for t in unique_tags]:
                         unique_tags.append(tag)
                 enriched_metadata['enriched_tags'] = unique_tags[:15]  # Limit to 15 tags
-                self.logger.info(f" Combined {len(unique_tags)} unique tags from both APIs")
+                self.logger.info(f"Combined {len(unique_tags)} unique tags from both APIs")
             
-            self.logger.info(f" Metadata enrichment completed for: '{title}'")
+            self.logger.info(f"Metadata enrichment completed for: '{title}'")
             return enriched_metadata
             
         except Exception as e:
-            self.logger.error(f" Error enriching metadata: {e}")
+            self.logger.error(f"Error enriching metadata: {e}")
             return metadata
     
     def is_available(self) -> bool:

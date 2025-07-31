@@ -102,8 +102,8 @@ class MusicBrainzClient:
             params = params or {}
             
             self.logger.info(f"MusicBrainz API call: {endpoint}")
-            self.logger.debug(f"  URL: {url}")
-            self.logger.debug(f"  Params: {params}")
+            self.logger.debug(f"URL: {url}")
+            self.logger.debug(f"Params: {params}")
             
             response = self.session.get(url, params=params, timeout=30)
             
@@ -205,9 +205,9 @@ class MusicBrainzClient:
             
             self.logger.info(f"MusicBrainz search successful: '{track.artist}' - '{track.title}' (ID: {track.id})")
             if tags:
-                self.logger.debug(f"  Tags: {tags}")
+                self.logger.debug(f"Tags: {tags}")
             if release_date:
-                self.logger.debug(f"  Release date: {release_date}")
+                self.logger.debug(f"Release date: {release_date}")
             
             return track
             
@@ -273,8 +273,8 @@ class LastFMClient:
             })
             
             self.logger.info(f"Last.fm API call: {method}")
-            self.logger.debug(f"  URL: {self.BASE_URL}")
-            self.logger.debug(f"  Params: {dict((k, v) for k, v in params.items() if k != 'api_key')}")
+            self.logger.debug(f"URL: {self.BASE_URL}")
+            self.logger.debug(f"Params: {dict((k, v) for k, v in params.items() if k != 'api_key')}")
             
             response = self.session.get(self.BASE_URL, params=params, timeout=30)
             
@@ -412,7 +412,7 @@ class MetadataEnrichmentService:
                 self.musicbrainz_client = MusicBrainzClient()
                 logger.info("MusicBrainz client initialized")
             except Exception as e:
-                logger.warning(f"️ Failed to initialize MusicBrainz client: {e}")
+                logger.warning(f"Failed to initialize MusicBrainz client: {e}")
         
         self.lastfm_client = None
         if lastfm_enabled:
@@ -420,7 +420,7 @@ class MetadataEnrichmentService:
                 self.lastfm_client = LastFMClient()
                 logger.info("Last.fm client initialized")
             except Exception as e:
-                logger.warning(f"️ Failed to initialize Last.fm client: {e}")
+                logger.warning(f"Failed to initialize Last.fm client: {e}")
         
         logger.info(f"Metadata enrichment service initialized")
     
