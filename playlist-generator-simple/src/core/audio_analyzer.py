@@ -58,6 +58,7 @@ except ImportError:
 
 try:
     import mutagen
+    from mutagen import File as MutagenFile
     MUTAGEN_AVAILABLE = True
 except ImportError:
     MUTAGEN_AVAILABLE = False
@@ -159,9 +160,9 @@ TIMEOUT_LARGE_FILES = 1200  # 20 minutes for very large files
 TIMEOUT_EXTREMELY_LARGE = 1800  # 30 minutes for extremely large files
 
 # File size thresholds (in samples)
-LARGE_FILE_THRESHOLD = 100000000  # ~2.3 hours at 44kHz
-EXTREMELY_LARGE_THRESHOLD = 200000000  # ~4.5 hours at 44kHz
-EXTREMELY_LARGE_PROCESSING_THRESHOLD = 500000000  # ~11.3 hours at 44kHz
+LARGE_FILE_THRESHOLD = 100000000  # ~2.3 hours at 44kHz (MFCC limit)
+EXTREMELY_LARGE_THRESHOLD = 200000000  # ~4.5 hours at 44kHz (advanced features limit)
+EXTREMELY_LARGE_PROCESSING_THRESHOLD = 500000000  # ~11.3 hours at 44kHz (minimal features only)
 
 
 class TimeoutException(Exception):
@@ -479,42 +480,8 @@ class AudioAnalyzer:
             # Load audio
             audio = self._safe_audio_load(audio_path)
             if audio is None:
-                log_universal('WARNING', 'Audio', f"Failed to load audio (likely too large): {filename}")
-                log_universal('INFO', 'Audio', f"Extracting metadata only for large file: {filename}")
-                
-                # Extract metadata only for large files
-                metadata = self._extract_metadata(audio_path)
-                
-                # Create minimal result with metadata only
-                result = {
-                    'success': True,
-                    'features': {
-                        'bpm': -1.0,  # Failed marker
-                        'key': 'unknown',
-                        'mode': 'unknown',
-                        'loudness': -1.0,
-                        'danceability': -1.0,
-                        'energy': -1.0,
-                        'valence': -1.0,
-                        'tempo': -1.0,
-                        'duration': -1.0,
-                        'sample_rate': 44100,
-                        'file_too_large': True
-                    },
-                    'metadata': metadata,
-                    'file_info': {
-                        'path': audio_path,
-                        'filename': filename,
-                        'size_bytes': file_size_bytes,
-                        'size_mb': file_size_mb
-                    },
-                    'analysis_type': 'metadata_only',
-                    'analysis_config': analysis_config,
-                    'forced_guidance': forced_guidance
-                }
-                
-                log_universal('INFO', 'Audio', f"Extracted metadata only from large file: {filename}")
-                return result
+                log_universal('ERROR', 'Audio', f"Failed to load audio: {filename}")
+                return None
             
             # Check file size and set appropriate timeout
             audio_length = len(audio)
@@ -698,9 +665,9 @@ class AudioAnalyzer:
                 # Estimate audio duration from file size (rough estimate: 1MB ≈ 1 minute for MP3)
                 estimated_duration_minutes = file_size_mb
                 
-                # Fail fast for very large files (> 100MB ≈ 100 minutes)
-                if file_size_mb > 100:
-                    log_universal('WARNING', 'Audio', f"File too large ({file_size_mb:.1f}MB, ~{estimated_duration_minutes:.0f}min) - skipping to prevent memory issues")
+                # Fail fast for extremely large files (> 500MB ≈ 500 minutes)
+                if file_size_mb > 500:
+                    log_universal('WARNING', 'Audio', f"File extremely large ({file_size_mb:.1f}MB, ~{estimated_duration_minutes:.0f}min) - skipping to prevent memory issues")
                     return None
                 
                 log_universal('DEBUG', 'Audio', f"File size: {file_size_mb:.1f}MB, estimated duration: ~{estimated_duration_minutes:.0f} minutes")
@@ -721,9 +688,9 @@ class AudioAnalyzer:
                         duration_minutes = duration_seconds / 60
                         log_universal('DEBUG', 'Audio', f"Essentia loaded audio: {len(audio)} samples at 44.1kHz ({duration_seconds:.1f}s, ~{duration_minutes:.1f}min)")
                         
-                        # Fail fast for very long files (> 60 minutes)
-                        if duration_minutes > 60:
-                            log_universal('WARNING', 'Audio', f"Audio too long ({duration_minutes:.1f} minutes) - skipping to prevent memory issues")
+                        # Fail fast for extremely long files (> 500 minutes)
+                        if duration_minutes > 500:
+                            log_universal('WARNING', 'Audio', f"Audio extremely long ({duration_minutes:.1f} minutes) - skipping to prevent memory issues")
                             return None
                         
                         # Force garbage collection for large files (like old setup)
@@ -1055,9 +1022,9 @@ class AudioAnalyzer:
                     duration = time.time() - start_time
                     log_universal('ERROR', 'Audio', f"Feature extraction step: loudness error: {e}")
             
-            # Extract key (if enabled) - disabled for extremely large files
+            # Extract key (if enabled) - skip for extremely large files (like old setup)
             if features_config.get('extract_key', True):
-                if is_extremely_large:
+                if is_extremely_large_for_processing:
                     log_universal('WARNING', 'Audio', f"Skipping key extraction for extremely large file")
                     failed_features.append('key')
                 else:
@@ -1078,8 +1045,8 @@ class AudioAnalyzer:
                         duration = time.time() - start_time
                         log_universal('ERROR', 'Audio', f"Feature extraction step: key error: {e}")
             
-            # Extract MFCC (if enabled)
-            if features_config.get('extract_mfcc', True) and not is_extremely_large:
+            # Extract MFCC (if enabled) - skip for large files (like old setup)
+            if features_config.get('extract_mfcc', True) and not is_large_file:
                 start_time = time.time()
                 try:
                     mfcc_features = self._extract_mfcc(audio)
@@ -1097,8 +1064,8 @@ class AudioAnalyzer:
                     duration = time.time() - start_time
                     log_universal('ERROR', 'Audio', f"Feature extraction step: mfcc error: {e}")
             
-            # Extract MusiCNN features (if enabled)
-            if features_config.get('extract_musicnn', False) and not is_extremely_large:
+            # Extract MusiCNN features (if enabled) - skip for large files (like old setup)
+            if features_config.get('extract_musicnn', False) and not is_large_file:
                 start_time = time.time()
                 try:
                     musicnn_features = self._extract_musicnn_features(audio)
@@ -1173,8 +1140,8 @@ class AudioAnalyzer:
                     duration = time.time() - start_time
                     log_universal('ERROR', 'Audio', f"Feature extraction step: zcr error: {e}")
             
-            # Extract Spectral Contrast (if enabled)
-            if features_config.get('extract_spectral_contrast', True):
+            # Extract Spectral Contrast (if enabled) - skip for extremely large files (like old setup)
+            if features_config.get('extract_spectral_contrast', True) and not is_extremely_large:
                 start_time = time.time()
                 try:
                     spectral_contrast_features = self._extract_spectral_contrast(audio)
@@ -1192,8 +1159,8 @@ class AudioAnalyzer:
                     duration = time.time() - start_time
                     log_universal('ERROR', 'Audio', f"Feature extraction step: spectral_contrast error: {e}")
             
-            # Extract Chroma (if enabled)
-            if features_config.get('extract_chroma', True):
+            # Extract Chroma (if enabled) - skip for extremely large files (like old setup)
+            if features_config.get('extract_chroma', True) and not is_extremely_large:
                 start_time = time.time()
                 try:
                     chroma_features = self._extract_chroma(audio)

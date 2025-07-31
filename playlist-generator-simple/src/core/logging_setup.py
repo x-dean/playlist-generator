@@ -320,36 +320,8 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     caller_module = inspect.getmodule(caller_frame)
     module_name = caller_module.__name__ if caller_module else 'unknown'
     
-    # Create structured message with component prefix and color
-    if LOGURU_AVAILABLE and component in COMPONENT_COLORS:
-        # Use Loguru color tags for component colors
-        color_map = {
-            'MB API': '<blue>',
-            'LF API': '<magenta>',
-            'Enrichment': '<cyan>',
-            'Analysis': '<yellow>',
-            'Database': '<green>',
-            'Cache': '<white>',
-            'Worker': '<white>',
-            'Sequential': '<blue>',
-            'Parallel': '<magenta>',
-            'Resource': '<cyan>',
-            'Progress': '<yellow>',
-            'Playlist': '<green>',
-            'Streaming': '<white>',
-            'CLI': '<white>',
-            'Config': '<blue>',
-            'Export': '<magenta>',
-            'Pipeline': '<cyan>',
-            'System': '<yellow>',
-            'Audio': '<green>',
-            'CPU Optimizer': '<cyan>',
-            'FileDiscovery': '<blue>'
-        }
-        color_tag = color_map.get(component, '<white>')
-        structured_message = f"{color_tag}{component}</>: {message}"
-    else:
-        structured_message = f"{component}: {message}"
+    # Create structured message with component prefix
+    structured_message = f"{component}: {message}"
     
     # Handle TRACE level mapping
     if level.upper() == 'TRACE':
@@ -366,6 +338,8 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     if LOGURU_AVAILABLE:
         # Use opt() to set caller information
         log_method = getattr(logger.opt(depth=1), log_level, logger.info)
+        
+        # Use the component directly in the message for now
         if kwargs:
             log_method(structured_message, extra=kwargs)
         else:
