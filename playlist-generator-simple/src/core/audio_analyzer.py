@@ -585,9 +585,13 @@ class AudioAnalyzer:
             logger.debug(f"  Streaming memory limit: {self.streaming_memory_limit_percent}%")
             logger.debug(f"  Streaming chunk duration: {self.streaming_chunk_duration_seconds}s")
             
-            # For now, always use traditional loading to avoid streaming issues
-            logger.debug(f"Using traditional loading for {file_size_mb:.1f}MB file")
-            return self._load_audio_traditional(audio_path)
+            # Use streaming for large files to save memory
+            if file_size_mb > self.streaming_large_file_threshold_mb and self.streaming_enabled:
+                logger.debug(f"Using streaming loading for {file_size_mb:.1f}MB file")
+                return self._load_audio_streaming(audio_path)
+            else:
+                logger.debug(f"Using traditional loading for {file_size_mb:.1f}MB file")
+                return self._load_audio_traditional(audio_path)
                 
         except Exception as e:
             logger.error(f"Error loading audio {audio_path}: {e}")
@@ -609,17 +613,17 @@ class AudioAnalyzer:
                         resampleQuality=1  # Good quality resampling
                     )
                     audio = loader()
-                    # Limit to 30 seconds if file is too long
-                    max_samples = DEFAULT_SAMPLE_RATE * 30
+                    # Limit to 60 seconds if file is too long (increased from 30s for better analysis)
+                    max_samples = DEFAULT_SAMPLE_RATE * 60
                     if len(audio) > max_samples:
                         audio = audio[:max_samples]
-                        logger.debug(f"Truncated audio to 30 seconds")
+                        logger.debug(f"Truncated audio to 60 seconds")
                     logger.debug(f"Essentia loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
                     
                     # Force garbage collection for large files
-                    if len(audio) > 1000000:  # ~23 seconds at 44kHz
+                    if len(audio) > 500000:  # ~11 seconds at 44kHz - more aggressive
                         gc.collect()
-                        logger.debug("Forced garbage collection after loading large audio file")
+                        logger.debug("Forced garbage collection after loading audio file")
                     
                     return audio
                 except Exception as e:
@@ -638,8 +642,8 @@ class AudioAnalyzer:
                         new_length = int(len(audio) * ratio)
                         indices = np.linspace(0, len(audio) - 1, new_length)
                         audio = np.interp(indices, np.arange(len(audio)), audio)
-                    # Limit to 30 seconds
-                    max_samples = DEFAULT_SAMPLE_RATE * 30
+                    # Limit to 60 seconds
+                    max_samples = DEFAULT_SAMPLE_RATE * 60
                     if len(audio) > max_samples:
                         audio = audio[:max_samples]
                     logger.debug(f"Soundfile loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
@@ -661,8 +665,8 @@ class AudioAnalyzer:
                             new_length = int(len(audio) * ratio)
                             indices = np.linspace(0, len(audio) - 1, new_length)
                             audio = np.interp(indices, np.arange(len(audio)), audio)
-                        # Limit to 30 seconds
-                        max_samples = DEFAULT_SAMPLE_RATE * 30
+                        # Limit to 60 seconds
+                        max_samples = DEFAULT_SAMPLE_RATE * 60
                         if len(audio) > max_samples:
                             audio = audio[:max_samples]
                         logger.debug(f"Wave loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
@@ -682,9 +686,9 @@ class AudioAnalyzer:
                     logger.debug(f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
                     
                     # Force garbage collection for large files
-                    if len(audio) > 1000000:  # ~23 seconds at 44kHz
+                    if len(audio) > 500000:  # ~11 seconds at 44kHz - more aggressive
                         gc.collect()
-                        logger.debug("Forced garbage collection after loading large audio file")
+                        logger.debug("Forced garbage collection after loading audio file")
                     
                     return audio
                 except Exception as e:
@@ -707,9 +711,9 @@ class AudioAnalyzer:
             return dummy_audio
     
     def _load_audio_streaming(self, audio_path: str) -> Optional[np.ndarray]:
-        """Load audio using streaming method - for small files only."""
+        """Load audio using streaming method for memory efficiency."""
         try:
-            from .streaming_audio_loader import get_streaming_loader
+            from streaming_audio_loader import get_streaming_loader
             
             # Get streaming loader with configuration
             streaming_loader = get_streaming_loader(
@@ -719,13 +723,12 @@ class AudioAnalyzer:
                 use_streaming=True  # Enable true streaming for large files
             )
             
-            # For small files, we can still concatenate chunks
-            # For large files, we should use true streaming analysis
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             
-            if file_size_mb > 100:  # Large file threshold
-                logger.warning(f"Large file detected ({file_size_mb:.1f}MB) - using true streaming analysis")
-                return self._analyze_large_file_streaming(audio_path, streaming_loader)
+            # For very large files, use sampling approach instead of full loading
+            if file_size_mb > 50:  # Large file threshold
+                logger.info(f"Large file detected ({file_size_mb:.1f}MB) - using sampling approach")
+                return self._load_audio_sampling(audio_path)
             
             # For smaller files, collect chunks and concatenate
             chunks = []
@@ -735,6 +738,11 @@ class AudioAnalyzer:
                 chunks.append(chunk)
                 total_samples += len(chunk)
                 logger.debug(f"Loaded chunk: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
+                
+                # Limit total samples to prevent memory issues
+                if total_samples > DEFAULT_SAMPLE_RATE * 60:  # 60 seconds max
+                    logger.warning("Reached 60-second limit, truncating audio")
+                    break
             
             if not chunks:
                 logger.error("No chunks loaded from streaming loader")
@@ -751,6 +759,76 @@ class AudioAnalyzer:
             logger.error(f"Error in streaming audio load: {e}")
             logger.warning("Falling back to traditional loading...")
             return self._load_audio_traditional(audio_path)
+    
+    def _load_audio_sampling(self, audio_path: str) -> Optional[np.ndarray]:
+        """Load audio using sampling approach for very large files."""
+        try:
+            # Get file duration
+            duration = self._get_audio_duration(audio_path)
+            if duration is None:
+                logger.error("Could not determine audio duration for sampling")
+                return None
+            
+            # Sample multiple segments throughout the file
+            segment_duration = 30.0  # 30 seconds per segment
+            num_segments = min(5, int(duration / segment_duration))  # Max 5 segments
+            segment_interval = duration / (num_segments + 1)  # Evenly spaced segments
+            
+            logger.info(f"Sampling {num_segments} segments of {segment_duration}s each from {duration:.1f}s file")
+            
+            segments = []
+            
+            # Sample segments throughout the file
+            for i in range(num_segments):
+                segment_start = (i + 1) * segment_interval
+                
+                # Ensure we don't exceed file duration
+                if segment_start + segment_duration > duration:
+                    segment_start = max(0, duration - segment_duration)
+                
+                try:
+                    logger.debug(f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
+                    
+                    # Use librosa for segment loading
+                    if LIBROSA_AVAILABLE:
+                        import librosa
+                        librosa.set_backend('soundfile')
+                        chunk, sr = librosa.load(
+                            audio_path,
+                            sr=DEFAULT_SAMPLE_RATE,
+                            mono=True,
+                            offset=segment_start,
+                            duration=segment_duration
+                        )
+                        
+                        segments.append(chunk)
+                        logger.debug(f"Loaded segment {i+1}: {len(chunk)} samples")
+                        
+                        # Force garbage collection after each segment
+                        import gc
+                        gc.collect()
+                        
+                    else:
+                        logger.warning("Librosa not available for segment loading")
+                        break
+                        
+                except Exception as e:
+                    logger.warning(f"Error loading segment {i+1}: {e}")
+                    continue
+            
+            if not segments:
+                logger.error("No segments loaded successfully")
+                return None
+            
+            # Concatenate segments
+            audio = np.concatenate(segments)
+            logger.info(f"Sampled audio: {len(audio)} samples total from {len(segments)} segments")
+            
+            return audio
+            
+        except Exception as e:
+            logger.error(f"Error in audio sampling: {e}")
+            return None
     
     def _analyze_large_file_streaming(self, audio_path: str, streaming_loader) -> Optional[np.ndarray]:
         """Analyze large files using true streaming - process multiple segments for mixed tracks."""
