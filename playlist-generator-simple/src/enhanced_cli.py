@@ -132,8 +132,14 @@ class EnhancedCLI:
             else:
                 logger.error(f"Unknown command: {parsed_args.command}")
                 return 1
+        except (ValueError, TypeError, OSError) as e:
+            logger.error(f"Command failed due to invalid input or system error: {e}")
+            return 1
+        except KeyboardInterrupt:
+            logger.info("Operation cancelled by user")
+            return 130
         except Exception as e:
-            logger.error(f"Command failed: {e}")
+            logger.error(f"Unexpected error occurred: {e}")
             return 1
     
     def _create_argument_parser(self) -> argparse.ArgumentParser:
@@ -453,7 +459,6 @@ Examples:
             return 1
         except Exception as e:
             logger.error(f"Unexpected error during analysis: {e}")
-            logger.debug(f"Analysis error details: {type(e).__name__}: {str(e)}")
             return 1
     
     def _handle_stats(self, args) -> int:
@@ -505,7 +510,6 @@ Examples:
             return 1
         except Exception as e:
             logger.error(f"Unexpected error getting statistics: {e}")
-            logger.debug(f"Statistics error details: {type(e).__name__}: {str(e)}")
             return 1
     
     def _handle_test_audio(self, args) -> int:
@@ -533,6 +537,9 @@ Examples:
             
             return 0
             
+        except (FileNotFoundError, PermissionError) as e:
+            logger.error(f"File access error during audio test: {e}")
+            return 1
         except Exception as e:
             logger.error(f"Audio analysis test failed: {e}")
             return 1

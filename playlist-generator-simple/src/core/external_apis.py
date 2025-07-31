@@ -7,6 +7,7 @@ to enrich track metadata with additional information.
 
 import logging
 import time
+import os
 import requests
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
@@ -241,7 +242,8 @@ class LastFMClient:
             config = {}
         
         self.logger = logging.getLogger(__name__)
-        self.api_key = api_key or config.get('LASTFM_API_KEY', '9fd1f789ebdf1297e6aa1590a13d85e0')
+        # Get API key from environment variable first, then config, then fallback
+        self.api_key = api_key or os.environ.get('LASTFM_API_KEY') or config.get('LASTFM_API_KEY')
         rate_limit = rate_limit or config.get('LASTFM_RATE_LIMIT', 2)
         
         if not self.api_key:

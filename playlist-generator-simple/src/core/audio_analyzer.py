@@ -288,9 +288,7 @@ class AudioAnalyzer:
         self._check_library_availability()
         
         logger.info(f"Initializing AudioAnalyzer v{self.VERSION}")
-        logger.debug(f"Cache file: {self.cache_file}")
-        logger.debug(f"Library path: {self.library}")
-        logger.debug(f"Music path: {self.music}")
+        # Configuration loaded successfully
         logger.info(f"AudioAnalyzer initialized successfully")
 
     def _init_musicnn(self):
@@ -388,7 +386,7 @@ class AudioAnalyzer:
             file_size_bytes = os.path.getsize(audio_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
             
-            logger.debug(f"File size: {file_size_mb:.1f}MB")
+            # File size calculated
             
             # Load audio
             audio = self._safe_audio_load(audio_path)
@@ -536,10 +534,11 @@ class AudioAnalyzer:
                 loader = es.MonoLoader(filename=audio_path, sampleRate=DEFAULT_SAMPLE_RATE)
                 audio = loader()
                 duration = len(audio) / DEFAULT_SAMPLE_RATE
-                logger.debug(f"Got duration from Essentia: {duration:.2f}s")
+                # Duration extracted from Essentia
                 return duration
             except Exception as e:
-                logger.debug(f"Could not get duration from Essentia: {e}")
+                # Essentia duration extraction failed
+                pass
         
         # Try mutagen as fallback
         if MUTAGEN_AVAILABLE:

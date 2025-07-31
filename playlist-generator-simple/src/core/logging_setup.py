@@ -296,7 +296,7 @@ def change_log_level(new_level: str) -> bool:
         logger.info(f"Log level changed to: {new_level.upper()}")
         return True
     except Exception as e:
-        print(f"Failed to change log level: {e}")
+        logger.error(f"Failed to change log level: {e}")
         return False
 
 
@@ -310,17 +310,17 @@ def monitor_log_level_changes():
             current_level = os.getenv('LOG_LEVEL', 'INFO')
             
             if current_level != last_level:
-                print(f"\nEnvironment LOG_LEVEL changed from {last_level} to {current_level}")
+                logger.info(f"Environment LOG_LEVEL changed from {last_level} to {current_level}")
                 if change_log_level(current_level):
-                    print(f"Log level updated to: {current_level}")
+                    logger.info(f"Log level updated to: {current_level}")
                 else:
-                    print(f"Failed to update log level to: {current_level}")
+                    logger.error(f"Failed to update log level to: {current_level}")
                 last_level = current_level
             
             time.sleep(2)  # Check every 2 seconds
             
         except Exception as e:
-            print(f"Error in log level monitor: {e}")
+            logger.error(f"Error in log level monitor: {e}")
             time.sleep(5)  # Wait longer on error
 
 
@@ -352,17 +352,17 @@ def setup_signal_handlers():
             new_level = levels[next_index]
             
             if change_log_level(new_level):
-                print(f"\nLog level cycled to: {new_level}")
+                logger.info(f"Log level cycled to: {new_level}")
             else:
-                print(f"\nFailed to change log level")
+                logger.error(f"Failed to change log level")
         except Exception as e:
-            print(f"\nError changing log level: {e}")
+            logger.error(f"Error changing log level: {e}")
     
     # Use SIGUSR1 to cycle through log levels (if available)
     try:
         signal.signal(signal.SIGUSR1, cycle_log_level)
-        print("Log level control: Send SIGUSR1 signal to cycle through log levels")
-        print("  Example: docker compose exec playlista kill -SIGUSR1 1")
+        logger.info("Log level control: Send SIGUSR1 signal to cycle through log levels")
+        logger.info("  Example: docker compose exec playlista kill -SIGUSR1 1")
     except (AttributeError, OSError):
         # SIGUSR1 not available on Windows
         pass
