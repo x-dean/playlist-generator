@@ -454,14 +454,16 @@ def get_logger(name: str = None) -> logging.Logger:
     Returns:
         Configured logger instance
     """
-    if name != 'playlista' and not logger.handlers:
+    logger_instance = logging.getLogger(name)
+    
+    if name != 'playlista' and not logger_instance.handlers:
         # Inherit handlers from main logger
         main_logger = logging.getLogger('playlista')
-        logger.handlers = main_logger.handlers
-        logger.setLevel(main_logger.level)
-        logger.propagate = False
+        logger_instance.handlers = main_logger.handlers
+        logger_instance.setLevel(main_logger.level)
+        logger_instance.propagate = False
     
-    return logging.getLogger(name)
+    return logger_instance
 
 
 def log_function_call(func):
