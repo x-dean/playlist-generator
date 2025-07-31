@@ -322,7 +322,13 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     module_name = caller_module.__name__ if caller_module else 'unknown'
     
     # Create structured message without color tags
-    structured_message = message
+    # Ensure message is safe for Loguru formatting by converting to string if needed
+    if isinstance(message, str):
+        # Escape any curly braces that might be interpreted as format placeholders
+        structured_message = message.replace('{', '{{').replace('}', '}}')
+    else:
+        # Convert non-string messages to string
+        structured_message = str(message)
     
     # Handle TRACE level mapping
     if level.upper() == 'TRACE':
