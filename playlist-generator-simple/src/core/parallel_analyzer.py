@@ -12,6 +12,10 @@ from typing import List, Dict, Any, Optional, Tuple, Iterator
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+# Set multiprocessing start method to avoid pickling issues
+if mp.get_start_method(allow_none=True) != 'spawn':
+    mp.set_start_method('spawn', force=True)
+
 # Import local modules
 from .database import DatabaseManager
 from .logging_setup import get_logger, log_function_call, log_performance, log_worker_performance, log_batch_processing_detailed, log_resource_usage
@@ -34,6 +38,148 @@ class TimeoutException(Exception):
 def timeout_handler(signum, frame):
     """Signal handler for timeout."""
     raise TimeoutException("Analysis timed out")
+
+
+def _standalone_worker_process(file_path: str, force_reextract: bool = False, 
+                             timeout_seconds: int = 300, db_path: str = None) -> bool:
+    """
+    Standalone worker function that can be pickled for multiprocessing.
+    
+    Args:
+        file_path: Path to the file to process
+        force_reextract: If True, bypass cache
+        timeout_seconds: Timeout for analysis
+        db_path: Database path
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    import os
+    import time
+    import signal
+    import psutil
+    import threading
+    
+    # Set up logging for worker process
+    try:
+        from .logging_setup import get_logger
+        logger = get_logger('playlista.parallel_worker')
+    except ImportError:
+        import logging
+        logger = logging.getLogger('playlista.parallel_worker')
+    
+    worker_id = f"worker_{threading.current_thread().ident}"
+    start_time = time.time()
+    
+    try:
+        # Set up signal handler for timeout
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout_seconds)
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            logger.warning(f"File not found: {file_path}")
+            return False
+        
+        # Get initial resource usage
+        process = psutil.Process()
+        initial_memory = process.memory_info().rss / (1024 * 1024)  # MB
+        initial_cpu = process.cpu_percent()
+        
+        # Import audio analyzer here to avoid memory issues
+        from .audio_analyzer import AudioAnalyzer
+        
+        # Create analyzer instance
+        analyzer = AudioAnalyzer()
+        
+        # Extract features with basic config
+        analysis_result = analyzer.extract_features(file_path, {
+            'analysis_type': 'basic',
+            'use_full_analysis': False,
+            'features_config': {
+                'extract_rhythm': True,
+                'extract_spectral': True,
+                'extract_loudness': True,
+                'extract_key': False,
+                'extract_mfcc': False,
+                'extract_musicnn': False,
+                'extract_danceability': False,
+                'extract_onset_rate': False,
+                'extract_zcr': False,
+                'extract_spectral_contrast': False,
+                'extract_chroma': False
+            }
+        })
+        
+        # Get final resource usage
+        final_memory = process.memory_info().rss / (1024 * 1024)  # MB
+        final_cpu = process.cpu_percent()
+        memory_usage = final_memory - initial_memory
+        cpu_usage = (initial_cpu + final_cpu) / 2  # Average
+        
+        duration = time.time() - start_time
+        
+        if analysis_result and analysis_result.get('success', False):
+            # Save to database using standalone database manager
+            if db_path:
+                from .database import DatabaseManager
+                db_manager = DatabaseManager(db_path=db_path)
+                
+                filename = os.path.basename(file_path)
+                file_size_bytes = os.path.getsize(file_path)
+                
+                # Calculate simple hash
+                import hashlib
+                with open(file_path, 'rb') as f:
+                    file_hash = hashlib.md5(f.read(1024)).hexdigest()
+                
+                success = db_manager.save_analysis_result(
+                    file_path=file_path,
+                    filename=filename,
+                    file_size_bytes=file_size_bytes,
+                    file_hash=file_hash,
+                    analysis_data=analysis_result.get('features', {}),
+                    metadata=analysis_result.get('metadata', {})
+                )
+                
+                logger.debug(f"Worker {worker_id} completed: {filename} in {duration:.2f}s")
+                return success
+            else:
+                logger.debug(f"Worker {worker_id} completed: {os.path.basename(file_path)} in {duration:.2f}s")
+                return True
+        else:
+            # Mark as failed
+            if db_path:
+                from .database import DatabaseManager
+                db_manager = DatabaseManager(db_path=db_path)
+                filename = os.path.basename(file_path)
+                db_manager.mark_analysis_failed(file_path, filename, "Analysis failed")
+            
+            logger.debug(f"Worker {worker_id} failed: {os.path.basename(file_path)}")
+            return False
+            
+    except TimeoutException:
+        duration = time.time() - start_time
+        logger.error(f"⏰ Analysis timed out for {os.path.basename(file_path)}")
+        
+        if db_path:
+            from .database import DatabaseManager
+            db_manager = DatabaseManager(db_path=db_path)
+            filename = os.path.basename(file_path)
+            db_manager.mark_analysis_failed(file_path, filename, "Analysis timed out")
+        
+        return False
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"Worker {worker_id} error processing {os.path.basename(file_path)}: {e}")
+        
+        if db_path:
+            from .database import DatabaseManager
+            db_manager = DatabaseManager(db_path=db_path)
+            filename = os.path.basename(file_path)
+            db_manager.mark_analysis_failed(file_path, filename, f"Worker error: {str(e)}")
+        
+        return False
 
 
 class ParallelAnalyzer:
@@ -116,12 +262,24 @@ class ParallelAnalyzer:
         
         try:
             # Process files in parallel
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all tasks
-                future_to_file = {
-                    executor.submit(self._process_single_file_worker, file_path, force_reextract): file_path
-                    for file_path in files
-                }
+            try:
+                with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks using standalone worker function
+                future_to_file = {}
+                for file_path in files:
+                    try:
+                        future = executor.submit(_standalone_worker_process, file_path, force_reextract, 
+                                              self.timeout_seconds, self.db_manager.db_path)
+                        future_to_file[future] = file_path
+                    except Exception as e:
+                        logger.error(f"Failed to submit task for {file_path}: {e}")
+                        results['failed_count'] += 1
+                        results['processed_files'].append({
+                            'file_path': file_path,
+                            'status': 'error',
+                            'error': f"Task submission failed: {str(e)}",
+                            'timestamp': datetime.now().isoformat()
+                        })
                 
                 # Collect results as they complete
                 completed_count = 0
@@ -167,6 +325,21 @@ class ParallelAnalyzer:
                 for future in future_to_file:
                     if not future.done():
                         future.cancel()
+            except Exception as e:
+                logger.error(f"Error creating process pool: {e}")
+                # Fall back to sequential processing
+                logger.info("Falling back to sequential processing due to multiprocessing error")
+                for file_path in files:
+                    try:
+                        success = _standalone_worker_process(file_path, force_reextract, 
+                                                          self.timeout_seconds, self.db_manager.db_path)
+                        if success:
+                            results['success_count'] += 1
+                        else:
+                            results['failed_count'] += 1
+                    except Exception as worker_error:
+                        logger.error(f"Sequential processing failed for {file_path}: {worker_error}")
+                        results['failed_count'] += 1
                         
         except Exception as e:
             logger.error(f"Error in parallel processing: {e}")
@@ -226,6 +399,7 @@ class ParallelAnalyzer:
         
         return results
 
+    # DEPRECATED: This method has pickling issues. Use _standalone_worker_process instead.
     def _process_single_file_worker(self, file_path: str, force_reextract: bool = False) -> bool:
         """
         Worker function to process a single file.
