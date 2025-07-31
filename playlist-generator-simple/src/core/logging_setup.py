@@ -9,22 +9,21 @@ import time
 import json
 import threading
 import signal
-from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional
 from datetime import datetime
 
 # Import Loguru for better logging
+import logging  # Always import for fallback and external logging
 try:
     from loguru import logger
     LOGURU_AVAILABLE = True
 except ImportError:
     LOGURU_AVAILABLE = False
-    import logging
     logger = logging.getLogger('playlista')
 
 # Import colorama for cross-platform color support
 try:
-    from colorama import init, Fore, Back, Style
+    from colorama import init, Fore
     init(autoreset=True)  # Initialize colorama
     COLORAMA_AVAILABLE = True
 except ImportError:
@@ -92,7 +91,6 @@ def setup_logging(
     include_exception_details: bool = True,
     environment_monitoring: bool = True,
     signal_handling: bool = True,
-    performance_enabled: bool = True,
     function_calls_enabled: bool = True,
     signal_cycle_levels: bool = True
 ) -> 'logger':
