@@ -49,6 +49,12 @@ try:
 except ImportError:
     WAVE_AVAILABLE = False
 
+try:
+    import tensorflow as tf
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    TENSORFLOW_AVAILABLE = False
+
 def safe_librosa_load(audio_path: str, **kwargs) -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
     Safely load audio using librosa with proper backend specification and fallbacks.
