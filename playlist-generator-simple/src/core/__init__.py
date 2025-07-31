@@ -7,7 +7,7 @@ from .audio_analyzer import AudioAnalyzer
 from .config_loader import config_loader
 from .cpu_optimized_analyzer import CPUOptimizedAnalyzer
 from .database import DatabaseManager
-from .external_apis import ExternalAPIs
+from .external_apis import MusicBrainzClient, LastFMClient, MetadataEnrichmentService, get_metadata_enrichment_service
 from .file_discovery import FileDiscovery
 from .logging_setup import (
     get_logger,
@@ -32,7 +32,10 @@ __all__ = [
     'config_loader',
     'CPUOptimizedAnalyzer',
     'DatabaseManager',
-    'ExternalAPIs',
+    'MusicBrainzClient',
+    'LastFMClient', 
+    'MetadataEnrichmentService',
+    'get_metadata_enrichment_service',
     'FileDiscovery',
     'get_logger',
     'log_function_call',
