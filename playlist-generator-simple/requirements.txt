@@ -21,4 +21,5 @@ psutil
 tensorflow==2.11.*
 
 # External APIs for metadata enrichment
-requests>=2.25.0 
+requests>=2.25.0
+musicbrainzngs 
