@@ -55,6 +55,12 @@ try:
 except ImportError:
     TENSORFLOW_AVAILABLE = False
 
+try:
+    import mutagen
+    MUTAGEN_AVAILABLE = True
+except ImportError:
+    MUTAGEN_AVAILABLE = False
+
 def safe_librosa_load(audio_path: str, **kwargs) -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
     Safely load audio using librosa with proper backend specification and fallbacks.
