@@ -813,14 +813,29 @@ class AudioAnalyzer:
                 
                 # Extract common metadata fields
                 extracted_tags = []
-                for tag in ['title', 'artist', 'album', 'genre', 'year', 'tracknumber']:
-                    if tag in audio_file:
-                        value = audio_file[tag]
-                        if isinstance(value, list) and len(value) > 0:
-                            metadata[tag] = str(value[0])
-                        else:
-                            metadata[tag] = str(value)
-                        extracted_tags.append(f"{tag}: {metadata[tag]}")
+                
+                # ID3 tag mapping
+                tag_mapping = {
+                    'title': ['TIT2', 'title'],
+                    'artist': ['TPE1', 'artist'],
+                    'album': ['TALB', 'album'],
+                    'genre': ['TCON', 'genre'],
+                    'year': ['TDRC', 'year'],
+                    'tracknumber': ['TRCK', 'tracknumber']
+                }
+                
+                logger.debug(f"Looking for ID3 tags: {list(tag_mapping.keys())}")
+                
+                for human_tag, id3_tags in tag_mapping.items():
+                    for id3_tag in id3_tags:
+                        if id3_tag in audio_file:
+                            value = audio_file[id3_tag]
+                            if isinstance(value, list) and len(value) > 0:
+                                metadata[human_tag] = str(value[0])
+                            else:
+                                metadata[human_tag] = str(value)
+                            extracted_tags.append(f"{human_tag}: {metadata[human_tag]}")
+                            break  # Found the tag, move to next human tag
                 
                 if extracted_tags:
                     logger.info(f"Mutagen extracted metadata: {extracted_tags}")
