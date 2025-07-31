@@ -633,15 +633,21 @@ class AudioAnalyzer:
             if SOUNDFILE_AVAILABLE:
                 try:
                     logger.debug(f"Trying soundfile loading for {os.path.basename(audio_path)}")
-                    audio, sr = sf.read(audio_path)
+                    # Use soundfile with better error handling
+                    audio, sr = sf.read(audio_path, dtype='float32')
                     if len(audio.shape) > 1:
                         audio = audio.mean(axis=1)  # Convert to mono
                     if sr != DEFAULT_SAMPLE_RATE:
-                        # Simple resampling
-                        ratio = DEFAULT_SAMPLE_RATE / sr
-                        new_length = int(len(audio) * ratio)
-                        indices = np.linspace(0, len(audio) - 1, new_length)
-                        audio = np.interp(indices, np.arange(len(audio)), audio)
+                        # Use librosa for resampling if available
+                        if LIBROSA_AVAILABLE:
+                            import librosa
+                            audio = librosa.resample(audio, orig_sr=sr, target_sr=DEFAULT_SAMPLE_RATE)
+                        else:
+                            # Simple resampling
+                            ratio = DEFAULT_SAMPLE_RATE / sr
+                            new_length = int(len(audio) * ratio)
+                            indices = np.linspace(0, len(audio) - 1, new_length)
+                            audio = np.interp(indices, np.arange(len(audio)), audio)
                     # Limit to 60 seconds
                     max_samples = DEFAULT_SAMPLE_RATE * 60
                     if len(audio) > max_samples:
@@ -650,6 +656,28 @@ class AudioAnalyzer:
                     return audio
                 except Exception as e:
                     logger.warning(f"Soundfile loading failed: {e}")
+                    # Try with different dtype if float32 fails
+                    try:
+                        audio, sr = sf.read(audio_path, dtype='int16')
+                        audio = audio.astype(np.float32) / 32768.0
+                        if len(audio.shape) > 1:
+                            audio = audio.mean(axis=1)
+                        if sr != DEFAULT_SAMPLE_RATE:
+                            if LIBROSA_AVAILABLE:
+                                import librosa
+                                audio = librosa.resample(audio, orig_sr=sr, target_sr=DEFAULT_SAMPLE_RATE)
+                            else:
+                                ratio = DEFAULT_SAMPLE_RATE / sr
+                                new_length = int(len(audio) * ratio)
+                                indices = np.linspace(0, len(audio) - 1, new_length)
+                                audio = np.interp(indices, np.arange(len(audio)), audio)
+                        max_samples = DEFAULT_SAMPLE_RATE * 60
+                        if len(audio) > max_samples:
+                            audio = audio[:max_samples]
+                        logger.debug(f"Soundfile loaded audio (int16): {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                        return audio
+                    except Exception as e2:
+                        logger.warning(f"Soundfile loading with int16 also failed: {e2}")
             
             # Try wave module for WAV files
             if WAVE_AVAILABLE and audio_path.lower().endswith('.wav'):
@@ -674,13 +702,20 @@ class AudioAnalyzer:
                 except Exception as e:
                     logger.warning(f"Wave loading failed: {e}")
             
-            # Try librosa as last resort with soundfile backend to avoid audioread warnings
+            # Try librosa as last resort with improved error handling
             if LIBROSA_AVAILABLE:
                 try:
                     logger.debug(f"Trying librosa loading for {os.path.basename(audio_path)}")
-                    # Use librosa for loading
+                    # Use librosa for loading with newer API to avoid deprecation warnings
                     import librosa
-                    audio, sr = librosa.load(audio_path, sr=DEFAULT_SAMPLE_RATE, mono=True, duration=30.0)
+                    # Use librosa.load with explicit backend specification
+                    audio, sr = librosa.load(
+                        audio_path, 
+                        sr=DEFAULT_SAMPLE_RATE, 
+                        mono=True, 
+                        duration=30.0,
+                        res_type='kaiser_best'  # Use high-quality resampling
+                    )
                     logger.debug(f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
                     
                     # Force garbage collection for large files
@@ -691,6 +726,19 @@ class AudioAnalyzer:
                     return audio
                 except Exception as e:
                     logger.warning(f"Librosa loading failed: {e}")
+                    # Try with different resampling type if kaiser_best fails
+                    try:
+                        audio, sr = librosa.load(
+                            audio_path, 
+                            sr=DEFAULT_SAMPLE_RATE, 
+                            mono=True, 
+                            duration=30.0,
+                            res_type='linear'  # Fallback to linear resampling
+                        )
+                        logger.debug(f"Librosa loaded audio (linear): {len(audio)} samples, {sr}Hz")
+                        return audio
+                    except Exception as e2:
+                        logger.warning(f"Librosa loading with linear resampling also failed: {e2}")
             
             # If all methods failed, create a dummy audio
             logger.error("All audio loading methods failed")
@@ -795,7 +843,8 @@ class AudioAnalyzer:
                             sr=DEFAULT_SAMPLE_RATE,
                             mono=True,
                             offset=segment_start,
-                            duration=segment_duration
+                            duration=segment_duration,
+                            res_type='kaiser_best'  # Use high-quality resampling
                         )
                         
                         segments.append(chunk)
@@ -867,7 +916,8 @@ class AudioAnalyzer:
                         sr=DEFAULT_SAMPLE_RATE,
                         mono=True,
                         offset=segment_start,
-                        duration=segment_duration
+                        duration=segment_duration,
+                        res_type='kaiser_best'  # Use high-quality resampling
                     )
                     
                     segments.append(chunk)

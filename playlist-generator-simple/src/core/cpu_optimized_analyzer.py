@@ -201,9 +201,13 @@ class CPUOptimizedAnalyzer:
     def _extract_melspectrogram_librosa(self, audio_file: str) -> Optional[np.ndarray]:
         """Extract melspectrogram using Librosa."""
         try:
-            # Load audio with soundfile backend to avoid audioread warnings
-            librosa.set_backend('soundfile')
-            audio, sr = librosa.load(audio_file, sr=self.sample_rate, mono=True)
+            # Load audio with newer librosa API to avoid deprecation warnings
+            audio, sr = librosa.load(
+                audio_file, 
+                sr=self.sample_rate, 
+                mono=True,
+                res_type='kaiser_best'  # Use high-quality resampling
+            )
             
             # Extract melspectrogram
             mel_spectrogram = librosa.feature.melspectrogram(
