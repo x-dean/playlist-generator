@@ -2103,50 +2103,6 @@ class AudioAnalyzer:
         Returns:
             True if features are valid, False otherwise
         """
-        
-    def _is_valid_for_playlist(self, features: Dict[str, Any]) -> bool:
-        """
-        Check if features are valid for playlist generation (no invalid markers).
-        
-        Args:
-            features: Features dictionary
-            
-        Returns:
-            True if features can be used for playlist generation, False otherwise
-        """
-        try:
-            # Check for invalid markers that indicate failed extraction
-            invalid_markers = {
-                'bpm': -999.0,
-                'loudness': -999.0,
-                'spectral_centroid': -999.0,
-                'key_strength': -999.0,
-                'key': 'INVALID',
-                'scale': 'INVALID'
-            }
-            
-            for feature, invalid_value in invalid_markers.items():
-                if feature in features and features[feature] == invalid_value:
-                    logger.debug(f"Feature '{feature}' has invalid marker: {invalid_value}")
-                    return False
-            
-            # Check for invalid MFCC (all values -999.0)
-            mfcc = features.get('mfcc')
-            if mfcc and isinstance(mfcc, list) and all(x == -999.0 for x in mfcc):
-                logger.debug("MFCC has invalid markers")
-                return False
-            
-            # Check for invalid MusiCNN features (all values -999.0)
-            musicnn = features.get('musicnn_features')
-            if musicnn and isinstance(musicnn, list) and all(x == -999.0 for x in musicnn):
-                logger.debug("MusiCNN features have invalid markers")
-                return False
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error checking playlist validity: {e}")
-            return False
         try:
             # Check for essential features
             essential_features = ['bpm', 'loudness']
@@ -2203,6 +2159,50 @@ class AudioAnalyzer:
             
         except Exception as e:
             logger.error(f"Error validating features: {e}")
+            return False
+        
+    def _is_valid_for_playlist(self, features: Dict[str, Any]) -> bool:
+        """
+        Check if features are valid for playlist generation (no invalid markers).
+        
+        Args:
+            features: Features dictionary
+            
+        Returns:
+            True if features can be used for playlist generation, False otherwise
+        """
+        try:
+            # Check for invalid markers that indicate failed extraction
+            invalid_markers = {
+                'bpm': -999.0,
+                'loudness': -999.0,
+                'spectral_centroid': -999.0,
+                'key_strength': -999.0,
+                'key': 'INVALID',
+                'scale': 'INVALID'
+            }
+            
+            for feature, invalid_value in invalid_markers.items():
+                if feature in features and features[feature] == invalid_value:
+                    logger.debug(f"Feature '{feature}' has invalid marker: {invalid_value}")
+                    return False
+            
+            # Check for invalid MFCC (all values -999.0)
+            mfcc = features.get('mfcc')
+            if mfcc and isinstance(mfcc, list) and all(x == -999.0 for x in mfcc):
+                logger.debug("MFCC has invalid markers")
+                return False
+            
+            # Check for invalid MusiCNN features (all values -999.0)
+            musicnn = features.get('musicnn_features')
+            if musicnn and isinstance(musicnn, list) and all(x == -999.0 for x in musicnn):
+                logger.debug("MusiCNN features have invalid markers")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error checking playlist validity: {e}")
             return False
 
     def get_version(self) -> str:

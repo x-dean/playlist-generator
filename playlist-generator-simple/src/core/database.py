@@ -1029,8 +1029,12 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                analysis_json = json.dumps(analysis_data)
-                metadata_json = json.dumps(metadata) if metadata else None
+                # Convert numpy arrays and other non-serializable objects to JSON-compatible format
+                analysis_data_serializable = self._convert_to_json_serializable(analysis_data)
+                metadata_serializable = self._convert_to_json_serializable(metadata) if metadata else None
+                
+                analysis_json = json.dumps(analysis_data_serializable)
+                metadata_json = json.dumps(metadata_serializable) if metadata_serializable else None
                 
                 # Extract metadata fields for efficient querying
                 artist = metadata.get('artist') if metadata else None
@@ -1785,6 +1789,39 @@ class DatabaseManager:
         """
         return self.config.copy()
     
+    def _convert_to_json_serializable(self, obj):
+        """
+        Convert objects to JSON-serializable format.
+        
+        Args:
+            obj: Object to convert
+            
+        Returns:
+            JSON-serializable object
+        """
+        if obj is None:
+            return None
+        elif isinstance(obj, dict):
+            return {k: self._convert_to_json_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_to_json_serializable(item) for item in obj]
+        elif isinstance(obj, (int, float, str, bool)):
+            return obj
+        else:
+            # Handle numpy arrays and other non-serializable objects
+            try:
+                import numpy as np
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                else:
+                    return str(obj)
+            except ImportError:
+                return str(obj)
+
     def update_config(self, new_config: Dict[str, Any]) -> bool:
         """
         Update database configuration.
