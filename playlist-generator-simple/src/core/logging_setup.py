@@ -26,8 +26,28 @@ except ImportError:
 # Import colorama for cross-platform color support
 try:
     from colorama import init, Fore
-    # Initialize colorama with proper settings for Windows
-    init(autoreset=True, convert=True)
+    # Initialize colorama with proper settings for different environments
+    # Check if we're in a Docker container or have proper terminal support
+    import os
+    import sys
+    
+    # Check if we have a proper terminal (not a pipe or redirect)
+    has_terminal = hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+    
+    # Check for Docker environment
+    is_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER', False)
+    
+    # Initialize colorama based on environment
+    if is_docker:
+        # In Docker, be more conservative with colors
+        init(autoreset=True, convert=True, strip=False)
+    elif has_terminal:
+        # In a real terminal, use full color support
+        init(autoreset=True, convert=True)
+    else:
+        # In a pipe or redirect, disable colors
+        init(autoreset=True, convert=True, strip=True)
+    
     COLORAMA_AVAILABLE = True
 except ImportError:
     COLORAMA_AVAILABLE = False
@@ -154,6 +174,15 @@ def setup_logging(
     if log_level not in valid_levels:
         log_level = 'INFO'
     
+    # Detect environment for color support
+    import sys
+    has_terminal = hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+    is_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER', False)
+    force_color = os.environ.get('FORCE_COLOR', '0') == '1'
+    
+    # Determine if colors should be enabled
+    should_use_colors = colored_output and (has_terminal or force_color)
+    
     # Remove default handlers if using Loguru
     if LOGURU_AVAILABLE:
         logger.remove()  # Remove default handler
@@ -167,7 +196,7 @@ def setup_logging(
                 sys.stdout,
                 format=console_format,
                 level=log_level,
-                colorize=colored_output,
+                colorize=should_use_colors,
                 backtrace=True,
                 diagnose=True
             )
@@ -192,7 +221,7 @@ def setup_logging(
             else:
                 # Text format with optional colors
                 # Use file_colored_output if specified, otherwise use colored_output
-                file_colors = file_colored_output if file_colored_output is not None else colored_output
+                file_colors = file_colored_output if file_colored_output is not None else should_use_colors
                 
                 if file_colors:
                     # Colored format for file logs
@@ -259,7 +288,7 @@ def setup_logging(
         'log_dir': log_dir,
         'console_logging': console_logging,
         'file_logging': file_logging,
-        'colored_output': colored_output,
+        'colored_output': should_use_colors,
         'file_colored_output': file_colored_output,
         'log_file_format': log_file_format
     }
@@ -281,9 +310,11 @@ def setup_logging(
     log_universal('INFO', 'System', f"Log directory: {log_dir}")
     log_universal('INFO', 'System', f"Console logging: {console_logging}")
     log_universal('INFO', 'System', f"File logging: {file_logging}")
-    log_universal('INFO', 'System', f"Colored output: {colored_output}")
+    log_universal('INFO', 'System', f"Colored output: {should_use_colors}")
     log_universal('INFO', 'System', f"File format: {log_file_format}")
     log_universal('INFO', 'System', f"Using Loguru: {LOGURU_AVAILABLE}")
+    log_universal('INFO', 'System', f"Docker environment: {is_docker}")
+    log_universal('INFO', 'System', f"Terminal support: {has_terminal}")
     
     _log_setup_complete = True
     return logger
@@ -440,18 +471,26 @@ def change_log_level(new_level: str) -> bool:
         
         if LOGURU_AVAILABLE:
             logger.remove()
+            
+            # Detect environment for color support
+            import sys
+            has_terminal = hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+            is_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER', False)
+            force_color = os.environ.get('FORCE_COLOR', '0') == '1'
+            should_use_colors = (has_terminal or force_color)
+            
             # Re-add handlers with new level and proper format
             logger.add(
                 sys.stdout,
                 format="{time:HH:mm:ss} | <level>{level: <8}</level> | <cyan>{extra[extra][component]}</cyan> - {message}",
                 level=level_name,
-                colorize=_log_config.get('colored_output', True),
+                colorize=should_use_colors,
                 backtrace=True,
                 diagnose=True
             )
             
             log_file = os.path.join(_log_config.get('log_dir', './logs'), f"{_log_config.get('log_file_prefix', 'playlista')}.log")
-            file_colors = _log_config.get('file_colored_output', _log_config.get('colored_output', True))
+            file_colors = _log_config.get('file_colored_output', should_use_colors)
             
             if file_colors:
                 logger.add(

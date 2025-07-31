@@ -12,6 +12,11 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LASTFM_API_KEY=${LASTFM_API_KEY}
       - MUSICBRAINZ_USER_AGENT=${MUSICBRAINZ_USER_AGENT:-playlista-simple/1.0}
+      # Color support for Docker containers
+      - DOCKER_CONTAINER=true
+      - FORCE_COLOR=1
+      - TERM=xterm-256color
+      - PYTHONUNBUFFERED=1
     volumes:
       # Music library - mount your music directory here
       - /root/music/library:/music:ro
