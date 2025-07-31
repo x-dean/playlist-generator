@@ -159,6 +159,15 @@ class AnalysisManager:
             audio_files = self.file_discovery.discover_files()
             logger.info(f"Found {len(audio_files)} audio files")
             
+            # Save discovered files to database for tracking
+            if audio_files:
+                stats = self.file_discovery.save_discovered_files_to_db(audio_files)
+                logger.info(f"Database tracking updated:")
+                logger.info(f"  New files: {stats['new']}")
+                logger.info(f"  Updated files: {stats['updated']}")
+                logger.info(f"  Unchanged files: {stats['unchanged']}")
+                logger.info(f"  Errors: {stats['errors']}")
+            
             if not audio_files:
                 logger.warning("️ No audio files found for analysis")
                 return []

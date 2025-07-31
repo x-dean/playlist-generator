@@ -664,6 +664,15 @@ Examples:
             
             logger.info(f"Discovered {len(files)} audio files")
             
+            # Save discovered files to database
+            if files:
+                stats = file_discovery.save_discovered_files_to_db(files)
+                logger.info(f"Database save results:")
+                logger.info(f"  New files: {stats['new']}")
+                logger.info(f"  Updated files: {stats['updated']}")
+                logger.info(f"  Unchanged files: {stats['unchanged']}")
+                logger.info(f"  Errors: {stats['errors']}")
+            
             # Show file details
             for file_path in files[:10]:  # Show first 10 files
                 logger.info(f"  {file_path}")
