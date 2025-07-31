@@ -8,7 +8,6 @@ import time
 import threading
 import gc
 import signal
-import multiprocessing as mp
 from typing import List, Dict, Any, Optional, Tuple, Iterator
 from datetime import datetime
 
@@ -213,7 +212,7 @@ class SequentialAnalyzer:
 
     def _extract_features_in_process(self, file_path: str, force_reextract: bool = False) -> bool:
         """
-        Extract features in a separate process to isolate memory usage.
+        Extract features sequentially in the same process.
         
         Args:
             file_path: Path to the file
@@ -223,59 +222,13 @@ class SequentialAnalyzer:
             True if successful, False otherwise
         """
         try:
-            # Create a queue for results
-            result_queue = mp.Queue()
-            
-            # Create worker process
-            worker = mp.Process(
-                target=self._extract_features_worker,
-                args=(file_path, force_reextract, result_queue)
-            )
-            
-            # Start worker with timeout
-            worker.start()
-            worker.join(timeout=self.timeout_seconds)
-            
-            # Check if worker completed
-            if worker.is_alive():
-                logger.warning(f"️ Analysis timed out for {os.path.basename(file_path)}")
-                worker.terminate()
-                worker.join(timeout=5)
-                return False
-            
-            # Get result from queue
-            if not result_queue.empty():
-                result = result_queue.get()
-                return result
-            else:
-                logger.error(f"No result received for {os.path.basename(file_path)}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error in process extraction: {e}")
-            return False
-
-    def _extract_features_worker(self, file_path: str, force_reextract: bool, result_queue: mp.Queue):
-        """
-        Worker function to extract features in separate process.
-        
-        Args:
-            file_path: Path to the file
-            force_reextract: If True, bypass cache
-            result_queue: Queue to return results
-        """
-        try:
-            # Set up signal handler for timeout
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(self.timeout_seconds)
-            
-            # Import audio analyzer here to avoid memory issues in main process
+            # Import audio analyzer
             from .audio_analyzer import AudioAnalyzer
             
             # Create analyzer instance
             analyzer = AudioAnalyzer()
             
-            # Get analysis configuration from analysis manager
+            # Get analysis configuration
             analysis_config = self._get_analysis_config(file_path)
             
             # Extract features
@@ -296,16 +249,13 @@ class SequentialAnalyzer:
                     metadata=analysis_result.get('metadata', {})
                 )
                 
-                result_queue.put(success)
+                return success
             else:
-                result_queue.put(False)
+                return False
                 
-        except TimeoutException:
-            logger.error(f"⏰ Analysis timed out for {os.path.basename(file_path)}")
-            result_queue.put(False)
         except Exception as e:
-            logger.error(f"Worker error for {os.path.basename(file_path)}: {e}")
-            result_queue.put(False)
+            logger.error(f"Error in sequential extraction: {e}")
+            return False
 
     def _get_analysis_config(self, file_path: str) -> Dict[str, Any]:
         """
