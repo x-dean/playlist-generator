@@ -24,12 +24,12 @@ def test_smaller_file():
     test_file = "/music/Alex Warren - Ordinary.mp3"  # 3.0 MB
     
     if not os.path.exists(test_file):
-        print(f"❌ Test file not found: {test_file}")
+        print(f" Test file not found: {test_file}")
         return False
     
     try:
         import librosa
-        print("✅ Librosa imported successfully")
+        print(" Librosa imported successfully")
         
         start_time = time.time()
         print(f"Loading smaller file: {test_file}")
@@ -38,7 +38,7 @@ def test_smaller_file():
         audio, sr = librosa.load(test_file, sr=44100, mono=True, duration=3.0)
         
         load_time = time.time() - start_time
-        print(f"✅ Librosa load successful in {load_time:.2f}s")
+        print(f" Librosa load successful in {load_time:.2f}s")
         print(f"   Audio length: {len(audio)} samples")
         print(f"   Sample rate: {sr} Hz")
         print(f"   Duration: {len(audio) / sr:.2f} seconds")
@@ -46,7 +46,7 @@ def test_smaller_file():
         return True
         
     except Exception as e:
-        print(f"❌ Librosa load failed: {e}")
+        print(f" Librosa load failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -58,12 +58,12 @@ def test_essentia_smaller():
     test_file = "/music/Alex Warren - Ordinary.mp3"
     
     if not os.path.exists(test_file):
-        print(f"❌ Test file not found: {test_file}")
+        print(f" Test file not found: {test_file}")
         return False
     
     try:
         import essentia.standard as es
-        print("✅ Essentia imported successfully")
+        print(" Essentia imported successfully")
         
         start_time = time.time()
         print(f"Loading smaller file: {test_file}")
@@ -82,14 +82,14 @@ def test_essentia_smaller():
             audio = audio[:samples_3_sec]
         
         load_time = time.time() - start_time
-        print(f"✅ Essentia load successful in {load_time:.2f}s")
+        print(f" Essentia load successful in {load_time:.2f}s")
         print(f"   Audio length: {len(audio)} samples")
         print(f"   Duration: {len(audio) / 44100:.2f} seconds")
         
         return True
         
     except Exception as e:
-        print(f"❌ Essentia load failed: {e}")
+        print(f" Essentia load failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -102,12 +102,12 @@ def test_analyzer_smaller():
         from core.audio_analyzer import AudioAnalyzer
         
         analyzer = AudioAnalyzer()
-        print("✅ Analyzer initialized")
+        print(" Analyzer initialized")
         
         test_file = "/music/Alex Warren - Ordinary.mp3"
         
         if not os.path.exists(test_file):
-            print(f"❌ Test file not found: {test_file}")
+            print(f" Test file not found: {test_file}")
             return False
         
         start_time = time.time()
@@ -117,16 +117,16 @@ def test_analyzer_smaller():
         
         load_time = time.time() - start_time
         if audio is not None:
-            print(f"✅ Analyzer load successful in {load_time:.2f}s")
+            print(f" Analyzer load successful in {load_time:.2f}s")
             print(f"   Audio length: {len(audio)} samples")
             print(f"   Duration: {len(audio) / 44100:.2f} seconds")
             return True
         else:
-            print(f"❌ Analyzer load failed in {load_time:.2f}s")
+            print(f" Analyzer load failed in {load_time:.2f}s")
             return False
             
     except Exception as e:
-        print(f"❌ Analyzer load failed: {e}")
+        print(f" Analyzer load failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -143,13 +143,13 @@ if __name__ == "__main__":
     
     print("\n" + "=" * 60)
     print("SUMMARY:")
-    print(f"Librosa (smaller): {'✅' if librosa_ok else '❌'}")
-    print(f"Essentia (smaller): {'✅' if essentia_ok else '❌'}")
-    print(f"Analyzer (smaller): {'✅' if analyzer_ok else '❌'}")
+    print(f"Librosa (smaller): {'' if librosa_ok else ''}")
+    print(f"Essentia (smaller): {'' if essentia_ok else ''}")
+    print(f"Analyzer (smaller): {'' if analyzer_ok else ''}")
     
     if librosa_ok or essentia_ok or analyzer_ok:
-        print("\n✅ At least one method works with smaller file")
+        print("\n At least one method works with smaller file")
         print("The issue may be with the specific large file")
     else:
-        print("\n❌ All methods failed even with smaller file")
+        print("\n All methods failed even with smaller file")
         print("There may be a deeper issue with audio loading") 

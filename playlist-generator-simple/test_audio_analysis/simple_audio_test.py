@@ -18,34 +18,34 @@ def test_audio_libraries():
     
     try:
         import librosa
-        print("✅ Librosa imported successfully")
+        print(" Librosa imported successfully")
         LIBROSA_AVAILABLE = True
     except ImportError as e:
-        print(f"❌ Librosa import failed: {e}")
+        print(f" Librosa import failed: {e}")
         LIBROSA_AVAILABLE = False
     
     try:
         import essentia.standard as es
-        print("✅ Essentia imported successfully")
+        print(" Essentia imported successfully")
         ESSENTIA_AVAILABLE = True
     except ImportError as e:
-        print(f"❌ Essentia import failed: {e}")
+        print(f" Essentia import failed: {e}")
         ESSENTIA_AVAILABLE = False
     
     try:
         import soundfile as sf
-        print("✅ SoundFile imported successfully")
+        print(" SoundFile imported successfully")
         SOUNDFILE_AVAILABLE = True
     except ImportError as e:
-        print(f"❌ SoundFile import failed: {e}")
+        print(f" SoundFile import failed: {e}")
         SOUNDFILE_AVAILABLE = False
     
     try:
         import wave
-        print("✅ Wave module imported successfully")
+        print(" Wave module imported successfully")
         WAVE_AVAILABLE = True
     except ImportError as e:
-        print(f"❌ Wave import failed: {e}")
+        print(f" Wave import failed: {e}")
         WAVE_AVAILABLE = False
     
     # Test audio loading
@@ -53,7 +53,7 @@ def test_audio_libraries():
     print(f"\nTesting audio loading with: {os.path.basename(test_file)}")
     
     if not os.path.exists(test_file):
-        print(f"❌ Test file not found: {test_file}")
+        print(f" Test file not found: {test_file}")
         return False
     
     # Try librosa
@@ -61,11 +61,11 @@ def test_audio_libraries():
         try:
             print("Trying librosa.load...")
             audio, sr = librosa.load(test_file, sr=44100, mono=True, duration=10.0)
-            print(f"✅ Librosa loaded: {len(audio)} samples, {sr}Hz")
+            print(f" Librosa loaded: {len(audio)} samples, {sr}Hz")
             print(f"   Duration: {len(audio) / sr:.2f} seconds")
             print(f"   Min/Max: {audio.min():.3f} / {audio.max():.3f}")
         except Exception as e:
-            print(f"❌ Librosa loading failed: {e}")
+            print(f" Librosa loading failed: {e}")
     
     # Try essentia
     if ESSENTIA_AVAILABLE:
@@ -78,11 +78,11 @@ def test_audio_libraries():
                 resampleQuality=1
             )
             audio = loader()
-            print(f"✅ Essentia loaded: {len(audio)} samples, 44100Hz")
+            print(f" Essentia loaded: {len(audio)} samples, 44100Hz")
             print(f"   Duration: {len(audio) / 44100:.2f} seconds")
             print(f"   Min/Max: {audio.min():.3f} / {audio.max():.3f}")
         except Exception as e:
-            print(f"❌ Essentia loading failed: {e}")
+            print(f" Essentia loading failed: {e}")
     
     # Try soundfile
     if SOUNDFILE_AVAILABLE:
@@ -91,13 +91,13 @@ def test_audio_libraries():
             audio, sr = sf.read(test_file)
             if len(audio.shape) > 1:
                 audio = audio.mean(axis=1)
-            print(f"✅ SoundFile loaded: {len(audio)} samples, {sr}Hz")
+            print(f" SoundFile loaded: {len(audio)} samples, {sr}Hz")
             print(f"   Duration: {len(audio) / sr:.2f} seconds")
             print(f"   Min/Max: {audio.min():.3f} / {audio.max():.3f}")
         except Exception as e:
-            print(f"❌ SoundFile loading failed: {e}")
+            print(f" SoundFile loading failed: {e}")
     
-    print("\n✅ Audio library test completed!")
+    print("\n Audio library test completed!")
     return True
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ def test_audio_loading():
     # Initialize analyzer
     print("Initializing AudioAnalyzer...")
     analyzer = AudioAnalyzer()
-    print("✅ AudioAnalyzer initialized successfully")
+    print(" AudioAnalyzer initialized successfully")
     
     # Test with a small file first
     test_file = "/music/Alex Warren - Ordinary.mp3"
@@ -33,17 +33,17 @@ def test_audio_loading():
         audio = analyzer._safe_audio_load(test_file)
         
         if audio is not None:
-            print(f"✅ Audio loaded successfully!")
+            print(f" Audio loaded successfully!")
             print(f"   Samples: {len(audio)}")
             print(f"   Duration: {len(audio) / 44100:.2f} seconds")
             print(f"   Data type: {audio.dtype}")
             print(f"   Min/Max values: {audio.min():.3f} / {audio.max():.3f}")
         else:
-            print("❌ Audio loading failed")
+            print(" Audio loading failed")
             return False
             
     except Exception as e:
-        print(f"❌ Error during audio loading: {e}")
+        print(f" Error during audio loading: {e}")
         return False
     
     # Test feature extraction
@@ -52,21 +52,21 @@ def test_audio_loading():
         features = analyzer.extract_features(test_file)
         
         if features is not None:
-            print("✅ Feature extraction successful!")
+            print(" Feature extraction successful!")
             print(f"   Features extracted: {len(features)}")
             if 'metadata' in features:
                 print(f"   Metadata: {list(features['metadata'].keys())}")
             if 'rhythm' in features:
                 print(f"   Rhythm features: {list(features['rhythm'].keys())}")
         else:
-            print("❌ Feature extraction failed")
+            print(" Feature extraction failed")
             return False
             
     except Exception as e:
-        print(f"❌ Error during feature extraction: {e}")
+        print(f" Error during feature extraction: {e}")
         return False
     
-    print("\n✅ All tests passed!")
+    print("\n All tests passed!")
     return True
 
 if __name__ == "__main__":

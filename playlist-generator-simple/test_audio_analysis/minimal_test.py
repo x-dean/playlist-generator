@@ -31,7 +31,7 @@ def test_file_list():
                 size_mb = size / (1024 * 1024)
                 print(f"  {i+1}. {file} ({size_mb:.1f} MB)")
     else:
-        print(f"❌ Music directory not found: {music_dir}")
+        print(f" Music directory not found: {music_dir}")
 
 def test_librosa_with_duration():
     """Test librosa with duration limit."""
@@ -41,7 +41,7 @@ def test_librosa_with_duration():
     
     try:
         import librosa
-        print("✅ Librosa imported successfully")
+        print(" Librosa imported successfully")
         
         start_time = time.time()
         print(f"Loading first 5 seconds of audio: {test_file}")
@@ -50,7 +50,7 @@ def test_librosa_with_duration():
         audio, sr = librosa.load(test_file, sr=44100, mono=True, duration=5.0)
         
         load_time = time.time() - start_time
-        print(f"✅ Librosa load successful in {load_time:.2f}s")
+        print(f" Librosa load successful in {load_time:.2f}s")
         print(f"   Audio length: {len(audio)} samples")
         print(f"   Sample rate: {sr} Hz")
         print(f"   Duration: {len(audio) / sr:.2f} seconds")
@@ -58,7 +58,7 @@ def test_librosa_with_duration():
         return True
         
     except Exception as e:
-        print(f"❌ Librosa load failed: {e}")
+        print(f" Librosa load failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -71,7 +71,7 @@ def test_essentia_with_duration():
     
     try:
         import essentia.standard as es
-        print("✅ Essentia imported successfully")
+        print(" Essentia imported successfully")
         
         start_time = time.time()
         print(f"Loading first 5 seconds of audio: {test_file}")
@@ -91,14 +91,14 @@ def test_essentia_with_duration():
             audio = audio[:samples_5_sec]
         
         load_time = time.time() - start_time
-        print(f"✅ Essentia load successful in {load_time:.2f}s")
+        print(f" Essentia load successful in {load_time:.2f}s")
         print(f"   Audio length: {len(audio)} samples")
         print(f"   Duration: {len(audio) / 44100:.2f} seconds")
         
         return True
         
     except Exception as e:
-        print(f"❌ Essentia load failed: {e}")
+        print(f" Essentia load failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -112,7 +112,7 @@ def test_analyzer_simple():
         
         # Create analyzer with minimal config
         analyzer = AudioAnalyzer()
-        print("✅ Analyzer initialized")
+        print(" Analyzer initialized")
         
         test_file = "/music/22Gz - Crime Rate.mp3"
         
@@ -124,16 +124,16 @@ def test_analyzer_simple():
         
         load_time = time.time() - start_time
         if audio is not None:
-            print(f"✅ Analyzer load successful in {load_time:.2f}s")
+            print(f" Analyzer load successful in {load_time:.2f}s")
             print(f"   Audio length: {len(audio)} samples")
             print(f"   Duration: {len(audio) / 44100:.2f} seconds")
             return True
         else:
-            print(f"❌ Analyzer load failed in {load_time:.2f}s")
+            print(f" Analyzer load failed in {load_time:.2f}s")
             return False
             
     except Exception as e:
-        print(f"❌ Analyzer load failed: {e}")
+        print(f" Analyzer load failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -157,13 +157,13 @@ if __name__ == "__main__":
     
     print("\n" + "=" * 60)
     print("SUMMARY:")
-    print(f"Librosa (5s): {'✅' if librosa_ok else '❌'}")
-    print(f"Essentia (5s): {'✅' if essentia_ok else '❌'}")
-    print(f"Analyzer: {'✅' if analyzer_ok else '❌'}")
+    print(f"Librosa (5s): {'' if librosa_ok else ''}")
+    print(f"Essentia (5s): {'' if essentia_ok else ''}")
+    print(f"Analyzer: {'' if analyzer_ok else ''}")
     
     if librosa_ok or essentia_ok:
-        print("\n✅ At least one library can load audio")
+        print("\n At least one library can load audio")
         print("The issue may be with the specific file or loading parameters")
     else:
-        print("\n❌ All loading methods failed")
+        print("\n All loading methods failed")
         print("There may be an issue with the audio file or libraries") 

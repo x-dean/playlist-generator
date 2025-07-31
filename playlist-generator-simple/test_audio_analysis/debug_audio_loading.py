@@ -24,7 +24,7 @@ def test_direct_librosa():
     
     try:
         import librosa
-        print("✅ Librosa imported successfully")
+        print(" Librosa imported successfully")
         
         start_time = time.time()
         print(f"Loading audio with librosa: {test_file}")
@@ -32,7 +32,7 @@ def test_direct_librosa():
         audio, sr = librosa.load(test_file, sr=44100, mono=True)
         
         load_time = time.time() - start_time
-        print(f"✅ Librosa loading successful in {load_time:.2f}s")
+        print(f" Librosa loading successful in {load_time:.2f}s")
         print(f"   Audio length: {len(audio)} samples")
         print(f"   Sample rate: {sr} Hz")
         print(f"   Duration: {len(audio) / sr:.2f} seconds")
@@ -40,7 +40,7 @@ def test_direct_librosa():
         return audio
         
     except Exception as e:
-        print(f"❌ Librosa loading failed: {e}")
+        print(f" Librosa loading failed: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -53,7 +53,7 @@ def test_direct_essentia():
     
     try:
         import essentia.standard as es
-        print("✅ Essentia imported successfully")
+        print(" Essentia imported successfully")
         
         start_time = time.time()
         print(f"Loading audio with essentia: {test_file}")
@@ -67,14 +67,14 @@ def test_direct_essentia():
         audio = loader()
         
         load_time = time.time() - start_time
-        print(f"✅ Essentia loading successful in {load_time:.2f}s")
+        print(f" Essentia loading successful in {load_time:.2f}s")
         print(f"   Audio length: {len(audio)} samples")
         print(f"   Duration: {len(audio) / 44100:.2f} seconds")
         
         return audio
         
     except Exception as e:
-        print(f"❌ Essentia loading failed: {e}")
+        print(f" Essentia loading failed: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -86,7 +86,7 @@ def test_analyzer_loading():
     try:
         from core.audio_analyzer import AudioAnalyzer
         analyzer = AudioAnalyzer()
-        print("✅ Analyzer initialized")
+        print(" Analyzer initialized")
         
         test_file = "/music/22Gz - Crime Rate.mp3"
         
@@ -97,16 +97,16 @@ def test_analyzer_loading():
         
         load_time = time.time() - start_time
         if audio is not None:
-            print(f"✅ Analyzer loading successful in {load_time:.2f}s")
+            print(f" Analyzer loading successful in {load_time:.2f}s")
             print(f"   Audio length: {len(audio)} samples")
             print(f"   Duration: {len(audio) / 44100:.2f} seconds")
             return True
         else:
-            print(f"❌ Analyzer loading failed in {load_time:.2f}s")
+            print(f" Analyzer loading failed in {load_time:.2f}s")
             return False
             
     except Exception as e:
-        print(f"❌ Analyzer loading failed: {e}")
+        print(f" Analyzer loading failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -127,16 +127,16 @@ if __name__ == "__main__":
     
     print("\n" + "=" * 60)
     print("SUMMARY:")
-    print(f"Librosa loading: {'✅' if librosa_audio is not None else '❌'}")
-    print(f"Essentia loading: {'✅' if essentia_audio is not None else '❌'}")
-    print(f"Analyzer loading: {'✅' if analyzer_success else '❌'}")
+    print(f"Librosa loading: {'' if librosa_audio is not None else ''}")
+    print(f"Essentia loading: {'' if essentia_audio is not None else ''}")
+    print(f"Analyzer loading: {'' if analyzer_success else ''}")
     
     if librosa_audio is not None and essentia_audio is not None:
-        print("\n✅ Both libraries can load audio directly")
+        print("\n Both libraries can load audio directly")
         print("The issue is likely in the analyzer's loading logic")
     elif librosa_audio is not None:
-        print("\n✅ Only librosa works - essentia may have issues")
+        print("\n Only librosa works - essentia may have issues")
     elif essentia_audio is not None:
-        print("\n✅ Only essentia works - librosa may have issues")
+        print("\n Only essentia works - librosa may have issues")
     else:
-        print("\n❌ Both libraries failed - there may be a file access issue") 
+        print("\n Both libraries failed - there may be a file access issue") 

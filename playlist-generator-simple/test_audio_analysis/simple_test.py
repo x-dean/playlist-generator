@@ -21,37 +21,37 @@ def test_imports():
     
     try:
         from core.audio_analyzer import AudioAnalyzer
-        print("✅ AudioAnalyzer imported successfully")
+        print(" AudioAnalyzer imported successfully")
     except Exception as e:
-        print(f"❌ AudioAnalyzer import failed: {e}")
+        print(f" AudioAnalyzer import failed: {e}")
         return False
     
     try:
         from core.config_loader import config_loader
-        print("✅ Config loader imported successfully")
+        print(" Config loader imported successfully")
     except Exception as e:
-        print(f"❌ Config loader import failed: {e}")
+        print(f" Config loader import failed: {e}")
         return False
     
     try:
         from core.resource_manager import resource_manager
-        print("✅ Resource manager imported successfully")
+        print(" Resource manager imported successfully")
     except Exception as e:
-        print(f"❌ Resource manager import failed: {e}")
+        print(f" Resource manager import failed: {e}")
         return False
     
     try:
         from core.streaming_audio_loader import get_streaming_loader
-        print("✅ Streaming audio loader imported successfully")
+        print(" Streaming audio loader imported successfully")
     except Exception as e:
-        print(f"❌ Streaming audio loader import failed: {e}")
+        print(f" Streaming audio loader import failed: {e}")
         return False
     
     try:
         from core.external_apis import metadata_enrichment_service
-        print("✅ External APIs imported successfully")
+        print(" External APIs imported successfully")
     except Exception as e:
-        print(f"❌ External APIs import failed: {e}")
+        print(f" External APIs import failed: {e}")
         return False
     
     return True
@@ -63,10 +63,10 @@ def test_analyzer_initialization():
     try:
         from core.audio_analyzer import AudioAnalyzer
         analyzer = AudioAnalyzer()
-        print("✅ AudioAnalyzer initialized successfully")
+        print(" AudioAnalyzer initialized successfully")
         return analyzer
     except Exception as e:
-        print(f"❌ AudioAnalyzer initialization failed: {e}")
+        print(f" AudioAnalyzer initialization failed: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -78,12 +78,12 @@ def test_file_exists():
     test_file = "/music/22Gz - Crime Rate.mp3"
     
     if os.path.exists(test_file):
-        print(f"✅ Test file exists: {test_file}")
+        print(f" Test file exists: {test_file}")
         file_size = os.path.getsize(test_file)
         print(f"   File size: {file_size / (1024*1024):.1f} MB")
         return test_file
     else:
-        print(f"❌ Test file not found: {test_file}")
+        print(f" Test file not found: {test_file}")
         
         # List files in music directory
         music_dir = "/music"
@@ -95,7 +95,7 @@ def test_file_exists():
                     size = os.path.getsize(file_path)
                     print(f"  {file} ({size / (1024*1024):.1f} MB)")
         else:
-            print(f"❌ Music directory not found: {music_dir}")
+            print(f" Music directory not found: {music_dir}")
         
         return None
 
@@ -115,15 +115,15 @@ def test_simple_analysis(analyzer, test_file):
         # Try to load audio
         audio = analyzer._safe_audio_load(test_file)
         if audio is not None:
-            print(f"✅ Audio loaded successfully: {len(audio)} samples")
+            print(f" Audio loaded successfully: {len(audio)} samples")
             print(f"   Duration: {len(audio) / 44100:.2f} seconds")
             return True
         else:
-            print("❌ Audio loading failed")
+            print(" Audio loading failed")
             return False
             
     except Exception as e:
-        print(f"❌ Simple analysis failed: {e}")
+        print(f" Simple analysis failed: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -135,24 +135,24 @@ if __name__ == "__main__":
     
     # Test imports
     if not test_imports():
-        print("❌ Import tests failed")
+        print(" Import tests failed")
         sys.exit(1)
     
     # Test analyzer initialization
     analyzer = test_analyzer_initialization()
     if analyzer is None:
-        print("❌ Analyzer initialization failed")
+        print(" Analyzer initialization failed")
         sys.exit(1)
     
     # Test file existence
     test_file = test_file_exists()
     if test_file is None:
-        print("❌ Test file not found")
+        print(" Test file not found")
         sys.exit(1)
     
     # Test simple analysis
     if test_simple_analysis(analyzer, test_file):
-        print("\n✅ All tests passed!")
+        print("\n All tests passed!")
     else:
-        print("\n❌ Simple analysis failed")
+        print("\n Simple analysis failed")
         sys.exit(1) 

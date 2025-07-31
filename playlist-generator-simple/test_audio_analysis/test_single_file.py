@@ -35,7 +35,7 @@ def test_single_file():
         if result and result.get('success'):
             features = result.get('features', {})
             
-            print("\n✅ FEATURE EXTRACTION RESULTS:")
+            print("\n FEATURE EXTRACTION RESULTS:")
             print("=" * 60)
             
             # Check for the specific features we fixed
@@ -71,12 +71,12 @@ def test_single_file():
             print("- Dynamic Complexity: 0.0-10.0")
             
         else:
-            print("❌ Feature extraction failed")
+            print(" Feature extraction failed")
             if result:
                 print(f"Error: {result}")
     
     except Exception as e:
-        print(f"❌ Error during analysis: {e}")
+        print(f" Error during analysis: {e}")
         import traceback
         traceback.print_exc()
 
