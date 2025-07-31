@@ -264,67 +264,67 @@ class ParallelAnalyzer:
             # Process files in parallel
             try:
                 with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all tasks using standalone worker function
-                future_to_file = {}
-                for file_path in files:
-                    try:
-                        future = executor.submit(_standalone_worker_process, file_path, force_reextract, 
-                                              self.timeout_seconds, self.db_manager.db_path)
-                        future_to_file[future] = file_path
-                    except Exception as e:
-                        logger.error(f"Failed to submit task for {file_path}: {e}")
-                        results['failed_count'] += 1
-                        results['processed_files'].append({
-                            'file_path': file_path,
-                            'status': 'error',
-                            'error': f"Task submission failed: {str(e)}",
-                            'timestamp': datetime.now().isoformat()
-                        })
-                
-                # Collect results as they complete
-                completed_count = 0
-                for future in as_completed(future_to_file, timeout=self.timeout_seconds * len(files)):
-                    file_path = future_to_file[future]
-                    filename = os.path.basename(file_path)
-                    completed_count += 1
-                    
-                    try:
-                        success = future.result(timeout=30)  # 30s timeout per result
-                        
-                        if success:
-                            results['success_count'] += 1
-                            results['processed_files'].append({
-                                'file_path': file_path,
-                                'status': 'success',
-                                'timestamp': datetime.now().isoformat()
-                            })
-                            logger.debug(f"Completed: {filename}")
-                        else:
+                    # Submit all tasks using standalone worker function
+                    future_to_file = {}
+                    for file_path in files:
+                        try:
+                            future = executor.submit(_standalone_worker_process, file_path, force_reextract, 
+                                                  self.timeout_seconds, self.db_manager.db_path)
+                            future_to_file[future] = file_path
+                        except Exception as e:
+                            logger.error(f"Failed to submit task for {file_path}: {e}")
                             results['failed_count'] += 1
                             results['processed_files'].append({
                                 'file_path': file_path,
-                                'status': 'failed',
+                                'status': 'error',
+                                'error': f"Task submission failed: {str(e)}",
                                 'timestamp': datetime.now().isoformat()
                             })
-                            logger.debug(f"Failed: {filename}")
+                    
+                    # Collect results as they complete
+                    completed_count = 0
+                    for future in as_completed(future_to_file, timeout=self.timeout_seconds * len(files)):
+                        file_path = future_to_file[future]
+                        filename = os.path.basename(file_path)
+                        completed_count += 1
                         
-                        # Update progress bar
-                        progress_bar.update_analysis_progress(completed_count, filename)
+                        try:
+                            success = future.result(timeout=30)  # 30s timeout per result
                             
-                    except Exception as e:
-                        logger.error(f"Error processing {filename}: {e}")
-                        results['failed_count'] += 1
-                        results['processed_files'].append({
-                            'file_path': file_path,
-                            'status': 'error',
-                            'error': str(e),
-                            'timestamp': datetime.now().isoformat()
-                        })
-                
-                # Cancel any remaining futures
-                for future in future_to_file:
-                    if not future.done():
-                        future.cancel()
+                            if success:
+                                results['success_count'] += 1
+                                results['processed_files'].append({
+                                    'file_path': file_path,
+                                    'status': 'success',
+                                    'timestamp': datetime.now().isoformat()
+                                })
+                                logger.debug(f"Completed: {filename}")
+                            else:
+                                results['failed_count'] += 1
+                                results['processed_files'].append({
+                                    'file_path': file_path,
+                                    'status': 'failed',
+                                    'timestamp': datetime.now().isoformat()
+                                })
+                                logger.debug(f"Failed: {filename}")
+                            
+                            # Update progress bar
+                            progress_bar.update_analysis_progress(completed_count, filename)
+                                
+                        except Exception as e:
+                            logger.error(f"Error processing {filename}: {e}")
+                            results['failed_count'] += 1
+                            results['processed_files'].append({
+                                'file_path': file_path,
+                                'status': 'error',
+                                'error': str(e),
+                                'timestamp': datetime.now().isoformat()
+                            })
+                    
+                    # Cancel any remaining futures
+                    for future in future_to_file:
+                        if not future.done():
+                            future.cancel()
             except Exception as e:
                 logger.error(f"Error creating process pool: {e}")
                 # Fall back to sequential processing
