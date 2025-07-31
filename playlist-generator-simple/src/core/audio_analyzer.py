@@ -469,7 +469,12 @@ class AudioAnalyzer:
                 'extract_key': True,
                 'extract_mfcc': True,
                 'extract_musicnn': False,
-                'extract_metadata': True
+                'extract_metadata': True,
+                'extract_danceability': True,
+                'extract_onset_rate': True,
+                'extract_zcr': True,
+                'extract_spectral_contrast': True,
+                'extract_chroma': True
             }
         }
 
@@ -983,6 +988,111 @@ class AudioAnalyzer:
                     duration = time.time() - start_time
                     log_feature_extraction_step(audio_path, 'musicnn', duration, False, error=str(e))
             
+            # Extract Danceability (if enabled)
+            if features_config.get('extract_danceability', True):
+                start_time = time.time()
+                try:
+                    danceability_features = self._extract_danceability(audio)
+                    if danceability_features:
+                        features.update(danceability_features)
+                        extracted_features.append('danceability')
+                        duration = time.time() - start_time
+                        log_feature_extraction_step(audio_path, 'danceability', duration, True, 
+                                                  feature_value=len(danceability_features))
+                    else:
+                        failed_features.append('danceability')
+                        duration = time.time() - start_time
+                        log_feature_extraction_step(audio_path, 'danceability', duration, False, 
+                                                  error="No danceability features returned")
+                except Exception as e:
+                    failed_features.append('danceability')
+                    duration = time.time() - start_time
+                    log_feature_extraction_step(audio_path, 'danceability', duration, False, error=str(e))
+            
+            # Extract Onset Rate (if enabled)
+            if features_config.get('extract_onset_rate', True):
+                start_time = time.time()
+                try:
+                    onset_rate_features = self._extract_onset_rate(audio)
+                    if onset_rate_features:
+                        features.update(onset_rate_features)
+                        extracted_features.append('onset_rate')
+                        duration = time.time() - start_time
+                        log_feature_extraction_step(audio_path, 'onset_rate', duration, True, 
+                                                  feature_value=len(onset_rate_features))
+                    else:
+                        failed_features.append('onset_rate')
+                        duration = time.time() - start_time
+                        log_feature_extraction_step(audio_path, 'onset_rate', duration, False, 
+                                                  error="No onset rate features returned")
+                except Exception as e:
+                    failed_features.append('onset_rate')
+                    duration = time.time() - start_time
+                    log_feature_extraction_step(audio_path, 'onset_rate', duration, False, error=str(e))
+            
+            # Extract Zero Crossing Rate (if enabled)
+            if features_config.get('extract_zcr', True):
+                start_time = time.time()
+                try:
+                    zcr_features = self._extract_zcr(audio)
+                    if zcr_features:
+                        features.update(zcr_features)
+                        extracted_features.append('zcr')
+                        duration = time.time() - start_time
+                        log_feature_extraction_step(audio_path, 'zcr', duration, True, 
+                                                  feature_value=len(zcr_features))
+                    else:
+                        failed_features.append('zcr')
+                        duration = time.time() - start_time
+                        log_feature_extraction_step(audio_path, 'zcr', duration, False, 
+                                                  error="No zero crossing rate features returned")
+                except Exception as e:
+                    failed_features.append('zcr')
+                    duration = time.time() - start_time
+                    log_feature_extraction_step(audio_path, 'zcr', duration, False, error=str(e))
+            
+            # Extract Spectral Contrast (if enabled)
+            if features_config.get('extract_spectral_contrast', True):
+                start_time = time.time()
+                try:
+                    spectral_contrast_features = self._extract_spectral_contrast(audio)
+                    if spectral_contrast_features:
+                        features.update(spectral_contrast_features)
+                        extracted_features.append('spectral_contrast')
+                        duration = time.time() - start_time
+                        log_feature_extraction_step(audio_path, 'spectral_contrast', duration, True, 
+                                                  feature_value=len(spectral_contrast_features))
+                    else:
+                        failed_features.append('spectral_contrast')
+                        duration = time.time() - start_time
+                        log_feature_extraction_step(audio_path, 'spectral_contrast', duration, False, 
+                                                  error="No spectral contrast features returned")
+                except Exception as e:
+                    failed_features.append('spectral_contrast')
+                    duration = time.time() - start_time
+                    log_feature_extraction_step(audio_path, 'spectral_contrast', duration, False, error=str(e))
+            
+            # Extract Chroma (if enabled)
+            if features_config.get('extract_chroma', True):
+                start_time = time.time()
+                try:
+                    chroma_features = self._extract_chroma(audio)
+                    if chroma_features:
+                        features.update(chroma_features)
+                        extracted_features.append('chroma')
+                        duration = time.time() - start_time
+                        log_feature_extraction_step(audio_path, 'chroma', duration, True, 
+                                                  feature_value=len(chroma_features))
+                    else:
+                        failed_features.append('chroma')
+                        duration = time.time() - start_time
+                        log_feature_extraction_step(audio_path, 'chroma', duration, False, 
+                                                  error="No chroma features returned")
+                except Exception as e:
+                    failed_features.append('chroma')
+                    duration = time.time() - start_time
+                    log_feature_extraction_step(audio_path, 'chroma', duration, False, error=str(e))
+            
             # Calculate duration (always included)
             try:
                 duration = audio_length / DEFAULT_SAMPLE_RATE
@@ -1284,77 +1394,315 @@ class AudioAnalyzer:
     @timeout(600, "MusiCNN feature extraction timed out")  # 10 minutes for MusiCNN analysis
     def _extract_musicnn_features(self, audio: np.ndarray) -> Optional[Dict[str, Any]]:
         """
-        Extract MusiCNN features using TensorFlow.
+        Extract MusiCNN features from audio.
         
         Args:
             audio: Audio data as numpy array
             
         Returns:
-            Dictionary with MusiCNN features, or None if failed
+            Dictionary with MusiCNN features or None if failed
         """
-        if not TENSORFLOW_AVAILABLE or self.musicnn_model is None:
-            logger.warning("TensorFlow or MusiCNN model not available - skipping MusiCNN features")
+        if not TENSORFLOW_AVAILABLE or not ESSENTIA_AVAILABLE:
+            logger.warning("MusiCNN extraction skipped - TensorFlow or Essentia not available")
             return None
         
         try:
-            # Reshape audio for MusiCNN input (batch_size, frames, channels)
-            # MusiCNN expects 1D audio, so we need to convert to 2D (frames, 1)
-            # and then add a batch dimension.
-            # For simplicity, we'll assume a single channel for now.
-            # If audio is mono, shape is (n_samples,)
-            # If audio is stereo, shape is (n_samples, 2)
-            # MusiCNN expects (batch_size, frames, channels)
-            # We need to pad or truncate audio to a multiple of the frame size
-            # and then add a batch dimension.
+            logger.info("Extracting MusiCNN features...")
             
-            # Ensure audio is mono and has a reasonable length for MusiCNN
-            # MusiCNN typically expects 1-second segments or more.
-            # For simplicity, let's assume a minimum length of 1 second.
-            # If audio is shorter, pad it.
-            min_audio_length_for_musicnn = DEFAULT_SAMPLE_RATE * 1 # 1 second
-            if len(audio) < min_audio_length_for_musicnn:
-                # Pad audio to the minimum length
-                padding_length = min_audio_length_for_musicnn - len(audio)
-                audio = np.pad(audio, (0, padding_length), 'constant')
-                logger.debug(f"Padded audio for MusiCNN: {len(audio)} samples")
+            # Check if MusiCNN is available
+            if not hasattr(es, 'TensorflowPredictMusiCNN'):
+                logger.warning("MusiCNN extraction skipped - TensorflowPredictMusiCNN not available")
+                return None
             
-            # Reshape for MusiCNN input (batch_size, frames, channels)
-            # MusiCNN expects (batch_size, frames, channels)
-            # We need to add a batch dimension.
-            # For simplicity, we'll assume a batch size of 1.
-            # If audio is mono, shape is (n_samples,) -> (1, n_samples, 1)
-            # If audio is stereo, shape is (n_samples, 2) -> (1, n_samples, 2)
+            # Initialize MusiCNN model
+            musicnn = es.TensorflowPredictMusiCNN()
             
-            # Add a batch dimension
-            audio_for_musicnn = audio.reshape(1, -1, 1) # (1, n_samples, 1)
+            # Extract embeddings
+            embeddings = musicnn(audio)
             
-            # Predict using MusiCNN
-            # MusiCNN output is (batch_size, num_classes)
-            # We need to reshape it to (num_classes,)
-            musicnn_output = self.musicnn_model(audio_for_musicnn)
+            # Get tags (if available)
+            tags = {}
+            try:
+                # Try to get tags from the model
+                if hasattr(musicnn, 'getTags'):
+                    tags = musicnn.getTags()
+            except Exception as e:
+                logger.debug(f"Could not get MusiCNN tags: {e}")
             
-            # The output is a tensor, we need to convert it to a numpy array
-            # and then reshape it to (num_classes,)
-            musicnn_output_np = musicnn_output.numpy()
+            # Convert to list for JSON serialization
+            embedding_list = embeddings.tolist() if hasattr(embeddings, 'tolist') else list(embeddings)
             
-            # The output is (batch_size, num_classes)
-            # We need to take the mean across the batch dimension
-            # and then reshape it to (num_classes,)
-            musicnn_features = np.mean(musicnn_output_np, axis=0).tolist()
-            
-            # Map MusiCNN output to feature names
-            # This is a placeholder. In a real scenario, you'd define
-            # a mapping based on the MusiCNN model's output.
-            # For example, if MusiCNN predicts 100 classes, you might
-            # have features like 'genre_1', 'genre_2', etc.
-            # For now, we'll just return the raw output.
-            
-            logger.debug(f"MusiCNN features extracted: {len(musicnn_features)}")
-            return {'musicnn_features': musicnn_features}
+            logger.info(f"MusiCNN extraction completed: {len(embedding_list)} dimensions")
+            return {
+                'musicnn_embedding': embedding_list,
+                'musicnn_tags': tags
+            }
             
         except Exception as e:
-            logger.warning(f"Error extracting MusiCNN features: {e}")
+            logger.warning(f"MusiCNN extraction failed: {str(e)}")
             return None
+
+    @timeout(120, "Danceability extraction timed out")  # 2 minutes for danceability analysis
+    def _extract_danceability(self, audio: np.ndarray) -> Dict[str, Any]:
+        """
+        Extract danceability features from audio.
+        
+        Args:
+            audio: Audio data as numpy array
+            
+        Returns:
+            Dictionary with danceability features
+        """
+        if not ESSENTIA_AVAILABLE:
+            logger.warning("Danceability extraction skipped - Essentia not available")
+            return {'danceability': 0.0}
+        
+        try:
+            logger.info("Extracting danceability features...")
+            
+            # Use Essentia's Danceability algorithm
+            dance_algo = es.Danceability()
+            dance_result = dance_algo(audio)
+            
+            # Handle different return types from Essentia
+            if isinstance(dance_result, tuple):
+                if len(dance_result) >= 1:
+                    dance_values = dance_result[0]
+                else:
+                    logger.warning("Empty danceability result tuple")
+                    dance_values = [0.0]
+            else:
+                dance_values = dance_result
+            
+            # Handle numpy arrays
+            if isinstance(dance_values, np.ndarray):
+                if dance_values.size == 1:
+                    dance_mean = float(dance_values.item())
+                else:
+                    dance_mean = float(np.nanmean(dance_values))
+            elif isinstance(dance_values, (list, tuple)):
+                dance_mean = float(np.nanmean(dance_values))
+            else:
+                dance_mean = float(dance_values)
+            
+            # Ensure danceability is a valid number and normalize if needed
+            if not np.isfinite(dance_mean):
+                logger.warning(f"Invalid danceability value (non-finite): {dance_mean}, using default")
+                dance_mean = 0.0
+            elif dance_mean < 0:
+                logger.warning(f"Negative danceability value: {dance_mean}, using default")
+                dance_mean = 0.0
+            elif dance_mean > 1:
+                # The algorithm might return values in a different scale
+                if dance_mean <= 10:  # If it's in 0-10 scale, normalize
+                    dance_mean = dance_mean / 10.0
+                    logger.debug(f"Normalized danceability from 0-10 scale: {dance_mean:.3f}")
+                elif dance_mean <= 100:  # If it's in 0-100 scale, normalize
+                    dance_mean = dance_mean / 100.0
+                    logger.debug(f"Normalized danceability from 0-100 scale: {dance_mean:.3f}")
+                else:
+                    logger.warning(f"Danceability value out of expected range: {dance_mean}, using default")
+                    dance_mean = 0.0
+            
+            logger.info(f"Danceability extraction completed: {dance_mean:.3f}")
+            return {'danceability': ensure_float(dance_mean)}
+            
+        except Exception as e:
+            logger.warning(f"Danceability extraction failed: {str(e)}")
+            return {'danceability': 0.0}
+
+    @timeout(120, "Onset rate extraction timed out")  # 2 minutes for onset rate analysis
+    def _extract_onset_rate(self, audio: np.ndarray) -> Dict[str, Any]:
+        """
+        Extract onset rate features from audio.
+        
+        Args:
+            audio: Audio data as numpy array
+            
+        Returns:
+            Dictionary with onset rate features
+        """
+        if not ESSENTIA_AVAILABLE:
+            logger.warning("Onset rate extraction skipped - Essentia not available")
+            return {'onset_rate': 0.0}
+        
+        try:
+            logger.info("Extracting onset rate features...")
+            
+            # Use Essentia's OnsetRate algorithm
+            onset_algo = es.OnsetRate()
+            onset_result = onset_algo(audio)
+            
+            # Handle different return types from Essentia
+            if isinstance(onset_result, tuple):
+                if len(onset_result) >= 1:
+                    onset_rate = onset_result[0]
+                else:
+                    logger.warning("Empty onset rate result tuple")
+                    onset_rate = 0.0
+            else:
+                onset_rate = onset_result
+            
+            # Handle numpy arrays
+            if isinstance(onset_rate, np.ndarray):
+                if onset_rate.size == 1:
+                    onset_rate = float(onset_rate.item())
+                else:
+                    onset_rate = float(np.nanmean(onset_rate))
+            else:
+                # Convert to float
+                onset_rate = float(onset_rate)
+            
+            # Ensure onset rate is a valid number
+            if not np.isfinite(onset_rate) or onset_rate < 0:
+                logger.warning(f"Invalid onset rate value: {onset_rate}, using default")
+                onset_rate = 0.0
+            
+            logger.info(f"Onset rate extraction completed: {onset_rate:.2f} onsets/sec")
+            return {'onset_rate': ensure_float(onset_rate)}
+            
+        except Exception as e:
+            logger.warning(f"Onset rate extraction failed: {str(e)}")
+            return {'onset_rate': 0.0}
+
+    @timeout(60, "Zero crossing rate extraction timed out")  # 1 minute for ZCR analysis
+    def _extract_zcr(self, audio: np.ndarray) -> Dict[str, Any]:
+        """
+        Extract zero crossing rate features from audio.
+        
+        Args:
+            audio: Audio data as numpy array
+            
+        Returns:
+            Dictionary with zero crossing rate features
+        """
+        if not ESSENTIA_AVAILABLE:
+            logger.warning("Zero crossing rate extraction skipped - Essentia not available")
+            return {'zcr': 0.0}
+        
+        try:
+            logger.info("Extracting zero crossing rate features...")
+            
+            # Use Essentia's ZeroCrossingRate algorithm
+            zcr_algo = es.ZeroCrossingRate()
+            zcr_values = zcr_algo(audio)
+            
+            zcr_mean = float(np.nanmean(zcr_values)) if isinstance(
+                zcr_values, (list, np.ndarray)) else float(zcr_values)
+            
+            logger.info(f"Zero crossing rate extraction completed: {zcr_mean:.3f}")
+            return {'zcr': ensure_float(zcr_mean)}
+            
+        except Exception as e:
+            logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
+            return {'zcr': 0.0}
+
+    @timeout(180, "Spectral contrast extraction timed out")  # 3 minutes for spectral contrast analysis
+    def _extract_spectral_contrast(self, audio: np.ndarray) -> Dict[str, Any]:
+        """
+        Extract spectral contrast features from audio.
+        
+        Args:
+            audio: Audio data as numpy array
+            
+        Returns:
+            Dictionary with spectral contrast features
+        """
+        if not ESSENTIA_AVAILABLE:
+            logger.warning("Spectral contrast extraction skipped - Essentia not available")
+            return {'spectral_contrast': 0.0}
+        
+        try:
+            logger.info("Extracting spectral contrast features...")
+            
+            # Use frame-by-frame processing for spectral contrast
+            frame_size = 2048
+            hop_size = 1024
+            
+            # Initialize Essentia algorithms for spectral contrast
+            window = es.Windowing(type='hann')
+            spectrum = es.Spectrum()
+            spectral_peaks = es.SpectralPeaks()
+            
+            contrast_list = []
+            frame_count = 0
+            
+            # Process audio frame by frame
+            for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                frame_count += 1
+                if frame_count % 100 == 0:
+                    logger.debug(f"Processed {frame_count} frames for spectral contrast")
+                
+                try:
+                    spec = spectrum(window(frame))
+                    freqs, mags = spectral_peaks(spec)
+                    
+                    if len(freqs) > 0 and len(mags) > 0:
+                        # Ensure mags is a numpy array and has valid values
+                        mags_array = np.array(mags)
+                        if len(mags_array) > 0 and np.any(mags_array > 0):
+                            # Calculate spectral contrast manually
+                            # Sort magnitudes and find valleys
+                            sorted_mags = np.sort(mags_array)
+                            # Ensure at least 1 element
+                            third = max(1, len(sorted_mags) // 3)
+                            valleys = sorted_mags[:third]  # Bottom third
+                            peaks = sorted_mags[-third:]   # Top third
+                            
+                            if len(peaks) > 0 and len(valleys) > 0:
+                                contrast = float(np.mean(peaks) - np.mean(valleys))
+                                contrast_list.append(contrast)
+                
+                except Exception as frame_error:
+                    logger.debug(f"Frame {frame_count} processing error: {frame_error}")
+                    continue
+            
+            # Return mean contrast across all frames
+            if contrast_list:
+                contrast_mean = float(np.mean(contrast_list))
+                logger.info(f"Spectral contrast extraction completed: {contrast_mean:.3f}")
+                return {'spectral_contrast': ensure_float(contrast_mean)}
+            else:
+                logger.warning("No valid contrast values calculated, returning 0.0")
+                return {'spectral_contrast': 0.0}
+            
+        except Exception as e:
+            logger.warning(f"Spectral contrast extraction failed: {str(e)}")
+            return {'spectral_contrast': 0.0}
+
+    @timeout(120, "Chroma extraction timed out")  # 2 minutes for chroma analysis
+    def _extract_chroma(self, audio: np.ndarray) -> Dict[str, Any]:
+        """
+        Extract chroma features from audio.
+        
+        Args:
+            audio: Audio data as numpy array
+            
+        Returns:
+            Dictionary with chroma features
+        """
+        if not LIBROSA_AVAILABLE:
+            logger.warning("Chroma extraction skipped - Librosa not available")
+            return {'chroma': [0.0] * 12}
+        
+        try:
+            logger.info("Extracting chroma features...")
+            
+            # Extract chroma features using librosa
+            chroma = librosa.feature.chroma_cqt(y=audio, sr=DEFAULT_SAMPLE_RATE)
+            
+            # Calculate mean chroma values across time
+            chroma_mean = np.mean(chroma, axis=1)
+            
+            # Convert to list for JSON serialization
+            chroma_list = chroma_mean.tolist()
+            
+            logger.info(f"Chroma extraction completed: {len(chroma_list)} features")
+            return {'chroma': [ensure_float(x) for x in chroma_list]}
+            
+        except Exception as e:
+            logger.warning(f"Chroma extraction failed: {str(e)}")
+            return {'chroma': [0.0] * 12}
 
     def _validate_features(self, features: Dict[str, Any]) -> bool:
         """
