@@ -26,28 +26,8 @@ except ImportError:
 # Import colorama for cross-platform color support
 try:
     from colorama import init, Fore
-    # Initialize colorama with proper settings for different environments
-    # Check if we're in a Docker container or have proper terminal support
-    import os
-    import sys
-    
-    # Check if we have a proper terminal (not a pipe or redirect)
-    has_terminal = hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
-    
-    # Check for Docker environment
-    is_docker = os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER', False)
-    
-    # Initialize colorama based on environment
-    if is_docker:
-        # In Docker, be more conservative with colors
-        init(autoreset=True, convert=True, strip=False)
-    elif has_terminal:
-        # In a real terminal, use full color support
-        init(autoreset=True, convert=True)
-    else:
-        # In a pipe or redirect, disable colors
-        init(autoreset=True, convert=True, strip=True)
-    
+    # Force colorama initialization for Docker/terminal support
+    init(autoreset=True, convert=True)
     COLORAMA_AVAILABLE = True
 except ImportError:
     COLORAMA_AVAILABLE = False
@@ -140,7 +120,7 @@ def setup_logging(
     if log_level not in valid_levels:
         log_level = 'INFO'
     
-    # Remove default handlers
+    # Force Loguru usage - remove default handlers
     if LOGURU_AVAILABLE:
         logger.remove()
         
@@ -229,6 +209,7 @@ def setup_logging(
     log_universal('INFO', 'System', f"Log level: {log_level}")
     log_universal('INFO', 'System', f"Console logging: {console_logging} (colored)")
     log_universal('INFO', 'System', f"File logging: {file_logging} (plain text)")
+    log_universal('INFO', 'System', f"Using Loguru: {LOGURU_AVAILABLE}")
     
     _log_setup_complete = True
     return logger
