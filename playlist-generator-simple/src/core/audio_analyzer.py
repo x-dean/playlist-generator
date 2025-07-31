@@ -479,8 +479,42 @@ class AudioAnalyzer:
             # Load audio
             audio = self._safe_audio_load(audio_path)
             if audio is None:
-                log_universal('ERROR', 'Audio', f"Failed to load audio: {filename}")
-                return None
+                log_universal('WARNING', 'Audio', f"Failed to load audio (likely too large): {filename}")
+                log_universal('INFO', 'Audio', f"Extracting metadata only for large file: {filename}")
+                
+                # Extract metadata only for large files
+                metadata = self._extract_metadata(audio_path)
+                
+                # Create minimal result with metadata only
+                result = {
+                    'success': True,
+                    'features': {
+                        'bpm': -1.0,  # Failed marker
+                        'key': 'unknown',
+                        'mode': 'unknown',
+                        'loudness': -1.0,
+                        'danceability': -1.0,
+                        'energy': -1.0,
+                        'valence': -1.0,
+                        'tempo': -1.0,
+                        'duration': -1.0,
+                        'sample_rate': 44100,
+                        'file_too_large': True
+                    },
+                    'metadata': metadata,
+                    'file_info': {
+                        'path': audio_path,
+                        'filename': filename,
+                        'size_bytes': file_size_bytes,
+                        'size_mb': file_size_mb
+                    },
+                    'analysis_type': 'metadata_only',
+                    'analysis_config': analysis_config,
+                    'forced_guidance': forced_guidance
+                }
+                
+                log_universal('INFO', 'Audio', f"Extracted metadata only from large file: {filename}")
+                return result
             
             # Check file size and set appropriate timeout
             audio_length = len(audio)
@@ -656,6 +690,24 @@ class AudioAnalyzer:
         try:
             log_universal('DEBUG', 'Audio', f"Loading audio: {os.path.basename(audio_path)}")
             
+            # Check file size first to fail fast
+            try:
+                file_size_bytes = os.path.getsize(audio_path)
+                file_size_mb = file_size_bytes / (1024 * 1024)
+                
+                # Estimate audio duration from file size (rough estimate: 1MB ≈ 1 minute for MP3)
+                estimated_duration_minutes = file_size_mb
+                
+                # Fail fast for very large files (> 100MB ≈ 100 minutes)
+                if file_size_mb > 100:
+                    log_universal('WARNING', 'Audio', f"File too large ({file_size_mb:.1f}MB, ~{estimated_duration_minutes:.0f}min) - skipping to prevent memory issues")
+                    return None
+                
+                log_universal('DEBUG', 'Audio', f"File size: {file_size_mb:.1f}MB, estimated duration: ~{estimated_duration_minutes:.0f} minutes")
+                
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f"Cannot check file size: {e}")
+            
             # Use Essentia MonoLoader (like old setup)
             if ESSENTIA_AVAILABLE:
                 try:
@@ -665,7 +717,14 @@ class AudioAnalyzer:
                     audio = loader()
                     
                     if audio is not None and len(audio) > 0:
-                        log_universal('DEBUG', 'Audio', f"Essentia loaded audio: {len(audio)} samples at 44.1kHz ({len(audio)/44100:.2f}s)")
+                        duration_seconds = len(audio) / 44100
+                        duration_minutes = duration_seconds / 60
+                        log_universal('DEBUG', 'Audio', f"Essentia loaded audio: {len(audio)} samples at 44.1kHz ({duration_seconds:.1f}s, ~{duration_minutes:.1f}min)")
+                        
+                        # Fail fast for very long files (> 60 minutes)
+                        if duration_minutes > 60:
+                            log_universal('WARNING', 'Audio', f"Audio too long ({duration_minutes:.1f} minutes) - skipping to prevent memory issues")
+                            return None
                         
                         # Force garbage collection for large files (like old setup)
                         if len(audio) > 100000000:  # ~3.8 hours at 44kHz
@@ -689,342 +748,23 @@ class AudioAnalyzer:
     
     def _load_audio_traditional(self, audio_path: str) -> Optional[np.ndarray]:
         """Load audio using traditional method (entire file in memory)."""
-        import gc
-        
-        try:
-            # Try Essentia first (most reliable, no audioread warnings)
-            if ESSENTIA_AVAILABLE:
-                try:
-                    log_universal('DEBUG', 'Audio', f"Trying Essentia loading for {os.path.basename(audio_path)}")
-                    loader = es.MonoLoader(
-                        filename=audio_path,
-                        sampleRate=DEFAULT_SAMPLE_RATE,
-                        downmix='mix',  # Mix stereo to mono
-                        resampleQuality=1  # Good quality resampling
-                    )
-                    audio = loader()
-                    # Limit to 60 seconds if file is too long (increased from 30s for better analysis)
-                    max_samples = DEFAULT_SAMPLE_RATE * 60
-                    if len(audio) > max_samples:
-                        audio = audio[:max_samples]
-                        log_universal('DEBUG', 'Audio', f"Truncated audio to 60 seconds")
-                    log_universal('DEBUG', 'Audio', f"Essentia loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
-                    
-                    # Force garbage collection for large files
-                    if len(audio) > 500000:  # ~11 seconds at 44kHz - more aggressive
-                        gc.collect()
-                        log_universal('DEBUG', 'Audio', "Forced garbage collection after loading audio file")
-                    
-                    return audio
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f"Essentia loading failed: {e}")
-            
-            # Try soundfile as fallback (no audioread warnings)
-            if SOUNDFILE_AVAILABLE:
-                try:
-                    log_universal('DEBUG', 'Audio', f"Trying soundfile loading for {os.path.basename(audio_path)}")
-                    # Use soundfile with better error handling
-                    audio, sr = sf.read(audio_path, dtype='float32')
-                    if len(audio.shape) > 1:
-                        audio = audio.mean(axis=1)  # Convert to mono
-                    if sr != DEFAULT_SAMPLE_RATE:
-                        # Use librosa for resampling if available
-                        if LIBROSA_AVAILABLE:
-                            import librosa
-                            audio = librosa.resample(audio, orig_sr=sr, target_sr=DEFAULT_SAMPLE_RATE)
-                        else:
-                            # Simple resampling
-                            ratio = DEFAULT_SAMPLE_RATE / sr
-                            new_length = int(len(audio) * ratio)
-                            indices = np.linspace(0, len(audio) - 1, new_length)
-                            audio = np.interp(indices, np.arange(len(audio)), audio)
-                    # Limit to 60 seconds
-                    max_samples = DEFAULT_SAMPLE_RATE * 60
-                    if len(audio) > max_samples:
-                        audio = audio[:max_samples]
-                    log_universal('DEBUG', 'Audio', f"Soundfile loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
-                    return audio
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f"Soundfile loading failed: {e}")
-                    # Try with different dtype if float32 fails
-                    try:
-                        audio, sr = sf.read(audio_path, dtype='int16')
-                        audio = audio.astype(np.float32) / 32768.0
-                        if len(audio.shape) > 1:
-                            audio = audio.mean(axis=1)
-                        if sr != DEFAULT_SAMPLE_RATE:
-                            if LIBROSA_AVAILABLE:
-                                import librosa
-                                audio = librosa.resample(audio, orig_sr=sr, target_sr=DEFAULT_SAMPLE_RATE)
-                            else:
-                                ratio = DEFAULT_SAMPLE_RATE / sr
-                                new_length = int(len(audio) * ratio)
-                                indices = np.linspace(0, len(audio) - 1, new_length)
-                                audio = np.interp(indices, np.arange(len(audio)), audio)
-                        max_samples = DEFAULT_SAMPLE_RATE * 60
-                        if len(audio) > max_samples:
-                            audio = audio[:max_samples]
-                        log_universal('DEBUG', 'Audio', f"Soundfile loaded audio (int16): {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
-                        return audio
-                    except Exception as e2:
-                        log_universal('WARNING', 'Audio', f"Soundfile loading with int16 also failed: {e2}")
-            
-            # Try wave module for WAV files
-            if WAVE_AVAILABLE and audio_path.lower().endswith('.wav'):
-                try:
-                    log_universal('DEBUG', 'Audio', f"Trying wave loading for {os.path.basename(audio_path)}")
-                    with wave.open(audio_path, 'rb') as wav_file:
-                        frames = wav_file.readframes(wav_file.getnframes())
-                        sr = wav_file.getframerate()
-                        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-                        if sr != DEFAULT_SAMPLE_RATE:
-                            # Simple resampling
-                            ratio = DEFAULT_SAMPLE_RATE / sr
-                            new_length = int(len(audio) * ratio)
-                            indices = np.linspace(0, len(audio) - 1, new_length)
-                            audio = np.interp(indices, np.arange(len(audio)), audio)
-                        # Limit to 60 seconds
-                        max_samples = DEFAULT_SAMPLE_RATE * 60
-                        if len(audio) > max_samples:
-                            audio = audio[:max_samples]
-                        log_universal('DEBUG', 'Audio', f"Wave loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
-                        return audio
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f"Wave loading failed: {e}")
-            
-            # Try librosa as last resort with improved error handling
-            if LIBROSA_AVAILABLE:
-                try:
-                    log_universal('DEBUG', 'Audio', f"Trying librosa loading for {os.path.basename(audio_path)}")
-                    # Use safe librosa loading with proper backend specification
-                    audio, sr = safe_essentia_load(audio_path)
-                    
-                    if audio is not None:
-                        log_universal('DEBUG', 'Audio', f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
-                        
-                        # Force garbage collection for large files
-                        if len(audio) > 500000:  # ~11 seconds at 44kHz - more aggressive
-                            gc.collect()
-                            log_universal('DEBUG', 'Audio', "Forced garbage collection after loading audio file")
-                        
-                        return audio
-                    else:
-                        log_universal('WARNING', 'Audio', "Librosa loading failed with all backends")
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f"Librosa loading failed: {e}")
-            
-            # If all methods failed, create a dummy audio
-            log_universal('ERROR', 'Audio', "All audio loading methods failed")
-            log_universal('ERROR', 'Audio', f"  Available libraries: Essentia={ESSENTIA_AVAILABLE}, Librosa={LIBROSA_AVAILABLE}, SoundFile={SOUNDFILE_AVAILABLE}, Wave={WAVE_AVAILABLE}")
-            
-            # Create a dummy audio signal (1 second of silence)
-            log_universal('WARNING', 'Audio', "Creating dummy audio signal for testing")
-            dummy_audio = np.zeros(DEFAULT_SAMPLE_RATE, dtype=np.float32)
-            return dummy_audio
-                
-        except Exception as e:
-            log_universal('ERROR', 'Audio', f"Error loading audio {audio_path}: {e}")
-            # Create a dummy audio signal as fallback
-            log_universal('WARNING', 'Audio', "Creating dummy audio signal as fallback")
-            dummy_audio = np.zeros(DEFAULT_SAMPLE_RATE, dtype=np.float32)
-            return dummy_audio
+        # Use the simplified Essentia-based loading
+        return self._safe_audio_load(audio_path)
     
     def _load_audio_streaming(self, audio_path: str) -> Optional[np.ndarray]:
         """Load audio using streaming method for memory efficiency."""
-        try:
-            from .streaming_audio_loader import get_streaming_loader
-            
-            # Get streaming loader with configuration
-            streaming_loader = get_streaming_loader(
-                memory_limit_percent=self.streaming_memory_limit_percent,
-                chunk_duration_seconds=self.streaming_chunk_duration_seconds,
-                use_slicer=False,  # Use FrameCutter for better memory management
-                use_streaming=True  # Enable true streaming for large files
-            )
-            
-            file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
-            
-            # For very large files, use sampling approach instead of full loading
-            if file_size_mb > 50:  # Large file threshold
-                log_universal('INFO', 'Audio', f"Large file detected ({file_size_mb:.1f}MB) - using sampling approach")
-                return self._load_audio_sampling(audio_path)
-            
-            # For smaller files, collect chunks and concatenate
-            chunks = []
-            total_samples = 0
-            
-            for chunk, start_time, end_time in streaming_loader.load_audio_chunks(audio_path):
-                chunks.append(chunk)
-                total_samples += len(chunk)
-                log_universal('DEBUG', 'Audio', f"Loaded chunk: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
-                
-                # Limit total samples to prevent memory issues
-                if total_samples > DEFAULT_SAMPLE_RATE * 60:  # 60 seconds max
-                    log_universal('WARNING', 'Audio', "Reached 60-second limit, truncating audio")
-                    break
-            
-            if not chunks:
-                log_universal('ERROR', 'Audio', "No chunks loaded from streaming loader")
-                log_universal('WARNING', 'Audio', "Falling back to traditional loading...")
-                return self._load_audio_traditional(audio_path)
-            
-            # Concatenate all chunks
-            audio = np.concatenate(chunks)
-            log_universal('DEBUG', 'Audio', f"Concatenated audio: {len(audio)} samples total")
-            
-            return audio
-            
-        except Exception as e:
-            log_universal('ERROR', 'Audio', f"Error in streaming audio load: {e}")
-            log_universal('WARNING', 'Audio', "Falling back to traditional loading...")
-            return self._load_audio_traditional(audio_path)
+        # Use the simplified Essentia-based loading (no streaming needed for files up to 15 minutes)
+        return self._safe_audio_load(audio_path)
     
     def _load_audio_sampling(self, audio_path: str) -> Optional[np.ndarray]:
         """Load audio using sampling approach for very large files."""
-        try:
-            # Get file duration
-            duration = self._get_audio_duration(audio_path)
-            if duration is None:
-                log_universal('ERROR', 'Audio', "Could not determine audio duration for sampling")
-                return None
-            
-            # Sample multiple segments throughout the file
-            segment_duration = 30.0  # 30 seconds per segment
-            num_segments = min(5, int(duration / segment_duration))  # Max 5 segments
-            segment_interval = duration / (num_segments + 1)  # Evenly spaced segments
-            
-            log_universal('INFO', 'Audio', f"Sampling {num_segments} segments of {segment_duration}s each from {duration:.1f}s file")
-            
-            segments = []
-            
-            # Sample segments throughout the file
-            for i in range(num_segments):
-                segment_start = (i + 1) * segment_interval
-                
-                # Ensure we don't exceed file duration
-                if segment_start + segment_duration > duration:
-                    segment_start = max(0, duration - segment_duration)
-                
-                try:
-                    log_universal('DEBUG', 'Audio', f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
-                    
-                    # Use Essentia for segment loading
-                    if ESSENTIA_AVAILABLE:
-                        chunk, sr = safe_essentia_load(audio_path)
-                        
-                        if chunk is not None:
-                            segments.append(chunk)
-                            log_universal('DEBUG', 'Audio', f"Loaded segment {i+1}: {len(chunk)} samples")
-                            
-                            # Force garbage collection after each segment
-                            import gc
-                            gc.collect()
-                        else:
-                            log_universal('WARNING', 'Audio', f"Failed to load segment {i+1}: Essentia returned None")
-                        
-                    else:
-                        log_universal('WARNING', 'Audio', "Essentia not available for segment loading")
-                        break
-                        
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f"Error loading segment {i+1}: {e}")
-                    continue
-            
-            if not segments:
-                log_universal('ERROR', 'Audio', "No segments loaded successfully")
-                return None
-            
-            # Filter out None segments and check if we have valid segments
-            valid_segments = [seg for seg in segments if seg is not None and len(seg) > 0]
-            
-            if not valid_segments:
-                log_universal('ERROR', 'Audio', "No valid segments loaded")
-                return None
-            
-            # Concatenate segments
-            audio = np.concatenate(valid_segments)
-            log_universal('INFO', 'Audio', f"Sampled audio: {len(audio)} samples total from {len(valid_segments)} segments")
-            
-            return audio
-            
-        except Exception as e:
-            log_universal('ERROR', 'Audio', f"Error in audio sampling: {e}")
-            return None
+        # Use the simplified Essentia-based loading (no sampling needed for files up to 15 minutes)
+        return self._safe_audio_load(audio_path)
     
     def _analyze_large_file_streaming(self, audio_path: str, streaming_loader) -> Optional[np.ndarray]:
         """Analyze large files using true streaming - process multiple segments for mixed tracks."""
-        try:
-            log_universal('INFO', 'Audio', f"Starting true streaming analysis for large file: {os.path.basename(audio_path)}")
-            
-            # Get file duration
-            duration = self._get_audio_duration(audio_path)
-            if duration is None:
-                log_universal('ERROR', 'Audio', "Could not determine audio duration")
-                return None
-            
-            # For very large files (> 100MB), use multiple segments throughout the file
-            # This is better for mixed tracks that have different characteristics throughout
-            
-            # Calculate segment parameters
-            segment_duration = 120.0  # 2 minutes per segment
-            num_segments = min(10, int(duration / segment_duration))  # Max 10 segments
-            segment_interval = duration / (num_segments + 1)  # Evenly spaced segments
-            
-            log_universal('INFO', 'Audio', f"Large file analysis: {duration:.1f}s total, {num_segments} segments of {segment_duration}s each")
-            
-            segments = []
-            
-            # Sample segments throughout the file
-            for i in range(num_segments):
-                segment_start = (i + 1) * segment_interval
-                
-                # Ensure we don't exceed file duration
-                if segment_start + segment_duration > duration:
-                    segment_start = max(0, duration - segment_duration)
-                
-                try:
-                    log_universal('DEBUG', 'Audio', f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
-                    
-                    # Use Essentia for segment loading
-                    chunk, sr = safe_essentia_load(audio_path)
-                    
-                    if chunk is not None:
-                        segments.append(chunk)
-                        log_universal('DEBUG', 'Audio', f"Loaded segment {i+1}: {len(chunk)} samples")
-                        
-                        # Force garbage collection after each segment
-                        import gc
-                        gc.collect()
-                    else:
-                        log_universal('WARNING', 'Audio', f"Failed to load segment {i+1}: Essentia returned None")
-                    
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f"Error loading segment {i+1}: {e}")
-                    continue
-            
-            if not segments:
-                log_universal('ERROR', 'Audio', "No segments loaded from large file")
-                return None
-            
-            # Filter out None segments and check if we have valid segments
-            valid_segments = [seg for seg in segments if seg is not None and len(seg) > 0]
-            
-            if not valid_segments:
-                log_universal('ERROR', 'Audio', "No valid segments loaded from large file")
-                return None
-            
-            # Concatenate segments to create representative audio
-            representative_audio = np.concatenate(valid_segments)
-            total_duration = len(representative_audio) / DEFAULT_SAMPLE_RATE
-            
-            log_universal('INFO', 'Audio', f"Created representative audio: {len(representative_audio)} samples ({total_duration:.1f}s) from {len(valid_segments)} segments")
-            log_universal('INFO', 'Audio', f"Representative audio covers {total_duration/duration*100:.1f}% of original file")
-            
-            return representative_audio
-            
-        except Exception as e:
-            log_universal('ERROR', 'Audio', f"Error in true streaming analysis: {e}")
-            return None
+        # Use the simplified Essentia-based loading (no streaming needed for files up to 15 minutes)
+        return self._safe_audio_load(audio_path)
 
     @timeout(30, "Metadata extraction timed out")  # 30 seconds for metadata
     def _extract_metadata(self, audio_path: str) -> Dict[str, Any]:

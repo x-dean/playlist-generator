@@ -160,7 +160,7 @@ def setup_logging(
         # Console handler with color support
         if console_logging:
             if console_format is None:
-                console_format = "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+                console_format = "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - {message}"
             
             logger.add(
                 sys.stdout,
@@ -320,12 +320,36 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     caller_module = inspect.getmodule(caller_frame)
     module_name = caller_module.__name__ if caller_module else 'unknown'
     
-    # Create structured message with component prefix
-    structured_message = f"{component}: {message}"
-    
-    # Add component color if available
-    if COLORAMA_AVAILABLE and component in COMPONENT_COLORS:
-        structured_message = f"{COMPONENT_COLORS[component]}{component}{Fore.RESET}: {message}"
+    # Create structured message with component prefix and color
+    if LOGURU_AVAILABLE and component in COMPONENT_COLORS:
+        # Use Loguru color tags for component colors
+        color_map = {
+            'MB API': '<blue>',
+            'LF API': '<magenta>',
+            'Enrichment': '<cyan>',
+            'Analysis': '<yellow>',
+            'Database': '<green>',
+            'Cache': '<white>',
+            'Worker': '<white>',
+            'Sequential': '<blue>',
+            'Parallel': '<magenta>',
+            'Resource': '<cyan>',
+            'Progress': '<yellow>',
+            'Playlist': '<green>',
+            'Streaming': '<white>',
+            'CLI': '<white>',
+            'Config': '<blue>',
+            'Export': '<magenta>',
+            'Pipeline': '<cyan>',
+            'System': '<yellow>',
+            'Audio': '<green>',
+            'CPU Optimizer': '<cyan>',
+            'FileDiscovery': '<blue>'
+        }
+        color_tag = color_map.get(component, '<white>')
+        structured_message = f"{color_tag}{component}</>: {message}"
+    else:
+        structured_message = f"{component}: {message}"
     
     # Handle TRACE level mapping
     if level.upper() == 'TRACE':
