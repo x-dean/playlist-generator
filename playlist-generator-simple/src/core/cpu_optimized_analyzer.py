@@ -109,27 +109,27 @@ class CPUOptimizedAnalyzer:
         Returns:
             List of melspectrogram arrays
         """
-        logger.info(f"Extracting melspectrograms for {len(audio_files)} files")
+        log_universal('INFO', 'CPU Optimizer', f"Extracting melspectrograms for {len(audio_files)} files")
         start_time = time.time()
         
         try:
             if self.pool and len(audio_files) > 1:
                 # Parallel processing
                 results = self.pool.map(self._extract_melspectrogram_worker, audio_files)
-                logger.info(f"Parallel extraction completed in {time.time() - start_time:.2f}s")
+                log_universal('INFO', 'CPU Optimizer', f"Parallel extraction completed in {time.time() - start_time:.2f}s")
             else:
                 # Sequential processing
                 results = [self._extract_melspectrogram_worker(file) for file in audio_files]
-                logger.info(f"Sequential extraction completed in {time.time() - start_time:.2f}s")
+                log_universal('INFO', 'CPU Optimizer', f"Sequential extraction completed in {time.time() - start_time:.2f}s")
             
             # Filter out None results (failed extractions)
             valid_results = [r for r in results if r is not None]
-            logger.info(f"Successfully extracted {len(valid_results)}/{len(audio_files)} melspectrograms")
+            log_universal('INFO', 'CPU Optimizer', f"Successfully extracted {len(valid_results)}/{len(audio_files)} melspectrograms")
             
             return valid_results
             
         except Exception as e:
-            logger.error(f"Error in batch melspectrogram extraction: {e}")
+            log_universal('ERROR', 'CPU Optimizer', f"Error in batch melspectrogram extraction: {e}")
             return []
     
     def _extract_melspectrogram_worker(self, audio_file: str) -> Optional[np.ndarray]:
@@ -148,11 +148,11 @@ class CPUOptimizedAnalyzer:
             elif LIBROSA_AVAILABLE:
                 return self._extract_melspectrogram_librosa(audio_file)
             else:
-                logger.error("No audio library available for melspectrogram extraction")
+                log_universal('ERROR', 'CPU Optimizer', "No audio library available for melspectrogram extraction")
                 return None
                 
         except Exception as e:
-            logger.warning(f"️ Failed to extract melspectrogram from {audio_file}: {e}")
+            log_universal('WARNING', 'CPU Optimizer', f"️ Failed to extract melspectrogram from {audio_file}: {e}")
             return None
     
     def _extract_melspectrogram_essentia(self, audio_file: str) -> Optional[np.ndarray]:
@@ -195,7 +195,7 @@ class CPUOptimizedAnalyzer:
                 return None
                 
         except Exception as e:
-            logger.warning(f"️ Essentia melspectrogram extraction failed: {e}")
+            log_universal('WARNING', 'CPU Optimizer', f"️ Essentia melspectrogram extraction failed: {e}")
             return None
     
     def _extract_melspectrogram_librosa(self, audio_file: str) -> Optional[np.ndarray]:
@@ -226,7 +226,7 @@ class CPUOptimizedAnalyzer:
             return mel_spectrogram_db.T
             
         except Exception as e:
-            logger.warning(f"️ Librosa melspectrogram extraction failed: {e}")
+            log_universal('WARNING', 'CPU Optimizer', f"️ Librosa melspectrogram extraction failed: {e}")
             return None
     
     def process_audio_batch(self, audio_files: List[str], 
@@ -241,7 +241,7 @@ class CPUOptimizedAnalyzer:
         Returns:
             List of processing results
         """
-        logger.info(f"Processing {len(audio_files)} audio files in batches of {batch_size}")
+        log_universal('INFO', 'CPU Optimizer', f"Processing {len(audio_files)} audio files in batches of {batch_size}")
         
         results = []
         total_batches = (len(audio_files) + batch_size - 1) // batch_size
@@ -251,7 +251,7 @@ class CPUOptimizedAnalyzer:
             end_idx = min(start_idx + batch_size, len(audio_files))
             batch_files = audio_files[start_idx:end_idx]
             
-            logger.info(f"Processing batch {batch_idx + 1}/{total_batches} ({len(batch_files)} files)")
+            log_universal('INFO', 'CPU Optimizer', f"Processing batch {batch_idx + 1}/{total_batches} ({len(batch_files)} files)")
             
             # Extract melspectrograms for this batch
             melspectrograms = self.extract_melspectrograms_batch(batch_files)
@@ -280,7 +280,7 @@ class CPUOptimizedAnalyzer:
         
         # Log summary
         successful = sum(1 for r in results if r['success'])
-        logger.info(f"Batch processing completed: {successful}/{len(results)} successful")
+        log_universal('INFO', 'CPU Optimizer', f"Batch processing completed: {successful}/{len(results)} successful")
         
         return results
     
@@ -294,7 +294,7 @@ class CPUOptimizedAnalyzer:
         Returns:
             List of MusicNN-ready features
         """
-        logger.info(f"Optimizing for MusicNN: {len(audio_files)} files")
+        log_universal('INFO', 'CPU Optimizer', f"Optimizing for MusicNN: {len(audio_files)} files")
         
         # MusicNN-specific parameters
         musicnn_sample_rate = 16000  # MusicNN expects 16kHz
@@ -342,7 +342,7 @@ class CPUOptimizedAnalyzer:
         if self.pool:
             self.pool.close()
             self.pool.join()
-            logger.info("Processing pool closed")
+            log_universal('INFO', 'CPU Optimizer', "Processing pool closed")
 
 
 # Global analyzer instance

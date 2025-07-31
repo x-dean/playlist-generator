@@ -276,13 +276,13 @@ def setup_logging(
         start_log_level_monitor()
     
     # Log initialization
-    logger.info("Logging system initialized")
-    logger.info(f"Log level: {log_level}")
-    logger.info(f"Log directory: {log_dir}")
-    logger.info(f"Console logging: {console_logging}")
-    logger.info(f"File logging: {file_logging}")
-    logger.info(f"Colored output: {colored_output}")
-    logger.info(f"File format: {log_file_format}")
+    log_universal('INFO', 'System', "Logging system initialized")
+    log_universal('INFO', 'System', f"Log level: {log_level}")
+    log_universal('INFO', 'System', f"Log directory: {log_dir}")
+    log_universal('INFO', 'System', f"Console logging: {console_logging}")
+    log_universal('INFO', 'System', f"File logging: {file_logging}")
+    log_universal('INFO', 'System', f"Colored output: {colored_output}")
+    log_universal('INFO', 'System', f"File format: {log_file_format}")
     
     _log_setup_complete = True
     return logger
@@ -310,12 +310,11 @@ def change_log_level(new_level: str) -> bool:
         for handler in logger.handlers:
             handler.setLevel(level)
         
-        logger.info(f"Log level changed to: {new_level.upper()}")
+        log_universal('INFO', 'System', f"Log level changed to: {new_level.upper()}")
         return True
         
     except Exception as e:
-        logger = logging.getLogger('playlista')
-        logger.error(f"Failed to change log level: {e}")
+        log_universal('ERROR', 'System', f"Failed to change log level: {e}")
         return False
 
 
@@ -331,19 +330,16 @@ def monitor_log_level_changes():
             
             if current_level != last_level:
                 if change_log_level(current_level):
-                    logger = logging.getLogger('playlista')
-                    logger.info(f"Environment LOG_LEVEL changed from {last_level} to {current_level}")
-                    logger.info(f"Log level updated to: {current_level}")
+                    log_universal('INFO', 'System', f"Environment LOG_LEVEL changed from {last_level} to {current_level}")
+                    log_universal('INFO', 'System', f"Log level updated to: {current_level}")
                     last_level = current_level
                 else:
-                    logger = logging.getLogger('playlista')
-                    logger.error(f"Failed to update log level to: {current_level}")
+                    log_universal('ERROR', 'System', f"Failed to update log level to: {current_level}")
             
             time.sleep(5)  # Check every 5 seconds
             
         except Exception as e:
-            logger = logging.getLogger('playlista')
-            logger.error(f"Error in log level monitor: {e}")
+            log_universal('ERROR', 'System', f"Error in log level monitor: {e}")
             time.sleep(10)  # Wait longer on error
 
 
@@ -375,18 +371,17 @@ def setup_signal_handlers():
             new_level = levels[next_index]
             
             if change_log_level(new_level):
-                logger.info(f"Log level cycled to: {new_level}")
+                log_universal('INFO', 'System', f"Log level cycled to: {new_level}")
             else:
-                logger.error(f"Failed to change log level")
+                log_universal('ERROR', 'System', f"Failed to change log level")
         except Exception as e:
-            logger.error(f"Error changing log level: {e}")
+            log_universal('ERROR', 'System', f"Error changing log level: {e}")
     
     # Register signal handlers
     try:
         signal.signal(signal.SIGUSR1, cycle_log_level)
-        logger = logging.getLogger('playlista')
-        logger.info("Log level control: Send SIGUSR1 signal to cycle through log levels")
-        logger.info("  Example: docker compose exec playlista kill -SIGUSR1 1")
+        log_universal('INFO', 'System', "Log level control: Send SIGUSR1 signal to cycle through log levels")
+        log_universal('INFO', 'System', "  Example: docker compose exec playlista kill -SIGUSR1 1")
     except (AttributeError, OSError):
         # Windows doesn't support SIGUSR1
         pass
@@ -420,10 +415,10 @@ def _setup_external_logging(logger: logging.Logger, log_dir: str, file_logging: 
             tf_handler.setFormatter(TextFormatter())
             tf_logger.addHandler(tf_handler)
         
-        logger.debug("TensorFlow logging configured")
+        log_universal('DEBUG', 'System', "TensorFlow logging configured")
         
     except ImportError:
-        logger.debug("TensorFlow not available - skipping TF logging setup")
+        log_universal('DEBUG', 'System', "TensorFlow not available - skipping TF logging setup")
     
     # Essentia logging
     try:
@@ -443,10 +438,10 @@ def _setup_external_logging(logger: logging.Logger, log_dir: str, file_logging: 
             essentia_handler.setFormatter(TextFormatter())
             essentia_logger.addHandler(essentia_handler)
         
-        logger.debug("Essentia logging configured")
+        log_universal('DEBUG', 'System', "Essentia logging configured")
         
     except ImportError:
-        logger.debug("Essentia not available - skipping Essentia logging setup")
+        log_universal('DEBUG', 'System', "Essentia not available - skipping Essentia logging setup")
 
 
 def get_logger(name: str = None) -> logging.Logger:
@@ -472,14 +467,13 @@ def get_logger(name: str = None) -> logging.Logger:
 def log_function_call(func):
     """Decorator to log function calls."""
     def wrapper(*args, **kwargs):
-        logger = logging.getLogger('playlista')
-        logger.debug(f"Calling {func.__name__} with args={args}, kwargs={kwargs}")
+        log_universal('DEBUG', 'System', f"Calling {func.__name__} with args={args}, kwargs={kwargs}")
         try:
             result = func(*args, **kwargs)
-            logger.debug(f"{func.__name__} completed successfully")
+            log_universal('DEBUG', 'System', f"{func.__name__} completed successfully")
             return result
         except Exception as e:
-            logger.error(f"{func.__name__} failed with error: {e}")
+            log_universal('ERROR', 'System', f"{func.__name__} failed with error: {e}")
             raise
     return wrapper
 
@@ -543,21 +537,9 @@ def log_api_call(api_name: str, operation: str, target: str, success: bool = Tru
     if duration:
         message += f" ({duration:.2f}s)"
     
-    # Log with appropriate level
-    if success:
-        logger.log(logging.INFO, f"{api_name}: {message}", extra={'extra_fields': kwargs})
-    else:
-        if details:
-            logger.error(f"{message}: {details}", exc_info=True)
-        else:
-            logger.error(message)
-    
-    # Also log to universal function for consistency
-    record = logger.makeRecord(
-        logger.name, logging.INFO, __file__, 0, message, (), None
-    )
-    logger.handle(record)
-    logger.info(message)
+    # Use log_universal for consistency
+    log_level = 'INFO' if success else 'ERROR'
+    log_universal(log_level, api_name, message, **kwargs)
 
 
 def cleanup_logging():

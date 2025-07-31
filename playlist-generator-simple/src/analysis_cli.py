@@ -16,7 +16,7 @@ from core.resource_manager import ResourceManager
 from core.audio_analyzer import AudioAnalyzer
 from core.database import DatabaseManager
 from core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
-from core.logging_setup import get_logger, setup_logging
+from core.logging_setup import get_logger, setup_logging, log_universal
 from core.config_loader import config_loader
 
 # Initialize logging system from config
@@ -51,7 +51,7 @@ logger = get_logger('playlista.analysis_cli')
 
 def analyze_files(args):
     """Analyze audio files using the analysis manager."""
-    logger.info("Starting file analysis")
+    log_universal('INFO', 'CLI', "Starting file analysis")
     
     try:
         # Create analysis manager
@@ -65,10 +65,10 @@ def analyze_files(args):
         )
         
         if not files:
-            logger.warning("️ No files found for analysis")
+            log_universal('WARNING', 'CLI', "️ No files found for analysis")
             return
         
-        logger.info(f"Found {len(files)} files to analyze")
+        log_universal('INFO', 'CLI', f"Found {len(files)} files to analyze")
         
         # Analyze files
         results = analysis_manager.analyze_files(
@@ -78,23 +78,23 @@ def analyze_files(args):
         )
         
         # Display results
-        logger.info("Analysis Results:")
-        logger.info(f"  Success: {results['success_count']}")
-        logger.info(f"  Failed: {results['failed_count']}")
-        logger.info(f"  Total time: {results['total_time']:.2f}s")
+        log_universal('INFO', 'CLI', "Analysis Results:")
+        log_universal('INFO', 'CLI', f"  Success: {results['success_count']}")
+        log_universal('INFO', 'CLI', f"  Failed: {results['failed_count']}")
+        log_universal('INFO', 'CLI', f"  Total time: {results['total_time']:.2f}s")
         
         if 'big_files_processed' in results:
-            logger.info(f"  Large files: {results['big_files_processed']}")
+            log_universal('INFO', 'CLI', f"  Large files: {results['big_files_processed']}")
         if 'small_files_processed' in results:
-            logger.info(f"  Small files: {results['small_files_processed']}")
+            log_universal('INFO', 'CLI', f"  Small files: {results['small_files_processed']}")
         
     except Exception as e:
-        logger.error(f"Analysis failed: {e}")
+        log_universal('ERROR', 'CLI', f"Analysis failed: {e}")
 
 
 def show_statistics(args):
     """Show analysis and resource statistics."""
-    logger.info("Showing statistics")
+    log_universal('INFO', 'CLI', "Showing statistics")
     
     try:
         # Create managers
@@ -104,40 +104,40 @@ def show_statistics(args):
         
         # Analysis statistics
         analysis_stats = analysis_manager.get_analysis_statistics()
-        logger.info("Analysis Statistics:")
+        log_universal('INFO', 'CLI', "Analysis Statistics:")
         for key, value in analysis_stats.items():
             if key != 'database_stats':
-                logger.info(f"  {key}: {value}")
+                log_universal('INFO', 'CLI', f"  {key}: {value}")
         
         # Resource statistics
         resource_stats = resource_manager.get_resource_statistics(minutes=60)
-        logger.info("Resource Statistics (last hour):")
+        log_universal('INFO', 'CLI', "Resource Statistics (last hour):")
         for category, stats in resource_stats.items():
             if category != 'period_minutes' and category != 'data_points':
-                logger.info(f"  {category}:")
+                log_universal('INFO', 'CLI', f"  {category}:")
                 for metric, value in stats.items():
-                    logger.info(f"    {metric}: {value:.2f}")
+                    log_universal('INFO', 'CLI', f"    {metric}: {value:.2f}")
         
         # Database statistics
         db_stats = db_manager.get_database_statistics()
-        logger.info("Database Statistics:")
+        log_universal('INFO', 'CLI', "Database Statistics:")
         for key, value in db_stats.items():
-            logger.info(f"  {key}: {value}")
+            log_universal('INFO', 'CLI', f"  {key}: {value}")
         
     except Exception as e:
-        logger.error(f"Error getting statistics: {e}")
+        log_universal('ERROR', 'CLI', f"Error getting statistics: {e}")
 
 
 def test_audio_analyzer(args):
     """Test the audio analyzer with a specific file."""
-    logger.info("Testing audio analyzer")
+    log_universal('INFO', 'CLI', "Testing audio analyzer")
     
     if not args.file:
-        logger.error("Please specify a file with --file")
+        log_universal('ERROR', 'CLI', "Please specify a file with --file")
         return
     
     if not os.path.exists(args.file):
-        logger.error(f"File not found: {args.file}")
+        log_universal('ERROR', 'CLI', f"File not found: {args.file}")
         return
     
     try:
@@ -148,34 +148,34 @@ def test_audio_analyzer(args):
         result = audio_analyzer.extract_features(args.file, force_reextract=args.force)
         
         if result:
-            logger.info("Feature extraction successful")
-            logger.info(f"Features extracted: {len(result.get('features', {}))}")
+            log_universal('INFO', 'CLI', "Feature extraction successful")
+            log_universal('INFO', 'CLI', f"Features extracted: {len(result.get('features', {}))}")
             
             # Show some key features
             features = result.get('features', {})
             if 'bpm' in features:
-                logger.info(f"BPM: {features['bpm']}")
+                log_universal('INFO', 'CLI', f"BPM: {features['bpm']}")
             if 'loudness' in features:
-                logger.info(f"Loudness: {features['loudness']}")
+                log_universal('INFO', 'CLI', f"Loudness: {features['loudness']}")
             if 'key' in features:
-                logger.info(f"Key: {features['key']}")
+                log_universal('INFO', 'CLI', f"Key: {features['key']}")
             
             # Show metadata
             metadata = result.get('metadata', {})
             if metadata:
-                logger.info("Metadata:")
+                log_universal('INFO', 'CLI', "Metadata:")
                 for key, value in metadata.items():
-                    logger.info(f"  {key}: {value}")
+                    log_universal('INFO', 'CLI', f"  {key}: {value}")
         else:
-            logger.error("Feature extraction failed")
+            log_universal('ERROR', 'CLI', "Feature extraction failed")
         
     except Exception as e:
-        logger.error(f"Audio analyzer test failed: {e}")
+        log_universal('ERROR', 'CLI', f"Audio analyzer test failed: {e}")
 
 
 def monitor_resources(args):
     """Monitor system resources in real-time."""
-    logger.info("Starting resource monitoring")
+    log_universal('INFO', 'CLI', "Starting resource monitoring")
     
     try:
         # Create resource manager
@@ -184,8 +184,8 @@ def monitor_resources(args):
         # Start monitoring
         resource_manager.start_monitoring()
         
-        logger.info("Resource monitoring started (press Ctrl+C to stop)")
-        logger.info("Monitoring interval: {} seconds".format(
+        log_universal('INFO', 'CLI', "Resource monitoring started (press Ctrl+C to stop)")
+        log_universal('INFO', 'CLI', "Monitoring interval: {} seconds".format(
             resource_manager.monitoring_interval
         ))
         
@@ -201,21 +201,21 @@ def monitor_resources(args):
                     resources = resource_manager.get_current_resources()
                     if 'memory' in resources:
                         memory = resources['memory']
-                        logger.info(f"Memory: {memory['used_gb']:.2f}GB used ({memory['percent']:.1f}%)")
+                        log_universal('INFO', 'CLI', f"Memory: {memory['used_gb']:.2f}GB used ({memory['percent']:.1f}%)")
                     if 'cpu_percent' in resources:
-                        logger.info(f"️ CPU: {resources['cpu_percent']:.1f}%")
+                        log_universal('INFO', 'CLI', f"️ CPU: {resources['cpu_percent']:.1f}%")
         except KeyboardInterrupt:
-            logger.info("Stopping resource monitoring")
+            log_universal('INFO', 'CLI', "Stopping resource monitoring")
         finally:
             resource_manager.stop_monitoring()
         
     except Exception as e:
-        logger.error(f"Resource monitoring failed: {e}")
+        log_universal('ERROR', 'CLI', f"Resource monitoring failed: {e}")
 
 
 def cleanup_failed(args):
     """Clean up failed analysis entries."""
-    logger.info("Cleaning up failed analysis entries")
+    log_universal('INFO', 'CLI', "Cleaning up failed analysis entries")
     
     try:
         # Create analysis manager
@@ -226,15 +226,15 @@ def cleanup_failed(args):
             max_retries=args.max_retries
         )
         
-        logger.info(f"Cleaned up {cleaned_count} failed analysis entries")
+        log_universal('INFO', 'CLI', f"Cleaned up {cleaned_count} failed analysis entries")
         
     except Exception as e:
-        logger.error(f"Cleanup failed: {e}")
+        log_universal('ERROR', 'CLI', f"Cleanup failed: {e}")
 
 
 def generate_playlists(args):
     """Generate playlists using analyzed tracks."""
-    logger.info("Starting playlist generation")
+    log_universal('INFO', 'CLI', "Starting playlist generation")
     
     try:
         # Create playlist generator
@@ -248,39 +248,39 @@ def generate_playlists(args):
         )
         
         if not playlists:
-            logger.warning("️ No playlists generated")
+            log_universal('WARNING', 'CLI', "️ No playlists generated")
             return
         
         # Display results
-        logger.info("Playlist Generation Results:")
-        logger.info(f"  Total playlists: {len(playlists)}")
+        log_universal('INFO', 'CLI', "Playlist Generation Results:")
+        log_universal('INFO', 'CLI', f"  Total playlists: {len(playlists)}")
         
         for name, playlist in playlists.items():
-            logger.info(f"  {name}: {playlist.size} tracks")
+            log_universal('INFO', 'CLI', f"  {name}: {playlist.size} tracks")
         
         # Save playlists if requested
         if args.save:
             output_dir = args.output_dir or 'playlists'
             success = playlist_generator.save_playlists(playlists, output_dir)
             if success:
-                logger.info(f"Playlists saved to {output_dir}")
+                log_universal('INFO', 'CLI', f"Playlists saved to {output_dir}")
             else:
-                logger.error(f"Failed to save playlists")
+                log_universal('ERROR', 'CLI', f"Failed to save playlists")
         
         # Show statistics
         stats = playlist_generator.get_playlist_statistics(playlists)
-        logger.info("Playlist Statistics:")
-        logger.info(f"  Total tracks: {stats.get('total_tracks', 0)}")
-        logger.info(f"  Average size: {stats.get('average_playlist_size', 0):.1f}")
-        logger.info(f"  Size range: {stats.get('min_playlist_size', 0)} - {stats.get('max_playlist_size', 0)}")
+        log_universal('INFO', 'CLI', "Playlist Statistics:")
+        log_universal('INFO', 'CLI', f"  Total tracks: {stats.get('total_tracks', 0)}")
+        log_universal('INFO', 'CLI', f"  Average size: {stats.get('average_playlist_size', 0):.1f}")
+        log_universal('INFO', 'CLI', f"  Size range: {stats.get('min_playlist_size', 0)} - {stats.get('max_playlist_size', 0)}")
         
     except Exception as e:
-        logger.error(f"Playlist generation failed: {e}")
+        log_universal('ERROR', 'CLI', f"Playlist generation failed: {e}")
 
 
 def list_playlist_methods(args):
     """List available playlist generation methods."""
-    logger.info("Available playlist generation methods:")
+    log_universal('INFO', 'CLI', "Available playlist generation methods:")
     
     methods = [
         ("kmeans", "K-means clustering based on audio features"),
@@ -295,7 +295,7 @@ def list_playlist_methods(args):
     ]
     
     for method, description in methods:
-        logger.info(f"  {method}: {description}")
+        log_universal('INFO', 'CLI', f"  {method}: {description}")
 
 
 def main():
@@ -384,7 +384,7 @@ Examples:
     try:
         args.func(args)
     except Exception as e:
-        logger.error(f"Command failed: {e}")
+        log_universal('ERROR', 'CLI', f"Command failed: {e}")
         return 1
     
     return 0

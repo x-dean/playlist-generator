@@ -122,7 +122,7 @@ class ConfigLoader:
             'LOG_FILE_FORMAT': 'LOG_FILE_FORMAT',
             'LOG_FILE_INCLUDE_EXTRA_FIELDS': 'LOG_FILE_INCLUDE_EXTRA_FIELDS',
             'LOG_FILE_INCLUDE_EXCEPTION_DETAILS': 'LOG_FILE_INCLUDE_EXCEPTION_DETAILS',
-            'LOG_PERFORMANCE_ENABLED': 'LOG_PERFORMANCE_ENABLED',
+    
             'LOG_FUNCTION_CALLS_ENABLED': 'LOG_FUNCTION_CALLS_ENABLED',
             'LOG_ENVIRONMENT_MONITORING': 'LOG_ENVIRONMENT_MONITORING',
             'LOG_SIGNAL_HANDLING_ENABLED': 'LOG_SIGNAL_HANDLING_ENABLED',
@@ -162,7 +162,7 @@ class ConfigLoader:
             if env_var in os.environ:
                 value = os.environ[env_var]
                 config[config_key] = self._convert_value(value)
-                logger.debug(f"Loaded from environment: {config_key} = {config[config_key]}")
+                log_universal('DEBUG', 'Config', f"Loaded from environment: {config_key} = {config[config_key]}")
         
         return config
     
@@ -257,7 +257,7 @@ class ConfigLoader:
             'LOG_FILE_FORMAT',
             'LOG_FILE_INCLUDE_EXTRA_FIELDS',
             'LOG_FILE_INCLUDE_EXCEPTION_DETAILS',
-            'LOG_PERFORMANCE_ENABLED',
+    
             'LOG_FUNCTION_CALLS_ENABLED',
             'LOG_ENVIRONMENT_MONITORING',
             'LOG_SIGNAL_HANDLING_ENABLED',

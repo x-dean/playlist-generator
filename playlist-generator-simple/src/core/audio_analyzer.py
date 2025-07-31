@@ -287,14 +287,14 @@ class AudioAnalyzer:
         # Check library availability
         self._check_library_availability()
         
-        logger.info(f"Initializing AudioAnalyzer v{self.VERSION}")
+        log_universal('INFO', 'Audio', f"Initializing AudioAnalyzer v{self.VERSION}")
         # Configuration loaded successfully
-        logger.info(f"AudioAnalyzer initialized successfully")
+        log_universal('INFO', 'Audio', f"AudioAnalyzer initialized successfully")
 
     def _init_musicnn(self):
         """Initialize MusiCNN model if available."""
         if not TENSORFLOW_AVAILABLE or not ESSENTIA_AVAILABLE:
-            logger.warning("TensorFlow or Essentia not available - MusiCNN disabled")
+            log_universal('WARNING', 'Audio', "TensorFlow or Essentia not available - MusiCNN disabled")
             return
         
         try:
@@ -306,43 +306,43 @@ class AudioAnalyzer:
                     input='model/Placeholder',
                     output='model/Sigmoid'
                 )
-                logger.info("MusiCNN model loaded successfully")
+                log_universal('INFO', 'Audio', "MusiCNN model loaded successfully")
             else:
-                logger.warning(f"MusiCNN model files not found:")
-                logger.warning(f"  Model: {self.musicnn_model_path}")
-                logger.warning(f"  Config: {self.musicnn_json_path}")
+                log_universal('WARNING', 'Audio', f"MusiCNN model files not found:")
+                log_universal('WARNING', 'Audio', f"  Model: {self.musicnn_model_path}")
+                log_universal('WARNING', 'Audio', f"  Config: {self.musicnn_json_path}")
         except Exception as e:
-            logger.warning(f"Could not initialize MusiCNN: {e}")
+            log_universal('WARNING', 'Audio', f"Could not initialize MusiCNN: {e}")
             self.musicnn_model = None
 
     def _check_library_availability(self):
         """Check availability of audio processing libraries."""
-        logger.debug("Checking audio processing library availability")
+        log_universal('DEBUG', 'Audio', "Checking audio processing library availability")
         
         if ESSENTIA_AVAILABLE:
-            logger.info("Essentia available for feature extraction")
+            log_universal('INFO', 'Audio', "Essentia available for feature extraction")
         else:
-            logger.warning("Essentia not available - limited features")
+            log_universal('WARNING', 'Audio', "Essentia not available - limited features")
         
         if LIBROSA_AVAILABLE:
-            logger.info("Librosa available for feature extraction")
+            log_universal('INFO', 'Audio', "Librosa available for feature extraction")
         else:
-            logger.warning("Librosa not available - limited features")
+            log_universal('WARNING', 'Audio', "Librosa not available - limited features")
         
         if MUTAGEN_AVAILABLE:
-            logger.info("Mutagen available for metadata extraction")
+            log_universal('INFO', 'Audio', "Mutagen available for metadata extraction")
         else:
-            logger.warning("Mutagen not available - no metadata")
+            log_universal('WARNING', 'Audio', "Mutagen not available - no metadata")
         
         if TENSORFLOW_AVAILABLE:
-            logger.info("TensorFlow available for MusiCNN features")
+            log_universal('INFO', 'Audio', "TensorFlow available for MusiCNN features")
         else:
-            logger.warning("TensorFlow not available - MusiCNN features disabled")
+            log_universal('WARNING', 'Audio', "TensorFlow not available - MusiCNN features disabled")
         
         if self.musicnn_model is not None:
-            logger.info("MusiCNN model loaded successfully")
+            log_universal('INFO', 'Audio', "MusiCNN model loaded successfully")
         else:
-            logger.warning("MusiCNN model not available - advanced features disabled")
+            log_universal('WARNING', 'Audio', "MusiCNN model not available - advanced features disabled")
 
     @log_function_call
     def extract_features(self, audio_path: str, analysis_config: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
@@ -365,21 +365,21 @@ class AudioAnalyzer:
         # Check resource manager for forced guidance
         forced_guidance = self._get_forced_guidance()
         if forced_guidance['force_basic_analysis']:
-            logger.warning(f"Resource manager forcing basic analysis: {forced_guidance['reason']}")
+            log_universal('WARNING', 'Audio', f"Resource manager forcing basic analysis: {forced_guidance['reason']}")
             analysis_config = self._apply_forced_basic_config(analysis_config)
         
         analysis_type = analysis_config.get('analysis_type', 'basic')
         features_config = analysis_config.get('features_config', {})
         
-        logger.info(f"Extracting {analysis_type} features from: {filename}")
-        logger.debug(f"Feature config: {features_config}")
+        log_universal('INFO', 'Audio', f"Extracting {analysis_type} features from: {filename}")
+        log_universal('DEBUG', 'Audio', f"Feature config: {features_config}")
         
         start_time = time.time()
         
         try:
             # Check if file exists
             if not os.path.exists(audio_path):
-                logger.error(f"File not found: {audio_path}")
+                log_universal('ERROR', 'Audio', f"File not found: {audio_path}")
                 return None
             
             # Get file info
@@ -391,7 +391,7 @@ class AudioAnalyzer:
             # Load audio
             audio = self._safe_audio_load(audio_path)
             if audio is None:
-                logger.error(f"Failed to load audio: {filename}")
+                log_universal('ERROR', 'Audio', f"Failed to load audio: {filename}")
                 return None
             
             # Check file size and set appropriate timeout
@@ -404,13 +404,13 @@ class AudioAnalyzer:
             is_extremely_large_for_processing = audio_length > EXTREMELY_LARGE_PROCESSING_THRESHOLD
             
             if is_extremely_large_for_processing:
-                logger.warning(f"Extremely large file detected ({audio_length} samples), using minimal features only")
+                log_universal('WARNING', 'Audio', f"Extremely large file detected ({audio_length} samples), using minimal features only")
             elif is_extremely_large:
-                logger.warning(f"Very large file detected ({audio_length} samples), skipping some features")
+                log_universal('WARNING', 'Audio', f"Very large file detected ({audio_length} samples), skipping some features")
             elif is_large_file:
-                logger.info(f"Large file detected ({audio_length} samples), using extended timeout")
+                log_universal('INFO', 'Audio', f"Large file detected ({audio_length} samples), using extended timeout")
             
-            logger.info(f"Using timeout: {timeout_seconds} seconds")
+            log_universal('INFO', 'Audio', f"Using timeout: {timeout_seconds} seconds")
             
             # Extract metadata (always enabled)
             metadata = self._extract_metadata(audio_path)
@@ -424,19 +424,19 @@ class AudioAnalyzer:
                 features = extract_with_timeout()
                 
                 if features is None:
-                    logger.error(f"Failed to extract features: {filename}")
+                    log_universal('ERROR', 'Audio', f"Failed to extract features: {filename}")
                     return None
                     
             except TimeoutException as te:
-                logger.error(f"Analysis timed out for {filename}: {te}")
+                log_universal('ERROR', 'Audio', f"Analysis timed out for {filename}: {te}")
                 return None
             except Exception as e:
-                logger.error(f"Analysis failed for {filename}: {e}")
+                log_universal('ERROR', 'Audio', f"Analysis failed for {filename}: {e}")
                 return None
             
             # Validate features
             if not self._validate_features(features):
-                logger.warning(f"Features validation failed: {filename}")
+                log_universal('WARNING', 'Audio', f"Features validation failed: {filename}")
                 return None
             
             # Prepare result
@@ -456,7 +456,7 @@ class AudioAnalyzer:
             }
             
             extract_time = time.time() - start_time
-            logger.info(f"Successfully extracted {analysis_type} features from {filename} in {extract_time:.2f}s")
+            log_universal('INFO', 'Audio', f"Successfully extracted {analysis_type} features from {filename} in {extract_time:.2f}s")
             
             # Log performance
             log_universal('INFO', 'Audio', f"Audio feature extraction completed in {extract_time:.2f}s")
@@ -464,10 +464,10 @@ class AudioAnalyzer:
             return result
             
         except TimeoutException:
-            logger.error(f"⏰ Analysis timed out for {filename}")
+            log_universal('ERROR', 'Audio', f"⏰ Analysis timed out for {filename}")
             return None
         except Exception as e:
-            logger.error(f"Error extracting features from {filename}: {e}")
+            log_universal('ERROR', 'Audio', f"Error extracting features from {filename}: {e}")
             return None
 
     def _get_default_analysis_config(self) -> Dict[str, Any]:
@@ -497,7 +497,7 @@ class AudioAnalyzer:
             from .resource_manager import get_resource_manager
             return get_resource_manager().get_forced_analysis_guidance()
         except Exception as e:
-            logger.warning(f"Could not get resource manager guidance: {e}")
+            log_universal('WARNING', 'Audio', f"Could not get resource manager guidance: {e}")
             return {
                 'force_basic_analysis': False,
                 'reason': 'Resource manager unavailable',
@@ -545,22 +545,22 @@ class AudioAnalyzer:
                 audio = MutagenFile(audio_path)
                 if audio is not None:
                     duration = audio.info.length
-                    logger.debug(f"Got duration from mutagen: {duration:.2f}s")
+                    log_universal('DEBUG', 'Audio', f"Got duration from mutagen: {duration:.2f}s")
                     return duration
             except Exception as e:
-                logger.debug(f"Could not get duration from mutagen: {e}")
+                log_universal('DEBUG', 'Audio', f"Could not get duration from mutagen: {e}")
         
         # Try soundfile as last resort (avoid audioread warnings)
         if SOUNDFILE_AVAILABLE:
             try:
                 info = sf.info(audio_path)
                 duration = info.duration
-                logger.debug(f"Got duration from soundfile: {duration:.2f}s")
+                log_universal('DEBUG', 'Audio', f"Got duration from soundfile: {duration:.2f}s")
                 return duration
             except Exception as e:
-                logger.debug(f"Could not get duration from soundfile: {e}")
+                log_universal('DEBUG', 'Audio', f"Could not get duration from soundfile: {e}")
         
-        logger.warning(f"Could not get duration for {audio_path} using any method")
+        log_universal('WARNING', 'Audio', f"Could not get duration for {audio_path} using any method")
         return None
 
     def _safe_audio_load(self, audio_path: str) -> Optional[np.ndarray]:
@@ -577,23 +577,23 @@ class AudioAnalyzer:
             # Get file size to decide loading method
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             
-            logger.debug(f"Audio loading decision for {os.path.basename(audio_path)}:")
-            logger.debug(f"  File size: {file_size_mb:.1f}MB")
-            logger.debug(f"  Streaming enabled: {self.streaming_enabled}")
-            logger.debug(f"  Streaming threshold: {self.streaming_large_file_threshold_mb}MB")
-            logger.debug(f"  Streaming memory limit: {self.streaming_memory_limit_percent}%")
-            logger.debug(f"  Streaming chunk duration: {self.streaming_chunk_duration_seconds}s")
+            log_universal('DEBUG', 'Audio', f"Audio loading decision for {os.path.basename(audio_path)}:")
+            log_universal('DEBUG', 'Audio', f"  File size: {file_size_mb:.1f}MB")
+            log_universal('DEBUG', 'Audio', f"  Streaming enabled: {self.streaming_enabled}")
+            log_universal('DEBUG', 'Audio', f"  Streaming threshold: {self.streaming_large_file_threshold_mb}MB")
+            log_universal('DEBUG', 'Audio', f"  Streaming memory limit: {self.streaming_memory_limit_percent}%")
+            log_universal('DEBUG', 'Audio', f"  Streaming chunk duration: {self.streaming_chunk_duration_seconds}s")
             
             # Use streaming for large files to save memory
             if file_size_mb > self.streaming_large_file_threshold_mb and self.streaming_enabled:
-                logger.debug(f"Using streaming loading for {file_size_mb:.1f}MB file")
+                log_universal('DEBUG', 'Audio', f"Using streaming loading for {file_size_mb:.1f}MB file")
                 return self._load_audio_streaming(audio_path)
             else:
-                logger.debug(f"Using traditional loading for {file_size_mb:.1f}MB file")
+                log_universal('DEBUG', 'Audio', f"Using traditional loading for {file_size_mb:.1f}MB file")
                 return self._load_audio_traditional(audio_path)
                 
         except Exception as e:
-            logger.error(f"Error loading audio {audio_path}: {e}")
+            log_universal('ERROR', 'Audio', f"Error loading audio {audio_path}: {e}")
             return None
     
     def _load_audio_traditional(self, audio_path: str) -> Optional[np.ndarray]:
@@ -604,7 +604,7 @@ class AudioAnalyzer:
             # Try Essentia first (most reliable, no audioread warnings)
             if ESSENTIA_AVAILABLE:
                 try:
-                    logger.debug(f"Trying Essentia loading for {os.path.basename(audio_path)}")
+                    log_universal('DEBUG', 'Audio', f"Trying Essentia loading for {os.path.basename(audio_path)}")
                     loader = es.MonoLoader(
                         filename=audio_path,
                         sampleRate=DEFAULT_SAMPLE_RATE,
@@ -616,22 +616,22 @@ class AudioAnalyzer:
                     max_samples = DEFAULT_SAMPLE_RATE * 60
                     if len(audio) > max_samples:
                         audio = audio[:max_samples]
-                        logger.debug(f"Truncated audio to 60 seconds")
-                    logger.debug(f"Essentia loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                        log_universal('DEBUG', 'Audio', f"Truncated audio to 60 seconds")
+                    log_universal('DEBUG', 'Audio', f"Essentia loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
                     
                     # Force garbage collection for large files
                     if len(audio) > 500000:  # ~11 seconds at 44kHz - more aggressive
                         gc.collect()
-                        logger.debug("Forced garbage collection after loading audio file")
+                        log_universal('DEBUG', 'Audio', "Forced garbage collection after loading audio file")
                     
                     return audio
                 except Exception as e:
-                    logger.warning(f"Essentia loading failed: {e}")
+                    log_universal('WARNING', 'Audio', f"Essentia loading failed: {e}")
             
             # Try soundfile as fallback (no audioread warnings)
             if SOUNDFILE_AVAILABLE:
                 try:
-                    logger.debug(f"Trying soundfile loading for {os.path.basename(audio_path)}")
+                    log_universal('DEBUG', 'Audio', f"Trying soundfile loading for {os.path.basename(audio_path)}")
                     # Use soundfile with better error handling
                     audio, sr = sf.read(audio_path, dtype='float32')
                     if len(audio.shape) > 1:
@@ -651,10 +651,10 @@ class AudioAnalyzer:
                     max_samples = DEFAULT_SAMPLE_RATE * 60
                     if len(audio) > max_samples:
                         audio = audio[:max_samples]
-                    logger.debug(f"Soundfile loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                    log_universal('DEBUG', 'Audio', f"Soundfile loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
                     return audio
                 except Exception as e:
-                    logger.warning(f"Soundfile loading failed: {e}")
+                    log_universal('WARNING', 'Audio', f"Soundfile loading failed: {e}")
                     # Try with different dtype if float32 fails
                     try:
                         audio, sr = sf.read(audio_path, dtype='int16')
@@ -673,15 +673,15 @@ class AudioAnalyzer:
                         max_samples = DEFAULT_SAMPLE_RATE * 60
                         if len(audio) > max_samples:
                             audio = audio[:max_samples]
-                        logger.debug(f"Soundfile loaded audio (int16): {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                        log_universal('DEBUG', 'Audio', f"Soundfile loaded audio (int16): {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
                         return audio
                     except Exception as e2:
-                        logger.warning(f"Soundfile loading with int16 also failed: {e2}")
+                        log_universal('WARNING', 'Audio', f"Soundfile loading with int16 also failed: {e2}")
             
             # Try wave module for WAV files
             if WAVE_AVAILABLE and audio_path.lower().endswith('.wav'):
                 try:
-                    logger.debug(f"Trying wave loading for {os.path.basename(audio_path)}")
+                    log_universal('DEBUG', 'Audio', f"Trying wave loading for {os.path.basename(audio_path)}")
                     with wave.open(audio_path, 'rb') as wav_file:
                         frames = wav_file.readframes(wav_file.getnframes())
                         sr = wav_file.getframerate()
@@ -696,15 +696,15 @@ class AudioAnalyzer:
                         max_samples = DEFAULT_SAMPLE_RATE * 60
                         if len(audio) > max_samples:
                             audio = audio[:max_samples]
-                        logger.debug(f"Wave loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
+                        log_universal('DEBUG', 'Audio', f"Wave loaded audio: {len(audio)} samples, {DEFAULT_SAMPLE_RATE}Hz")
                         return audio
                 except Exception as e:
-                    logger.warning(f"Wave loading failed: {e}")
+                    log_universal('WARNING', 'Audio', f"Wave loading failed: {e}")
             
             # Try librosa as last resort with improved error handling
             if LIBROSA_AVAILABLE:
                 try:
-                    logger.debug(f"Trying librosa loading for {os.path.basename(audio_path)}")
+                    log_universal('DEBUG', 'Audio', f"Trying librosa loading for {os.path.basename(audio_path)}")
                     # Use librosa for loading with newer API to avoid deprecation warnings
                     import librosa
                     # Use librosa.load with explicit backend specification
@@ -715,16 +715,16 @@ class AudioAnalyzer:
                         duration=30.0,
                         res_type='kaiser_best'  # Use high-quality resampling
                     )
-                    logger.debug(f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
+                    log_universal('DEBUG', 'Audio', f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
                     
                     # Force garbage collection for large files
                     if len(audio) > 500000:  # ~11 seconds at 44kHz - more aggressive
                         gc.collect()
-                        logger.debug("Forced garbage collection after loading audio file")
+                        log_universal('DEBUG', 'Audio', "Forced garbage collection after loading audio file")
                     
                     return audio
                 except Exception as e:
-                    logger.warning(f"Librosa loading failed: {e}")
+                    log_universal('WARNING', 'Audio', f"Librosa loading failed: {e}")
                     # Try with different resampling type if kaiser_best fails
                     try:
                         audio, sr = librosa.load(
@@ -734,24 +734,24 @@ class AudioAnalyzer:
                             duration=30.0,
                             res_type='linear'  # Fallback to linear resampling
                         )
-                        logger.debug(f"Librosa loaded audio (linear): {len(audio)} samples, {sr}Hz")
+                        log_universal('DEBUG', 'Audio', f"Librosa loaded audio (linear): {len(audio)} samples, {sr}Hz")
                         return audio
                     except Exception as e2:
-                        logger.warning(f"Librosa loading with linear resampling also failed: {e2}")
+                        log_universal('WARNING', 'Audio', f"Librosa loading with linear resampling also failed: {e2}")
             
             # If all methods failed, create a dummy audio
-            logger.error("All audio loading methods failed")
-            logger.error(f"  Available libraries: Essentia={ESSENTIA_AVAILABLE}, Librosa={LIBROSA_AVAILABLE}, SoundFile={SOUNDFILE_AVAILABLE}, Wave={WAVE_AVAILABLE}")
+            log_universal('ERROR', 'Audio', "All audio loading methods failed")
+            log_universal('ERROR', 'Audio', f"  Available libraries: Essentia={ESSENTIA_AVAILABLE}, Librosa={LIBROSA_AVAILABLE}, SoundFile={SOUNDFILE_AVAILABLE}, Wave={WAVE_AVAILABLE}")
             
             # Create a dummy audio signal (1 second of silence)
-            logger.warning("Creating dummy audio signal for testing")
+            log_universal('WARNING', 'Audio', "Creating dummy audio signal for testing")
             dummy_audio = np.zeros(DEFAULT_SAMPLE_RATE, dtype=np.float32)
             return dummy_audio
                 
         except Exception as e:
-            logger.error(f"Error loading audio {audio_path}: {e}")
+            log_universal('ERROR', 'Audio', f"Error loading audio {audio_path}: {e}")
             # Create a dummy audio signal as fallback
-            logger.warning("Creating dummy audio signal as fallback")
+            log_universal('WARNING', 'Audio', "Creating dummy audio signal as fallback")
             dummy_audio = np.zeros(DEFAULT_SAMPLE_RATE, dtype=np.float32)
             return dummy_audio
     
@@ -772,7 +772,7 @@ class AudioAnalyzer:
             
             # For very large files, use sampling approach instead of full loading
             if file_size_mb > 50:  # Large file threshold
-                logger.info(f"Large file detected ({file_size_mb:.1f}MB) - using sampling approach")
+                log_universal('INFO', 'Audio', f"Large file detected ({file_size_mb:.1f}MB) - using sampling approach")
                 return self._load_audio_sampling(audio_path)
             
             # For smaller files, collect chunks and concatenate
@@ -782,27 +782,27 @@ class AudioAnalyzer:
             for chunk, start_time, end_time in streaming_loader.load_audio_chunks(audio_path):
                 chunks.append(chunk)
                 total_samples += len(chunk)
-                logger.debug(f"Loaded chunk: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
+                log_universal('DEBUG', 'Audio', f"Loaded chunk: {start_time:.1f}s - {end_time:.1f}s ({len(chunk)} samples)")
                 
                 # Limit total samples to prevent memory issues
                 if total_samples > DEFAULT_SAMPLE_RATE * 60:  # 60 seconds max
-                    logger.warning("Reached 60-second limit, truncating audio")
+                    log_universal('WARNING', 'Audio', "Reached 60-second limit, truncating audio")
                     break
             
             if not chunks:
-                logger.error("No chunks loaded from streaming loader")
-                logger.warning("Falling back to traditional loading...")
+                log_universal('ERROR', 'Audio', "No chunks loaded from streaming loader")
+                log_universal('WARNING', 'Audio', "Falling back to traditional loading...")
                 return self._load_audio_traditional(audio_path)
             
             # Concatenate all chunks
             audio = np.concatenate(chunks)
-            logger.debug(f"Concatenated audio: {len(audio)} samples total")
+            log_universal('DEBUG', 'Audio', f"Concatenated audio: {len(audio)} samples total")
             
             return audio
             
         except Exception as e:
-            logger.error(f"Error in streaming audio load: {e}")
-            logger.warning("Falling back to traditional loading...")
+            log_universal('ERROR', 'Audio', f"Error in streaming audio load: {e}")
+            log_universal('WARNING', 'Audio', "Falling back to traditional loading...")
             return self._load_audio_traditional(audio_path)
     
     def _load_audio_sampling(self, audio_path: str) -> Optional[np.ndarray]:
@@ -811,7 +811,7 @@ class AudioAnalyzer:
             # Get file duration
             duration = self._get_audio_duration(audio_path)
             if duration is None:
-                logger.error("Could not determine audio duration for sampling")
+                log_universal('ERROR', 'Audio', "Could not determine audio duration for sampling")
                 return None
             
             # Sample multiple segments throughout the file
@@ -819,7 +819,7 @@ class AudioAnalyzer:
             num_segments = min(5, int(duration / segment_duration))  # Max 5 segments
             segment_interval = duration / (num_segments + 1)  # Evenly spaced segments
             
-            logger.info(f"Sampling {num_segments} segments of {segment_duration}s each from {duration:.1f}s file")
+            log_universal('INFO', 'Audio', f"Sampling {num_segments} segments of {segment_duration}s each from {duration:.1f}s file")
             
             segments = []
             
@@ -832,7 +832,7 @@ class AudioAnalyzer:
                     segment_start = max(0, duration - segment_duration)
                 
                 try:
-                    logger.debug(f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
+                    log_universal('DEBUG', 'Audio', f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
                     
                     # Use librosa for segment loading
                     if LIBROSA_AVAILABLE:
@@ -847,43 +847,43 @@ class AudioAnalyzer:
                         )
                         
                         segments.append(chunk)
-                        logger.debug(f"Loaded segment {i+1}: {len(chunk)} samples")
+                        log_universal('DEBUG', 'Audio', f"Loaded segment {i+1}: {len(chunk)} samples")
                         
                         # Force garbage collection after each segment
                         import gc
                         gc.collect()
                         
                     else:
-                        logger.warning("Librosa not available for segment loading")
+                        log_universal('WARNING', 'Audio', "Librosa not available for segment loading")
                         break
                         
                 except Exception as e:
-                    logger.warning(f"Error loading segment {i+1}: {e}")
+                    log_universal('WARNING', 'Audio', f"Error loading segment {i+1}: {e}")
                     continue
             
             if not segments:
-                logger.error("No segments loaded successfully")
+                log_universal('ERROR', 'Audio', "No segments loaded successfully")
                 return None
             
             # Concatenate segments
             audio = np.concatenate(segments)
-            logger.info(f"Sampled audio: {len(audio)} samples total from {len(segments)} segments")
+            log_universal('INFO', 'Audio', f"Sampled audio: {len(audio)} samples total from {len(segments)} segments")
             
             return audio
             
         except Exception as e:
-            logger.error(f"Error in audio sampling: {e}")
+            log_universal('ERROR', 'Audio', f"Error in audio sampling: {e}")
             return None
     
     def _analyze_large_file_streaming(self, audio_path: str, streaming_loader) -> Optional[np.ndarray]:
         """Analyze large files using true streaming - process multiple segments for mixed tracks."""
         try:
-            logger.info(f"Starting true streaming analysis for large file: {os.path.basename(audio_path)}")
+            log_universal('INFO', 'Audio', f"Starting true streaming analysis for large file: {os.path.basename(audio_path)}")
             
             # Get file duration
             duration = self._get_audio_duration(audio_path)
             if duration is None:
-                logger.error("Could not determine audio duration")
+                log_universal('ERROR', 'Audio', "Could not determine audio duration")
                 return None
             
             # For very large files (> 100MB), use multiple segments throughout the file
@@ -894,7 +894,7 @@ class AudioAnalyzer:
             num_segments = min(10, int(duration / segment_duration))  # Max 10 segments
             segment_interval = duration / (num_segments + 1)  # Evenly spaced segments
             
-            logger.info(f"Large file analysis: {duration:.1f}s total, {num_segments} segments of {segment_duration}s each")
+            log_universal('INFO', 'Audio', f"Large file analysis: {duration:.1f}s total, {num_segments} segments of {segment_duration}s each")
             
             segments = []
             
@@ -907,7 +907,7 @@ class AudioAnalyzer:
                     segment_start = max(0, duration - segment_duration)
                 
                 try:
-                    logger.debug(f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
+                    log_universal('DEBUG', 'Audio', f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
                     
                     # Use librosa for segment loading
                     chunk, sr = librosa.load(
@@ -920,31 +920,31 @@ class AudioAnalyzer:
                     )
                     
                     segments.append(chunk)
-                    logger.debug(f"Loaded segment {i+1}: {len(chunk)} samples")
+                    log_universal('DEBUG', 'Audio', f"Loaded segment {i+1}: {len(chunk)} samples")
                     
                     # Force garbage collection after each segment
                     import gc
                     gc.collect()
                     
                 except Exception as e:
-                    logger.warning(f"Error loading segment {i+1}: {e}")
+                    log_universal('WARNING', 'Audio', f"Error loading segment {i+1}: {e}")
                     continue
             
             if not segments:
-                logger.error("No segments loaded from large file")
+                log_universal('ERROR', 'Audio', "No segments loaded from large file")
                 return None
             
             # Concatenate segments to create representative audio
             representative_audio = np.concatenate(segments)
             total_duration = len(representative_audio) / DEFAULT_SAMPLE_RATE
             
-            logger.info(f"Created representative audio: {len(representative_audio)} samples ({total_duration:.1f}s) from {len(segments)} segments")
-            logger.info(f"Representative audio covers {total_duration/duration*100:.1f}% of original file")
+            log_universal('INFO', 'Audio', f"Created representative audio: {len(representative_audio)} samples ({total_duration:.1f}s) from {len(segments)} segments")
+            log_universal('INFO', 'Audio', f"Representative audio covers {total_duration/duration*100:.1f}% of original file")
             
             return representative_audio
             
         except Exception as e:
-            logger.error(f"Error in true streaming analysis: {e}")
+            log_universal('ERROR', 'Audio', f"Error in true streaming analysis: {e}")
             return None
 
     @timeout(30, "Metadata extraction timed out")  # 30 seconds for metadata
@@ -961,17 +961,17 @@ class AudioAnalyzer:
         metadata = {}
         
         if not MUTAGEN_AVAILABLE:
-            logger.warning("Mutagen not available - skipping metadata extraction")
+            log_universal('WARNING', 'Audio', "Mutagen not available - skipping metadata extraction")
             return metadata
         
         try:
-            logger.debug(f"Starting metadata extraction for: {os.path.basename(audio_path)}")
+            log_universal('DEBUG', 'Audio', f"Starting metadata extraction for: {os.path.basename(audio_path)}")
             audio_file = MutagenFile(audio_path)
             
             if audio_file is not None:
                 # Log all available tags for debugging
                 all_tags = list(audio_file.keys())
-                logger.debug(f"Available tags in file: {all_tags}")
+                log_universal('DEBUG', 'Audio', f"Available tags in file: {all_tags}")
                 
                 # Extract common metadata fields
                 extracted_tags = []
@@ -1029,7 +1029,7 @@ class AudioAnalyzer:
                     'replaygain_album_peak': ['TXXX:ReplayGain_Album_Peak', 'replaygain_album_peak']
                 }
                 
-                logger.debug(f"Looking for ID3 tags: {list(tag_mapping.keys())}")
+                log_universal('DEBUG', 'Audio', f"Looking for ID3 tags: {list(tag_mapping.keys())}")
                 
                 for human_tag, id3_tags in tag_mapping.items():
                     for id3_tag in id3_tags:
@@ -1043,29 +1043,29 @@ class AudioAnalyzer:
                             break  # Found the tag, move to next human tag
                 
                 if extracted_tags:
-                    logger.info(f"Mutagen extracted metadata: {extracted_tags}")
+                    log_universal('INFO', 'Audio', f"Mutagen extracted metadata: {extracted_tags}")
                 else:
-                    logger.info("No metadata tags found in audio file")
+                    log_universal('INFO', 'Audio', "No metadata tags found in audio file")
                 
-                logger.debug(f"Extracted basic metadata keys: {list(metadata.keys())}")
+                log_universal('DEBUG', 'Audio', f"Extracted basic metadata keys: {list(metadata.keys())}")
                 
                 # Enrich metadata with external APIs
                 enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
                 
                 # Log final metadata summary
                 if enriched_metadata:
-                    logger.info(f"Final metadata summary: {list(enriched_metadata.keys())}")
+                    log_universal('INFO', 'Audio', f"Final metadata summary: {list(enriched_metadata.keys())}")
                     for key, value in enriched_metadata.items():
-                        logger.debug(f"  {key}: {value}")
+                        log_universal('DEBUG', 'Audio', f"  {key}: {value}")
                 else:
-                    logger.info("No metadata available after extraction and enrichment")
+                    log_universal('INFO', 'Audio', "No metadata available after extraction and enrichment")
                 
                 return enriched_metadata
             else:
-                logger.warning("MutagenFile returned None - no metadata available")
+                log_universal('WARNING', 'Audio', "MutagenFile returned None - no metadata available")
                 
         except Exception as e:
-            logger.warning(f"Error extracting metadata from {audio_path}: {e}")
+            log_universal('WARNING', 'Audio', f"Error extracting metadata from {audio_path}: {e}")
         
         return metadata
     
@@ -1081,7 +1081,7 @@ class AudioAnalyzer:
             Enriched metadata dictionary
         """
         try:
-            logger.debug("Starting external API metadata enrichment")
+            log_universal('DEBUG', 'Audio', "Starting external API metadata enrichment")
             
             # Import external APIs module
             from .external_apis import get_metadata_enrichment_service
@@ -1091,18 +1091,18 @@ class AudioAnalyzer:
             
             # Check if external APIs are available
             if not metadata_enrichment_service.is_available():
-                logger.info("External APIs not available - skipping enrichment")
+                log_universal('INFO', 'Audio', "External APIs not available - skipping enrichment")
                 return metadata
             
-            logger.info("External APIs available - attempting enrichment")
+            log_universal('INFO', 'Audio', "External APIs available - attempting enrichment")
             
             # Log input metadata for enrichment
             if metadata:
-                logger.debug(f"Input metadata for enrichment: {list(metadata.keys())}")
+                log_universal('DEBUG', 'Audio', f"Input metadata for enrichment: {list(metadata.keys())}")
                 for key, value in metadata.items():
-                    logger.debug(f"  {key}: {value}")
+                    log_universal('DEBUG', 'Audio', f"  {key}: {value}")
             else:
-                logger.debug("No input metadata for enrichment")
+                log_universal('DEBUG', 'Audio', "No input metadata for enrichment")
             
             # Enrich metadata
             enriched_metadata = metadata_enrichment_service.enrich_metadata(metadata)
@@ -1111,19 +1111,19 @@ class AudioAnalyzer:
             if enriched_metadata != metadata:
                 new_fields = set(enriched_metadata.keys()) - set(metadata.keys())
                 if new_fields:
-                    logger.info(f"External APIs enriched metadata with: {list(new_fields)}")
+                    log_universal('INFO', 'Audio', f"External APIs enriched metadata with: {list(new_fields)}")
                     for field in new_fields:
                         if field in enriched_metadata:
-                            logger.debug(f"  {field}: {enriched_metadata[field]}")
+                            log_universal('DEBUG', 'Audio', f"  {field}: {enriched_metadata[field]}")
                 else:
-                    logger.debug("No new fields added by external APIs")
+                    log_universal('DEBUG', 'Audio', "No new fields added by external APIs")
             else:
-                logger.info("No enrichment from external APIs - metadata unchanged")
+                log_universal('INFO', 'Audio', "No enrichment from external APIs - metadata unchanged")
             
             return enriched_metadata
             
         except Exception as e:
-            logger.warning(f"Error enriching metadata with external APIs: {e}")
+            log_universal('WARNING', 'Audio', f"Error enriching metadata with external APIs: {e}")
             return metadata
 
     def _extract_features_by_config(self, audio_path: str, audio: np.ndarray, 
@@ -1154,7 +1154,7 @@ class AudioAnalyzer:
             if original_duration:
                 original_file_size = int(original_duration * DEFAULT_SAMPLE_RATE)
         except Exception as e:
-            logger.warning(f"Could not determine original file size: {e}")
+            log_universal('WARNING', 'Audio', f"Could not determine original file size: {e}")
         
         # Use original file size if available, otherwise use audio length
         size_for_threshold = original_file_size if original_file_size else audio_length
@@ -1165,18 +1165,18 @@ class AudioAnalyzer:
         
         # Log the threshold decision
         if original_file_size and original_file_size != audio_length:
-            logger.info(f"File size thresholds: original={original_file_size:,} samples, representative={audio_length:,} samples")
-            logger.info(f"Using original file size for threshold decisions")
+            log_universal('INFO', 'Audio', f"File size thresholds: original={original_file_size:,} samples, representative={audio_length:,} samples")
+            log_universal('INFO', 'Audio', f"Using original file size for threshold decisions")
         else:
-            logger.debug(f"File size: {audio_length:,} samples")
+            log_universal('DEBUG', 'Audio', f"File size: {audio_length:,} samples")
         
         # Log feature skipping decisions
         if is_extremely_large_for_processing:
-            logger.warning(f"Extremely large file detected - analyzing representative audio only")
+            log_universal('WARNING', 'Audio', f"Extremely large file detected - analyzing representative audio only")
         elif is_extremely_large:
-            logger.warning(f"Very large file detected - skipping MFCC and MusiCNN features")
+            log_universal('WARNING', 'Audio', f"Very large file detected - skipping MFCC and MusiCNN features")
         elif is_large_file:
-            logger.info(f"Large file detected - using extended timeouts")
+            log_universal('INFO', 'Audio', f"Large file detected - using extended timeouts")
         
         try:
             # Extract rhythm features (if enabled)
@@ -1239,7 +1239,7 @@ class AudioAnalyzer:
             # Extract key (if enabled) - disabled for extremely large files
             if features_config.get('extract_key', True):
                 if is_extremely_large:
-                    logger.warning(f"Skipping key extraction for extremely large file")
+                    log_universal('WARNING', 'Audio', f"Skipping key extraction for extremely large file")
                     failed_features.append('key')
                 else:
                     start_time = time.time()
@@ -1396,14 +1396,14 @@ class AudioAnalyzer:
             try:
                 duration = audio_length / DEFAULT_SAMPLE_RATE
                 features['duration'] = ensure_float(duration)
-                logger.info(f"Duration: {features['duration']:.2f}s")
+                log_universal('INFO', 'Audio', f"Duration: {features['duration']:.2f}s")
             except Exception as e:
-                logger.warning(f"Duration calculation failed: {str(e)}")
+                log_universal('WARNING', 'Audio', f"Duration calculation failed: {str(e)}")
                 features['duration'] = 0.0
             
             # Add fallback values for skipped features due to file size
             if is_extremely_large:
-                logger.warning("Skipping MFCC and MusiCNN for very large file")
+                log_universal('WARNING', 'Audio', "Skipping MFCC and MusiCNN for very large file")
                 features.setdefault('mfcc', [-999.0] * 13)  # Invalid MFCC values
                 features.setdefault('musicnn_features', [-999.0] * 50)  # Invalid MusiCNN features
             
@@ -1411,15 +1411,15 @@ class AudioAnalyzer:
             features['metadata'] = metadata
             
             # Log overall feature extraction summary
-            logger.debug(f"Feature extraction summary: {len(extracted_features)} successful, {len(failed_features)} failed")
-            logger.debug(f"Extracted features: {extracted_features}")
+            log_universal('DEBUG', 'Audio', f"Feature extraction summary: {len(extracted_features)} successful, {len(failed_features)} failed")
+            log_universal('DEBUG', 'Audio', f"Extracted features: {extracted_features}")
             if failed_features:
-                logger.debug(f"Failed features: {failed_features}")
+                log_universal('DEBUG', 'Audio', f"Failed features: {failed_features}")
             
             return features
             
         except Exception as e:
-            logger.error(f"Error extracting features: {e}")
+            log_universal('ERROR', 'Audio', f"Error extracting features: {e}")
             return None
 
     @timeout(300, "Rhythm feature extraction timed out")  # 5 minutes for rhythm analysis
@@ -1449,26 +1449,26 @@ class AudioAnalyzer:
                     # Try to get BPM from the first element
                     if len(rhythm_result) > 0:
                         bpm = rhythm_result[0]
-                        logger.debug(f"Extracted BPM from tuple[0]: {bpm}")
+                        log_universal('DEBUG', 'Audio', f"Extracted BPM from tuple[0]: {bpm}")
                     else:
-                        logger.warning("Empty rhythm result tuple")
+                        log_universal('WARNING', 'Audio', "Empty rhythm result tuple")
                         bpm = -1.0  # Special marker for failed BPM extraction
                 else:
                     # Single value return
                     bpm = rhythm_result
-                    logger.debug(f"Extracted BPM from single value: {bpm}")
+                    log_universal('DEBUG', 'Audio', f"Extracted BPM from single value: {bpm}")
 
                 # Ensure BPM is a valid number (like old working version)
                 try:
                     bpm = ensure_float(bpm)
                     if not np.isfinite(bpm) or bpm <= 0:
-                        logger.warning(f"Invalid BPM value: {bpm}, using failed marker")
+                        log_universal('WARNING', 'Audio', f"Invalid BPM value: {bpm}, using failed marker")
                         bpm = -999.0  # Invalid BPM marker (normal range: 30-300)
                     else:
                         # Round BPM to reasonable precision
                         bpm = round(bpm, 1)
                 except (ValueError, TypeError):
-                    logger.warning(f"Could not convert BPM to float: {bpm}, using failed marker")
+                    log_universal('WARNING', 'Audio', f"Could not convert BPM to float: {bpm}, using failed marker")
                     bpm = -999.0  # Invalid BPM marker (normal range: 30-300)
 
                 features['bpm'] = bpm
@@ -1511,14 +1511,14 @@ class AudioAnalyzer:
                 except (ValueError, TypeError):
                     pass
             
-            logger.info(f"BPM extracted: {features.get('bpm', 'N/A')}")
+            log_universal('INFO', 'Audio', f"BPM extracted: {features.get('bpm', 'N/A')}")
             if 'confidence' in features:
-                logger.info(f"Rhythm confidence: {features['confidence']:.3f}")
+                log_universal('INFO', 'Audio', f"Rhythm confidence: {features['confidence']:.3f}")
             if 'external_bpm' in features:
-                logger.info(f"External BPM: {features['external_bpm']:.1f}")
+                log_universal('INFO', 'Audio', f"External BPM: {features['external_bpm']:.1f}")
             
         except Exception as e:
-            logger.warning(f"Error extracting rhythm features: {e}")
+            log_universal('WARNING', 'Audio', f"Error extracting rhythm features: {e}")
             # Return invalid marker like old working version
             features['bpm'] = -999.0
         
@@ -1549,7 +1549,7 @@ class AudioAnalyzer:
                         centroid_values, (list, np.ndarray)) else float(centroid_values)
                     features['spectral_centroid'] = ensure_float(centroid_mean)
                 except Exception as e:
-                    logger.warning(f"Spectral centroid failed: {e}, using librosa fallback")
+                    log_universal('WARNING', 'Audio', f"Spectral centroid failed: {e}, using librosa fallback")
                     if LIBROSA_AVAILABLE:
                         centroid = librosa.feature.spectral_centroid(y=audio, sr=DEFAULT_SAMPLE_RATE)
                         features['spectral_centroid'] = ensure_float(np.mean(centroid))
@@ -1567,7 +1567,7 @@ class AudioAnalyzer:
                     for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
                         frame_count += 1
                         if frame_count % 100 == 0:
-                            logger.debug(f"Processed {frame_count} frames for spectral rolloff")
+                            log_universal('DEBUG', 'Audio', f"Processed {frame_count} frames for spectral rolloff")
                         
                         try:
                             spec = spectrum(window(frame))
@@ -1582,7 +1582,7 @@ class AudioAnalyzer:
                                         rolloff_freq = (rolloff_idx[0] / len(spec)) * 22050
                                         rolloff_list.append(float(rolloff_freq))
                         except Exception as frame_error:
-                            logger.debug(f"Frame {frame_count} processing error: {frame_error}")
+                            log_universal('DEBUG', 'Audio', f"Frame {frame_count} processing error: {frame_error}")
                             continue
                     
                     if rolloff_list:
@@ -1592,7 +1592,7 @@ class AudioAnalyzer:
                         features['spectral_rolloff'] = 0.0
                         
                 except Exception as e:
-                    logger.warning(f"Spectral rolloff failed: {e}, using librosa fallback")
+                    log_universal('WARNING', 'Audio', f"Spectral rolloff failed: {e}, using librosa fallback")
                     if LIBROSA_AVAILABLE:
                         rolloff = librosa.feature.spectral_rolloff(y=audio, sr=DEFAULT_SAMPLE_RATE)
                         features['spectral_rolloff'] = ensure_float(np.mean(rolloff))
@@ -1610,7 +1610,7 @@ class AudioAnalyzer:
                     for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
                         frame_count += 1
                         if frame_count % 100 == 0:
-                            logger.debug(f"Processed {frame_count} frames for spectral flatness")
+                            log_universal('DEBUG', 'Audio', f"Processed {frame_count} frames for spectral flatness")
                         
                         try:
                             spec = spectrum(window(frame))
@@ -1622,7 +1622,7 @@ class AudioAnalyzer:
                                 flatness = geometric_mean / arithmetic_mean if arithmetic_mean > 0 else 0.0
                                 flatness_list.append(float(flatness))
                         except Exception as frame_error:
-                            logger.debug(f"Frame {frame_count} processing error: {frame_error}")
+                            log_universal('DEBUG', 'Audio', f"Frame {frame_count} processing error: {frame_error}")
                             continue
                     
                     if flatness_list:
@@ -1632,7 +1632,7 @@ class AudioAnalyzer:
                         features['spectral_flatness'] = 0.0
                         
                 except Exception as e:
-                    logger.warning(f"Spectral flatness failed: {e}, using librosa fallback")
+                    log_universal('WARNING', 'Audio', f"Spectral flatness failed: {e}, using librosa fallback")
                     if LIBROSA_AVAILABLE:
                         flatness = librosa.feature.spectral_flatness(y=audio, sr=DEFAULT_SAMPLE_RATE)
                         features['spectral_flatness'] = ensure_float(np.mean(flatness))
@@ -1648,12 +1648,12 @@ class AudioAnalyzer:
                 flatness = librosa.feature.spectral_flatness(y=audio, sr=DEFAULT_SAMPLE_RATE)
                 features['spectral_flatness'] = ensure_float(np.mean(flatness))
             
-            logger.info(f"Spectral centroid extracted: {features.get('spectral_centroid', 'N/A'):.3f}")
-            logger.info(f"Spectral rolloff extracted: {features.get('spectral_rolloff', 'N/A'):.3f}")
-            logger.info(f"Spectral flatness extracted: {features.get('spectral_flatness', 'N/A'):.3f}")
+            log_universal('INFO', 'Audio', f"Spectral centroid extracted: {features.get('spectral_centroid', 'N/A'):.3f}")
+            log_universal('INFO', 'Audio', f"Spectral rolloff extracted: {features.get('spectral_rolloff', 'N/A'):.3f}")
+            log_universal('INFO', 'Audio', f"Spectral flatness extracted: {features.get('spectral_flatness', 'N/A'):.3f}")
             
         except Exception as e:
-            logger.warning(f"Error extracting spectral features: {e}")
+            log_universal('WARNING', 'Audio', f"Error extracting spectral features: {e}")
         
         return features
 
@@ -1680,7 +1680,7 @@ class AudioAnalyzer:
                         rms_values, (list, np.ndarray)) else float(rms_values)
                     features['loudness'] = ensure_float(rms_mean)
                 except Exception as e:
-                    logger.warning(f"RMS loudness failed: {e}, using librosa fallback")
+                    log_universal('WARNING', 'Audio', f"RMS loudness failed: {e}, using librosa fallback")
                     if LIBROSA_AVAILABLE:
                         rms = librosa.feature.rms(y=audio)
                         features['loudness'] = ensure_float(np.mean(rms))
@@ -1694,7 +1694,7 @@ class AudioAnalyzer:
                     else:
                         features['dynamic_complexity'] = ensure_float(complexity_value)
                 except Exception as e:
-                    logger.warning(f"Dynamic complexity failed: {e}")
+                    log_universal('WARNING', 'Audio', f"Dynamic complexity failed: {e}")
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for loudness
@@ -1705,14 +1705,14 @@ class AudioAnalyzer:
                 dynamic_range = np.max(audio) - np.min(audio)
                 features['dynamic_range'] = ensure_float(dynamic_range)
             
-            logger.info(f"Loudness extracted: {features.get('loudness', 'N/A'):.3f}")
+            log_universal('INFO', 'Audio', f"Loudness extracted: {features.get('loudness', 'N/A'):.3f}")
             if 'dynamic_complexity' in features:
-                logger.info(f"Dynamic complexity extracted: {features['dynamic_complexity']:.3f}")
+                log_universal('INFO', 'Audio', f"Dynamic complexity extracted: {features['dynamic_complexity']:.3f}")
             if 'dynamic_range' in features:
-                logger.info(f"Dynamic range extracted: {features['dynamic_range']:.3f}")
+                log_universal('INFO', 'Audio', f"Dynamic range extracted: {features['dynamic_range']:.3f}")
             
         except Exception as e:
-            logger.warning(f"Error extracting loudness features: {e}")
+            log_universal('WARNING', 'Audio', f"Error extracting loudness features: {e}")
         
         return features
 
@@ -1730,23 +1730,23 @@ class AudioAnalyzer:
         features = {}
         
         try:
-            logger.debug(f"Starting key extraction for audio with {len(audio)} samples")
+            log_universal('DEBUG', 'Audio', f"Starting key extraction for audio with {len(audio)} samples")
             
             if ESSENTIA_AVAILABLE:
-                logger.debug("Using Essentia for key detection")
+                log_universal('DEBUG', 'Audio', "Using Essentia for key detection")
                 # Key detection
                 key = es.Key()
-                logger.debug("Created Essentia Key object")
-                logger.debug("Calling Essentia key detection...")
+                log_universal('DEBUG', 'Audio', "Created Essentia Key object")
+                log_universal('DEBUG', 'Audio', "Calling Essentia key detection...")
                 key_result = key(audio)
-                logger.debug(f"Essentia key result: {key_result}")
+                log_universal('DEBUG', 'Audio', f"Essentia key result: {key_result}")
                 features['key'] = str(key_result[0])  # Ensure it's a string
                 features['scale'] = str(key_result[1])  # Ensure it's a string
                 features['key_strength'] = ensure_float(key_result[2])
-                logger.debug("Essentia key detection completed successfully")
+                log_universal('DEBUG', 'Audio', "Essentia key detection completed successfully")
                 
             elif LIBROSA_AVAILABLE:
-                logger.debug("Using Librosa for key detection")
+                log_universal('DEBUG', 'Audio', "Using Librosa for key detection")
                 # Use librosa for key detection
                 chroma = librosa.feature.chroma_cqt(y=audio, sr=DEFAULT_SAMPLE_RATE)
                 # Simple key detection (simplified)
@@ -1755,17 +1755,17 @@ class AudioAnalyzer:
                 keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
                 features['key'] = keys[key_idx]
                 features['key_strength'] = ensure_float(chroma_mean[key_idx])
-                logger.debug("Librosa key detection completed successfully")
+                log_universal('DEBUG', 'Audio', "Librosa key detection completed successfully")
             else:
-                logger.warning("No key detection library available")
+                log_universal('WARNING', 'Audio', "No key detection library available")
             
-            logger.info(f"Key extracted: {features.get('key', 'N/A')}")
-            logger.info(f"Scale extracted: {features.get('scale', 'N/A')}")
-            logger.info(f"Key strength extracted: {features.get('key_strength', 'N/A'):.3f}")
+            log_universal('INFO', 'Audio', f"Key extracted: {features.get('key', 'N/A')}")
+            log_universal('INFO', 'Audio', f"Scale extracted: {features.get('scale', 'N/A')}")
+            log_universal('INFO', 'Audio', f"Key strength extracted: {features.get('key_strength', 'N/A'):.3f}")
             
         except Exception as e:
-            logger.warning(f"Error extracting key features: {e}")
-            logger.debug(f"Key extraction exception details: {type(e).__name__}: {e}")
+            log_universal('WARNING', 'Audio', f"Error extracting key features: {e}")
+            log_universal('DEBUG', 'Audio', f"Key extraction exception details: {type(e).__name__}: {e}")
         
         return features
 
@@ -1797,14 +1797,14 @@ class AudioAnalyzer:
                 features['mfcc'] = convert_to_python_types(np.mean(mfcc, axis=1))
                 features['mfcc_std'] = convert_to_python_types(np.std(mfcc, axis=1))
             
-            logger.info(f"MFCC extracted: {num_coeffs} coefficients")
+            log_universal('INFO', 'Audio', f"MFCC extracted: {num_coeffs} coefficients")
             if 'mfcc_bands' in features:
-                logger.info(f"MFCC bands extracted: {len(features['mfcc_bands'])} bands")
+                log_universal('INFO', 'Audio', f"MFCC bands extracted: {len(features['mfcc_bands'])} bands")
             if 'mfcc_std' in features:
-                logger.info(f"MFCC std extracted: {len(features['mfcc_std'])} values")
+                log_universal('INFO', 'Audio', f"MFCC std extracted: {len(features['mfcc_std'])} values")
             
         except Exception as e:
-            logger.warning(f"Error extracting MFCC features: {e}")
+            log_universal('WARNING', 'Audio', f"Error extracting MFCC features: {e}")
         
         return features
 
@@ -1820,15 +1820,15 @@ class AudioAnalyzer:
             Dictionary with MusiCNN features or None if failed
         """
         if not TENSORFLOW_AVAILABLE or not ESSENTIA_AVAILABLE:
-            logger.warning("MusiCNN extraction skipped - TensorFlow or Essentia not available")
+            log_universal('WARNING', 'Audio', "MusiCNN extraction skipped - TensorFlow or Essentia not available")
             return None
         
         try:
-            logger.info("Extracting MusiCNN features...")
+            log_universal('INFO', 'Audio', "Extracting MusiCNN features...")
             
             # Check if MusiCNN is available
             if not hasattr(es, 'TensorflowPredictMusiCNN'):
-                logger.warning("MusiCNN extraction skipped - TensorflowPredictMusiCNN not available")
+                log_universal('WARNING', 'Audio', "MusiCNN extraction skipped - TensorflowPredictMusiCNN not available")
                 return None
             
             # Initialize MusiCNN model
@@ -1844,21 +1844,21 @@ class AudioAnalyzer:
                 if hasattr(musicnn, 'getTags'):
                     tags = musicnn.getTags()
             except Exception as e:
-                logger.debug(f"Could not get MusiCNN tags: {e}")
+                log_universal('DEBUG', 'Audio', f"Could not get MusiCNN tags: {e}")
             
             # Convert to list for JSON serialization
             embedding_list = embeddings.tolist() if hasattr(embeddings, 'tolist') else list(embeddings)
             
-            logger.info(f"MusiCNN extracted: {len(embedding_list)} dimensions")
+            log_universal('INFO', 'Audio', f"MusiCNN extracted: {len(embedding_list)} dimensions")
             if tags:
-                logger.info(f"MusiCNN tags extracted: {len(tags)} tags")
+                log_universal('INFO', 'Audio', f"MusiCNN tags extracted: {len(tags)} tags")
             return {
                 'musicnn_embedding': embedding_list,
                 'musicnn_tags': tags
             }
             
         except Exception as e:
-            logger.warning(f"MusiCNN extraction failed: {str(e)}")
+            log_universal('WARNING', 'Audio', f"MusiCNN extraction failed: {str(e)}")
             return None
 
     @timeout(120, "Danceability extraction timed out")  # 2 minutes for danceability analysis
@@ -1873,11 +1873,11 @@ class AudioAnalyzer:
             Dictionary with danceability features
         """
         if not ESSENTIA_AVAILABLE:
-            logger.warning("Danceability extraction skipped - Essentia not available")
+            log_universal('WARNING', 'Audio', "Danceability extraction skipped - Essentia not available")
             return {'danceability': 0.0}
         
         try:
-            logger.info("Extracting danceability features...")
+            log_universal('INFO', 'Audio', "Extracting danceability features...")
             
             # Use Essentia's Danceability algorithm
             dance_algo = es.Danceability()
@@ -1888,7 +1888,7 @@ class AudioAnalyzer:
                 if len(dance_result) >= 1:
                     dance_values = dance_result[0]
                 else:
-                    logger.warning("Empty danceability result tuple")
+                    log_universal('WARNING', 'Audio', "Empty danceability result tuple")
                     dance_values = [0.0]
             else:
                 dance_values = dance_result
@@ -1906,28 +1906,28 @@ class AudioAnalyzer:
             
             # Ensure danceability is a valid number and normalize if needed
             if not np.isfinite(dance_mean):
-                logger.warning(f"Invalid danceability value (non-finite): {dance_mean}, using default")
+                log_universal('WARNING', 'Audio', f"Invalid danceability value (non-finite): {dance_mean}, using default")
                 dance_mean = 0.0
             elif dance_mean < 0:
-                logger.warning(f"Negative danceability value: {dance_mean}, using default")
+                log_universal('WARNING', 'Audio', f"Negative danceability value: {dance_mean}, using default")
                 dance_mean = 0.0
             elif dance_mean > 1:
                 # The algorithm might return values in a different scale
                 if dance_mean <= 10:  # If it's in 0-10 scale, normalize
                     dance_mean = dance_mean / 10.0
-                    logger.debug(f"Normalized danceability from 0-10 scale: {dance_mean:.3f}")
+                    log_universal('DEBUG', 'Audio', f"Normalized danceability from 0-10 scale: {dance_mean:.3f}")
                 elif dance_mean <= 100:  # If it's in 0-100 scale, normalize
                     dance_mean = dance_mean / 100.0
-                    logger.debug(f"Normalized danceability from 0-100 scale: {dance_mean:.3f}")
+                    log_universal('DEBUG', 'Audio', f"Normalized danceability from 0-100 scale: {dance_mean:.3f}")
                 else:
-                    logger.warning(f"Danceability value out of expected range: {dance_mean}, using default")
+                    log_universal('WARNING', 'Audio', f"Danceability value out of expected range: {dance_mean}, using default")
                     dance_mean = 0.0
             
-            logger.info(f"Danceability extracted: {dance_mean:.3f}")
+            log_universal('INFO', 'Audio', f"Danceability extracted: {dance_mean:.3f}")
             return {'danceability': ensure_float(dance_mean)}
             
         except Exception as e:
-            logger.warning(f"Danceability extraction failed: {str(e)}")
+            log_universal('WARNING', 'Audio', f"Danceability extraction failed: {str(e)}")
             return {'danceability': 0.0}
 
     @timeout(120, "Onset rate extraction timed out")  # 2 minutes for onset rate analysis
@@ -1942,11 +1942,11 @@ class AudioAnalyzer:
             Dictionary with onset rate features
         """
         if not ESSENTIA_AVAILABLE:
-            logger.warning("Onset rate extraction skipped - Essentia not available")
+            log_universal('WARNING', 'Audio', "Onset rate extraction skipped - Essentia not available")
             return {'onset_rate': 0.0}
         
         try:
-            logger.info("Extracting onset rate features...")
+            log_universal('INFO', 'Audio', "Extracting onset rate features...")
             
             # Use Essentia's OnsetRate algorithm
             onset_algo = es.OnsetRate()
@@ -1957,7 +1957,7 @@ class AudioAnalyzer:
                 if len(onset_result) >= 1:
                     onset_rate = onset_result[0]
                 else:
-                    logger.warning("Empty onset rate result tuple")
+                    log_universal('WARNING', 'Audio', "Empty onset rate result tuple")
                     onset_rate = 0.0
             else:
                 onset_rate = onset_result
@@ -1974,14 +1974,14 @@ class AudioAnalyzer:
             
             # Ensure onset rate is a valid number
             if not np.isfinite(onset_rate) or onset_rate < 0:
-                logger.warning(f"Invalid onset rate value: {onset_rate}, using default")
+                log_universal('WARNING', 'Audio', f"Invalid onset rate value: {onset_rate}, using default")
                 onset_rate = 0.0
             
-            logger.info(f"Onset rate extracted: {onset_rate:.2f} onsets/sec")
+            log_universal('INFO', 'Audio', f"Onset rate extracted: {onset_rate:.2f} onsets/sec")
             return {'onset_rate': ensure_float(onset_rate)}
             
         except Exception as e:
-            logger.warning(f"Onset rate extraction failed: {str(e)}")
+            log_universal('WARNING', 'Audio', f"Onset rate extraction failed: {str(e)}")
             return {'onset_rate': 0.0}
 
     @timeout(60, "Zero crossing rate extraction timed out")  # 1 minute for ZCR analysis
@@ -1996,11 +1996,11 @@ class AudioAnalyzer:
             Dictionary with zero crossing rate features
         """
         if not ESSENTIA_AVAILABLE:
-            logger.warning("Zero crossing rate extraction skipped - Essentia not available")
+            log_universal('WARNING', 'Audio', "Zero crossing rate extraction skipped - Essentia not available")
             return {'zcr': 0.0}
         
         try:
-            logger.info("Extracting zero crossing rate features...")
+            log_universal('INFO', 'Audio', "Extracting zero crossing rate features...")
             
             # Use Essentia's ZeroCrossingRate algorithm
             zcr_algo = es.ZeroCrossingRate()
@@ -2009,11 +2009,11 @@ class AudioAnalyzer:
             zcr_mean = float(np.nanmean(zcr_values)) if isinstance(
                 zcr_values, (list, np.ndarray)) else float(zcr_values)
             
-            logger.info(f"Zero crossing rate extracted: {zcr_mean:.3f}")
+            log_universal('INFO', 'Audio', f"Zero crossing rate extracted: {zcr_mean:.3f}")
             return {'zcr': ensure_float(zcr_mean)}
             
         except Exception as e:
-            logger.warning(f"Zero crossing rate extraction failed: {str(e)}")
+            log_universal('WARNING', 'Audio', f"Zero crossing rate extraction failed: {str(e)}")
             return {'zcr': 0.0}
 
     @timeout(180, "Spectral contrast extraction timed out")  # 3 minutes for spectral contrast analysis
@@ -2028,11 +2028,11 @@ class AudioAnalyzer:
             Dictionary with spectral contrast features
         """
         if not ESSENTIA_AVAILABLE:
-            logger.warning("Spectral contrast extraction skipped - Essentia not available")
+            log_universal('WARNING', 'Audio', "Spectral contrast extraction skipped - Essentia not available")
             return {'spectral_contrast': 0.0}
         
         try:
-            logger.info("Extracting spectral contrast features...")
+            log_universal('INFO', 'Audio', "Extracting spectral contrast features...")
             
             # Use frame-by-frame processing for spectral contrast
             frame_size = 2048
@@ -2050,7 +2050,7 @@ class AudioAnalyzer:
             for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
                 frame_count += 1
                 if frame_count % 100 == 0:
-                    logger.debug(f"Processed {frame_count} frames for spectral contrast")
+                    log_universal('DEBUG', 'Audio', f"Processed {frame_count} frames for spectral contrast")
                 
                 try:
                     spec = spectrum(window(frame))
@@ -2073,20 +2073,20 @@ class AudioAnalyzer:
                                 contrast_list.append(contrast)
                 
                 except Exception as frame_error:
-                    logger.debug(f"Frame {frame_count} processing error: {frame_error}")
+                    log_universal('DEBUG', 'Audio', f"Frame {frame_count} processing error: {frame_error}")
                     continue
             
             # Return mean contrast across all frames
             if contrast_list:
                 contrast_mean = float(np.mean(contrast_list))
-                logger.info(f"Spectral contrast extracted: {contrast_mean:.3f}")
+                log_universal('INFO', 'Audio', f"Spectral contrast extracted: {contrast_mean:.3f}")
                 return {'spectral_contrast': ensure_float(contrast_mean)}
             else:
-                logger.warning("No valid contrast values calculated, returning 0.0")
+                log_universal('WARNING', 'Audio', "No valid contrast values calculated, returning 0.0")
                 return {'spectral_contrast': 0.0}
             
         except Exception as e:
-            logger.warning(f"Spectral contrast extraction failed: {str(e)}")
+            log_universal('WARNING', 'Audio', f"Spectral contrast extraction failed: {str(e)}")
             return {'spectral_contrast': 0.0}
 
     @timeout(120, "Chroma extraction timed out")  # 2 minutes for chroma analysis
@@ -2101,11 +2101,11 @@ class AudioAnalyzer:
             Dictionary with chroma features
         """
         if not LIBROSA_AVAILABLE:
-            logger.warning("Chroma extraction skipped - Librosa not available")
+            log_universal('WARNING', 'Audio', "Chroma extraction skipped - Librosa not available")
             return {'chroma': [0.0] * 12}
         
         try:
-            logger.info("Extracting chroma features...")
+            log_universal('INFO', 'Audio', "Extracting chroma features...")
             
             # Extract chroma features using librosa
             chroma = librosa.feature.chroma_cqt(y=audio, sr=DEFAULT_SAMPLE_RATE)
@@ -2116,11 +2116,11 @@ class AudioAnalyzer:
             # Convert to list for JSON serialization
             chroma_list = chroma_mean.tolist()
             
-            logger.info(f"Chroma extracted: {len(chroma_list)} features, values: {[f'{x:.3f}' for x in chroma_list]}")
+            log_universal('INFO', 'Audio', f"Chroma extracted: {len(chroma_list)} features, values: {[f'{x:.3f}' for x in chroma_list]}")
             return {'chroma': [ensure_float(x) for x in chroma_list]}
             
         except Exception as e:
-            logger.warning(f"Chroma extraction failed: {str(e)}")
+            log_universal('WARNING', 'Audio', f"Chroma extraction failed: {str(e)}")
             return {'chroma': [0.0] * 12}
 
     def _validate_features(self, features: Dict[str, Any]) -> bool:
@@ -2139,56 +2139,56 @@ class AudioAnalyzer:
             missing_features = [f for f in essential_features if f not in features]
             
             if missing_features:
-                logger.warning(f"Missing essential features: {missing_features}")
+                log_universal('WARNING', 'Audio', f"Missing essential features: {missing_features}")
                 return False
             
             # Check for valid BPM (excluding invalid markers)
             bpm = features.get('bpm')
             if bpm is not None and bpm == -999.0:
-                logger.warning(f"BPM extraction failed (invalid marker: {bpm})")
+                log_universal('WARNING', 'Audio', f"BPM extraction failed (invalid marker: {bpm})")
                 return False
             elif bpm is not None and (bpm < 30 or bpm > 300):
-                logger.warning(f"Invalid BPM value: {bpm}")
+                log_universal('WARNING', 'Audio', f"Invalid BPM value: {bpm}")
                 return False
             
             # Check for valid loudness (excluding invalid markers)
             loudness = features.get('loudness')
             if loudness is not None and loudness == -999.0:
-                logger.warning(f"Loudness extraction failed (invalid marker: {loudness})")
+                log_universal('WARNING', 'Audio', f"Loudness extraction failed (invalid marker: {loudness})")
                 return False
             elif loudness is not None and (loudness < -100 or loudness > 100):
-                logger.warning(f"Invalid loudness value: {loudness}")
+                log_universal('WARNING', 'Audio', f"Invalid loudness value: {loudness}")
                 return False
             
             # Check for valid spectral centroid (excluding invalid markers)
             spectral_centroid = features.get('spectral_centroid')
             if spectral_centroid is not None and spectral_centroid == -999.0:
-                logger.warning(f"Spectral centroid extraction failed (invalid marker: {spectral_centroid})")
+                log_universal('WARNING', 'Audio', f"Spectral centroid extraction failed (invalid marker: {spectral_centroid})")
                 return False
             elif spectral_centroid is not None and (spectral_centroid < 0 or spectral_centroid > 22050):
-                logger.warning(f"Invalid spectral centroid value: {spectral_centroid}")
+                log_universal('WARNING', 'Audio', f"Invalid spectral centroid value: {spectral_centroid}")
                 return False
             
             # Check for valid key (excluding invalid markers)
             key = features.get('key')
             if key is not None and key == 'INVALID':
-                logger.warning(f"Key extraction failed (invalid marker: {key})")
+                log_universal('WARNING', 'Audio', f"Key extraction failed (invalid marker: {key})")
                 return False
             
             # Check for valid key strength (excluding invalid markers)
             key_strength = features.get('key_strength')
             if key_strength is not None and key_strength == -999.0:
-                logger.warning(f"Key strength extraction failed (invalid marker: {key_strength})")
+                log_universal('WARNING', 'Audio', f"Key strength extraction failed (invalid marker: {key_strength})")
                 return False
             elif key_strength is not None and (key_strength < 0 or key_strength > 1):
-                logger.warning(f"Invalid key strength value: {key_strength}")
+                log_universal('WARNING', 'Audio', f"Invalid key strength value: {key_strength}")
                 return False
             
-            logger.debug("Features validation passed")
+            log_universal('DEBUG', 'Audio', "Features validation passed")
             return True
             
         except Exception as e:
-            logger.error(f"Error validating features: {e}")
+            log_universal('ERROR', 'Audio', f"Error validating features: {e}")
             return False
         
     def _is_valid_for_playlist(self, features: Dict[str, Any]) -> bool:
@@ -2214,25 +2214,25 @@ class AudioAnalyzer:
             
             for feature, invalid_value in invalid_markers.items():
                 if feature in features and features[feature] == invalid_value:
-                    logger.debug(f"Feature '{feature}' has invalid marker: {invalid_value}")
+                    log_universal('DEBUG', 'Audio', f"Feature '{feature}' has invalid marker: {invalid_value}")
                     return False
             
             # Check for invalid MFCC (all values -999.0)
             mfcc = features.get('mfcc')
             if mfcc and isinstance(mfcc, list) and all(x == -999.0 for x in mfcc):
-                logger.debug("MFCC has invalid markers")
+                log_universal('DEBUG', 'Audio', "MFCC has invalid markers")
                 return False
             
             # Check for invalid MusiCNN features (all values -999.0)
             musicnn = features.get('musicnn_features')
             if musicnn and isinstance(musicnn, list) and all(x == -999.0 for x in musicnn):
-                logger.debug("MusiCNN features have invalid markers")
+                log_universal('DEBUG', 'Audio', "MusiCNN features have invalid markers")
                 return False
             
             return True
             
         except Exception as e:
-            logger.error(f"Error checking playlist validity: {e}")
+            log_universal('ERROR', 'Audio', f"Error checking playlist validity: {e}")
             return False
 
     def get_version(self) -> str:
