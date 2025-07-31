@@ -339,6 +339,7 @@ def start_log_level_monitor():
 
 def setup_signal_handlers():
     """Setup signal handlers for runtime log level control."""
+    logger = get_logger()
     
     def cycle_log_level(signum, frame):
         """Cycle through log levels on signal."""
