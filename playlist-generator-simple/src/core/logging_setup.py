@@ -563,6 +563,45 @@ def _setup_external_logging(log_dir: str, file_logging: bool) -> None:
             essentia_logger.addHandler(essentia_handler)
     except ImportError:
         pass
+    
+    # MusicExtractorSVM logging
+    try:
+        music_extractor_logger = logging.getLogger('MusicExtractorSVM')
+        music_extractor_logger.handlers.clear()
+        music_extractor_logger.setLevel(logging.ERROR)  # Only show errors
+        
+        if file_logging:
+            me_handler = logging.FileHandler(os.path.join(log_dir, 'music_extractor.log'))
+            me_handler.setLevel(logging.ERROR)
+            music_extractor_logger.addHandler(me_handler)
+    except ImportError:
+        pass
+    
+    # TensorflowPredict logging
+    try:
+        tf_predict_logger = logging.getLogger('TensorflowPredict')
+        tf_predict_logger.handlers.clear()
+        tf_predict_logger.setLevel(logging.ERROR)  # Only show errors
+        
+        if file_logging:
+            tfp_handler = logging.FileHandler(os.path.join(log_dir, 'tensorflow_predict.log'))
+            tfp_handler.setLevel(logging.ERROR)
+            tf_predict_logger.addHandler(tfp_handler)
+    except ImportError:
+        pass
+    
+    # Librosa logging
+    try:
+        librosa_logger = logging.getLogger('librosa')
+        librosa_logger.handlers.clear()
+        librosa_logger.setLevel(logging.ERROR)  # Only show errors
+        
+        if file_logging:
+            librosa_handler = logging.FileHandler(os.path.join(log_dir, 'librosa.log'))
+            librosa_handler.setLevel(logging.ERROR)
+            librosa_logger.addHandler(librosa_handler)
+    except ImportError:
+        pass
 
 
 def cleanup_logging():

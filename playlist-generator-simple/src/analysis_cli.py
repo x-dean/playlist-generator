@@ -3,7 +3,16 @@ Simple CLI interface for analysis components in Playlist Generator Simple.
 Provides commands to test and use the analysis functionality.
 """
 
+# Suppress external library logging BEFORE any imports
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow warnings
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimizations
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU usage
+os.environ['ESSENTIA_LOG_LEVEL'] = 'error'  # Suppress Essentia info/warnings
+os.environ['MUSICEXTRACTOR_LOG_LEVEL'] = 'error'  # Suppress MusicExtractorSVM logs
+os.environ['TENSORFLOW_LOG_LEVEL'] = '2'  # Suppress TensorFlow info/warnings
+os.environ['LIBROSA_LOG_LEVEL'] = 'error'  # Suppress Librosa logs
+
 import sys
 import argparse
 from pathlib import Path
@@ -18,22 +27,6 @@ from core.database import DatabaseManager
 from core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
 from core.logging_setup import get_logger, setup_logging, log_universal
 from core.config_loader import config_loader
-
-# Initialize logging system from config
-config = config_loader.load_config()
-logging_config = config_loader.get_logging_config()
-
-# Use config values or defaults
-log_level = logging_config.get('LOG_LEVEL', 'INFO')
-log_file_prefix = logging_config.get('LOG_FILE_PREFIX', 'playlista_analysis')
-console_logging = logging_config.get('LOG_CONSOLE_ENABLED', True)
-file_logging = logging_config.get('LOG_FILE_ENABLED', True)
-colored_output = logging_config.get('LOG_COLORED_OUTPUT', True)
-file_colored_output = logging_config.get('LOG_FILE_COLORED_OUTPUT', None)  # None means use colored_output
-max_log_files = logging_config.get('LOG_MAX_FILES', 10)
-log_file_size_mb = logging_config.get('LOG_FILE_SIZE_MB', 50)
-log_file_format = logging_config.get('LOG_FILE_FORMAT', 'text')
-log_file_encoding = logging_config.get('LOG_FILE_ENCODING', 'utf-8')
 
 # Check for verbose arguments before setting up logging
 def check_verbose_args():
@@ -57,8 +50,30 @@ def check_verbose_args():
 # Get initial log level considering verbose flags
 verbose_level = check_verbose_args()
 
+# --- Stage 1: Set initial log level based on CLI verbose flags immediately ---
+# This ensures that any logs from config_loader.load_config() respect the CLI verbosity
+if verbose_level:
+    setup_logging(log_level=verbose_level, console_logging=True, file_logging=False, environment_monitoring=False)
+
+# Now load the config. Logs from config_loader will now respect the verbose_level.
+config = config_loader.load_config()
+logging_config = config_loader.get_logging_config()
+
+# Use config values or defaults, potentially overridden by CLI verbose_level
+log_level_from_config = logging_config.get('LOG_LEVEL', 'INFO') # Get config's LOG_LEVEL
+log_file_prefix = logging_config.get('LOG_FILE_PREFIX', 'playlista_analysis')
+console_logging = logging_config.get('LOG_CONSOLE_ENABLED', True)
+file_logging = logging_config.get('LOG_FILE_ENABLED', True)
+colored_output = logging_config.get('LOG_COLORED_OUTPUT', True)
+file_colored_output = logging_config.get('LOG_FILE_COLORED_OUTPUT', None)  # None means use colored_output
+max_log_files = logging_config.get('LOG_MAX_FILES', 10)
+log_file_size_mb = logging_config.get('LOG_FILE_SIZE_MB', 50)
+log_file_format = logging_config.get('LOG_FILE_FORMAT', 'text')
+log_file_encoding = logging_config.get('LOG_FILE_ENCODING', 'utf-8')
+
+# --- Stage 2: Full logging setup with all config parameters ---
 setup_logging(
-    log_level=verbose_level if verbose_level is not None else log_level,
+    log_level=verbose_level if verbose_level is not None else log_level_from_config, # Prioritize CLI verbose_level
     log_file_prefix=log_file_prefix,
     console_logging=console_logging,
     file_logging=file_logging,
