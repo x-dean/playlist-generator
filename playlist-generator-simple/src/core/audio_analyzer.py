@@ -61,7 +61,7 @@ except ImportError:
 
 
 # Import local modules
-from logging_setup import get_logger, log_function_call, log_performance, log_feature_extraction_step, log_resource_usage
+from .logging_setup import get_logger, log_function_call, log_performance, log_feature_extraction_step, log_resource_usage
 
 logger = get_logger('playlista.audio_analyzer')
 
@@ -260,7 +260,7 @@ class AudioAnalyzer:
         """
         # Load configuration
         if config is None:
-            from config_loader import config_loader
+            from .config_loader import config_loader
             config = config_loader.get_analysis_config()
         
         self.config = config
@@ -495,7 +495,7 @@ class AudioAnalyzer:
     def _get_forced_guidance(self) -> Dict[str, Any]:
         """Get forced guidance from resource manager."""
         try:
-            from resource_manager import get_resource_manager
+            from .resource_manager import get_resource_manager
             return get_resource_manager().get_forced_analysis_guidance()
         except Exception as e:
             logger.warning(f"Could not get resource manager guidance: {e}")
@@ -713,7 +713,7 @@ class AudioAnalyzer:
     def _load_audio_streaming(self, audio_path: str) -> Optional[np.ndarray]:
         """Load audio using streaming method for memory efficiency."""
         try:
-            from streaming_audio_loader import get_streaming_loader
+            from .streaming_audio_loader import get_streaming_loader
             
             # Get streaming loader with configuration
             streaming_loader = get_streaming_loader(
@@ -1039,7 +1039,7 @@ class AudioAnalyzer:
             logger.debug("Starting external API metadata enrichment")
             
             # Import external APIs module
-            from external_apis import metadata_enrichment_service
+            from .external_apis import metadata_enrichment_service
             
             # Check if external APIs are available
             if not metadata_enrichment_service.is_available():
@@ -1120,15 +1120,15 @@ class AudioAnalyzer:
             logger.info(f"File size thresholds: original={original_file_size:,} samples, representative={audio_length:,} samples")
             logger.info(f"Using original file size for threshold decisions")
         else:
-                          logger.debug(f"File size: {audio_length:,} samples")
+            logger.debug(f"File size: {audio_length:,} samples")
         
         # Log feature skipping decisions
         if is_extremely_large_for_processing:
             logger.warning(f"Extremely large file detected - analyzing representative audio only")
         elif is_extremely_large:
-                          logger.warning(f"Very large file detected - skipping MFCC and MusiCNN features")
+            logger.warning(f"Very large file detected - skipping MFCC and MusiCNN features")
         elif is_large_file:
-                          logger.info(f"Large file detected - using extended timeouts")
+            logger.info(f"Large file detected - using extended timeouts")
         
         try:
             # Extract rhythm features (if enabled)
