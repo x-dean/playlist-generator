@@ -238,6 +238,8 @@ def setup_logging(
         
         if log_file_format == 'json':
             formatter = JsonFormatter(include_extra_fields, include_exception_details)
+        elif colored_output:
+            formatter = ColoredFormatter()
         else:
             formatter = TextFormatter()
         
