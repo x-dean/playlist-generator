@@ -1,135 +1,79 @@
 """
 Production-grade logging setup for Playlist Generator Simple.
-Uses standard logging library with configurable output formats and handlers.
+Uses Loguru for better features, performance, and structured logging.
 """
 
-import logging
-import logging.handlers
 import os
 import sys
-import threading
 import time
-import signal
 import json
+import threading
+import signal
 from pathlib import Path
-from typing import Optional, Dict, Any, Union
+from typing import Dict, Any, Optional, Union
 from datetime import datetime
+
+# Import Loguru for better logging
+try:
+    from loguru import logger
+    LOGURU_AVAILABLE = True
+except ImportError:
+    LOGURU_AVAILABLE = False
+    import logging
+    logger = logging.getLogger('playlista')
+
+# Import colorama for cross-platform color support
+try:
+    from colorama import init, Fore, Back, Style
+    init(autoreset=True)  # Initialize colorama
+    COLORAMA_AVAILABLE = True
+except ImportError:
+    COLORAMA_AVAILABLE = False
+    # Fallback colors if colorama not available
+    class Fore:
+        GREEN = '\033[32m'
+        YELLOW = '\033[33m'
+        RED = '\033[31m'
+        CYAN = '\033[36m'
+        MAGENTA = '\033[35m'
+        BLUE = '\033[34m'
+        WHITE = '\033[37m'
+        RESET = '\033[0m'
+    
+    class Style:
+        BRIGHT = '\033[1m'
+        RESET_ALL = '\033[0m'
 
 # Global state
 _log_setup_complete = False
 _log_level_monitor_thread = None
 _log_config = {}
 
-
-class ColoredFormatter(logging.Formatter):
-    """
-    Universal colored formatter for console output.
-    Provides consistent formatting with color coding for different log levels.
-    """
-    
-    # Enhanced color codes with better contrast
-    COLORS = {
-        'DEBUG': '\033[36m',      # Cyan
-        'INFO': '\033[32m',       # Green
-        'WARNING': '\033[33m',    # Yellow
-        'ERROR': '\033[31m',      # Red
-        'CRITICAL': '\033[35m',   # Magenta
-        'RESET': '\033[0m'        # Reset
-    }
-    
-    # Component colors for structured logging
-    COMPONENT_COLORS = {
-        'MB API': '\033[94m',     # Blue
-        'LF API': '\033[95m',     # Magenta
-        'Enrichment': '\033[96m', # Bright Cyan
-        'Analysis': '\033[93m',   # Bright Yellow
-        'Database': '\033[92m',   # Bright Green
-        'Cache': '\033[90m',      # Gray
-        'Worker': '\033[97m',     # White
-        'Sequential': '\033[94m', # Blue
-        'Parallel': '\033[95m',   # Magenta
-        'Resource': '\033[96m',   # Bright Cyan
-        'Progress': '\033[93m',   # Bright Yellow
-        'Playlist': '\033[92m',   # Bright Green
-        'Streaming': '\033[90m',  # Gray
-        'CLI': '\033[97m',        # White
-        'Config': '\033[94m',     # Blue
-        'Export': '\033[95m',     # Magenta
-        'Pipeline': '\033[96m',   # Bright Cyan
-        'System': '\033[93m',     # Bright Yellow
-        'RESET': '\033[0m'        # Reset
-    }
-    
-    def __init__(self, fmt=None, datefmt=None):
-        super().__init__(fmt, datefmt)
-        self.supports_color = self._supports_color()
-    
-    def _supports_color(self):
-        """Check if the terminal supports color output."""
-        return True  # Force color support
-    
-    def format(self, record):
-        # Color the level name
-        levelname = record.levelname
-        if self.supports_color and levelname in self.COLORS:
-            record.levelname = f"{self.COLORS[levelname]}{levelname}{self.COLORS['RESET']}"
-        
-        # Color common component prefixes in messages
-        if self.supports_color and hasattr(record, 'msg'):
-            message = str(record.msg)
-            for component, color in self.COMPONENT_COLORS.items():
-                if component in message:
-                    message = message.replace(
-                        f"{component}:", 
-                        f"{color}{component}{self.COMPONENT_COLORS['RESET']}:"
-                    )
-            record.msg = message
-        
-        return super().format(record)
-
-
-class JsonFormatter(logging.Formatter):
-    """
-    JSON formatter for structured logging to files.
-    """
-    
-    def __init__(self, include_extra_fields=True, include_exception_details=True):
-        super().__init__()
-        self.include_extra_fields = include_extra_fields
-        self.include_exception_details = include_exception_details
-    
-    def format(self, record):
-        log_entry = {
-            'timestamp': datetime.fromtimestamp(record.created).isoformat(),
-            'level': record.levelname,
-            'logger': record.name,
-            'message': record.getMessage(),
-            'module': record.module,
-            'function': record.funcName,
-            'line': record.lineno
-        }
-        
-        if self.include_exception_details and record.exc_info:
-            log_entry['exception'] = self.formatException(record.exc_info)
-        
-        if self.include_extra_fields and hasattr(record, 'extra_fields'):
-            log_entry.update(record.extra_fields)
-        
-        return json.dumps(log_entry, ensure_ascii=False)
-
-
-class TextFormatter(logging.Formatter):
-    """
-    Simple text formatter for file logging.
-    """
-    
-    def __init__(self, fmt=None, datefmt=None):
-        if fmt is None:
-            fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        if datefmt is None:
-            datefmt = '%Y-%m-%d %H:%M:%S'
-        super().__init__(fmt, datefmt)
-
+# Component colors for structured logging
+COMPONENT_COLORS = {
+    'MB API': Fore.BLUE,
+    'LF API': Fore.MAGENTA,
+    'Enrichment': Fore.CYAN,
+    'Analysis': Fore.YELLOW,
+    'Database': Fore.GREEN,
+    'Cache': Fore.WHITE,
+    'Worker': Fore.WHITE,
+    'Sequential': Fore.BLUE,
+    'Parallel': Fore.MAGENTA,
+    'Resource': Fore.CYAN,
+    'Progress': Fore.YELLOW,
+    'Playlist': Fore.GREEN,
+    'Streaming': Fore.WHITE,
+    'CLI': Fore.WHITE,
+    'Config': Fore.BLUE,
+    'Export': Fore.MAGENTA,
+    'Pipeline': Fore.CYAN,
+    'System': Fore.YELLOW,
+    'Audio': Fore.GREEN,
+    'CPU Optimizer': Fore.CYAN,
+    'FileDiscovery': Fore.BLUE,
+    'RESET': Fore.RESET
+}
 
 def setup_logging(
     log_level: str = None,
@@ -151,9 +95,9 @@ def setup_logging(
     performance_enabled: bool = True,
     function_calls_enabled: bool = True,
     signal_cycle_levels: bool = True
-) -> logging.Logger:
+) -> 'logger':
     """
-    Setup production-grade logging with configurable output formats.
+    Setup production-grade logging with Loguru.
     
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -168,10 +112,10 @@ def setup_logging(
         log_file_encoding: Encoding for log files
         console_format: Custom format for console output
         console_date_format: Custom date format for console output
-        include_extra_fields: Include extra fields in JSON logs
+        include_extra_fields: Include extra fields in structured logging
         include_exception_details: Include exception details in logs
-        environment_monitoring: Monitor environment variables for log level changes
-        signal_handling: Setup signal handlers for log level control
+        environment_monitoring: Enable environment variable monitoring
+        signal_handling: Enable signal handlers for log level cycling
         performance_enabled: Enable performance logging
         function_calls_enabled: Enable function call logging
         signal_cycle_levels: Enable signal-based log level cycling
@@ -182,20 +126,21 @@ def setup_logging(
     global _log_setup_complete, _log_config
     
     if _log_setup_complete:
-        return logging.getLogger('playlista')
+        return logger
     
     # Auto-detect log directory if not provided
     if log_dir is None:
-        # Try to use /app/logs in Docker, fallback to current directory
         if os.path.exists('/app/logs'):
-            log_dir = '/app/logs'
+            log_dir = '/app/logs'  # Docker container
+        elif os.path.exists('./logs'):
+            log_dir = './logs'  # Local development
         else:
-            log_dir = 'logs'
+            log_dir = os.path.join(os.getcwd(), 'logs')
     
-    # Ensure log directory exists
+    # Create log directory if it doesn't exist
     os.makedirs(log_dir, exist_ok=True)
     
-    # Get log level from environment or use default
+    # Set default log level
     if log_level is None:
         log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
     
@@ -204,54 +149,87 @@ def setup_logging(
     if log_level not in valid_levels:
         log_level = 'INFO'
     
-    # Get main logger
-    logger = logging.getLogger('playlista')
-    logger.setLevel(getattr(logging, log_level, logging.INFO))
-    
-    # Clear existing handlers
-    logger.handlers.clear()
-    
-    # Console handler
-    if console_logging:
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(getattr(logging, log_level, logging.INFO))
+    # Remove default handlers if using Loguru
+    if LOGURU_AVAILABLE:
+        logger.remove()  # Remove default handler
         
-        if console_format is None:
-            console_format = '%(asctime)s - %(levelname)s - %(message)s'
-        if console_date_format is None:
-            console_date_format = '%H:%M:%S'
+        # Console handler with color support
+        if console_logging:
+            if console_format is None:
+                console_format = "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+            
+            logger.add(
+                sys.stdout,
+                format=console_format,
+                level=log_level,
+                colorize=colored_output,
+                backtrace=True,
+                diagnose=True
+            )
         
-        if colored_output:
-            formatter = ColoredFormatter(console_format, console_date_format)
-        else:
-            formatter = TextFormatter(console_format, console_date_format)
+        # File handler
+        if file_logging:
+            log_file = os.path.join(log_dir, f"{log_file_prefix}.log")
+            
+            if log_file_format == 'json':
+                # JSON format for structured logging
+                logger.add(
+                    log_file,
+                    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra} | {message}",
+                    level=log_level,
+                    rotation=f"{log_file_size_mb} MB",
+                    retention=max_log_files,
+                    compression="zip",
+                    serialize=True,  # JSON serialization
+                    backtrace=True,
+                    diagnose=True
+                )
+            else:
+                # Text format
+                logger.add(
+                    log_file,
+                    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
+                    level=log_level,
+                    rotation=f"{log_file_size_mb} MB",
+                    retention=max_log_files,
+                    compression="zip",
+                    backtrace=True,
+                    diagnose=True
+                )
+    else:
+        # Fallback to standard logging
+        logger.setLevel(getattr(logging, log_level, logging.INFO))
         
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
-    
-    # File handler
-    if file_logging:
-        log_file = os.path.join(log_dir, f"{log_file_prefix}.log")
+        if console_logging:
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setLevel(getattr(logging, log_level, logging.INFO))
+            
+            if console_format is None:
+                console_format = '%(asctime)s - %(levelname)s - %(message)s'
+            if console_date_format is None:
+                console_date_format = '%H:%M:%S'
+            
+            formatter = logging.Formatter(console_format, console_date_format)
+            console_handler.setFormatter(formatter)
+            logger.addHandler(console_handler)
         
-        if log_file_format == 'json':
-            formatter = JsonFormatter(include_extra_fields, include_exception_details)
-        elif colored_output:
-            formatter = ColoredFormatter()
-        else:
-            formatter = TextFormatter()
-        
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=log_file_size_mb * 1024 * 1024,
-            backupCount=max_log_files,
-            encoding=log_file_encoding
-        )
-        file_handler.setLevel(getattr(logging, log_level, logging.INFO))
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    
-    # Prevent propagation to avoid duplicate logs
-    logger.propagate = False
+        if file_logging:
+            log_file = os.path.join(log_dir, f"{log_file_prefix}.log")
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file,
+                maxBytes=log_file_size_mb * 1024 * 1024,
+                backupCount=max_log_files,
+                encoding=log_file_encoding
+            )
+            file_handler.setLevel(getattr(logging, log_level, logging.INFO))
+            
+            if log_file_format == 'json':
+                formatter = logging.Formatter('{"time": "%(asctime)s", "level": "%(levelname)s", "name": "%(name)s", "message": "%(message)s"}')
+            else:
+                formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
     
     # Store configuration
     _log_config = {
@@ -264,7 +242,7 @@ def setup_logging(
     }
     
     # Setup external library logging
-    _setup_external_logging(logger, log_dir, file_logging)
+    _setup_external_logging(log_dir, file_logging)
     
     # Setup signal handlers if enabled
     if signal_handling:
@@ -282,9 +260,95 @@ def setup_logging(
     log_universal('INFO', 'System', f"File logging: {file_logging}")
     log_universal('INFO', 'System', f"Colored output: {colored_output}")
     log_universal('INFO', 'System', f"File format: {log_file_format}")
+    log_universal('INFO', 'System', f"Using Loguru: {LOGURU_AVAILABLE}")
     
     _log_setup_complete = True
     return logger
+
+
+def get_logger(name: str = None) -> 'logger':
+    """
+    Get a logger instance with proper configuration.
+    
+    Args:
+        name: Logger name (optional)
+    
+    Returns:
+        Configured logger instance
+    """
+    if LOGURU_AVAILABLE:
+        return logger.bind(name=name) if name else logger
+    else:
+        return logging.getLogger(name or 'playlista')
+
+
+def log_universal(level: str, component: str, message: str, **kwargs):
+    """
+    Universal logging function with component-based formatting.
+    
+    Args:
+        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        component: Component name for color coding
+        message: Log message
+        **kwargs: Additional fields for structured logging
+    """
+    # Create structured message with component prefix
+    structured_message = f"{component}: {message}"
+    
+    # Add component color if available
+    if COLORAMA_AVAILABLE and component in COMPONENT_COLORS:
+        structured_message = f"{COMPONENT_COLORS[component]}{component}{Fore.RESET}: {message}"
+    
+    # Use appropriate log method
+    if LOGURU_AVAILABLE:
+        log_method = getattr(logger, level.lower(), logger.info)
+        log_method(structured_message, extra=kwargs)
+    else:
+        log_method = getattr(logger, level.lower(), logger.info)
+        log_method(structured_message, extra=kwargs)
+
+
+def log_api_call(api_name: str, operation: str, target: str, success: bool = True, 
+                details: str = None, duration: float = None, **kwargs):
+    """
+    Log API call with structured information.
+    
+    Args:
+        api_name: Name of the API (e.g., 'MusicBrainz', 'Last.fm')
+        operation: Operation performed (e.g., 'search', 'get_metadata')
+        target: Target of the operation (e.g., 'artist', 'album')
+        success: Whether the operation was successful
+        details: Additional details about the operation
+        duration: Duration of the operation in seconds
+        **kwargs: Additional fields
+    """
+    # Create structured message
+    status = "SUCCESS" if success else "FAILED"
+    message = f"{api_name} API {operation} {target}: {status}"
+    
+    if details:
+        message += f" - {details}"
+    
+    if duration:
+        message += f" ({duration:.2f}s)"
+    
+    # Use log_universal for consistency
+    log_level = 'INFO' if success else 'ERROR'
+    log_universal(log_level, api_name, message, **kwargs)
+
+
+def log_function_call(func):
+    """Decorator to log function calls."""
+    def wrapper(*args, **kwargs):
+        log_universal('DEBUG', 'System', f"Calling {func.__name__} with args={args}, kwargs={kwargs}")
+        try:
+            result = func(*args, **kwargs)
+            log_universal('DEBUG', 'System', f"{func.__name__} completed successfully")
+            return result
+        except Exception as e:
+            log_universal('ERROR', 'System', f"{func.__name__} failed with error: {e}")
+            raise
+    return wrapper
 
 
 def change_log_level(new_level: str) -> bool:
@@ -302,12 +366,17 @@ def change_log_level(new_level: str) -> bool:
         if level is None:
             return False
         
-        logger = logging.getLogger('playlista')
-        logger.setLevel(level)
-        
-        # Update all handlers
-        for handler in logger.handlers:
-            handler.setLevel(level)
+        if LOGURU_AVAILABLE:
+            logger.remove()
+            logger.add(sys.stdout, level=new_level.upper())
+            logger.add(
+                os.path.join(_log_config.get('log_dir', './logs'), f"{_log_config.get('log_file_prefix', 'playlista')}.log"),
+                level=new_level.upper()
+            )
+        else:
+            logger.setLevel(level)
+            for handler in logger.handlers:
+                handler.setLevel(level)
         
         log_universal('INFO', 'System', f"Log level changed to: {new_level.upper()}")
         return True
@@ -330,16 +399,13 @@ def monitor_log_level_changes():
             if current_level != last_level:
                 if change_log_level(current_level):
                     log_universal('INFO', 'System', f"Environment LOG_LEVEL changed from {last_level} to {current_level}")
-                    log_universal('INFO', 'System', f"Log level updated to: {current_level}")
                     last_level = current_level
                 else:
                     log_universal('ERROR', 'System', f"Failed to update log level to: {current_level}")
             
             time.sleep(5)  # Check every 5 seconds
-            
         except Exception as e:
-            log_universal('ERROR', 'System', f"Error in log level monitor: {e}")
-            time.sleep(10)  # Wait longer on error
+            time.sleep(5)  # Continue monitoring even if there's an error
 
 
 def start_log_level_monitor():
@@ -349,20 +415,18 @@ def start_log_level_monitor():
     if _log_level_monitor_thread is None or not _log_level_monitor_thread.is_alive():
         _log_level_monitor_thread = threading.Thread(
             target=monitor_log_level_changes,
-            daemon=True,
-            name="LogLevelMonitor"
+            daemon=True
         )
         _log_level_monitor_thread.start()
 
 
 def setup_signal_handlers():
-    """Setup signal handlers for log level control."""
+    """Setup signal handlers for log level cycling."""
     
     def cycle_log_level(signum, frame):
         """Cycle through log levels on signal."""
         levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
-        logger = logging.getLogger('playlista')
-        current_level = logging.getLevelName(logger.level)
+        current_level = _log_config.get('log_level', 'INFO')
         
         try:
             current_index = levels.index(current_level)
@@ -372,29 +436,20 @@ def setup_signal_handlers():
             if change_log_level(new_level):
                 log_universal('INFO', 'System', f"Log level cycled to: {new_level}")
             else:
-                log_universal('ERROR', 'System', f"Failed to change log level")
+                log_universal('ERROR', 'System', f"Failed to cycle log level to: {new_level}")
         except Exception as e:
-            log_universal('ERROR', 'System', f"Error changing log level: {e}")
+            log_universal('ERROR', 'System', f"Error cycling log level: {e}")
     
     # Register signal handlers
     try:
         signal.signal(signal.SIGUSR1, cycle_log_level)
-        log_universal('INFO', 'System', "Log level control: Send SIGUSR1 signal to cycle through log levels")
-        log_universal('INFO', 'System', "  Example: docker compose exec playlista kill -SIGUSR1 1")
-    except (AttributeError, OSError):
-        # Windows doesn't support SIGUSR1
-        pass
+        log_universal('INFO', 'System', "Signal handler registered for SIGUSR1 (log level cycling)")
+    except Exception as e:
+        log_universal('WARNING', 'System', f"Could not register signal handler: {e}")
 
 
-def _setup_external_logging(logger: logging.Logger, log_dir: str, file_logging: bool) -> None:
-    """
-    Setup logging for external libraries to reduce noise.
-    
-    Args:
-        logger: Main logger instance
-        log_dir: Log directory
-        file_logging: Whether file logging is enabled
-    """
+def _setup_external_logging(log_dir: str, file_logging: bool) -> None:
+    """Setup logging for external libraries."""
     
     # TensorFlow logging
     try:
@@ -404,136 +459,24 @@ def _setup_external_logging(logger: logging.Logger, log_dir: str, file_logging: 
         tf_logger.setLevel(logging.ERROR)  # Only show errors
         
         if file_logging:
-            tf_log_file = os.path.join(log_dir, 'tensorflow.log')
-            tf_handler = logging.handlers.RotatingFileHandler(
-                tf_log_file,
-                maxBytes=10 * 1024 * 1024,  # 10MB
-                backupCount=3,
-                encoding='utf-8'
-            )
-            tf_handler.setFormatter(TextFormatter())
+            tf_handler = logging.FileHandler(os.path.join(log_dir, 'tensorflow.log'))
+            tf_handler.setLevel(logging.ERROR)
             tf_logger.addHandler(tf_handler)
-        
-        log_universal('DEBUG', 'System', "TensorFlow logging configured")
-        
     except ImportError:
-        log_universal('DEBUG', 'System', "TensorFlow not available - skipping TF logging setup")
+        pass
     
     # Essentia logging
     try:
-        import essentia
         essentia_logger = logging.getLogger('essentia')
         essentia_logger.handlers.clear()
         essentia_logger.setLevel(logging.ERROR)
         
         if file_logging:
-            essentia_log_file = os.path.join(log_dir, 'essentia.log')
-            essentia_handler = logging.handlers.RotatingFileHandler(
-                essentia_log_file,
-                maxBytes=10 * 1024 * 1024,  # 10MB
-                backupCount=3,
-                encoding='utf-8'
-            )
-            essentia_handler.setFormatter(TextFormatter())
+            essentia_handler = logging.FileHandler(os.path.join(log_dir, 'essentia.log'))
+            essentia_handler.setLevel(logging.ERROR)
             essentia_logger.addHandler(essentia_handler)
-        
-        log_universal('DEBUG', 'System', "Essentia logging configured")
-        
     except ImportError:
-        log_universal('DEBUG', 'System', "Essentia not available - skipping Essentia logging setup")
-
-
-def get_logger(name: str = None) -> logging.Logger:
-    """
-    Get a logger instance with proper configuration.
-    
-    Args:
-        name: Logger name (optional)
-    
-    Returns:
-        Configured logger instance
-    """
-    logger_instance = logging.getLogger(name)
-    
-    if name != 'playlista' and not logger_instance.handlers:
-        # Inherit handlers from main logger
-        main_logger = logging.getLogger('playlista')
-        logger_instance.handlers = main_logger.handlers
-        logger_instance.setLevel(main_logger.level)
-        logger_instance.propagate = False
-    
-    return logger_instance
-
-
-def log_function_call(func):
-    """Decorator to log function calls."""
-    def wrapper(*args, **kwargs):
-        log_universal('DEBUG', 'System', f"Calling {func.__name__} with args={args}, kwargs={kwargs}")
-        try:
-            result = func(*args, **kwargs)
-            log_universal('DEBUG', 'System', f"{func.__name__} completed successfully")
-            return result
-        except Exception as e:
-            log_universal('ERROR', 'System', f"{func.__name__} failed with error: {e}")
-            raise
-    return wrapper
-
-
-def log_universal(level: str, component: str, message: str, **kwargs):
-    """
-    Universal logging function with component-based formatting.
-    
-    Args:
-        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        component: Component name for color coding
-        message: Log message
-        **kwargs: Additional fields for structured logging
-    """
-    logger = logging.getLogger('playlista')
-    
-    # Create structured message with component prefix
-    structured_message = f"{component}: {message}"
-    
-    # Add extra fields if provided
-    if kwargs:
-        extra_fields = kwargs
-    else:
-        extra_fields = {}
-    
-    # Use appropriate log method with correct level
-    log_method = getattr(logger, level.lower(), logger.info)
-    log_method(structured_message, extra=extra_fields)
-
-
-def log_api_call(api_name: str, operation: str, target: str, success: bool = True, 
-                details: str = None, duration: float = None, **kwargs):
-    """
-    Log API call with structured information.
-    
-    Args:
-        api_name: Name of the API (e.g., 'MusicBrainz', 'Last.fm')
-        operation: Operation performed (e.g., 'search', 'get_metadata')
-        target: Target of the operation (e.g., 'artist', 'album')
-        success: Whether the operation was successful
-        details: Additional details about the operation
-        duration: Duration of the operation in seconds
-        **kwargs: Additional fields
-    """
-    logger = logging.getLogger('playlista')
-    
-    # Create structured message
-    status = "SUCCESS" if success else "FAILED"
-    message = f"{api_name} API {operation} {target}: {status}"
-    
-    if details:
-        message += f" - {details}"
-    
-    if duration:
-        message += f" ({duration:.2f}s)"
-    
-    # Use log_universal for consistency
-    log_level = 'INFO' if success else 'ERROR'
-    log_universal(log_level, api_name, message, **kwargs)
+        pass
 
 
 def cleanup_logging():
@@ -551,7 +494,7 @@ def get_log_config() -> Dict[str, Any]:
     return _log_config.copy()
 
 
-def reload_logging_from_config(config: Dict[str, Any]) -> logging.Logger:
+def reload_logging_from_config(config: Dict[str, Any]) -> 'logger':
     """
     Reload logging configuration from a config dictionary.
     

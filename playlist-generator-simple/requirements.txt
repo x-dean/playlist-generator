@@ -16,6 +16,8 @@ scikit-learn
 tqdm
 rich
 psutil
+colorama
+loguru
 
 # TensorFlow for MusiCNN deep learning features
 tensorflow==2.11.*
