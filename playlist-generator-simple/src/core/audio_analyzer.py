@@ -1165,6 +1165,9 @@ class AudioAnalyzer:
                     if not np.isfinite(bpm) or bpm <= 0:
                         logger.warning(f"Invalid BPM value: {bpm}, using failed marker")
                         bpm = -999.0  # Invalid BPM marker (normal range: 30-300)
+                    else:
+                        # Round BPM to reasonable precision
+                        bpm = round(bpm, 1)
                 except (ValueError, TypeError):
                     logger.warning(f"Could not convert BPM to float: {bpm}, using failed marker")
                     bpm = -999.0  # Invalid BPM marker (normal range: 30-300)
@@ -1173,7 +1176,19 @@ class AudioAnalyzer:
                 
                 # Add additional rhythm features if available
                 if isinstance(rhythm_result, tuple) and len(rhythm_result) >= 4:
-                    features['confidence'] = ensure_float(rhythm_result[1])
+                    # Handle confidence value - normalize to 0-1 range if needed
+                    confidence_raw = rhythm_result[1]
+                    if isinstance(confidence_raw, (int, float, np.number)):
+                        confidence = float(confidence_raw)
+                        # Normalize confidence to 0-1 range if it's outside
+                        if confidence > 1.0:
+                            confidence = confidence / 1000.0  # Assume it's in 0-1000 range
+                        elif confidence < 0:
+                            confidence = 0.0
+                        features['confidence'] = ensure_float(confidence)
+                    else:
+                        features['confidence'] = 0.5  # Default confidence
+                    
                     if hasattr(rhythm_result[2], 'tolist'):
                         features['estimates'] = rhythm_result[2].tolist()
                     else:
@@ -1225,26 +1240,103 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
-                # Ensure audio is non-negative for Essentia
-                audio_positive = np.abs(audio)
+                # Use the same algorithms as the old working setup
                 
-                # Spectral centroid
-                centroid = es.Centroid()
-                features['spectral_centroid'] = ensure_float(centroid(audio_positive))
-                
-                # Spectral rolloff
-                rolloff = es.RollOff()
-                features['spectral_rolloff'] = ensure_float(rolloff(audio_positive))
-                
-                # Spectral flatness - handle potential negative values
+                # Spectral centroid - use SpectralCentroidTime like old setup
                 try:
-                    flatness = es.Flatness()
-                    features['spectral_flatness'] = ensure_float(flatness(audio_positive))
+                    centroid_algo = es.SpectralCentroidTime()
+                    centroid_values = centroid_algo(audio)
+                    centroid_mean = float(np.nanmean(centroid_values)) if isinstance(
+                        centroid_values, (list, np.ndarray)) else float(centroid_values)
+                    features['spectral_centroid'] = ensure_float(centroid_mean)
+                except Exception as e:
+                    logger.warning(f"Spectral centroid failed: {e}, using librosa fallback")
+                    if LIBROSA_AVAILABLE:
+                        centroid = librosa.feature.spectral_centroid(y=audio, sr=DEFAULT_SAMPLE_RATE)
+                        features['spectral_centroid'] = ensure_float(np.mean(centroid))
+                
+                # Spectral rolloff - use custom frame-by-frame calculation like old setup
+                try:
+                    frame_size = 2048
+                    hop_size = 1024
+                    window = es.Windowing(type='hann')
+                    spectrum = es.Spectrum()
+                    
+                    rolloff_list = []
+                    frame_count = 0
+                    
+                    for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                        frame_count += 1
+                        if frame_count % 100 == 0:
+                            logger.debug(f"Processed {frame_count} frames for spectral rolloff")
+                        
+                        try:
+                            spec = spectrum(window(frame))
+                            if len(spec) > 0 and np.any(spec > 0):
+                                energy = spec ** 2
+                                total_energy = np.sum(energy)
+                                if total_energy > 0:
+                                    cumulative_energy = np.cumsum(energy)
+                                    threshold = 0.85 * total_energy
+                                    rolloff_idx = np.where(cumulative_energy >= threshold)[0]
+                                    if len(rolloff_idx) > 0:
+                                        rolloff_freq = (rolloff_idx[0] / len(spec)) * 22050
+                                        rolloff_list.append(float(rolloff_freq))
+                        except Exception as frame_error:
+                            logger.debug(f"Frame {frame_count} processing error: {frame_error}")
+                            continue
+                    
+                    if rolloff_list:
+                        rolloff_mean = float(np.mean(rolloff_list))
+                        features['spectral_rolloff'] = ensure_float(rolloff_mean)
+                    else:
+                        features['spectral_rolloff'] = 0.0
+                        
+                except Exception as e:
+                    logger.warning(f"Spectral rolloff failed: {e}, using librosa fallback")
+                    if LIBROSA_AVAILABLE:
+                        rolloff = librosa.feature.spectral_rolloff(y=audio, sr=DEFAULT_SAMPLE_RATE)
+                        features['spectral_rolloff'] = ensure_float(np.mean(rolloff))
+                
+                # Spectral flatness - use custom frame-by-frame calculation like old setup
+                try:
+                    frame_size = 2048
+                    hop_size = 1024
+                    window = es.Windowing(type='hann')
+                    spectrum = es.Spectrum()
+                    
+                    flatness_list = []
+                    frame_count = 0
+                    
+                    for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                        frame_count += 1
+                        if frame_count % 100 == 0:
+                            logger.debug(f"Processed {frame_count} frames for spectral flatness")
+                        
+                        try:
+                            spec = spectrum(window(frame))
+                            if len(spec) > 0 and np.any(spec > 0):
+                                eps = 1e-10
+                                spec_safe = spec + eps
+                                geometric_mean = np.exp(np.mean(np.log(spec_safe)))
+                                arithmetic_mean = np.mean(spec_safe)
+                                flatness = geometric_mean / arithmetic_mean if arithmetic_mean > 0 else 0.0
+                                flatness_list.append(float(flatness))
+                        except Exception as frame_error:
+                            logger.debug(f"Frame {frame_count} processing error: {frame_error}")
+                            continue
+                    
+                    if flatness_list:
+                        flatness_mean = float(np.mean(flatness_list))
+                        features['spectral_flatness'] = ensure_float(flatness_mean)
+                    else:
+                        features['spectral_flatness'] = 0.0
+                        
                 except Exception as e:
                     logger.warning(f"Spectral flatness failed: {e}, using librosa fallback")
                     if LIBROSA_AVAILABLE:
-                        flatness_librosa = librosa.feature.spectral_flatness(y=audio, sr=DEFAULT_SAMPLE_RATE)
-                        features['spectral_flatness'] = ensure_float(np.mean(flatness_librosa))
+                        flatness = librosa.feature.spectral_flatness(y=audio, sr=DEFAULT_SAMPLE_RATE)
+                        features['spectral_flatness'] = ensure_float(np.mean(flatness))
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa for spectral features
@@ -1281,17 +1373,15 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
-                # Loudness - handle potential tuple return
+                # Use RMS like the old working setup
                 try:
-                    loudness = es.Loudness()
-                    loudness_value = loudness(audio)
-                    # Handle if loudness returns a tuple
-                    if isinstance(loudness_value, tuple):
-                        features['loudness'] = ensure_float(loudness_value[0])
-                    else:
-                        features['loudness'] = ensure_float(loudness_value)
+                    rms_algo = es.RMS()
+                    rms_values = rms_algo(audio)
+                    rms_mean = float(np.nanmean(rms_values)) if isinstance(
+                        rms_values, (list, np.ndarray)) else float(rms_values)
+                    features['loudness'] = ensure_float(rms_mean)
                 except Exception as e:
-                    logger.warning(f"Essentia loudness failed: {e}, using librosa fallback")
+                    logger.warning(f"RMS loudness failed: {e}, using librosa fallback")
                     if LIBROSA_AVAILABLE:
                         rms = librosa.feature.rms(y=audio)
                         features['loudness'] = ensure_float(np.mean(rms))
