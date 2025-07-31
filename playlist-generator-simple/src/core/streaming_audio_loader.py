@@ -238,8 +238,10 @@ class StreamingAudioLoader:
                 logger.debug(f"Duration calculated: {duration:.1f}s ({len(audio)} samples)")
                 return duration
             elif LIBROSA_AVAILABLE:
-                # Use librosa for duration
-                logger.debug(f"Getting duration with Librosa: {os.path.basename(audio_path)}")
+                # Use librosa for duration with soundfile backend to avoid audioread warnings
+                logger.debug(f"Getting duration with Librosa (soundfile backend): {os.path.basename(audio_path)}")
+                # Configure librosa to use soundfile backend to avoid audioread warnings
+                librosa.set_backend('soundfile')
                 duration = librosa.get_duration(path=audio_path, sr=self.sample_rate)
                 logger.debug(f"Duration calculated: {duration:.1f}s")
                 return duration
@@ -523,6 +525,8 @@ class StreamingAudioLoader:
                         # Use librosa's streaming capabilities if available
                         if LIBROSA_AVAILABLE:
                             # Load only this small chunk using librosa's offset and duration
+                            # Configure librosa to use soundfile backend to avoid audioread warnings
+                            librosa.set_backend('soundfile')
                             sub_chunk, sr = librosa.load(
                                 audio_path,
                                 sr=self.sample_rate,
@@ -816,6 +820,8 @@ class StreamingAudioLoader:
             if LIBROSA_AVAILABLE:
                 try:
                     logger.info("Trying Librosa audio loading...")
+                    # Configure librosa to use soundfile backend to avoid audioread warnings
+                    librosa.set_backend('soundfile')
                     audio, sample_rate = librosa.load(audio_path, sr=self.sample_rate, mono=True)
                     logger.info(f"Audio loaded with Librosa: {len(audio)} samples, {sample_rate}Hz")
                 except Exception as e:
@@ -909,7 +915,8 @@ class StreamingAudioLoader:
                 start_sample = current_sample
                 end_sample = min(start_sample + samples_per_chunk, total_samples)
                 
-                # Load chunk using librosa
+                # Load chunk using librosa with soundfile backend to avoid audioread warnings
+                librosa.set_backend('soundfile')
                 chunk, sr = librosa.load(
                     audio_path, 
                     sr=self.sample_rate, 
@@ -965,6 +972,8 @@ class StreamingAudioLoader:
                     
                     try:
                         # Load only this small window using librosa's streaming capabilities
+                        # Configure librosa to use soundfile backend to avoid audioread warnings
+                        librosa.set_backend('soundfile')
                         window_chunk, sr = librosa.load(
                             audio_path,
                             sr=self.sample_rate,

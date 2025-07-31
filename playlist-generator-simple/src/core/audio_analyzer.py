@@ -530,20 +530,40 @@ class AudioAnalyzer:
         Returns:
             Duration in seconds or None if failed
         """
-        try:
-            import librosa
-            duration = librosa.get_duration(path=audio_path)
-            return duration
-        except Exception as e:
-            logger.warning(f"Could not get duration from librosa: {e}")
+        # Try Essentia first (most reliable)
+        if ESSENTIA_AVAILABLE:
             try:
-                import mutagen
-                audio = mutagen.File(audio_path)
+                loader = es.MonoLoader(filename=audio_path, sampleRate=DEFAULT_SAMPLE_RATE)
+                audio = loader()
+                duration = len(audio) / DEFAULT_SAMPLE_RATE
+                logger.debug(f"Got duration from Essentia: {duration:.2f}s")
+                return duration
+            except Exception as e:
+                logger.debug(f"Could not get duration from Essentia: {e}")
+        
+        # Try mutagen as fallback
+        if MUTAGEN_AVAILABLE:
+            try:
+                audio = MutagenFile(audio_path)
                 if audio is not None:
-                    return audio.info.length
-            except Exception as e2:
-                logger.warning(f"Could not get duration from mutagen: {e2}")
-            return None
+                    duration = audio.info.length
+                    logger.debug(f"Got duration from mutagen: {duration:.2f}s")
+                    return duration
+            except Exception as e:
+                logger.debug(f"Could not get duration from mutagen: {e}")
+        
+        # Try soundfile as last resort (avoid audioread warnings)
+        if SOUNDFILE_AVAILABLE:
+            try:
+                info = sf.info(audio_path)
+                duration = info.duration
+                logger.debug(f"Got duration from soundfile: {duration:.2f}s")
+                return duration
+            except Exception as e:
+                logger.debug(f"Could not get duration from soundfile: {e}")
+        
+        logger.warning(f"Could not get duration for {audio_path} using any method")
+        return None
 
     def _safe_audio_load(self, audio_path: str) -> Optional[np.ndarray]:
         """
@@ -579,26 +599,10 @@ class AudioAnalyzer:
         import gc
         
         try:
-            # Try librosa first with timeout
-            if LIBROSA_AVAILABLE:
-                try:
-                    logger.debug(f"Trying librosa loading for {os.path.basename(audio_path)}")
-                    audio, sr = librosa.load(audio_path, sr=DEFAULT_SAMPLE_RATE, mono=True, duration=30.0)  # Limit to 30 seconds
-                    logger.debug(f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
-                    
-                    # Force garbage collection for large files
-                    if len(audio) > 1000000:  # ~23 seconds at 44kHz
-                        gc.collect()
-                        logger.debug("Forced garbage collection after loading large audio file")
-                    
-                    return audio
-                except Exception as e:
-                    logger.warning(f"Librosa loading failed: {e}")
-            
-            # Try essentia as fallback
+            # Try Essentia first (most reliable, no audioread warnings)
             if ESSENTIA_AVAILABLE:
                 try:
-                    logger.debug(f"Trying essentia loading for {os.path.basename(audio_path)}")
+                    logger.debug(f"Trying Essentia loading for {os.path.basename(audio_path)}")
                     loader = es.MonoLoader(
                         filename=audio_path,
                         sampleRate=DEFAULT_SAMPLE_RATE,
@@ -622,7 +626,7 @@ class AudioAnalyzer:
                 except Exception as e:
                     logger.warning(f"Essentia loading failed: {e}")
             
-            # Try soundfile as fallback
+            # Try soundfile as fallback (no audioread warnings)
             if SOUNDFILE_AVAILABLE:
                 try:
                     logger.debug(f"Trying soundfile loading for {os.path.basename(audio_path)}")
@@ -666,6 +670,26 @@ class AudioAnalyzer:
                         return audio
                 except Exception as e:
                     logger.warning(f"Wave loading failed: {e}")
+            
+            # Try librosa as last resort with soundfile backend to avoid audioread warnings
+            if LIBROSA_AVAILABLE:
+                try:
+                    logger.debug(f"Trying librosa loading with soundfile backend for {os.path.basename(audio_path)}")
+                    # Configure librosa to use soundfile backend to avoid audioread warnings
+                    import librosa
+                    # Set the backend to soundfile to avoid audioread warnings
+                    librosa.set_backend('soundfile')
+                    audio, sr = librosa.load(audio_path, sr=DEFAULT_SAMPLE_RATE, mono=True, duration=30.0)
+                    logger.debug(f"Librosa loaded audio: {len(audio)} samples, {sr}Hz")
+                    
+                    # Force garbage collection for large files
+                    if len(audio) > 1000000:  # ~23 seconds at 44kHz
+                        gc.collect()
+                        logger.debug("Forced garbage collection after loading large audio file")
+                    
+                    return audio
+                except Exception as e:
+                    logger.warning(f"Librosa loading failed: {e}")
             
             # If all methods failed, create a dummy audio
             logger.error("All audio loading methods failed")
@@ -763,6 +787,8 @@ class AudioAnalyzer:
                 try:
                     logger.debug(f"Loading segment {i+1}/{num_segments}: {segment_start:.1f}s - {segment_start + segment_duration:.1f}s")
                     
+                    # Configure librosa to use soundfile backend to avoid audioread warnings
+                    librosa.set_backend('soundfile')
                     chunk, sr = librosa.load(
                         audio_path,
                         sr=DEFAULT_SAMPLE_RATE,
@@ -1091,29 +1117,30 @@ class AudioAnalyzer:
                     duration = time.time() - start_time
                     log_feature_extraction_step(audio_path, 'loudness', duration, False, error=str(e))
             
-            # Extract key (if enabled) - temporarily disabled for large files
-            if features_config.get('extract_key', True) and not is_extremely_large:
-                start_time = time.time()
-                try:
-                    key_features = self._extract_key(audio)
-                    if key_features:
-                        features.update(key_features)
-                        extracted_features.append('key')
-                        duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'key', duration, True, 
-                                                  feature_value=len(key_features))
-                    else:
+            # Extract key (if enabled) - disabled for extremely large files
+            if features_config.get('extract_key', True):
+                if is_extremely_large:
+                    logger.warning(f"Skipping key extraction for extremely large file")
+                    failed_features.append('key')
+                else:
+                    start_time = time.time()
+                    try:
+                        key_features = self._extract_key(audio)
+                        if key_features:
+                            features.update(key_features)
+                            extracted_features.append('key')
+                            duration = time.time() - start_time
+                            log_feature_extraction_step(audio_path, 'key', duration, True, 
+                                                      feature_value=len(key_features))
+                        else:
+                            failed_features.append('key')
+                            duration = time.time() - start_time
+                            log_feature_extraction_step(audio_path, 'key', duration, False, 
+                                                      error="No key features returned")
+                    except Exception as e:
                         failed_features.append('key')
                         duration = time.time() - start_time
-                        log_feature_extraction_step(audio_path, 'key', duration, False, 
-                                                  error="No key features returned")
-                except Exception as e:
-                    failed_features.append('key')
-                    duration = time.time() - start_time
-                    log_feature_extraction_step(audio_path, 'key', duration, False, error=str(e))
-            elif features_config.get('extract_key', True) and is_extremely_large:
-                logger.warning(f"Skipping key extraction for extremely large file")
-                failed_features.append('key')
+                        log_feature_extraction_step(audio_path, 'key', duration, False, error=str(e))
             
             # Extract MFCC (if enabled)
             if features_config.get('extract_mfcc', True) and not is_extremely_large:
@@ -1607,11 +1634,13 @@ class AudioAnalyzer:
                 # Key detection
                 key = es.Key()
                 logger.debug("Created Essentia Key object")
+                logger.debug("Calling Essentia key detection...")
                 key_result = key(audio)
                 logger.debug(f"Essentia key result: {key_result}")
                 features['key'] = str(key_result[0])  # Ensure it's a string
                 features['scale'] = str(key_result[1])  # Ensure it's a string
                 features['key_strength'] = ensure_float(key_result[2])
+                logger.debug("Essentia key detection completed successfully")
                 
             elif LIBROSA_AVAILABLE:
                 logger.debug("Using Librosa for key detection")
@@ -1623,6 +1652,9 @@ class AudioAnalyzer:
                 keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
                 features['key'] = keys[key_idx]
                 features['key_strength'] = ensure_float(chroma_mean[key_idx])
+                logger.debug("Librosa key detection completed successfully")
+            else:
+                logger.warning("No key detection library available")
             
             logger.info(f"Key extracted: {features.get('key', 'N/A')}")
             logger.info(f"Scale extracted: {features.get('scale', 'N/A')}")
@@ -1630,6 +1662,7 @@ class AudioAnalyzer:
             
         except Exception as e:
             logger.warning(f"Error extracting key features: {e}")
+            logger.debug(f"Key extraction exception details: {type(e).__name__}: {e}")
         
         return features
 
