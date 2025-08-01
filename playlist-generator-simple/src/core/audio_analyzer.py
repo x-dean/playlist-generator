@@ -246,6 +246,7 @@ class AudioAnalyzer:
         # Determine long audio category if it's a long audio track
         long_audio_category = None
         if is_long_audio:
+            log_universal('INFO', 'Audio', f'Long audio track detected: {os.path.basename(file_path)}')
             # For now, determine category without audio features (will be updated after analysis)
             long_audio_category = self._determine_long_audio_category(file_path, metadata, None)
             log_universal('INFO', 'Audio', f'Long audio category determined: {long_audio_category}')
@@ -275,6 +276,12 @@ class AudioAnalyzer:
         # Update metadata with long audio category
         if metadata and long_audio_category:
             metadata['long_audio_category'] = long_audio_category
+            log_universal('DEBUG', 'Audio', f'Set long_audio_category in metadata: {long_audio_category}')
+        
+        # Also update the analysis result's metadata
+        if analysis_result and 'metadata' in analysis_result and long_audio_category:
+            analysis_result['metadata']['long_audio_category'] = long_audio_category
+            log_universal('DEBUG', 'Audio', f'Set long_audio_category in analysis_result metadata: {long_audio_category}')
         
         # Cache results
         if self.cache_enabled:
