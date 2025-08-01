@@ -95,8 +95,8 @@ def setup_logging(
     """
     global _log_setup_complete, _log_config
     
-    if _log_setup_complete:
-        return logger
+    # Force reset
+    _log_setup_complete = False
     
     # Auto-detect log directory
     if log_dir is None:
@@ -120,7 +120,7 @@ def setup_logging(
     if log_level not in valid_levels:
         log_level = 'INFO'
     
-    # Force Loguru usage - remove default handlers
+    # Force Loguru usage - remove ALL handlers
     if LOGURU_AVAILABLE:
         logger.remove()
         
@@ -128,7 +128,7 @@ def setup_logging(
         if console_logging:
             logger.add(
                 sys.stdout,
-                format="{time:HH:mm:ss} | <level>{level: <8}</level> | <cyan>{extra[extra][component]}</cyan> - {message}",
+                format="<green>{time}</green> <level>{message}</level>",
                 level=log_level,
                 colorize=True,
                 backtrace=True,
@@ -269,18 +269,12 @@ def log_universal(level: str, component: str, message: str, **kwargs):
     
     # Use appropriate log method
     if LOGURU_AVAILABLE:
-        # Use opt() to set caller information
-        log_method = getattr(logger.opt(depth=1), log_level, logger.info)
-        
-        # Add component to extra data for proper formatting
-        extra_data = kwargs.copy()
-        extra_data['component'] = component
+        # Use bind() to add component context
+        bound_logger = logger.bind(component=component)
+        log_method = getattr(bound_logger, log_level, bound_logger.info)
         
         # Use the message directly without color tags
-        if extra_data:
-            log_method(structured_message, extra=extra_data)
-        else:
-            log_method(structured_message, extra={'component': component})
+        log_method(structured_message, **kwargs)
     else:
         log_method = getattr(logger, log_level, logger.info)
         # For standard logging, include component in message
@@ -368,7 +362,7 @@ def change_log_level(new_level: str) -> bool:
             # Re-add handlers with new level
             logger.add(
                 sys.stdout,
-                format="{time:HH:mm:ss} | <level>{level: <8}</level> | <cyan>{extra[extra][component]}</cyan> - {message}",
+                format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{extra[component]}</cyan> - {message}",
                 level=level_name,
                 colorize=True,
                 backtrace=True,
