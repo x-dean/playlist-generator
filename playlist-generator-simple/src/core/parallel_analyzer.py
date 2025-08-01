@@ -420,7 +420,7 @@ class ParallelAnalyzer:
             analysis_config = self._get_analysis_config(file_path)
             
             # Extract features
-            analysis_result = analyzer.extract_features(file_path, analysis_config)
+            analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
             
             # Get final resource usage
             final_memory = process.memory_info().rss / (1024 * 1024)  # MB

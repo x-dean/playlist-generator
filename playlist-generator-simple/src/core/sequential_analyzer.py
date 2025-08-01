@@ -216,7 +216,7 @@ class SequentialAnalyzer:
             analysis_config = self._get_analysis_config(file_path)
             
             # Extract features
-            analysis_result = analyzer.extract_features(file_path, analysis_config)
+            analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
             
             if analysis_result and analysis_result.get('success', False):
                 # Save to database
