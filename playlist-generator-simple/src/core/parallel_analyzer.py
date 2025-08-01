@@ -130,7 +130,7 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
                 analysis_data = analysis_result.get('features', {})
                 analysis_data['status'] = 'analyzed'
                 
-                success = db_manager.save_analysis_result(
+                success = db_manager.save_track_to_normalized_schema(
                     file_path=file_path,
                     filename=filename,
                     file_size_bytes=file_size_bytes,
@@ -440,7 +440,7 @@ class ParallelAnalyzer:
                 analysis_data = analysis_result.get('features', {})
                 analysis_data['status'] = 'analyzed'
                 
-                success = self.db_manager.save_analysis_result(
+                success = self.db_manager.save_track_to_normalized_schema(
                     file_path=file_path,
                     filename=filename,
                     file_size_bytes=file_size_bytes,

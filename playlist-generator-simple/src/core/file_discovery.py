@@ -274,8 +274,8 @@ class FileDiscovery:
                             stats['unchanged'] += 1
                             log_universal('DEBUG', 'FileDiscovery', f"File unchanged: {filename}")
                         else:
-                            # File modified
-                            get_db_manager().save_analysis_result(
+                            # File modified - save to normalized schema
+                            get_db_manager().save_track_to_normalized_schema(
                                 file_path=filepath,
                                 filename=filename,
                                 file_size_bytes=file_size,
@@ -286,8 +286,8 @@ class FileDiscovery:
                             stats['updated'] += 1
                             log_universal('DEBUG', 'FileDiscovery', f"Updated modified file in database: {filepath}")
                     else:
-                        # New file
-                        get_db_manager().save_analysis_result(
+                        # New file - save to normalized schema
+                        get_db_manager().save_track_to_normalized_schema(
                             file_path=filepath,
                             filename=filename,
                             file_size_bytes=file_size,

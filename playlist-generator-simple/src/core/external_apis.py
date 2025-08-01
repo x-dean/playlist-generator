@@ -7,6 +7,7 @@ import os
 import time
 import logging
 import requests
+import hashlib
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 
@@ -20,6 +21,7 @@ except ImportError:
 
 # Import universal logging
 from .logging_setup import get_logger, log_universal, log_api_call
+from .database import get_db_manager
 
 logger = get_logger(__name__)
 
@@ -39,6 +41,10 @@ class MusicBrainzTrack:
     duration_ms: Optional[int] = None
     tags: List[str] = None
 
+    def __post_init__(self):
+        if self.tags is None:
+            self.tags = []
+
 
 @dataclass
 class LastFMTrack:
@@ -51,39 +57,39 @@ class LastFMTrack:
     rating: Optional[float] = None
     url: Optional[str] = None
 
+    def __post_init__(self):
+        if self.tags is None:
+            self.tags = []
+
 
 class MusicBrainzClient:
-    """Client for interacting with the MusicBrainz API using official library."""
+    """Client for interacting with the MusicBrainz API."""
     
     def __init__(self, user_agent: str = None):
-        """
-        Initialize the MusicBrainz client.
-        
-        Args:
-            user_agent: User agent string for API requests (uses config if None)
-        """
-        # Load configuration
-        try:
-            from .config_loader import config_loader
-            config = config_loader.get_external_api_config()
-        except ImportError:
-            config = {}
-        
-        self.logger = get_logger(__name__)
-        
+        """Initialize MusicBrainz client."""
         if not MUSICBRAINZ_AVAILABLE:
-            log_universal('WARNING', 'MB API', 'Client not available - musicbrainzngs not installed')
+            log_universal('WARNING', 'MB API', 'MusicBrainz library not available')
             return
-        
+            
         # Configure MusicBrainz
-        user_agent = user_agent or config.get('MUSICBRAINZ_USER_AGENT', 'playlista-simple/1.0')
         musicbrainzngs.set_useragent(
-            'playlista-simple',
-            '1.0',
-            user_agent
+            user_agent or "Playlista/1.0",
+            "1.0",
+            "https://github.com/playlista"
         )
         
-        log_universal('INFO', 'MB API', f'Initialized with user agent: {user_agent}')
+        # Set rate limiting
+        musicbrainzngs.set_rate_limit(limit_or_interval=1.0, new_requests=1)
+        
+        log_universal('INFO', 'MB API', 'Client initialized')
+    
+    def _get_cache_key(self, title: str, artist: str) -> str:
+        """Generate cache key for API responses."""
+        # Normalize and hash the search parameters
+        normalized_title = title.lower().strip()
+        normalized_artist = artist.lower().strip() if artist else ""
+        search_string = f"mb:{normalized_title}:{normalized_artist}"
+        return hashlib.md5(search_string.encode()).hexdigest()
     
     def search_track(self, title: str, artist: str = None) -> Optional[MusicBrainzTrack]:
         """
@@ -99,6 +105,15 @@ class MusicBrainzClient:
         if not MUSICBRAINZ_AVAILABLE:
             return None
             
+        # Check cache first
+        db_manager = get_db_manager()
+        cache_key = self._get_cache_key(title, artist)
+        cached_result = db_manager.get_cache(cache_key)
+        
+        if cached_result:
+            log_universal('DEBUG', 'MB API', f'Using cached result for: {title} by {artist}')
+            return cached_result
+        
         try:
             start_time = time.time()
             duration = None  # Initialize duration
@@ -121,67 +136,61 @@ class MusicBrainzClient:
             if not result or 'recording-list' not in result:
                 log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist or 'Unknown'}'", 
                            success=False, details='No data returned', duration=duration, failure_type='no_data')
+                # Cache negative results for shorter time
+                db_manager.save_cache(cache_key, None, expires_hours=1)
                 return None
             
             recordings = result['recording-list']
             if not recordings:
                 log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist or 'Unknown'}'", 
-                           success=False, details='No recordings found', duration=duration, failure_type='no_recordings')
+                           success=False, details='No recordings found', duration=duration, failure_type='no_data')
+                # Cache negative results for shorter time
+                db_manager.save_cache(cache_key, None, expires_hours=1)
                 return None
             
             recording = recordings[0]
             
-            # Extract basic info
+            # Extract track information
             track_id = recording.get('id', '')
             track_title = recording.get('title', title)
             
-            # Get artist info
-            artist_name = artist or 'Unknown'
+            # Extract artist information
+            artist_name = artist or 'Unknown Artist'
             artist_id = ''
-            if 'artist-credit' in recording:
+            if 'artist-credit' in recording and recording['artist-credit']:
                 artist_credit = recording['artist-credit'][0]
                 artist_name = artist_credit.get('name', artist_name)
-                artist_id = artist_credit.get('artist', {}).get('id', '')
+                artist_id = artist_credit.get('id', '')
             
-            # Get release info
-            album_name = 'Unknown'
+            # Extract release information
+            album_name = ''
             album_id = ''
-            release_date = None
+            release_date = ''
             track_number = None
             disc_number = None
-            
-            if 'release-list' in recording:
-                releases = recording['release-list']
-                if releases:
-                    release = releases[0]
-                    album_name = release.get('title', album_name)
-                    album_id = release.get('id', '')
-                    
-                    # Get release date
-                    if 'date' in release:
-                        release_date = release['date']
-                    
-                    # Get track number
-                    if 'medium-list' in release:
-                        for medium in release['medium-list']:
-                            if 'track-list' in medium:
-                                for track in medium['track-list']:
-                                    if track.get('title') == track_title:
-                                        track_number = track.get('position')
-                                        disc_number = medium.get('position')
-                                        break
-            
-            # Get duration
             duration_ms = None
-            if 'length' in recording:
-                duration_ms = int(recording['length'])
             
-            # Get tags
+            if 'release-list' in recording and recording['release-list']:
+                release = recording['release-list'][0]
+                album_name = release.get('title', '')
+                album_id = release.get('id', '')
+                release_date = release.get('date', '')
+                
+                # Get track number from medium
+                if 'medium-list' in release and release['medium-list']:
+                    medium = release['medium-list'][0]
+                    if 'track-list' in medium and medium['track-list']:
+                        track = medium['track-list'][0]
+                        track_number = track.get('number')
+                        disc_number = medium.get('position')
+                        duration_ms = track.get('length')
+            
+            # Extract tags
             tags = []
             if 'tag-list' in recording:
                 tags = [tag['name'] for tag in recording['tag-list']]
             
-            track = MusicBrainzTrack(
+            mb_track = MusicBrainzTrack(
                 id=track_id,
                 title=track_title,
                 artist=artist_name,
@@ -195,16 +204,21 @@ class MusicBrainzClient:
                 tags=tags
             )
             
-            log_api_call('MusicBrainz', 'search', f"'{track.artist}' - '{track.title}'", 
-                        success=True, details=f"found {len(tags)} tags", duration=duration)
-            return track
+            log_api_call('MusicBrainz', 'search', f"'{mb_track.artist}' - '{mb_track.title}'", 
+                        success=True, details=f"found {len(mb_track.tags)} tags", duration=duration)
+            
+            # Cache successful results for 24 hours
+            db_manager.save_cache(cache_key, mb_track, expires_hours=24)
+            
+            return mb_track
             
         except Exception as e:
             # Calculate duration if not already calculated
             if duration is None:
                 duration = time.time() - start_time
-            log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist or 'Unknown'}'", 
-                        success=False, details=f"Error: {e}", duration=duration, failure_type='network')
+            log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist}'", success=False, details=f"Error: {e}", duration=duration, failure_type='network')
+            # Cache errors for shorter time
+            db_manager.save_cache(cache_key, None, expires_hours=1)
             return None
 
 
@@ -214,90 +228,60 @@ class LastFMClient:
     BASE_URL = "https://ws.audioscrobbler.com/2.0"
     
     def __init__(self, api_key: str = None, rate_limit: int = None):
-        """
-        Initialize the Last.fm client.
-        
-        Args:
-            api_key: Last.fm API key (uses config if None)
-            rate_limit: Requests per second (uses config if None)
-        """
-        # Load configuration
-        try:
-            from .config_loader import config_loader
-            config = config_loader.get_external_api_config()
-        except ImportError:
-            config = {}
-        
-        self.logger = get_logger(__name__)
-        self.session = requests.Session()
-        
-        # Use config values or defaults
-        self.api_key = api_key or config.get('LASTFM_API_KEY') or os.getenv('LASTFM_API_KEY')
-        rate_limit = rate_limit or config.get('LASTFM_RATE_LIMIT', 1)
-        
+        """Initialize Last.fm client."""
+        self.api_key = api_key or os.getenv('LASTFM_API_KEY')
         if not self.api_key:
-            log_universal('WARNING', 'LF API', 'API key not configured - Last.fm API disabled')
+            log_universal('WARNING', 'LF API', 'No Last.fm API key provided')
             return
         
-        self._rate_limit_delay = 1.0 / rate_limit
+        self.rate_limit = rate_limit or 2.0  # requests per second
+        self.last_request_time = 0
         
-        log_universal('INFO', 'LF API', f'Initialized with rate limit: {rate_limit}/s')
+        log_universal('INFO', 'LF API', 'Client initialized')
+    
+    def _get_cache_key(self, track: str, artist: str) -> str:
+        """Generate cache key for API responses."""
+        # Normalize and hash the search parameters
+        normalized_track = track.lower().strip()
+        normalized_artist = artist.lower().strip()
+        search_string = f"lf:{normalized_track}:{normalized_artist}"
+        return hashlib.md5(search_string.encode()).hexdigest()
     
     def _make_request(self, method: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        Make a rate-limited request to the Last.fm API.
-        
-        Args:
-            method: API method
-            params: Query parameters
-            
-        Returns:
-            API response data or empty dict on error
-        """
+        """Make a rate-limited request to Last.fm API."""
         if not self.api_key:
-            return {}
+            return None
         
         # Rate limiting
-        time.sleep(self._rate_limit_delay)
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        if time_since_last < (1.0 / self.rate_limit):
+            sleep_time = (1.0 / self.rate_limit) - time_since_last
+            time.sleep(sleep_time)
+        
+        # Prepare request
+        if params is None:
+            params = {}
+        
+        params.update({
+            'method': method,
+            'api_key': self.api_key,
+            'format': 'json'
+        })
         
         try:
-            params = params or {}
-            params.update({
-                'method': method,
-                'api_key': self.api_key,
-                'format': 'json'
-            })
-            
-            start_time = time.time()
-            duration = None  # Initialize duration
-            
-            log_api_call('LastFM', method, 'API request')
-            
-            response = self.session.get(self.BASE_URL, params=params, timeout=30)
-            
-            duration = time.time() - start_time
-            
-            # Rate limiting
-            time.sleep(self._rate_limit_delay)
+            response = requests.get(self.BASE_URL, params=params, timeout=10)
+            self.last_request_time = time.time()
             
             if response.status_code == 200:
-                data = response.json()
-                if 'error' in data:
-                    log_api_call('LastFM', method, 'API request', success=False, details=data['message'], duration=duration, failure_type='no_data')
-                    return {}
-                log_api_call('LastFM', method, 'API request', success=True, duration=duration)
-                return data
+                return response.json()
             else:
-                log_api_call('LastFM', method, 'API request', success=False, 
-                           details=f"HTTP {response.status_code}: {response.text}", duration=duration, failure_type='network')
-                return {}
+                log_universal('ERROR', 'LF API', f'HTTP {response.status_code}: {response.text}')
+                return None
                 
-        except requests.RequestException as e:
-            # Calculate duration if not already calculated
-            if duration is None:
-                duration = time.time() - start_time
-            log_api_call('LastFM', method, 'API request', success=False, details=f"Request failed: {e}", duration=duration, failure_type='network')
-            return {}
+        except Exception as e:
+            log_universal('ERROR', 'LF API', f'Request failed: {e}')
+            return None
     
     def get_track_info(self, track: str, artist: str) -> Optional[LastFMTrack]:
         """
@@ -310,11 +294,21 @@ class LastFMClient:
         Returns:
             LastFMTrack object or None if not found
         """
+        if not self.api_key:
+            return None
+        
+        # Check cache first
+        db_manager = get_db_manager()
+        cache_key = self._get_cache_key(track, artist)
+        cached_result = db_manager.get_cache(cache_key)
+        
+        if cached_result:
+            log_universal('DEBUG', 'LF API', f'Using cached result for: {track} by {artist}')
+            return cached_result
+        
         try:
             start_time = time.time()
-            duration = None  # Initialize duration
-            
-            log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'")
+            duration = None
             
             result = self._make_request('track.getInfo', {
                 'track': track,
@@ -324,7 +318,10 @@ class LastFMClient:
             duration = time.time() - start_time
             
             if not result or 'track' not in result:
-                log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'", success=False, details='No data returned', duration=duration, failure_type='no_data')
+                log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'", 
+                           success=False, details='No data returned', duration=duration, failure_type='no_data')
+                # Cache negative results for shorter time
+                db_manager.save_cache(cache_key, None, expires_hours=1)
                 return None
             
             track_data = result['track']
@@ -348,8 +345,8 @@ class LastFMClient:
             
             # Extract rating
             rating = None
-            if 'userplaycount' in track_data:
-                rating = float(track_data.get('userplaycount', 0))
+            if 'userplaycount' in track_data and track_data['userplaycount']:
+                rating = float(track_data['userplaycount'])
             
             # Extract URL
             url = track_data.get('url')
@@ -366,6 +363,10 @@ class LastFMClient:
             
             log_api_call('LastFM', 'get_track_info', f"'{lastfm_track.artist}' - '{lastfm_track.name}'", 
                         success=True, details=f"found {len(lastfm_track.tags)} tags", duration=duration)
+            
+            # Cache successful results for 24 hours
+            db_manager.save_cache(cache_key, lastfm_track, expires_hours=24)
+            
             return lastfm_track
             
         except Exception as e:
@@ -373,6 +374,8 @@ class LastFMClient:
             if duration is None:
                 duration = time.time() - start_time
             log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'", success=False, details=f"Error: {e}", duration=duration, failure_type='network')
+            # Cache errors for shorter time
+            db_manager.save_cache(cache_key, None, expires_hours=1)
             return None
     
     def get_track_tags(self, track: str, artist: str) -> List[str]:
@@ -406,19 +409,7 @@ class MetadataEnrichmentService:
             musicbrainz_enabled: Enable MusicBrainz API (uses config if None)
             lastfm_enabled: Enable Last.fm API (uses config if None)
         """
-        # Load configuration
-        try:
-            from .config_loader import config_loader
-            config = config_loader.get_external_api_config()
-        except ImportError:
-            config = {}
-        
-        self.logger = get_logger(__name__)
-        
         # Initialize clients based on configuration
-        musicbrainz_enabled = musicbrainz_enabled if musicbrainz_enabled is not None else config.get('MUSICBRAINZ_ENABLED', True)
-        lastfm_enabled = lastfm_enabled if lastfm_enabled is not None else config.get('LASTFM_ENABLED', True)
-        
         self.musicbrainz_client = None
         if musicbrainz_enabled:
             try:
@@ -434,6 +425,14 @@ class MetadataEnrichmentService:
                 log_universal('INFO', 'LF API', 'Client initialized')
             except Exception as e:
                 log_universal('WARNING', 'LF API', f'Failed to initialize - {e}')
+    
+    def _get_enrichment_cache_key(self, title: str, artist: str) -> str:
+        """Generate cache key for enrichment results."""
+        # Normalize and hash the enrichment parameters
+        normalized_title = title.lower().strip()
+        normalized_artist = artist.lower().strip()
+        enrichment_string = f"enrich:{normalized_title}:{normalized_artist}"
+        return hashlib.md5(enrichment_string.encode()).hexdigest()
     
     def enrich_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -455,6 +454,15 @@ class MetadataEnrichmentService:
         if not title or not artist:
             log_universal('WARNING', 'Enrichment', 'Missing title or artist')
             return enriched_metadata
+        
+        # Check enrichment cache first
+        db_manager = get_db_manager()
+        enrichment_cache_key = self._get_enrichment_cache_key(title, artist)
+        cached_enrichment = db_manager.get_cache(enrichment_cache_key)
+        
+        if cached_enrichment:
+            log_universal('DEBUG', 'Enrichment', f'Using cached enrichment for: {title} by {artist}')
+            return cached_enrichment
         
         # Try MusicBrainz enrichment FIRST
         if self.musicbrainz_client:
@@ -549,6 +557,9 @@ class MetadataEnrichmentService:
         else:
             log_universal('INFO', 'Enrichment', 'No data added')
         
+        # Cache enrichment results for 24 hours
+        db_manager.save_cache(enrichment_cache_key, enriched_metadata, expires_hours=24)
+        
         return enriched_metadata
     
     def is_available(self) -> bool:
@@ -558,4 +569,14 @@ class MetadataEnrichmentService:
 
 def get_metadata_enrichment_service() -> 'MetadataEnrichmentService':
     """Get a configured metadata enrichment service."""
-    return MetadataEnrichmentService() 
+    from .config_loader import config_loader
+    
+    config = config_loader.get_external_api_config()
+    
+    musicbrainz_enabled = config.get('MUSICBRAINZ_ENABLED', True)
+    lastfm_enabled = config.get('LASTFM_ENABLED', True)
+    
+    return MetadataEnrichmentService(
+        musicbrainz_enabled=musicbrainz_enabled,
+        lastfm_enabled=lastfm_enabled
+    ) 

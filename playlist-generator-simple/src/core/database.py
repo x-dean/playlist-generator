@@ -107,10 +107,9 @@ class DatabaseManager:
         """Schema migration removed - using fresh database approach."""
         pass
 
-    @log_function_call
     def _init_database(self):
-        """Initialize the database with all required tables."""
-        log_universal('INFO', 'Database', "Initializing database tables...")
+        """Initialize the database with comprehensive normalized schema."""
+        log_universal('INFO', 'Database', "Initializing comprehensive database schema...")
         
         tables_created = 0
         start_time = time.time()
@@ -119,169 +118,139 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Schema migration removed - using fresh database approach
+                # Read and apply comprehensive schema
+                schema_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database_schema.sql')
                 
-                # Create playlists table
-                log_universal('DEBUG', 'Database', "Creating playlists table...")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS playlists (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT UNIQUE NOT NULL,
-                        description TEXT,
-                        tracks TEXT NOT NULL,
-                        features TEXT,
-                        metadata TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                tables_created += 1
-                log_universal('DEBUG', 'Database', "Playlists table ready")
-                
-                # Create analysis_results table
-                log_universal('DEBUG', 'Database', "Creating analysis_results table...")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS analysis_results (
-                        file_path TEXT PRIMARY KEY,
-                        filename TEXT NOT NULL,
-                        file_size_bytes INTEGER NOT NULL,
-                        file_hash TEXT NOT NULL,
-                        analysis_data TEXT NOT NULL,
-                        metadata TEXT,
-                        artist TEXT,
-                        album TEXT,
-                        title TEXT,
-                        genre TEXT,
-                        year INTEGER,
-                        long_audio_category TEXT,
-                        analysis_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_checked TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                tables_created += 1
-                log_universal('DEBUG', 'Database', "Analysis results table ready")
-                
-                # Create cache table
-                log_universal('DEBUG', 'Database', "Creating cache table...")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS cache (
-                        key TEXT PRIMARY KEY,
-                        value TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        expires_at TIMESTAMP
-                    )
-                """)
-                tables_created += 1
-                log_universal('DEBUG', 'Database', "Cache table ready")
-                
-                # Create tags table
-                log_universal('DEBUG', 'Database', "Creating tags table...")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS tags (
-                        file_path TEXT PRIMARY KEY,
-                        tags TEXT NOT NULL,
-                        source TEXT,
-                        confidence REAL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                tables_created += 1
-                log_universal('DEBUG', 'Database', "Tags table ready")
-                
-                # Create failed_analysis table
-                log_universal('DEBUG', 'Database', "Creating failed_analysis table...")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS failed_analysis (
-                        file_path TEXT PRIMARY KEY,
-                        filename TEXT NOT NULL,
-                        error_message TEXT NOT NULL,
-                        retry_count INTEGER DEFAULT 0,
-                        failed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_retry TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                tables_created += 1
-                log_universal('DEBUG', 'Database', "Failed analysis table ready")
-                
-                # Create statistics table
-                log_universal('DEBUG', 'Database', "Creating statistics table...")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS statistics (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        category TEXT NOT NULL,
-                        key TEXT NOT NULL,
-                        value TEXT NOT NULL,
-                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(category, key, timestamp)
-                    )
-                """)
-                tables_created += 1
-                log_universal('DEBUG', 'Database', "Statistics table ready")
-                
-                # Create indexes for better query performance
-                log_universal('DEBUG', 'Database', "Creating database indexes...")
-                
-                # Indexes for analysis_results table - with error handling for missing columns
-                try:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_artist ON analysis_results(artist)")
-                except sqlite3.OperationalError:
-                    log_universal('DEBUG', 'Database', "Skipping artist index - column may not exist yet")
-                
-                try:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_album ON analysis_results(album)")
-                except sqlite3.OperationalError:
-                    log_universal('DEBUG', 'Database', "Skipping album index - column may not exist yet")
-                
-                try:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_genre ON analysis_results(genre)")
-                except sqlite3.OperationalError:
-                    log_universal('DEBUG', 'Database', "Skipping genre index - column may not exist yet")
-                
-                try:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_year ON analysis_results(year)")
-                except sqlite3.OperationalError:
-                    log_universal('DEBUG', 'Database', "Skipping year index - column may not exist yet")
-                
-                try:
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_long_audio_category ON analysis_results(long_audio_category)")
-                except sqlite3.OperationalError:
-                    log_universal('DEBUG', 'Database', "Skipping long_audio_category index - column may not exist yet")
-                
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_date ON analysis_results(analysis_date)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_filename ON analysis_results(filename)")
-                
-                # Indexes for cache table
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_cache_created ON cache(created_at)")
-                
-                # Indexes for tags table
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_tags_source ON tags(source)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_tags_updated ON tags(updated_at)")
-                
-                # Indexes for failed_analysis table
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_failed_retry_count ON failed_analysis(retry_count)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_failed_date ON failed_analysis(failed_date)")
-                
-                # Indexes for statistics table
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_stats_category ON statistics(category)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_stats_timestamp ON statistics(timestamp)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_stats_category_key ON statistics(category, key)")
-                
-                # Indexes for playlists table
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlists_created ON playlists(created_at)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlists_updated ON playlists(updated_at)")
+                if os.path.exists(schema_file):
+                    log_universal('INFO', 'Database', f"Applying comprehensive schema from: {schema_file}")
+                    with open(schema_file, 'r', encoding='utf-8') as f:
+                        schema_sql = f.read()
+                    
+                    # Execute comprehensive schema
+                    cursor.executescript(schema_sql)
+                    tables_created = 19  # Our schema has 19 tables
+                    log_universal('INFO', 'Database', "Comprehensive schema applied successfully")
+                else:
+                    log_universal('WARNING', 'Database', f"Schema file not found: {schema_file}")
+                    log_universal('INFO', 'Database', "Falling back to simple schema")
+                    
+                    # Fallback to simple schema
+                    self._create_simple_schema(cursor)
+                    tables_created = 8  # Simple schema has 8 tables
                 
                 conn.commit()
                 init_time = time.time() - start_time
                 log_universal('INFO', 'Database', f"Database initialization completed successfully")
                 log_universal('INFO', 'Database', f"Created {tables_created} tables and indexes in {init_time:.2f}s")
                 
-                # Log performance
-                log_universal('INFO', 'Database', f"Database table creation completed in {init_time:.2f}s")
-                
         except Exception as e:
             log_universal('ERROR', 'Database', f"Database initialization failed: {e}")
             raise
+
+    def _create_simple_schema(self, cursor):
+        """Create simple schema as fallback."""
+        log_universal('INFO', 'Database', "Creating simple schema as fallback...")
+        
+        # Create playlists table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS playlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                tracks TEXT NOT NULL,
+                features TEXT,
+                metadata TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create analysis_results table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_results (
+                file_path TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                file_size_bytes INTEGER NOT NULL,
+                file_hash TEXT NOT NULL,
+                analysis_data TEXT NOT NULL,
+                metadata TEXT,
+                artist TEXT,
+                album TEXT,
+                title TEXT,
+                genre TEXT,
+                year INTEGER,
+                long_audio_category TEXT,
+                analysis_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_checked TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create cache table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cache (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP
+            )
+        """)
+        
+        # Create tags table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tags (
+                file_path TEXT PRIMARY KEY,
+                tags TEXT NOT NULL,
+                source TEXT,
+                confidence REAL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create failed_analysis table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS failed_analysis (
+                file_path TEXT PRIMARY KEY,
+                filename TEXT NOT NULL,
+                error_message TEXT NOT NULL,
+                retry_count INTEGER DEFAULT 0,
+                failed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_retry TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create statistics table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS statistics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(category, key, timestamp)
+            )
+        """)
+        
+        # Create indexes for simple schema
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_artist ON analysis_results(artist)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_album ON analysis_results(album)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_genre ON analysis_results(genre)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_year ON analysis_results(year)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_long_audio_category ON analysis_results(long_audio_category)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_date ON analysis_results(analysis_date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_filename ON analysis_results(filename)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cache_created ON cache(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tags_source ON tags(source)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tags_updated ON tags(updated_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_failed_retry_count ON failed_analysis(retry_count)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_failed_date ON failed_analysis(failed_date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_stats_category ON statistics(category)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_stats_timestamp ON statistics(timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_stats_category_key ON statistics(category, key)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlists_created ON playlists(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlists_updated ON playlists(updated_at)")
+        
+        log_universal('INFO', 'Database', "Simple schema created as fallback")
 
     @contextmanager
     def _get_db_connection(self):
@@ -478,54 +447,7 @@ class DatabaseManager:
             log_universal('ERROR', 'Database', f"Error deleting playlist '{name}': {e}")
             return False
 
-    @log_function_call
-    def get_analyzed_tracks(self) -> List[Dict[str, Any]]:
-        """
-        Get all analyzed tracks from the database.
-        
-        Returns:
-            List of track dictionaries with analysis data
-        """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Get all analyzed tracks with their features
-                cursor.execute("""
-                    SELECT filepath, filename, file_size_bytes, file_hash,
-                           bpm, centroid, danceability, loudness, key, scale,
-                           onset_rate, zcr, analysis_timestamp, metadata
-                    FROM audio_features
-                    WHERE analysis_status = 'completed'
-                    ORDER BY analysis_timestamp DESC
-                """)
-                
-                tracks = []
-                for row in cursor.fetchall():
-                    track = {
-                        'filepath': row[0],
-                        'filename': row[1],
-                        'file_size_bytes': row[2],
-                        'file_hash': row[3],
-                        'bpm': row[4],
-                        'centroid': row[5],
-                        'danceability': row[6],
-                        'loudness': row[7],
-                        'key': row[8],
-                        'scale': row[9],
-                        'onset_rate': row[10],
-                        'zcr': row[11],
-                        'analysis_timestamp': row[12],
-                        'metadata': json.loads(row[13]) if row[13] else {}
-                    }
-                    tracks.append(track)
-                
-                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} analyzed tracks")
-                return tracks
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting analyzed tracks: {e}")
-            return []
+
     
     @log_function_call
     def get_cached_playlists(self) -> List[Dict[str, Any]]:
@@ -570,7 +492,7 @@ class DatabaseManager:
     @log_function_call
     def get_track_features(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
-        Get features for a specific track.
+        Get features for a specific track from the normalized schema.
         
         Args:
             file_path: Path to the track file
@@ -583,24 +505,32 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT bpm, centroid, danceability, loudness, key, scale,
-                           onset_rate, zcr, metadata
-                    FROM audio_features
-                    WHERE filepath = ? AND analysis_status = 'completed'
+                    SELECT t.bpm, t.key, t.mode, t.loudness, t.danceability, t.energy,
+                           sf.spectral_centroid, sf.spectral_rolloff,
+                           lf.integrated_loudness, lf.loudness_range,
+                           af.onset_rate, af.zero_crossing_rate
+                    FROM tracks t
+                    LEFT JOIN spectral_features sf ON t.id = sf.track_id
+                    LEFT JOIN loudness_features lf ON t.id = lf.track_id
+                    LEFT JOIN advanced_features af ON t.id = af.track_id
+                    WHERE t.file_path = ?
                 """, (file_path,))
                 
                 row = cursor.fetchone()
                 if row:
                     features = {
                         'bpm': row[0],
-                        'centroid': row[1],
-                        'danceability': row[2],
+                        'key': row[1],
+                        'mode': row[2],
                         'loudness': row[3],
-                        'key': row[4],
-                        'scale': row[5],
-                        'onset_rate': row[6],
-                        'zcr': row[7],
-                        'metadata': json.loads(row[8]) if row[8] else {}
+                        'danceability': row[4],
+                        'energy': row[5],
+                        'spectral_centroid': row[6],
+                        'spectral_rolloff': row[7],
+                        'integrated_loudness': row[8],
+                        'loudness_range': row[9],
+                        'onset_rate': row[10],
+                        'zero_crossing_rate': row[11]
                     }
                     return features
                 else:
@@ -610,390 +540,13 @@ class DatabaseManager:
             log_universal('ERROR', 'Database', f"Error getting track features for {file_path}: {e}")
             return None
     
-    @log_function_call
-    def get_tracks_by_artist(self, artist: str) -> List[Dict[str, Any]]:
-        """
-        Get all tracks by a specific artist.
-        
-        Args:
-            artist: Artist name to search for
-            
-        Returns:
-            List of track dictionaries
-        """
-        log_universal('DEBUG', 'Database', f"Getting tracks by artist: {artist}")
-        
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT file_path, filename, artist, album, title, genre, year, metadata
-                    FROM analysis_results 
-                    WHERE artist LIKE ? AND artist IS NOT NULL
-                    ORDER BY album, title
-                """, (f'%{artist}%',))
-                
-                tracks = []
-                for row in cursor.fetchall():
-                    track = {
-                        'file_path': row[0],
-                        'filename': row[1],
-                        'artist': row[2],
-                        'album': row[3],
-                        'title': row[4],
-                        'genre': row[5],
-                        'year': row[6],
-                        'metadata': json.loads(row[7]) if row[7] else {}
-                    }
-                    tracks.append(track)
-                
-                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks by artist: {artist}")
-                return tracks
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting tracks by artist: {e}")
-            return []
 
-    @log_function_call
-    def get_tracks_by_album(self, album: str) -> List[Dict[str, Any]]:
-        """
-        Get all tracks from a specific album.
-        
-        Args:
-            album: Album name to search for
-            
-        Returns:
-            List of track dictionaries
-        """
-        log_universal('DEBUG', 'Database', f"Getting tracks by album: {album}")
-        
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT file_path, filename, artist, album, title, genre, year, metadata
-                    FROM analysis_results 
-                    WHERE album LIKE ? AND album IS NOT NULL
-                    ORDER BY tracknumber, title
-                """, (f'%{album}%',))
-                
-                tracks = []
-                for row in cursor.fetchall():
-                    track = {
-                        'file_path': row[0],
-                        'filename': row[1],
-                        'artist': row[2],
-                        'album': row[3],
-                        'title': row[4],
-                        'genre': row[5],
-                        'year': row[6],
-                        'metadata': json.loads(row[7]) if row[7] else {}
-                    }
-                    tracks.append(track)
-                
-                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks from album: {album}")
-                return tracks
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting tracks by album: {e}")
-            return []
 
-    @log_function_call
-    def get_tracks_by_genre(self, genre: str) -> List[Dict[str, Any]]:
-        """
-        Get all tracks of a specific genre.
-        
-        Args:
-            genre: Genre to search for
-            
-        Returns:
-            List of track dictionaries
-        """
-        log_universal('DEBUG', 'Database', f"Getting tracks by genre: {genre}")
-        
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT file_path, filename, artist, album, title, genre, year, metadata
-                    FROM analysis_results 
-                    WHERE genre LIKE ? AND genre IS NOT NULL
-                    ORDER BY artist, album, title
-                """, (f'%{genre}%',))
-                
-                tracks = []
-                for row in cursor.fetchall():
-                    track = {
-                        'file_path': row[0],
-                        'filename': row[1],
-                        'artist': row[2],
-                        'album': row[3],
-                        'title': row[4],
-                        'genre': row[5],
-                        'year': row[6],
-                        'metadata': json.loads(row[7]) if row[7] else {}
-                    }
-                    tracks.append(track)
-                
-                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks of genre: {genre}")
-                return tracks
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting tracks by genre: {e}")
-            return []
 
-    @log_function_call
-    def get_all_artists(self) -> List[str]:
-        """
-        Get all unique artists in the database.
-        
-        Returns:
-            List of artist names
-        """
-        log_universal('DEBUG', 'Database', "Getting all unique artists...")
-        
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT DISTINCT artist 
-                    FROM analysis_results 
-                    WHERE artist IS NOT NULL AND artist != ''
-                    ORDER BY artist
-                """)
-                
-                artists = [row[0] for row in cursor.fetchall()]
-                log_universal('DEBUG', 'Database', f"Found {len(artists)} unique artists")
-                return artists
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting all artists: {e}")
-            return []
 
-    @log_function_call
-    def get_all_albums(self) -> List[str]:
-        """
-        Get all unique albums in the database.
-        
-        Returns:
-            List of album names
-        """
-        log_universal('DEBUG', 'Database', "Getting all unique albums...")
-        
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT DISTINCT album 
-                    FROM analysis_results 
-                    WHERE album IS NOT NULL AND album != ''
-                    ORDER BY album
-                """)
-                
-                albums = [row[0] for row in cursor.fetchall()]
-                log_universal('DEBUG', 'Database', f"Found {len(albums)} unique albums")
-                return albums
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting all albums: {e}")
-            return []
 
-    @log_function_call
-    def get_all_genres(self) -> List[str]:
-        """
-        Get all unique genres in the database.
-        
-        Returns:
-            List of genre names
-        """
-        log_universal('DEBUG', 'Database', "Getting all unique genres...")
-        
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT DISTINCT genre 
-                    FROM analysis_results 
-                    WHERE genre IS NOT NULL AND genre != ''
-                    ORDER BY genre
-                """)
-                
-                genres = [row[0] for row in cursor.fetchall()]
-                log_universal('DEBUG', 'Database', f"Found {len(genres)} unique genres")
-                return genres
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting all genres: {e}")
-            return []
 
-    @log_function_call
-    def get_tracks_by_year(self, year: int) -> List[Dict[str, Any]]:
-        """
-        Get all tracks from a specific year.
-        
-        Args:
-            year: Year to search for
-            
-        Returns:
-            List of track dictionaries
-        """
-        log_universal('DEBUG', 'Database', f"Getting tracks from year: {year}")
-        
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT file_path, filename, artist, album, title, genre, year, metadata
-                    FROM analysis_results 
-                    WHERE year = ? AND year IS NOT NULL
-                    ORDER BY artist, album, title
-                """, (year,))
-                
-                tracks = []
-                for row in cursor.fetchall():
-                    track = {
-                        'file_path': row[0],
-                        'filename': row[1],
-                        'artist': row[2],
-                        'album': row[3],
-                        'title': row[4],
-                        'genre': row[5],
-                        'year': row[6],
-                        'metadata': json.loads(row[7]) if row[7] else {}
-                    }
-                    tracks.append(track)
-                
-                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks from year: {year}")
-                return tracks
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting tracks by year: {e}")
-            return []
 
-    @log_function_call
-    def get_tracks_by_long_audio_category(self, category: str) -> List[Dict[str, Any]]:
-        """
-        Get tracks by long audio category.
-        
-        Args:
-            category: Long audio category to filter by (long_mix, podcast, radio, compilation)
-            
-        Returns:
-            List of track dictionaries
-        """
-        log_universal('DEBUG', 'Database', f"Getting tracks by long audio category: {category}")
-        
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT file_path, filename, metadata, long_audio_category
-                    FROM analysis_results 
-                    WHERE long_audio_category = ? AND long_audio_category IS NOT NULL
-                    ORDER BY filename
-                """, (category,))
-                
-                tracks = []
-                for row in cursor.fetchall():
-                    track = {
-                        'file_path': row[0],
-                        'filename': row[1],
-                        'metadata': json.loads(row[2]) if row[2] else {},
-                        'long_audio_category': row[3]
-                    }
-                    tracks.append(track)
-                
-                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks with category {category}")
-                return tracks
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting tracks by long audio category: {e}")
-            return []
-
-    @log_function_call
-    def get_all_long_audio_categories(self) -> List[str]:
-        """
-        Get all available long audio categories.
-        
-        Returns:
-            List of unique category names
-        """
-        log_universal('DEBUG', 'Database', "Getting all long audio categories")
-        
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT DISTINCT long_audio_category
-                    FROM analysis_results 
-                    WHERE long_audio_category IS NOT NULL
-                    ORDER BY long_audio_category
-                """)
-                
-                categories = [row[0] for row in cursor.fetchall()]
-                
-                log_universal('DEBUG', 'Database', f"Retrieved {len(categories)} long audio categories: {categories}")
-                return categories
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting long audio categories: {e}")
-            return []
-
-    @log_function_call
-    def get_tracks_by_feature_range(self, feature: str, min_value: float, max_value: float) -> List[Dict[str, Any]]:
-        """
-        Get tracks within a specific feature range.
-        
-        Args:
-            feature: Feature name (bpm, danceability, etc.)
-            min_value: Minimum feature value
-            max_value: Maximum feature value
-            
-        Returns:
-            List of track dictionaries
-        """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Validate feature name to prevent SQL injection
-                valid_features = ['bpm', 'centroid', 'danceability', 'loudness', 'key', 'scale', 'onset_rate', 'zcr']
-                if feature not in valid_features:
-                    log_universal('ERROR', 'Database', f"Invalid feature name: {feature}")
-                    return []
-                
-                cursor.execute(f"""
-                    SELECT filepath, filename, {feature}, metadata
-                    FROM audio_features
-                    WHERE {feature} BETWEEN ? AND ? AND analysis_status = 'completed'
-                    ORDER BY {feature}
-                """, (min_value, max_value))
-                
-                tracks = []
-                for row in cursor.fetchall():
-                    track = {
-                        'filepath': row[0],
-                        'filename': row[1],
-                        feature: row[2],
-                        'metadata': json.loads(row[3]) if row[3] else {}
-                    }
-                    tracks.append(track)
-                
-                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks with {feature} between {min_value} and {max_value}")
-                return tracks
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error getting tracks by feature range: {e}")
-            return []
 
     # =============================================================================
     # ANALYSIS RESULTS OPERATIONS
@@ -1004,32 +557,27 @@ class DatabaseManager:
                            file_hash: str, analysis_data: Dict[str, Any],
                            metadata: Dict[str, Any] = None) -> bool:
         """
-        Save analysis results for a file.
+        Save analysis results to database (LEGACY - uses old analysis_results table).
         
         Args:
             file_path: Path to the analyzed file
             filename: Name of the file
             file_size_bytes: File size in bytes
             file_hash: File hash for change detection
-            analysis_data: Analysis results data
-            metadata: Optional additional metadata
+            analysis_data: Analysis results dictionary
+            metadata: Metadata dictionary
             
         Returns:
             True if successful, False otherwise
         """
-        log_universal('DEBUG', 'Database', f"Saving analysis results for: {filename}")
-        
+        log_universal('DEBUG', 'Database', f"Saving analysis results (LEGACY) for: {filename}")
         start_time = time.time()
         
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Ensure analysis status is set to 'analyzed' when saving complete analysis results
-                if analysis_data and 'status' not in analysis_data:
-                    analysis_data['status'] = 'analyzed'
-                
-                # Convert numpy arrays and other non-serializable objects to JSON-compatible format
+                # Convert to JSON-serializable format
                 analysis_data_serializable = self._convert_to_json_serializable(analysis_data)
                 metadata_serializable = self._convert_to_json_serializable(metadata) if metadata else None
                 
@@ -1054,20 +602,285 @@ class DatabaseManager:
                 
                 conn.commit()
                 save_time = time.time() - start_time
-                log_universal('DEBUG', 'Database', f"Successfully saved analysis results for: {filename} in {save_time:.2f}s")
+                log_universal('DEBUG', 'Database', f"Successfully saved analysis results (LEGACY) for: {filename} in {save_time:.2f}s")
                 
                 # Log performance
-                log_universal('INFO', 'Database', f"Analysis result save completed in {save_time:.2f}s")
+                log_universal('INFO', 'Database', f"Analysis result save (LEGACY) completed in {save_time:.2f}s")
                 return True
                 
         except Exception as e:
-            log_universal('ERROR', 'Database', f"Error saving analysis results for {filename}: {e}")
+            log_universal('ERROR', 'Database', f"Error saving analysis results (LEGACY) for {filename}: {e}")
             return False
+
+    @log_function_call
+    def save_track_to_normalized_schema(self, file_path: str, filename: str, file_size_bytes: int,
+                                      file_hash: str, analysis_data: Dict[str, Any],
+                                      metadata: Dict[str, Any] = None) -> bool:
+        """
+        Save analysis results to normalized database schema (NEW - uses tracks table).
+        
+        Args:
+            file_path: Path to the analyzed file
+            filename: Name of the file
+            file_size_bytes: File size in bytes
+            file_hash: File hash for change detection
+            analysis_data: Analysis results dictionary
+            metadata: Metadata dictionary
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        log_universal('DEBUG', 'Database', f"Saving track to normalized schema for: {filename}")
+        start_time = time.time()
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Extract basic file info
+                analysis_date = datetime.now()
+                analysis_version = "1.0.0"
+                analysis_type = analysis_data.get('analysis_type', 'full')
+                long_audio_category = metadata.get('long_audio_category') if metadata else None
+                
+                # Extract metadata fields
+                title = metadata.get('title', 'Unknown Title')
+                artist = metadata.get('artist', 'Unknown Artist')
+                album = metadata.get('album')
+                track_number = metadata.get('track_number')
+                genre = metadata.get('genre')
+                year = metadata.get('year')
+                duration = metadata.get('duration')
+                bitrate = metadata.get('bitrate')
+                sample_rate = metadata.get('sample_rate')
+                channels = metadata.get('channels')
+                
+                # Extended metadata from file tags
+                composer = metadata.get('composer')
+                lyricist = metadata.get('lyricist')
+                band = metadata.get('band')
+                conductor = metadata.get('conductor')
+                remixer = metadata.get('remixer')
+                subtitle = metadata.get('subtitle')
+                grouping = metadata.get('grouping')
+                publisher = metadata.get('publisher')
+                copyright = metadata.get('copyright')
+                encoded_by = metadata.get('encoded_by')
+                language = metadata.get('language')
+                mood = metadata.get('mood')
+                style = metadata.get('style')
+                quality = metadata.get('quality')
+                original_artist = metadata.get('original_artist')
+                original_album = metadata.get('original_album')
+                original_year = metadata.get('original_year')
+                original_filename = metadata.get('original_filename')
+                content_group = metadata.get('content_group')
+                encoder = metadata.get('encoder')
+                file_type = metadata.get('file_type')
+                playlist_delay = metadata.get('playlist_delay')
+                recording_time = metadata.get('recording_time')
+                tempo = metadata.get('tempo')
+                length = metadata.get('length')
+                
+                # ReplayGain metadata
+                replaygain_track_gain = metadata.get('replaygain_track_gain')
+                replaygain_album_gain = metadata.get('replaygain_album_gain')
+                replaygain_track_peak = metadata.get('replaygain_track_peak')
+                replaygain_album_peak = metadata.get('replaygain_album_peak')
+                
+                # Audio features from analysis
+                bpm = analysis_data.get('bpm')
+                key = analysis_data.get('key')
+                mode = analysis_data.get('mode')
+                scale = analysis_data.get('scale')
+                key_strength = analysis_data.get('key_strength')
+                loudness = analysis_data.get('loudness')
+                danceability = analysis_data.get('danceability')
+                energy = analysis_data.get('energy')
+                rhythm_confidence = analysis_data.get('rhythm_confidence')
+                key_confidence = analysis_data.get('key_confidence')
+                
+                # Insert into tracks table (excluding auto-increment id)
+                cursor.execute("""
+                    INSERT OR REPLACE INTO tracks (
+                        file_path, file_hash, filename, file_size_bytes, analysis_date, analysis_version, 
+                        analysis_type, long_audio_category, title, artist, album, track_number, genre, year,
+                        duration, bitrate, sample_rate, channels, composer, lyricist, band, conductor, remixer,
+                        subtitle, grouping, publisher, copyright, encoded_by, language, mood, style, quality,
+                        original_artist, original_album, original_year, original_filename, content_group, encoder,
+                        file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain,
+                        replaygain_album_gain, replaygain_track_peak, replaygain_album_peak, bpm, key, mode,
+                        scale, key_strength, loudness, danceability, energy, rhythm_confidence, key_confidence,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (file_path, file_hash, filename, file_size_bytes, analysis_date, analysis_version,
+                     analysis_type, long_audio_category, title, artist, album, track_number, genre, year,
+                     duration, bitrate, sample_rate, channels, composer, lyricist, band, conductor, remixer,
+                     subtitle, grouping, publisher, copyright, encoded_by, language, mood, style, quality,
+                     original_artist, original_album, original_year, original_filename, content_group, encoder,
+                     file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain,
+                     replaygain_album_gain, replaygain_track_peak, replaygain_album_peak, bpm, key, mode,
+                     scale, key_strength, loudness, danceability, energy, rhythm_confidence, key_confidence,
+                     analysis_date, analysis_date))  # created_at and updated_at use analysis_date
+                
+                # Get the track ID for related tables
+                track_id = cursor.lastrowid
+                
+                # Save external metadata if available
+                if metadata and (metadata.get('musicbrainz_id') or metadata.get('lastfm_url')):
+                    self._save_external_metadata(cursor, track_id, metadata)
+                
+                # Save tags if available
+                if metadata and metadata.get('tags'):
+                    self._save_tags(cursor, track_id, metadata.get('tags'), metadata.get('tag_source', 'file'))
+                
+                # Save audio features to specialized tables
+                if analysis_data:
+                    self._save_audio_features(cursor, track_id, analysis_data)
+                
+                conn.commit()
+                
+                # Invalidate related caches
+                self._invalidate_related_caches('insert', {
+                    'artist': artist,
+                    'album': album,
+                    'genre': genre
+                })
+                
+                save_time = time.time() - start_time
+                log_universal('DEBUG', 'Database', f"Successfully saved track to normalized schema for: {filename} in {save_time:.2f}s")
+                
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error saving track to normalized schema for {filename}: {e}")
+            return False
+
+    def _save_external_metadata(self, cursor, track_id: int, metadata: Dict[str, Any]):
+        """Save external API metadata to external_metadata table."""
+        try:
+            # MusicBrainz data
+            if metadata.get('musicbrainz_id'):
+                cursor.execute("""
+                    INSERT OR REPLACE INTO external_metadata 
+                    (track_id, source, musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id, 
+                     release_date, disc_number, duration_ms, confidence)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (track_id, 'musicbrainz', metadata.get('musicbrainz_id'), 
+                     metadata.get('musicbrainz_artist_id'), metadata.get('musicbrainz_album_id'),
+                     metadata.get('release_date'), metadata.get('disc_number'), metadata.get('duration_ms'), 1.0))
+            
+            # Last.fm data
+            if metadata.get('lastfm_url'):
+                cursor.execute("""
+                    INSERT OR REPLACE INTO external_metadata 
+                    (track_id, source, lastfm_url, play_count, listeners, rating, confidence)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (track_id, 'lastfm', metadata.get('lastfm_url'), metadata.get('play_count'),
+                     metadata.get('listeners'), metadata.get('rating'), 1.0))
+                     
+        except Exception as e:
+            log_universal('WARNING', 'Database', f"Error saving external metadata: {e}")
+
+    def _save_tags(self, cursor, track_id: int, tags: Dict[str, Any], source: str):
+        """Save tags to normalized tags table."""
+        try:
+            for tag_name, tag_value in tags.items():
+                if tag_value is not None:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO tags 
+                        (track_id, source, tag_name, tag_value, confidence)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (track_id, source, tag_name, str(tag_value), 1.0))
+        except Exception as e:
+            log_universal('WARNING', 'Database', f"Error saving tags: {e}")
+
+    def _save_audio_features(self, cursor, track_id: int, analysis_data: Dict[str, Any]):
+        """Save audio features to specialized tables."""
+        try:
+            # Spectral features
+            if 'spectral_features' in analysis_data:
+                sf = analysis_data['spectral_features']
+                cursor.execute("""
+                    INSERT OR REPLACE INTO spectral_features 
+                    (track_id, spectral_centroid, spectral_rolloff, spectral_flatness, 
+                     spectral_bandwidth, spectral_contrast_mean, spectral_contrast_std)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (track_id, sf.get('spectral_centroid'), sf.get('spectral_rolloff'), 
+                     sf.get('spectral_flatness'), sf.get('spectral_bandwidth'),
+                     sf.get('spectral_contrast_mean'), sf.get('spectral_contrast_std')))
+            
+            # Loudness features
+            if 'loudness_features' in analysis_data:
+                lf = analysis_data['loudness_features']
+                cursor.execute("""
+                    INSERT OR REPLACE INTO loudness_features 
+                    (track_id, integrated_loudness, loudness_range, momentary_loudness_mean,
+                     momentary_loudness_std, short_term_loudness_mean, short_term_loudness_std,
+                     dynamic_complexity, dynamic_range)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (track_id, lf.get('integrated_loudness'), lf.get('loudness_range'),
+                     lf.get('momentary_loudness_mean'), lf.get('momentary_loudness_std'),
+                     lf.get('short_term_loudness_mean'), lf.get('short_term_loudness_std'),
+                     lf.get('dynamic_complexity'), lf.get('dynamic_range')))
+            
+            # Rhythm features
+            if 'rhythm_features' in analysis_data:
+                rf = analysis_data['rhythm_features']
+                cursor.execute("""
+                    INSERT OR REPLACE INTO rhythm_features 
+                    (track_id, bpm_estimates, bpm_intervals, external_bpm)
+                    VALUES (?, ?, ?, ?)
+                """, (track_id, json.dumps(rf.get('bpm_estimates', [])), 
+                     json.dumps(rf.get('bpm_intervals', [])), rf.get('external_bpm')))
+            
+            # Advanced features
+            if 'advanced_features' in analysis_data:
+                af = analysis_data['advanced_features']
+                cursor.execute("""
+                    INSERT OR REPLACE INTO advanced_features 
+                    (track_id, onset_rate, zero_crossing_rate, harmonic_complexity)
+                    VALUES (?, ?, ?, ?)
+                """, (track_id, af.get('onset_rate'), af.get('zero_crossing_rate'), 
+                     af.get('harmonic_complexity')))
+            
+            # MFCC features
+            if 'mfcc_features' in analysis_data:
+                mf = analysis_data['mfcc_features']
+                cursor.execute("""
+                    INSERT OR REPLACE INTO mfcc_features 
+                    (track_id, mfcc_coefficients, mfcc_bands, mfcc_std)
+                    VALUES (?, ?, ?, ?)
+                """, (track_id, json.dumps(mf.get('mfcc_coefficients', [])),
+                     json.dumps(mf.get('mfcc_bands', [])), json.dumps(mf.get('mfcc_std', []))))
+            
+            # MusiCNN features
+            if 'musicnn_features' in analysis_data:
+                mn = analysis_data['musicnn_features']
+                cursor.execute("""
+                    INSERT OR REPLACE INTO musicnn_features 
+                    (track_id, embedding, tags)
+                    VALUES (?, ?, ?)
+                """, (track_id, json.dumps(mn.get('embedding', [])),
+                     json.dumps(mn.get('tags', {}))))
+            
+            # Chroma features
+            if 'chroma_features' in analysis_data:
+                cf = analysis_data['chroma_features']
+                cursor.execute("""
+                    INSERT OR REPLACE INTO chroma_features 
+                    (track_id, chroma_mean, chroma_std)
+                    VALUES (?, ?, ?)
+                """, (track_id, json.dumps(cf.get('chroma_mean', [])),
+                     json.dumps(cf.get('chroma_std', []))))
+                     
+        except Exception as e:
+            log_universal('WARNING', 'Database', f"Error saving audio features: {e}")
 
     @log_function_call
     def get_analysis_result(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
-        Get analysis results for a file.
+        Get analysis results for a file from the normalized schema.
         
         Args:
             file_path: Path to the file
@@ -1080,30 +893,77 @@ class DatabaseManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                
+                # Query the tracks table with all related data
                 cursor.execute("""
-                    SELECT filename, file_size_bytes, file_hash, analysis_data, 
-                           metadata, artist, album, title, genre, year, analysis_date, last_checked
-                    FROM analysis_results WHERE file_path = ?
+                    SELECT t.*, 
+                           em.musicbrainz_id, em.musicbrainz_artist_id, em.musicbrainz_album_id,
+                           em.release_date, em.disc_number, em.duration_ms,
+                           em.lastfm_url, em.play_count, em.listeners, em.rating,
+                           sf.spectral_centroid, sf.spectral_rolloff, sf.spectral_flatness,
+                           sf.spectral_bandwidth, sf.spectral_contrast_mean, sf.spectral_contrast_std,
+                           lf.integrated_loudness, lf.loudness_range, lf.momentary_loudness_mean,
+                           lf.momentary_loudness_std, lf.short_term_loudness_mean, lf.short_term_loudness_std,
+                           lf.dynamic_complexity, lf.dynamic_range,
+                           rf.bpm_estimates, rf.bpm_intervals, rf.external_bpm,
+                           af.onset_rate, af.zero_crossing_rate, af.harmonic_complexity,
+                           mf.mfcc_coefficients, mf.mfcc_bands, mf.mfcc_std,
+                           mn.embedding, mn.tags,
+                           cf.chroma_mean, cf.chroma_std
+                    FROM tracks t
+                    LEFT JOIN external_metadata em ON t.id = em.track_id
+                    LEFT JOIN spectral_features sf ON t.id = sf.track_id
+                    LEFT JOIN loudness_features lf ON t.id = lf.track_id
+                    LEFT JOIN rhythm_features rf ON t.id = rf.track_id
+                    LEFT JOIN advanced_features af ON t.id = af.track_id
+                    LEFT JOIN mfcc_features mf ON t.id = mf.track_id
+                    LEFT JOIN musicnn_features mn ON t.id = mn.track_id
+                    LEFT JOIN chroma_features cf ON t.id = cf.track_id
+                    WHERE t.file_path = ?
                 """, (file_path,))
                 
                 row = cursor.fetchone()
                 if row:
-                    result = {
-                        'file_path': file_path,
-                        'filename': row[0],
-                        'file_size_bytes': row[1],
-                        'file_hash': row[2],
-                        'analysis_data': json.loads(row[3]),
-                        'metadata': json.loads(row[4]) if row[4] else None,
-                        'artist': row[5],
-                        'album': row[6],
-                        'title': row[7],
-                        'genre': row[8],
-                        'year': row[9],
-                        'analysis_date': row[10],
-                        'last_checked': row[11]
-                    }
-                    log_universal('DEBUG', 'Database', f"Retrieved analysis results for: {row[0]}")
+                    # Get column names for proper mapping
+                    columns = [description[0] for description in cursor.description]
+                    result = dict(zip(columns, row))
+                    
+                    # Parse JSON fields
+                    if result.get('bpm_estimates'):
+                        result['bpm_estimates'] = json.loads(result['bpm_estimates'])
+                    if result.get('bpm_intervals'):
+                        result['bpm_intervals'] = json.loads(result['bpm_intervals'])
+                    if result.get('mfcc_coefficients'):
+                        result['mfcc_coefficients'] = json.loads(result['mfcc_coefficients'])
+                    if result.get('mfcc_bands'):
+                        result['mfcc_bands'] = json.loads(result['mfcc_bands'])
+                    if result.get('mfcc_std'):
+                        result['mfcc_std'] = json.loads(result['mfcc_std'])
+                    if result.get('embedding'):
+                        result['embedding'] = json.loads(result['embedding'])
+                    if result.get('tags'):
+                        result['tags'] = json.loads(result['tags'])
+                    if result.get('chroma_mean'):
+                        result['chroma_mean'] = json.loads(result['chroma_mean'])
+                    if result.get('chroma_std'):
+                        result['chroma_std'] = json.loads(result['chroma_std'])
+                    
+                    # Get tags
+                    cursor.execute("""
+                        SELECT tag_name, tag_value, source, confidence
+                        FROM tags WHERE track_id = ?
+                    """, (result['id'],))
+                    
+                    tags = {}
+                    for tag_row in cursor.fetchall():
+                        tags[tag_row[0]] = {
+                            'value': tag_row[1],
+                            'source': tag_row[2],
+                            'confidence': tag_row[3]
+                        }
+                    result['tags'] = tags
+                    
+                    log_universal('DEBUG', 'Database', f"Retrieved analysis results for: {result['filename']}")
                     return result
                 else:
                     log_universal('DEBUG', 'Database', f"No analysis results found for: {file_path}")
@@ -1116,7 +976,7 @@ class DatabaseManager:
     @log_function_call
     def get_all_analysis_results(self) -> List[Dict[str, Any]]:
         """
-        Get all analysis results from the database.
+        Get all analysis results from the normalized schema.
         
         Returns:
             List of analysis result dictionaries
@@ -1126,28 +986,36 @@ class DatabaseManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                
+                # Query all tracks with basic info
                 cursor.execute("""
-                    SELECT file_path, filename, file_size_bytes, file_hash, 
-                           analysis_data, metadata, artist, album, title, genre, year, analysis_date, last_checked
-                    FROM analysis_results ORDER BY analysis_date DESC
+                    SELECT id, file_path, filename, file_size_bytes, file_hash,
+                           title, artist, album, genre, year, bpm, key, mode,
+                           loudness, danceability, energy, analysis_date
+                    FROM tracks
+                    ORDER BY analysis_date DESC
                 """)
                 
                 results = []
                 for row in cursor.fetchall():
                     result = {
-                        'file_path': row[0],
-                        'filename': row[1],
-                        'file_size_bytes': row[2],
-                        'file_hash': row[3],
-                        'analysis_data': json.loads(row[4]),
-                        'metadata': json.loads(row[5]) if row[5] else None,
+                        'id': row[0],
+                        'file_path': row[1],
+                        'filename': row[2],
+                        'file_size_bytes': row[3],
+                        'file_hash': row[4],
+                        'title': row[5],
                         'artist': row[6],
                         'album': row[7],
-                        'title': row[8],
-                        'genre': row[9],
-                        'year': row[10],
-                        'analysis_date': row[11],
-                        'last_checked': row[12]
+                        'genre': row[8],
+                        'year': row[9],
+                        'bpm': row[10],
+                        'key': row[11],
+                        'mode': row[12],
+                        'loudness': row[13],
+                        'danceability': row[14],
+                        'energy': row[15],
+                        'analysis_date': row[16]
                     }
                     results.append(result)
                 
@@ -1159,64 +1027,707 @@ class DatabaseManager:
             return []
 
     @log_function_call
-    def delete_analysis_result(self, file_path: str) -> bool:
+    def get_analyzed_tracks(self) -> List[Dict[str, Any]]:
         """
-        Delete analysis results for a file.
+        Get all analyzed tracks from the normalized schema.
+        
+        Returns:
+            List of track dictionaries with analysis data
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Get all tracks with their features from the normalized schema
+                cursor.execute("""
+                    SELECT t.id, t.file_path, t.filename, t.file_size_bytes, t.file_hash,
+                           t.title, t.artist, t.album, t.genre, t.year, t.bpm, t.key, t.mode,
+                           t.loudness, t.danceability, t.energy, t.analysis_date,
+                           sf.spectral_centroid, sf.spectral_rolloff,
+                           lf.integrated_loudness, lf.loudness_range,
+                           af.onset_rate, af.zero_crossing_rate
+                    FROM tracks t
+                    LEFT JOIN spectral_features sf ON t.id = sf.track_id
+                    LEFT JOIN loudness_features lf ON t.id = lf.track_id
+                    LEFT JOIN advanced_features af ON t.id = af.track_id
+                    ORDER BY t.analysis_date DESC
+                """)
+                
+                tracks = []
+                for row in cursor.fetchall():
+                    track = {
+                        'id': row[0],
+                        'file_path': row[1],
+                        'filename': row[2],
+                        'file_size_bytes': row[3],
+                        'file_hash': row[4],
+                        'title': row[5],
+                        'artist': row[6],
+                        'album': row[7],
+                        'genre': row[8],
+                        'year': row[9],
+                        'bpm': row[10],
+                        'key': row[11],
+                        'mode': row[12],
+                        'loudness': row[13],
+                        'danceability': row[14],
+                        'energy': row[15],
+                        'analysis_date': row[16],
+                        'spectral_centroid': row[17],
+                        'spectral_rolloff': row[18],
+                        'integrated_loudness': row[19],
+                        'loudness_range': row[20],
+                        'onset_rate': row[21],
+                        'zero_crossing_rate': row[22]
+                    }
+                    tracks.append(track)
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} analyzed tracks")
+                return tracks
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting analyzed tracks: {e}")
+            return []
+
+    @log_function_call
+    def get_tracks_by_artist(self, artist: str) -> List[Dict[str, Any]]:
+        """
+        Get all tracks by a specific artist from the normalized schema.
         
         Args:
-            file_path: Path to the file
+            artist: Artist name to search for
             
         Returns:
-            True if successful, False otherwise
+            List of track dictionaries
         """
-        log_universal('DEBUG', 'Database', f"Deleting analysis results for: {file_path}")
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, file_path, filename, title, album, genre, year, bpm, key, mode,
+                           loudness, danceability, energy, analysis_date
+                    FROM tracks 
+                    WHERE artist LIKE ? 
+                    ORDER BY title
+                """, (f'%{artist}%',))
+                
+                tracks = []
+                for row in cursor.fetchall():
+                    track = {
+                        'id': row[0],
+                        'file_path': row[1],
+                        'filename': row[2],
+                        'title': row[3],
+                        'album': row[4],
+                        'genre': row[5],
+                        'year': row[6],
+                        'bpm': row[7],
+                        'key': row[8],
+                        'mode': row[9],
+                        'loudness': row[10],
+                        'danceability': row[11],
+                        'energy': row[12],
+                        'analysis_date': row[13]
+                    }
+                    tracks.append(track)
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks for artist: {artist}")
+                return tracks
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting tracks by artist {artist}: {e}")
+            return []
+
+    @log_function_call
+    def get_tracks_by_album(self, album: str) -> List[Dict[str, Any]]:
+        """
+        Get all tracks from a specific album from the normalized schema.
+        
+        Args:
+            album: Album name to search for
+            
+        Returns:
+            List of track dictionaries
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, file_path, filename, title, artist, genre, year, bpm, key, mode,
+                           loudness, danceability, energy, analysis_date
+                    FROM tracks 
+                    WHERE album LIKE ? 
+                    ORDER BY track_number, title
+                """, (f'%{album}%',))
+                
+                tracks = []
+                for row in cursor.fetchall():
+                    track = {
+                        'id': row[0],
+                        'file_path': row[1],
+                        'filename': row[2],
+                        'title': row[3],
+                        'artist': row[4],
+                        'genre': row[5],
+                        'year': row[6],
+                        'bpm': row[7],
+                        'key': row[8],
+                        'mode': row[9],
+                        'loudness': row[10],
+                        'danceability': row[11],
+                        'energy': row[12],
+                        'analysis_date': row[13]
+                    }
+                    tracks.append(track)
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks for album: {album}")
+                return tracks
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting tracks by album {album}: {e}")
+            return []
+
+    @log_function_call
+    def get_tracks_by_genre(self, genre: str) -> List[Dict[str, Any]]:
+        """
+        Get all tracks of a specific genre from the normalized schema.
+        
+        Args:
+            genre: Genre to search for
+            
+        Returns:
+            List of track dictionaries
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, file_path, filename, title, artist, album, year, bpm, key, mode,
+                           loudness, danceability, energy, analysis_date
+                    FROM tracks 
+                    WHERE genre LIKE ? 
+                    ORDER BY artist, title
+                """, (f'%{genre}%',))
+                
+                tracks = []
+                for row in cursor.fetchall():
+                    track = {
+                        'id': row[0],
+                        'file_path': row[1],
+                        'filename': row[2],
+                        'title': row[3],
+                        'artist': row[4],
+                        'album': row[5],
+                        'year': row[6],
+                        'bpm': row[7],
+                        'key': row[8],
+                        'mode': row[9],
+                        'loudness': row[10],
+                        'danceability': row[11],
+                        'energy': row[12],
+                        'analysis_date': row[13]
+                    }
+                    tracks.append(track)
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks for genre: {genre}")
+                return tracks
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting tracks by genre {genre}: {e}")
+            return []
+
+    @log_function_call
+    def get_all_artists(self) -> List[str]:
+        """
+        Get all unique artists from the normalized schema.
+        
+        Returns:
+            List of artist names
+        """
+        # Check cache first
+        cache_key = "query:all_artists"
+        cached_result = self.get_cache(cache_key)
+        if cached_result:
+            log_universal('DEBUG', 'Database', 'Using cached all artists result')
+            return cached_result
         
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute("DELETE FROM analysis_results WHERE file_path = ?", (file_path,))
                 
-                if cursor.rowcount > 0:
+                cursor.execute("""
+                    SELECT DISTINCT artist 
+                    FROM tracks 
+                    WHERE artist IS NOT NULL AND artist != ''
+                    ORDER BY artist
+                """)
+                
+                artists = [row[0] for row in cursor.fetchall()]
+                log_universal('DEBUG', 'Database', f"Retrieved {len(artists)} unique artists")
+                
+                # Cache result for 1 hour
+                self.save_cache(cache_key, artists, expires_hours=1)
+                
+                return artists
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting all artists: {e}")
+            return []
+
+    @log_function_call
+    def get_all_albums(self) -> List[str]:
+        """
+        Get all unique albums from the normalized schema.
+        
+        Returns:
+            List of album names
+        """
+        # Check cache first
+        cache_key = "query:all_albums"
+        cached_result = self.get_cache(cache_key)
+        if cached_result:
+            log_universal('DEBUG', 'Database', 'Using cached all albums result')
+            return cached_result
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT DISTINCT album 
+                    FROM tracks 
+                    WHERE album IS NOT NULL AND album != ''
+                    ORDER BY album
+                """)
+                
+                albums = [row[0] for row in cursor.fetchall()]
+                log_universal('DEBUG', 'Database', f"Retrieved {len(albums)} unique albums")
+                
+                # Cache result for 1 hour
+                self.save_cache(cache_key, albums, expires_hours=1)
+                
+                return albums
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting all albums: {e}")
+            return []
+
+    @log_function_call
+    def get_all_genres(self) -> List[str]:
+        """
+        Get all unique genres from the normalized schema.
+        
+        Returns:
+            List of genre names
+        """
+        # Check cache first
+        cache_key = "query:all_genres"
+        cached_result = self.get_cache(cache_key)
+        if cached_result:
+            log_universal('DEBUG', 'Database', 'Using cached all genres result')
+            return cached_result
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT DISTINCT genre 
+                    FROM tracks 
+                    WHERE genre IS NOT NULL AND genre != ''
+                    ORDER BY genre
+                """)
+                
+                genres = [row[0] for row in cursor.fetchall()]
+                log_universal('DEBUG', 'Database', f"Retrieved {len(genres)} unique genres")
+                
+                # Cache result for 1 hour
+                self.save_cache(cache_key, genres, expires_hours=1)
+                
+                return genres
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting all genres: {e}")
+            return []
+
+    @log_function_call
+    def get_tracks_by_year(self, year: int) -> List[Dict[str, Any]]:
+        """
+        Get all tracks from a specific year from the normalized schema.
+        
+        Args:
+            year: Year to search for
+            
+        Returns:
+            List of track dictionaries
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, file_path, filename, title, artist, album, genre, bpm, key, mode,
+                           loudness, danceability, energy, analysis_date
+                    FROM tracks 
+                    WHERE year = ? 
+                    ORDER BY artist, title
+                """, (year,))
+                
+                tracks = []
+                for row in cursor.fetchall():
+                    track = {
+                        'id': row[0],
+                        'file_path': row[1],
+                        'filename': row[2],
+                        'title': row[3],
+                        'artist': row[4],
+                        'album': row[5],
+                        'genre': row[6],
+                        'bpm': row[7],
+                        'key': row[8],
+                        'mode': row[9],
+                        'loudness': row[10],
+                        'danceability': row[11],
+                        'energy': row[12],
+                        'analysis_date': row[13]
+                    }
+                    tracks.append(track)
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks for year: {year}")
+                return tracks
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting tracks by year {year}: {e}")
+            return []
+
+    @log_function_call
+    def get_tracks_by_long_audio_category(self, category: str) -> List[Dict[str, Any]]:
+        """
+        Get all tracks of a specific long audio category from the normalized schema.
+        
+        Args:
+            category: Category to search for
+            
+        Returns:
+            List of track dictionaries
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, file_path, filename, title, artist, album, genre, year, bpm, key, mode,
+                           loudness, danceability, energy, analysis_date
+                    FROM tracks 
+                    WHERE long_audio_category = ? 
+                    ORDER BY artist, title
+                """, (category,))
+                
+                tracks = []
+                for row in cursor.fetchall():
+                    track = {
+                        'id': row[0],
+                        'file_path': row[1],
+                        'filename': row[2],
+                        'title': row[3],
+                        'artist': row[4],
+                        'album': row[5],
+                        'genre': row[6],
+                        'year': row[7],
+                        'bpm': row[8],
+                        'key': row[9],
+                        'mode': row[10],
+                        'loudness': row[11],
+                        'danceability': row[12],
+                        'energy': row[13],
+                        'analysis_date': row[14]
+                    }
+                    tracks.append(track)
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks for category: {category}")
+                return tracks
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting tracks by category {category}: {e}")
+            return []
+
+    @log_function_call
+    def get_all_long_audio_categories(self) -> List[str]:
+        """
+        Get all unique long audio categories from the normalized schema.
+        
+        Returns:
+            List of category names
+        """
+        # Check cache first
+        cache_key = "query:all_categories"
+        cached_result = self.get_cache(cache_key)
+        if cached_result:
+            log_universal('DEBUG', 'Database', 'Using cached all categories result')
+            return cached_result
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT DISTINCT long_audio_category 
+                    FROM tracks 
+                    WHERE long_audio_category IS NOT NULL AND long_audio_category != ''
+                    ORDER BY long_audio_category
+                """)
+                
+                categories = [row[0] for row in cursor.fetchall()]
+                log_universal('DEBUG', 'Database', f"Retrieved {len(categories)} unique categories")
+                
+                # Cache result for 1 hour
+                self.save_cache(cache_key, categories, expires_hours=1)
+                
+                return categories
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting all categories: {e}")
+            return []
+
+    @log_function_call
+    def get_tracks_by_feature_range(self, feature: str, min_value: float, max_value: float) -> List[Dict[str, Any]]:
+        """
+        Get tracks within a specific feature range from the normalized schema.
+        
+        Args:
+            feature: Feature name to filter by
+            min_value: Minimum value
+            max_value: Maximum value
+            
+        Returns:
+            List of track dictionaries
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Map feature names to column names
+                feature_columns = {
+                    'bpm': 'bpm',
+                    'loudness': 'loudness',
+                    'danceability': 'danceability',
+                    'energy': 'energy',
+                    'key_strength': 'key_strength',
+                    'rhythm_confidence': 'rhythm_confidence',
+                    'key_confidence': 'key_confidence'
+                }
+                
+                if feature not in feature_columns:
+                    log_universal('ERROR', 'Database', f"Unknown feature: {feature}")
+                    return []
+                
+                column = feature_columns[feature]
+                
+                cursor.execute(f"""
+                    SELECT id, file_path, filename, title, artist, album, genre, year, bpm, key, mode,
+                           loudness, danceability, energy, analysis_date
+                    FROM tracks 
+                    WHERE {column} BETWEEN ? AND ?
+                    ORDER BY {column}
+                """, (min_value, max_value))
+                
+                tracks = []
+                for row in cursor.fetchall():
+                    track = {
+                        'id': row[0],
+                        'file_path': row[1],
+                        'filename': row[2],
+                        'title': row[3],
+                        'artist': row[4],
+                        'album': row[5],
+                        'genre': row[6],
+                        'year': row[7],
+                        'bpm': row[8],
+                        'key': row[9],
+                        'mode': row[10],
+                        'loudness': row[11],
+                        'danceability': row[12],
+                        'energy': row[13],
+                        'analysis_date': row[14]
+                    }
+                    tracks.append(track)
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks for {feature} range [{min_value}, {max_value}]")
+                return tracks
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting tracks by feature range {feature}: {e}")
+            return []
+
+    @log_function_call
+    def delete_analysis_result(self, file_path: str) -> bool:
+        """
+        Delete analysis results for a file from the normalized schema.
+        
+        Args:
+            file_path: Path to the file to delete
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # First get the track ID
+                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
+                track_row = cursor.fetchone()
+                
+                if track_row:
+                    track_id = track_row[0]
+                    
+                    # Delete from related tables first (due to foreign key constraints)
+                    cursor.execute("DELETE FROM external_metadata WHERE track_id = ?", (track_id,))
+                    cursor.execute("DELETE FROM tags WHERE track_id = ?", (track_id,))
+                    cursor.execute("DELETE FROM spectral_features WHERE track_id = ?", (track_id,))
+                    cursor.execute("DELETE FROM loudness_features WHERE track_id = ?", (track_id,))
+                    cursor.execute("DELETE FROM rhythm_features WHERE track_id = ?", (track_id,))
+                    cursor.execute("DELETE FROM advanced_features WHERE track_id = ?", (track_id,))
+                    cursor.execute("DELETE FROM mfcc_features WHERE track_id = ?", (track_id,))
+                    cursor.execute("DELETE FROM musicnn_features WHERE track_id = ?", (track_id,))
+                    cursor.execute("DELETE FROM chroma_features WHERE track_id = ?", (track_id,))
+                    
+                    # Finally delete from tracks table
+                    cursor.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
+                    
                     conn.commit()
-                    log_universal('DEBUG', 'Database', f"Successfully deleted analysis results for: {file_path}")
+                    
+                    # Invalidate related caches
+                    self._invalidate_related_caches('delete')
+                    
+                    log_universal('DEBUG', 'Database', f"Successfully deleted analysis result for: {file_path}")
                     return True
                 else:
-                    log_universal('DEBUG', 'Database', f"No analysis results found for: {file_path}")
+                    log_universal('DEBUG', 'Database', f"No analysis result found to delete for: {file_path}")
                     return False
                     
         except Exception as e:
-            log_universal('ERROR', 'Database', f"Error deleting analysis results for {file_path}: {e}")
+            log_universal('ERROR', 'Database', f"Error deleting analysis result for {file_path}: {e}")
             return False
 
     @log_function_call
-    def delete_failed_analysis(self, file_path: str) -> bool:
+    def get_database_statistics(self) -> Dict[str, Any]:
         """
-        Delete failed analysis entry for a file.
+        Get comprehensive database statistics from the normalized schema.
         
-        Args:
-            file_path: Path to the file
-            
         Returns:
-            True if successful, False otherwise
+            Dictionary with database statistics
         """
-        log_universal('DEBUG', 'Database', f"Deleting failed analysis for: {file_path}")
+        # Check cache first
+        cache_key = "query:database_statistics"
+        cached_result = self.get_cache(cache_key)
+        if cached_result:
+            log_universal('DEBUG', 'Database', 'Using cached database statistics')
+            return cached_result
         
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute("DELETE FROM failed_analysis WHERE file_path = ?", (file_path,))
                 
-                if cursor.rowcount > 0:
-                    conn.commit()
-                    log_universal('DEBUG', 'Database', f"Successfully deleted failed analysis for: {file_path}")
-                    return True
-                else:
-                    log_universal('DEBUG', 'Database', f"No failed analysis found for: {file_path}")
-                    return False
-                    
+                stats = {}
+                
+                # Basic counts
+                cursor.execute("SELECT COUNT(*) FROM tracks")
+                stats['total_tracks'] = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(DISTINCT artist) FROM tracks WHERE artist IS NOT NULL")
+                stats['unique_artists'] = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(DISTINCT album) FROM tracks WHERE album IS NOT NULL")
+                stats['unique_albums'] = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(DISTINCT genre) FROM tracks WHERE genre IS NOT NULL")
+                stats['unique_genres'] = cursor.fetchone()[0]
+                
+                # Feature statistics
+                cursor.execute("SELECT AVG(bpm), MIN(bpm), MAX(bpm) FROM tracks WHERE bpm IS NOT NULL")
+                bpm_stats = cursor.fetchone()
+                if bpm_stats[0]:
+                    stats['bpm'] = {
+                        'average': round(bpm_stats[0], 2),
+                        'min': bpm_stats[1],
+                        'max': bpm_stats[2]
+                    }
+                
+                cursor.execute("SELECT AVG(loudness), MIN(loudness), MAX(loudness) FROM tracks WHERE loudness IS NOT NULL")
+                loudness_stats = cursor.fetchone()
+                if loudness_stats[0]:
+                    stats['loudness'] = {
+                        'average': round(loudness_stats[0], 2),
+                        'min': loudness_stats[1],
+                        'max': loudness_stats[2]
+                    }
+                
+                cursor.execute("SELECT AVG(danceability), MIN(danceability), MAX(danceability) FROM tracks WHERE danceability IS NOT NULL")
+                danceability_stats = cursor.fetchone()
+                if danceability_stats[0]:
+                    stats['danceability'] = {
+                        'average': round(danceability_stats[0], 2),
+                        'min': danceability_stats[1],
+                        'max': danceability_stats[2]
+                    }
+                
+                # Year distribution
+                cursor.execute("""
+                    SELECT year, COUNT(*) 
+                    FROM tracks 
+                    WHERE year IS NOT NULL 
+                    GROUP BY year 
+                    ORDER BY year
+                """)
+                stats['year_distribution'] = dict(cursor.fetchall())
+                
+                # Genre distribution
+                cursor.execute("""
+                    SELECT genre, COUNT(*) 
+                    FROM tracks 
+                    WHERE genre IS NOT NULL 
+                    GROUP BY genre 
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 10
+                """)
+                stats['top_genres'] = dict(cursor.fetchall())
+                
+                # Artist distribution
+                cursor.execute("""
+                    SELECT artist, COUNT(*) 
+                    FROM tracks 
+                    WHERE artist IS NOT NULL 
+                    GROUP BY artist 
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 10
+                """)
+                stats['top_artists'] = dict(cursor.fetchall())
+                
+                # External metadata counts
+                cursor.execute("SELECT COUNT(*) FROM external_metadata WHERE source = 'musicbrainz'")
+                stats['musicbrainz_entries'] = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM external_metadata WHERE source = 'lastfm'")
+                stats['lastfm_entries'] = cursor.fetchone()[0]
+                
+                # Tags count
+                cursor.execute("SELECT COUNT(*) FROM tags")
+                stats['total_tags'] = cursor.fetchone()[0]
+                
+                log_universal('DEBUG', 'Database', f"Retrieved comprehensive database statistics")
+                
+                # Cache result for 30 minutes
+                self.save_cache(cache_key, stats, expires_hours=0.5)
+                
+                return stats
+                
         except Exception as e:
-            log_universal('ERROR', 'Database', f"Error deleting failed analysis for {file_path}: {e}")
-            return False
+            log_universal('ERROR', 'Database', f"Error getting database statistics: {e}")
+            return {}
 
     # =============================================================================
     # CACHE OPERATIONS
@@ -1646,7 +2157,7 @@ class DatabaseManager:
                 
                 # Get recent activity
                 cursor.execute("""
-                    SELECT COUNT(*) FROM analysis_results 
+                    SELECT COUNT(*) FROM tracks 
                     WHERE analysis_date > datetime('now', '-24 hours')
                 """)
                 stats['recent_analysis_count'] = cursor.fetchone()[0]
@@ -1836,6 +2347,160 @@ class DatabaseManager:
         except Exception as e:
             log_universal('ERROR', 'Database', f"Error updating database configuration: {e}")
             return False
+
+    def _invalidate_related_caches(self, operation: str, data: Dict[str, Any] = None):
+        """
+        Invalidate related caches when data changes.
+        
+        Args:
+            operation: Type of operation (insert, update, delete)
+            data: Optional data that was changed
+        """
+        try:
+            # Clear query result caches
+            query_caches = [
+                "query:all_artists",
+                "query:all_albums", 
+                "query:all_genres",
+                "query:all_categories",
+                "query:database_statistics"
+            ]
+            
+            for cache_key in query_caches:
+                self.delete_cache(cache_key)
+            
+            # Clear artist-specific caches if we have artist data
+            if data and 'artist' in data:
+                artist_cache_key = f"query:artist:{data['artist']}"
+                self.delete_cache(artist_cache_key)
+            
+            # Clear album-specific caches if we have album data
+            if data and 'album' in data:
+                album_cache_key = f"query:album:{data['album']}"
+                self.delete_cache(album_cache_key)
+            
+            # Clear genre-specific caches if we have genre data
+            if data and 'genre' in data:
+                genre_cache_key = f"query:genre:{data['genre']}"
+                self.delete_cache(genre_cache_key)
+            
+            log_universal('DEBUG', 'Database', f'Invalidated related caches for {operation} operation')
+            
+        except Exception as e:
+            log_universal('WARNING', 'Database', f'Error invalidating caches: {e}')
+    
+    @log_function_call
+    def delete_cache(self, key: str) -> bool:
+        """
+        Delete a specific cache entry.
+        
+        Args:
+            key: Cache key to delete
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM cache WHERE key = ?", (key,))
+                conn.commit()
+                
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    log_universal('DEBUG', 'Database', f'Deleted cache entry: {key}')
+                else:
+                    log_universal('DEBUG', 'Database', f'Cache entry not found: {key}')
+                
+                return deleted
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Error deleting cache entry {key}: {e}')
+            return False
+    
+    @log_function_call
+    def clear_all_caches(self) -> int:
+        """
+        Clear all cache entries.
+        
+        Returns:
+            Number of entries cleared
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM cache")
+                deleted_count = cursor.rowcount
+                conn.commit()
+                
+                log_universal('INFO', 'Database', f'Cleared all cache entries: {deleted_count}')
+                return deleted_count
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Error clearing all caches: {e}')
+            return 0
+    
+    @log_function_call
+    def get_cache_statistics(self) -> Dict[str, Any]:
+        """
+        Get cache statistics.
+        
+        Returns:
+            Dictionary with cache statistics
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                stats = {}
+                
+                # Total cache entries
+                cursor.execute("SELECT COUNT(*) FROM cache")
+                stats['total_entries'] = cursor.fetchone()[0]
+                
+                # Expired entries
+                cursor.execute("""
+                    SELECT COUNT(*) FROM cache 
+                    WHERE expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP
+                """)
+                stats['expired_entries'] = cursor.fetchone()[0]
+                
+                # Valid entries
+                cursor.execute("""
+                    SELECT COUNT(*) FROM cache 
+                    WHERE expires_at IS NULL OR expires_at >= CURRENT_TIMESTAMP
+                """)
+                stats['valid_entries'] = cursor.fetchone()[0]
+                
+                # Cache size in MB
+                cursor.execute("""
+                    SELECT SUM(LENGTH(value)) FROM cache
+                """)
+                size_bytes = cursor.fetchone()[0] or 0
+                stats['size_mb'] = round(size_bytes / (1024 * 1024), 2)
+                
+                # Oldest and newest entries
+                cursor.execute("""
+                    SELECT MIN(created_at), MAX(created_at) FROM cache
+                """)
+                oldest, newest = cursor.fetchone()
+                stats['oldest_entry'] = oldest
+                stats['newest_entry'] = newest
+                
+                # Top cache keys by size
+                cursor.execute("""
+                    SELECT key, LENGTH(value) as size 
+                    FROM cache 
+                    ORDER BY size DESC 
+                    LIMIT 10
+                """)
+                stats['largest_entries'] = dict(cursor.fetchall())
+                
+                return stats
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Error getting cache statistics: {e}')
+            return {}
 
 
 # Global database manager instance - created lazily to avoid circular imports

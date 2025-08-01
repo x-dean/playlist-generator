@@ -1,78 +1,93 @@
 """
 Configuration loader for Playlist Generator Simple.
-Reads from plain text configuration file and supports environment variable overrides.
+Handles loading and caching of configuration from multiple sources.
 """
 
 import os
-import logging
+import json
+import time
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-# Import universal logging
+# Import logging
 from .logging_setup import get_logger, log_universal
 
-logger = get_logger(__name__)
+logger = get_logger('playlista.config_loader')
 
 
 class ConfigLoader:
     """
-    Loads configuration from plain text file with environment variable support.
+    Configuration loader with caching support.
+    
+    Features:
+    - Multiple configuration sources (file, environment, defaults)
+    - Intelligent caching to avoid repeated file reads
+    - Configuration validation and type conversion
+    - Environment variable overrides
     """
     
-    def __init__(self, config_file: str = "playlista.conf"):
+    def __init__(self):
+        """Initialize configuration loader."""
+        self._config_cache = {}
+        self._cache_timestamps = {}
+        self._cache_duration = 300  # 5 minutes cache duration
+        
+        # Default configuration paths
+        self.config_paths = [
+            'playlista.conf',
+            'config/playlista.conf',
+            '/app/playlista.conf',
+            os.path.expanduser('~/.playlista.conf')
+        ]
+        
+        log_universal('INFO', 'Config', 'ConfigLoader initialized')
+    
+    def _get_cache_key(self, config_type: str) -> str:
+        """Generate cache key for configuration type."""
+        return f"config:{config_type}"
+    
+    def _is_cache_valid(self, cache_key: str) -> bool:
+        """Check if cached configuration is still valid."""
+        if cache_key not in self._cache_timestamps:
+            return False
+        
+        cache_age = time.time() - self._cache_timestamps[cache_key]
+        return cache_age < self._cache_duration
+    
+    def _update_cache(self, cache_key: str, config_data: Dict[str, Any]):
+        """Update configuration cache."""
+        self._config_cache[cache_key] = config_data
+        self._cache_timestamps[cache_key] = time.time()
+        log_universal('DEBUG', 'Config', f'Updated cache for: {cache_key}')
+    
+    def _load_config_file(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
-        Initialize configuration loader.
+        Load configuration from file.
         
         Args:
-            config_file: Path to configuration file
-        """
-        self.config_file = config_file
-        self.config = {}
-        
-    def load_config(self) -> Dict[str, Any]:
-        """
-        Load configuration from file and environment variables.
-        
+            file_path: Path to configuration file
+            
         Returns:
-            Dictionary with configuration settings
+            Configuration dictionary or None on failure
         """
-        log_universal('INFO', 'Config', f'Loading configuration from: {self.config_file}')
-        
-        # Load from file
-        file_config = self._load_from_file()
-        
-        # Override with environment variables
-        env_config = self._load_from_environment()
-        
-        # Merge configurations (env vars override file)
-        self.config = {**file_config, **env_config}
-        
-        # Validate configuration
-        validation_result = self._validate_configuration()
-        if not validation_result['valid']:
-            log_universal('WARNING', 'Config', 'Configuration validation warnings:')
-            for warning in validation_result['warnings']:
-                log_universal('WARNING', 'Config', f'  {warning}')
-        
-        log_universal('INFO', 'Config', 'Configuration loaded successfully')
-        
-        return self.config
-    
-    def _load_from_file(self) -> Dict[str, Any]:
-        """
-        Load configuration from plain text file.
-        
-        Returns:
-            Dictionary with configuration from file
-        """
-        config = {}
-        
-        if not os.path.exists(self.config_file):
-            log_universal('WARNING', 'Config', f'Configuration file not found: {self.config_file}')
-            return config
-        
         try:
-            with open(self.config_file, 'r') as f:
+            if not os.path.exists(file_path):
+                return None
+            
+            # Check file modification time for cache invalidation
+            file_mtime = os.path.getmtime(file_path)
+            cache_key = f"file:{file_path}"
+            
+            # Check if we have a valid cached version
+            if (cache_key in self._cache_timestamps and 
+                self._cache_timestamps[cache_key] >= file_mtime):
+                log_universal('DEBUG', 'Config', f'Using cached config from: {file_path}')
+                return self._config_cache.get(cache_key)
+            
+            log_universal('DEBUG', 'Config', f'Loading configuration from: {file_path}')
+            
+            config = {}
+            with open(file_path, 'r', encoding='utf-8') as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.strip()
                     
@@ -86,62 +101,90 @@ class ConfigLoader:
                         key = key.strip()
                         value = value.strip()
                         
-                        # Remove inline comments
-                        if '#' in value:
-                            value = value.split('#')[0].strip()
+                        # Remove quotes if present
+                        if (value.startswith('"') and value.endswith('"')) or \
+                           (value.startswith("'") and value.endswith("'")):
+                            value = value[1:-1]
                         
                         # Convert value types
-                        config[key] = self._convert_value(value)
-        
+                        config[key] = self._convert_value_type(value)
+            
+            # Cache the loaded configuration
+            self._update_cache(cache_key, config)
+            
+            log_universal('INFO', 'Config', f'Loaded {len(config)} settings from: {file_path}')
+            return config
+            
         except Exception as e:
-            log_universal('ERROR', 'Config', f'Error reading configuration file: {e}')
-        
-        return config
+            log_universal('ERROR', 'Config', f'Failed to load config from {file_path}: {e}')
+            return None
     
-    def _load_from_environment(self) -> Dict[str, Any]:
+    def _convert_value_type(self, value: str) -> Any:
         """
-        Load configuration from environment variables.
+        Convert string value to appropriate type.
+        
+        Args:
+            value: String value from config file
+            
+        Returns:
+            Converted value with appropriate type
+        """
+        # Boolean values
+        if value.lower() in ('true', 'yes', 'on', '1'):
+            return True
+        elif value.lower() in ('false', 'no', 'off', '0'):
+            return False
+        
+        # Integer values
+        try:
+            if '.' not in value:  # Avoid converting floats to ints
+                return int(value)
+        except ValueError:
+            pass
+        
+        # Float values
+        try:
+            return float(value)
+        except ValueError:
+            pass
+        
+        # String values (default)
+        return value
+    
+    def _load_environment_overrides(self) -> Dict[str, Any]:
+        """
+        Load configuration overrides from environment variables.
         
         Returns:
-            Dictionary with configuration from environment
+            Dictionary of environment-based configuration
         """
-        config = {}
+        env_config = {}
         
-        # Define environment variable mappings
+        # Common configuration environment variables
         env_mappings = {
+            'MUSIC_PATH': 'MUSIC_PATH',
+            'DB_PATH': 'DB_PATH',
             'LOG_LEVEL': 'LOG_LEVEL',
-            'LOG_CONSOLE_ENABLED': 'LOG_CONSOLE_ENABLED',
-            'LOG_FILE_ENABLED': 'LOG_FILE_ENABLED',
-            'LOG_COLORED_OUTPUT': 'LOG_COLORED_OUTPUT',
-            'LOG_FILE_COLORED_OUTPUT': 'LOG_FILE_COLORED_OUTPUT',
-            'LOG_FILE_PREFIX': 'LOG_FILE_PREFIX',
-            'LOG_FILE_SIZE_MB': 'LOG_FILE_SIZE_MB',
-            'LOG_MAX_FILES': 'LOG_MAX_FILES',
-            'LOG_FILE_ENCODING': 'LOG_FILE_ENCODING',
-            'LOG_CONSOLE_FORMAT': 'LOG_CONSOLE_FORMAT',
-            'LOG_CONSOLE_DATE_FORMAT': 'LOG_CONSOLE_DATE_FORMAT',
-            'LOG_FILE_FORMAT': 'LOG_FILE_FORMAT',
-            'LOG_FILE_INCLUDE_EXTRA_FIELDS': 'LOG_FILE_INCLUDE_EXTRA_FIELDS',
-            'LOG_FILE_INCLUDE_EXCEPTION_DETAILS': 'LOG_FILE_INCLUDE_EXCEPTION_DETAILS',
-    
-            'LOG_FUNCTION_CALLS_ENABLED': 'LOG_FUNCTION_CALLS_ENABLED',
-            'LOG_ENVIRONMENT_MONITORING': 'LOG_ENVIRONMENT_MONITORING',
-            'LOG_SIGNAL_HANDLING_ENABLED': 'LOG_SIGNAL_HANDLING_ENABLED',
-            'LOG_SIGNAL_CYCLE_LEVELS': 'LOG_SIGNAL_CYCLE_LEVELS',
-            'MIN_FILE_SIZE_BYTES': 'MIN_FILE_SIZE_BYTES',
-            'VALID_EXTENSIONS': 'VALID_EXTENSIONS',
-            'HASH_ALGORITHM': 'HASH_ALGORITHM',
-            'MAX_RETRY_COUNT': 'MAX_RETRY_COUNT',
-            'ENABLE_RECURSIVE_SCAN': 'ENABLE_RECURSIVE_SCAN',
-            'EXCLUDE_PATTERNS': 'EXCLUDE_PATTERNS',
-            'INCLUDE_PATTERNS': 'INCLUDE_PATTERNS',
-            'ENABLE_DETAILED_LOGGING': 'ENABLE_DETAILED_LOGGING',
-            # External API settings
+            'LOG_FILE': 'LOG_FILE',
+            'CACHE_ENABLED': 'CACHE_ENABLED',
+            'CACHE_EXPIRY_HOURS': 'CACHE_EXPIRY_HOURS',
+            'ANALYSIS_TIMEOUT': 'ANALYSIS_TIMEOUT',
+            'WORKERS': 'WORKERS',
+            'BATCH_SIZE': 'BATCH_SIZE',
+            'MUSICBRAINZ_ENABLED': 'MUSICBRAINZ_ENABLED',
+            'LASTFM_ENABLED': 'LASTFM_ENABLED',
             'LASTFM_API_KEY': 'LASTFM_API_KEY',
-            'MUSICBRAINZ_USER_AGENT': 'MUSICBRAINZ_USER_AGENT',
-            'MUSICBRAINZ_RATE_LIMIT': 'MUSICBRAINZ_RATE_LIMIT',
-            'LASTFM_RATE_LIMIT': 'LASTFM_RATE_LIMIT',
-            # Database settings
+            'SAMPLE_RATE': 'SAMPLE_RATE',
+            'HOP_SIZE': 'HOP_SIZE',
+            'FRAME_SIZE': 'FRAME_SIZE',
+            'EXTRACT_RHYTHM': 'EXTRACT_RHYTHM',
+            'EXTRACT_SPECTRAL': 'EXTRACT_SPECTRAL',
+            'EXTRACT_LOUDNESS': 'EXTRACT_LOUDNESS',
+            'EXTRACT_KEY': 'EXTRACT_KEY',
+            'EXTRACT_MFCC': 'EXTRACT_MFCC',
+            'EXTRACT_MUSICNN': 'EXTRACT_MUSICNN',
+            'EXTRACT_CHROMA': 'EXTRACT_CHROMA',
+            'FORCE_REANALYSIS': 'FORCE_REANALYSIS',
             'DB_CACHE_DEFAULT_EXPIRY_HOURS': 'DB_CACHE_DEFAULT_EXPIRY_HOURS',
             'DB_CACHE_CLEANUP_FREQUENCY_HOURS': 'DB_CACHE_CLEANUP_FREQUENCY_HOURS',
             'DB_CACHE_MAX_SIZE_MB': 'DB_CACHE_MAX_SIZE_MB',
@@ -167,439 +210,268 @@ class ConfigLoader:
         for env_var, config_key in env_mappings.items():
             if env_var in os.environ:
                 value = os.environ[env_var]
-                config[config_key] = self._convert_value(value)
-                log_universal('DEBUG', 'Config', f"Loaded from environment: {config_key} = {config[config_key]}")
+                env_config[config_key] = self._convert_value_type(value)
         
-        return config
+        if env_config:
+            log_universal('DEBUG', 'Config', f'Loaded {len(env_config)} environment overrides')
+        
+        return env_config
     
-    def _convert_value(self, value: str) -> Any:
+    def _get_default_config(self) -> Dict[str, Any]:
         """
-        Convert string value to appropriate type.
+        Get default configuration values.
+        
+        Returns:
+            Dictionary of default configuration values
+        """
+        return {
+            # File paths
+            'MUSIC_PATH': '/music',
+            'DB_PATH': '/app/cache/playlista.db',
+            'LOG_FILE': '/app/logs/playlista.log',
+            'FAILED_FILES_DIR': '/app/cache/failed_dir',
+            
+            # Logging
+            'LOG_LEVEL': 'INFO',
+            'LOG_FORMAT': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            'LOG_COLORED': True,
+            'LOG_BUFFERED': True,
+            
+            # Analysis settings
+            'ANALYSIS_TIMEOUT': 600,
+            'WORKERS': 4,
+            'BATCH_SIZE': 100,
+            'SAMPLE_RATE': 44100,
+            'HOP_SIZE': 512,
+            'FRAME_SIZE': 2048,
+            
+            # Feature extraction
+            'EXTRACT_RHYTHM': True,
+            'EXTRACT_SPECTRAL': True,
+            'EXTRACT_LOUDNESS': True,
+            'EXTRACT_KEY': True,
+            'EXTRACT_MFCC': True,
+            'EXTRACT_MUSICNN': True,
+            'EXTRACT_CHROMA': True,
+            'FORCE_REANALYSIS': False,
+            
+            # Caching
+            'CACHE_ENABLED': True,
+            'CACHE_EXPIRY_HOURS': 168,  # 1 week
+            
+            # External APIs
+            'MUSICBRAINZ_ENABLED': True,
+            'LASTFM_ENABLED': True,
+            'LASTFM_API_KEY': '',
+            
+            # Database settings
+            'DB_CACHE_DEFAULT_EXPIRY_HOURS': 24,
+            'DB_CACHE_CLEANUP_FREQUENCY_HOURS': 24,
+            'DB_CACHE_MAX_SIZE_MB': 100,
+            'DB_CLEANUP_RETENTION_DAYS': 30,
+            'DB_FAILED_ANALYSIS_RETENTION_DAYS': 7,
+            'DB_STATISTICS_RETENTION_DAYS': 90,
+            'DB_CONNECTION_TIMEOUT_SECONDS': 30,
+            'DB_MAX_RETRY_ATTEMPTS': 3,
+            'DB_BATCH_SIZE': 100,
+            'DB_STATISTICS_COLLECTION_FREQUENCY_HOURS': 24,
+            'DB_AUTO_CLEANUP_ENABLED': True,
+            'DB_AUTO_CLEANUP_FREQUENCY_HOURS': 168,  # 1 week
+            'DB_BACKUP_ENABLED': True,
+            'DB_BACKUP_FREQUENCY_HOURS': 168,  # 1 week
+            'DB_BACKUP_RETENTION_DAYS': 30,
+            'DB_PERFORMANCE_MONITORING_ENABLED': True,
+            'DB_QUERY_TIMEOUT_SECONDS': 60,
+            'DB_MAX_CONNECTIONS': 10,
+            'DB_WAL_MODE_ENABLED': True,
+            'DB_SYNCHRONOUS_MODE': 'NORMAL'
+        }
+    
+    def get_config(self, force_reload: bool = False) -> Dict[str, Any]:
+        """
+        Get complete configuration with caching.
         
         Args:
-            value: String value to convert
+            force_reload: Force reload configuration (ignore cache)
             
         Returns:
-            Converted value
+            Complete configuration dictionary
         """
-        # Handle environment variable substitution
-        if value.startswith('${') and value.endswith('}'):
-            env_var = value[2:-1]  # Remove ${ and }
-            env_value = os.getenv(env_var)
-            if env_value is not None:
-                value = env_value
-            else:
-                log_universal('WARNING', 'Config', f'Environment variable {env_var} not found, using literal value')
+        cache_key = self._get_cache_key('complete')
         
-        # Handle boolean values
-        if value.lower() in ('true', 'false'):
-            return value.lower() == 'true'
+        # Check cache first (unless forced reload)
+        if not force_reload and self._is_cache_valid(cache_key):
+            log_universal('DEBUG', 'Config', 'Using cached configuration')
+            return self._config_cache[cache_key]
         
-        # Handle integer values
-        try:
-            return int(value)
-        except ValueError:
-            pass
+        log_universal('INFO', 'Config', 'Loading configuration')
         
-        # Handle float values
-        try:
-            return float(value)
-        except ValueError:
-            pass
+        # Start with defaults
+        config = self._get_default_config()
         
-        # Handle list values (comma-separated)
-        if ',' in value:
-            return [item.strip() for item in value.split(',') if item.strip()]
+        # Load from configuration files (in order of priority)
+        for config_path in self.config_paths:
+            file_config = self._load_config_file(config_path)
+            if file_config:
+                config.update(file_config)
+                log_universal('DEBUG', 'Config', f'Applied config from: {config_path}')
         
-        # Return as string
-        return value
+        # Apply environment overrides (highest priority)
+        env_config = self._load_environment_overrides()
+        config.update(env_config)
+        
+        # Cache the complete configuration
+        self._update_cache(cache_key, config)
+        
+        log_universal('INFO', 'Config', f'Configuration loaded with {len(config)} settings')
+        return config
     
-    def get_file_discovery_config(self) -> Dict[str, Any]:
+    def get_audio_analysis_config(self) -> Dict[str, Any]:
         """
-        Get file discovery specific configuration.
+        Get audio analysis specific configuration.
         
         Returns:
-            Dictionary with file discovery settings
+            Audio analysis configuration dictionary
         """
-        if not self.config:
-            self.load_config()
+        cache_key = self._get_cache_key('audio_analysis')
         
-        # Extract file discovery related settings
-        file_discovery_config = {}
+        if self._is_cache_valid(cache_key):
+            return self._config_cache[cache_key]
         
-        file_discovery_keys = [
-            'MIN_FILE_SIZE_BYTES',
-            'VALID_EXTENSIONS',
-            'HASH_ALGORITHM',
-            'MAX_RETRY_COUNT',
-            'ENABLE_RECURSIVE_SCAN',
-            'EXCLUDE_PATTERNS',
-            'INCLUDE_PATTERNS',
-            'LOG_LEVEL',
-            'ENABLE_DETAILED_LOGGING'
-        ]
+        config = self.get_config()
         
-        for key in file_discovery_keys:
-            if key in self.config:
-                file_discovery_config[key] = self.config[key]
+        # Extract audio analysis specific settings
+        audio_config = {
+            'SAMPLE_RATE': config.get('SAMPLE_RATE', 44100),
+            'HOP_SIZE': config.get('HOP_SIZE', 512),
+            'FRAME_SIZE': config.get('FRAME_SIZE', 2048),
+            'TIMEOUT_SECONDS': config.get('ANALYSIS_TIMEOUT', 600),
+            'EXTRACT_RHYTHM': config.get('EXTRACT_RHYTHM', True),
+            'EXTRACT_SPECTRAL': config.get('EXTRACT_SPECTRAL', True),
+            'EXTRACT_LOUDNESS': config.get('EXTRACT_LOUDNESS', True),
+            'EXTRACT_KEY': config.get('EXTRACT_KEY', True),
+            'EXTRACT_MFCC': config.get('EXTRACT_MFCC', True),
+            'EXTRACT_MUSICNN': config.get('EXTRACT_MUSICNN', True),
+            'EXTRACT_CHROMA': config.get('EXTRACT_CHROMA', True),
+            'FORCE_REANALYSIS': config.get('FORCE_REANALYSIS', False),
+            'CACHE_ENABLED': config.get('CACHE_ENABLED', True),
+            'CACHE_EXPIRY_HOURS': config.get('CACHE_EXPIRY_HOURS', 168)
+        }
         
-        return file_discovery_config
-    
-    def get_logging_config(self) -> Dict[str, Any]:
-        """
-        Get logging specific configuration.
-        
-        Returns:
-            Dictionary with logging settings
-        """
-        if not self.config:
-            self.load_config()
-        
-        # Extract logging related settings
-        logging_config = {}
-        
-        logging_keys = [
-            'LOG_LEVEL',
-            'LOG_CONSOLE_ENABLED',
-            'LOG_FILE_ENABLED',
-            'LOG_COLORED_OUTPUT',
-            'LOG_FILE_COLORED_OUTPUT',
-            'LOG_FILE_PREFIX',
-            'LOG_FILE_SIZE_MB',
-            'LOG_MAX_FILES',
-            'LOG_FILE_ENCODING',
-            'LOG_CONSOLE_FORMAT',
-            'LOG_CONSOLE_DATE_FORMAT',
-            'LOG_FILE_FORMAT',
-            'LOG_FILE_INCLUDE_EXTRA_FIELDS',
-            'LOG_FILE_INCLUDE_EXCEPTION_DETAILS',
-    
-            'LOG_FUNCTION_CALLS_ENABLED',
-            'LOG_ENVIRONMENT_MONITORING',
-            'LOG_SIGNAL_HANDLING_ENABLED',
-            'LOG_SIGNAL_CYCLE_LEVELS'
-        ]
-        
-        for key in logging_keys:
-            if key in self.config:
-                logging_config[key] = self.config[key]
-        
-        return logging_config
+        self._update_cache(cache_key, audio_config)
+        return audio_config
     
     def get_database_config(self) -> Dict[str, Any]:
         """
         Get database specific configuration.
         
         Returns:
-            Dictionary with database settings
+            Database configuration dictionary
         """
-        if not self.config:
-            self.load_config()
+        cache_key = self._get_cache_key('database')
         
-        # Extract database related settings
-        database_config = {}
+        if self._is_cache_valid(cache_key):
+            return self._config_cache[cache_key]
         
-        database_keys = [
-            'DB_CACHE_DEFAULT_EXPIRY_HOURS',
-            'DB_CACHE_CLEANUP_FREQUENCY_HOURS',
-            'DB_CACHE_MAX_SIZE_MB',
-            'DB_CLEANUP_RETENTION_DAYS',
-            'DB_FAILED_ANALYSIS_RETENTION_DAYS',
-            'DB_STATISTICS_RETENTION_DAYS',
-            'DB_CONNECTION_TIMEOUT_SECONDS',
-            'DB_MAX_RETRY_ATTEMPTS',
-            'DB_BATCH_SIZE',
-            'DB_STATISTICS_COLLECTION_FREQUENCY_HOURS',
-            'DB_AUTO_CLEANUP_ENABLED',
-            'DB_AUTO_CLEANUP_FREQUENCY_HOURS',
-            'DB_BACKUP_ENABLED',
-            'DB_BACKUP_FREQUENCY_HOURS',
-            'DB_BACKUP_RETENTION_DAYS',
-            'DB_PERFORMANCE_MONITORING_ENABLED',
-            'DB_QUERY_TIMEOUT_SECONDS',
-            'DB_MAX_CONNECTIONS',
-            'DB_WAL_MODE_ENABLED',
-            'DB_SYNCHRONOUS_MODE'
-        ]
+        config = self.get_config()
         
-        for key in database_keys:
-            if key in self.config:
-                database_config[key] = self.config[key]
+        # Extract database specific settings
+        db_config = {
+            'DB_PATH': config.get('DB_PATH', '/app/cache/playlista.db'),
+            'DB_CACHE_DEFAULT_EXPIRY_HOURS': config.get('DB_CACHE_DEFAULT_EXPIRY_HOURS', 24),
+            'DB_CACHE_CLEANUP_FREQUENCY_HOURS': config.get('DB_CACHE_CLEANUP_FREQUENCY_HOURS', 24),
+            'DB_CACHE_MAX_SIZE_MB': config.get('DB_CACHE_MAX_SIZE_MB', 100),
+            'DB_CLEANUP_RETENTION_DAYS': config.get('DB_CLEANUP_RETENTION_DAYS', 30),
+            'DB_FAILED_ANALYSIS_RETENTION_DAYS': config.get('DB_FAILED_ANALYSIS_RETENTION_DAYS', 7),
+            'DB_STATISTICS_RETENTION_DAYS': config.get('DB_STATISTICS_RETENTION_DAYS', 90),
+            'DB_CONNECTION_TIMEOUT_SECONDS': config.get('DB_CONNECTION_TIMEOUT_SECONDS', 30),
+            'DB_MAX_RETRY_ATTEMPTS': config.get('DB_MAX_RETRY_ATTEMPTS', 3),
+            'DB_BATCH_SIZE': config.get('DB_BATCH_SIZE', 100),
+            'DB_STATISTICS_COLLECTION_FREQUENCY_HOURS': config.get('DB_STATISTICS_COLLECTION_FREQUENCY_HOURS', 24),
+            'DB_AUTO_CLEANUP_ENABLED': config.get('DB_AUTO_CLEANUP_ENABLED', True),
+            'DB_AUTO_CLEANUP_FREQUENCY_HOURS': config.get('DB_AUTO_CLEANUP_FREQUENCY_HOURS', 168),
+            'DB_BACKUP_ENABLED': config.get('DB_BACKUP_ENABLED', True),
+            'DB_BACKUP_FREQUENCY_HOURS': config.get('DB_BACKUP_FREQUENCY_HOURS', 168),
+            'DB_BACKUP_RETENTION_DAYS': config.get('DB_BACKUP_RETENTION_DAYS', 30),
+            'DB_PERFORMANCE_MONITORING_ENABLED': config.get('DB_PERFORMANCE_MONITORING_ENABLED', True),
+            'DB_QUERY_TIMEOUT_SECONDS': config.get('DB_QUERY_TIMEOUT_SECONDS', 60),
+            'DB_MAX_CONNECTIONS': config.get('DB_MAX_CONNECTIONS', 10),
+            'DB_WAL_MODE_ENABLED': config.get('DB_WAL_MODE_ENABLED', True),
+            'DB_SYNCHRONOUS_MODE': config.get('DB_SYNCHRONOUS_MODE', 'NORMAL')
+        }
         
-        return database_config
-
-    def get_analysis_config(self) -> Dict[str, Any]:
-        """
-        Get analysis specific configuration.
-        
-        Returns:
-            Dictionary with analysis settings
-        """
-        if not self.config:
-            self.load_config()
-        
-        # Extract analysis related settings
-        analysis_config = {}
-        
-        analysis_keys = [
-            'MUSIC_PATH',
-            'BIG_FILE_SIZE_MB',
-            'ANALYSIS_TIMEOUT_SECONDS',
-            'MEMORY_THRESHOLD_PERCENT',
-            'SEQUENTIAL_TIMEOUT_SECONDS',
-            'PARALLEL_TIMEOUT_SECONDS',
-            'AUDIO_SAMPLE_RATE',
-            'AUDIO_HOP_SIZE',
-            'AUDIO_FRAME_SIZE',
-            'FORCE_REEXTRACT',
-            'INCLUDE_FAILED_FILES',
-            'MAX_WORKERS',
-            'WORKER_TIMEOUT_SECONDS',
-            'ANALYSIS_CACHE_ENABLED',
-            'ANALYSIS_CACHE_EXPIRY_HOURS',
-            'ANALYSIS_RETRY_ATTEMPTS',
-            'ANALYSIS_RETRY_DELAY_SECONDS',
-            'ANALYSIS_PROGRESS_REPORTING',
-            'ANALYSIS_STATISTICS_COLLECTION',
-            'ANALYSIS_CLEANUP_ENABLED',
-            'EXTRACT_MUSICNN',
-            'MUSICNN_MODEL_PATH',
-            'MUSICNN_JSON_PATH',
-            'MUSICNN_TIMEOUT_SECONDS',
-            'MAX_FULL_ANALYSIS_SIZE_MB',
-            'MIN_FULL_ANALYSIS_SIZE_MB',
-            'MIN_MEMORY_FOR_FULL_ANALYSIS_GB',
-            'MEMORY_BUFFER_GB',
-            'MAX_CPU_FOR_FULL_ANALYSIS_PERCENT',
-            'CPU_CHECK_INTERVAL_SECONDS',
-            'PARALLEL_MAX_FILE_SIZE_MB',
-            'PARALLEL_MIN_MEMORY_GB',
-            'PARALLEL_MAX_CPU_PERCENT',
-            'SEQUENTIAL_MAX_FILE_SIZE_MB',
-            'SEQUENTIAL_MIN_MEMORY_GB',
-            'SEQUENTIAL_MAX_CPU_PERCENT',
-            'SMART_ANALYSIS_ENABLED',
-            'ANALYSIS_TYPE_FALLBACK',
-            'RESOURCE_MONITORING_ENABLED'
-        ]
-        
-        for key in analysis_keys:
-            if key in self.config:
-                analysis_config[key] = self.config[key]
-        
-        return analysis_config
-
-    def get_resource_config(self) -> Dict[str, Any]:
-        """
-        Get resource management specific configuration.
-        
-        Returns:
-            Dictionary with resource settings
-        """
-        if not self.config:
-            self.load_config()
-        
-        # Extract resource related settings
-        resource_config = {}
-        
-        resource_keys = [
-            'MEMORY_LIMIT_GB',
-            'CPU_THRESHOLD_PERCENT',
-            'DISK_THRESHOLD_PERCENT',
-            'MONITORING_INTERVAL_SECONDS',
-            'MEMORY_PER_WORKER_GB',
-            'MAX_WORKERS',
-            'WORKER_TIMEOUT_SECONDS',
-            'RESOURCE_MONITORING_ENABLED',
-            'MEMORY_CLEANUP_ENABLED',
-            'CPU_THROTTLING_ENABLED',
-            'DISK_CLEANUP_ENABLED',
-            'RESOURCE_HISTORY_SIZE',
-            'RESOURCE_STATISTICS_COLLECTION',
-            'RESOURCE_ALERT_THRESHOLD_PERCENT',
-            'RESOURCE_AUTO_CLEANUP_ENABLED',
-            'RESOURCE_CALLBACK_ENABLED',
-            'RESOURCE_LOG_LEVEL',
-            'RESOURCE_PERFORMANCE_MONITORING',
-            'RESOURCE_MEMORY_LIMIT_GB',
-            'RESOURCE_CPU_LIMIT_PERCENT'
-        ]
-        
-        for key in resource_keys:
-            if key in self.config:
-                resource_config[key] = self.config[key]
-        
-        return resource_config
-    
-    def get_playlist_config(self) -> Dict[str, Any]:
-        """
-        Get playlist generation specific configuration.
-        
-        Returns:
-            Dictionary with playlist settings
-        """
-        if not self.config:
-            self.load_config()
-        
-        # Extract playlist related settings
-        playlist_config = {}
-        
-        playlist_keys = [
-            'DEFAULT_PLAYLIST_SIZE',
-            'MIN_TRACKS_PER_GENRE',
-            'MAX_PLAYLISTS',
-            'SIMILARITY_THRESHOLD',
-            'DIVERSITY_THRESHOLD',
-            'PLAYLIST_OUTPUT_DIR',
-            'PLAYLIST_GENERATION_ENABLED',
-            'PLAYLIST_SAVE_METADATA',
-            'PLAYLIST_OPTIMIZATION_ENABLED',
-            'PLAYLIST_DEFAULT_METHOD',
-            'PLAYLIST_KMEANS_CLUSTERS',
-            'PLAYLIST_SIMILARITY_ALGORITHM',
-            'PLAYLIST_TIME_SLOTS',
-            'PLAYLIST_TAG_PRIORITY',
-            'PLAYLIST_CACHE_ENABLED',
-            'PLAYLIST_FEATURE_GROUPS',
-            'PLAYLIST_MIXED_WEIGHTS'
-        ]
-        
-        for key in playlist_keys:
-            if key in self.config:
-                playlist_config[key] = self.config[key]
-        
-        return playlist_config
+        self._update_cache(cache_key, db_config)
+        return db_config
     
     def get_external_api_config(self) -> Dict[str, Any]:
         """
         Get external API specific configuration.
         
         Returns:
-            Dictionary with external API settings
+            External API configuration dictionary
         """
-        if not self.config:
-            self.load_config()
+        cache_key = self._get_cache_key('external_api')
         
-        # Extract external API related settings
-        external_api_config = {}
+        if self._is_cache_valid(cache_key):
+            return self._config_cache[cache_key]
         
-        external_api_keys = [
-            'EXTERNAL_API_ENABLED',
-            'MUSICBRAINZ_ENABLED',
-            'LASTFM_ENABLED',
-            'MUSICBRAINZ_USER_AGENT',
-            'MUSICBRAINZ_RATE_LIMIT',
-            'LASTFM_API_KEY',
-            'LASTFM_RATE_LIMIT',
-            'METADATA_ENRICHMENT_ENABLED',
-            'METADATA_ENRICHMENT_TIMEOUT',
-            'METADATA_ENRICHMENT_MAX_TAGS',
-            'METADATA_ENRICHMENT_RETRY_COUNT'
-        ]
+        config = self.get_config()
         
-        for key in external_api_keys:
-            if key in self.config:
-                external_api_config[key] = self.config[key]
+        # Extract external API specific settings
+        api_config = {
+            'MUSICBRAINZ_ENABLED': config.get('MUSICBRAINZ_ENABLED', True),
+            'LASTFM_ENABLED': config.get('LASTFM_ENABLED', True),
+            'LASTFM_API_KEY': config.get('LASTFM_API_KEY', ''),
+            'MUSICBRAINZ_USER_AGENT': config.get('MUSICBRAINZ_USER_AGENT', 'Playlista/1.0'),
+            'MUSICBRAINZ_RATE_LIMIT': config.get('MUSICBRAINZ_RATE_LIMIT', 1.0),
+            'LASTFM_RATE_LIMIT': config.get('LASTFM_RATE_LIMIT', 2.0)
+        }
         
-        return external_api_config
+        self._update_cache(cache_key, api_config)
+        return api_config
     
-    def get(self, key: str, default: Any = None) -> Any:
+    def get_logging_config(self) -> Dict[str, Any]:
         """
-        Get configuration value.
-        
-        Args:
-            key: Configuration key
-            default: Default value if key not found
-            
-        Returns:
-            Configuration value or default
-        """
-        if not self.config:
-            self.load_config()
-        
-        return self.config.get(key, default)
-    
-    def _validate_configuration(self) -> Dict[str, Any]:
-        """
-        Validate configuration settings.
+        Get logging specific configuration.
         
         Returns:
-            Dictionary with validation result and warnings
+            Logging configuration dictionary
         """
-        warnings = []
-        valid = True
+        cache_key = self._get_cache_key('logging')
         
-        # Required fields
-        required_fields = {
-            'MUSIC_PATH': 'Music directory path',
-            'DB_PATH': 'Database file path',
-            'LOG_LEVEL': 'Logging level'
+        if self._is_cache_valid(cache_key):
+            return self._config_cache[cache_key]
+        
+        config = self.get_config()
+        
+        # Extract logging specific settings
+        logging_config = {
+            'LOG_LEVEL': config.get('LOG_LEVEL', 'INFO'),
+            'LOG_FILE': config.get('LOG_FILE', '/app/logs/playlista.log'),
+            'LOG_FORMAT': config.get('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s'),
+            'LOG_COLORED': config.get('LOG_COLORED', True),
+            'LOG_BUFFERED': config.get('LOG_BUFFERED', True)
         }
         
-        for field, description in required_fields.items():
-            if field not in self.config:
-                warnings.append(f"Missing required field: {field} ({description})")
-                valid = False
+        self._update_cache(cache_key, logging_config)
+        return logging_config
+    
+    def clear_cache(self):
+        """Clear all configuration caches."""
+        self._config_cache.clear()
+        self._cache_timestamps.clear()
+        log_universal('INFO', 'Config', 'Configuration cache cleared')
+    
+    def reload_config(self) -> Dict[str, Any]:
+        """
+        Force reload configuration from all sources.
         
-        # Validate numeric fields
-        numeric_fields = {
-            'ANALYSIS_TIMEOUT_SECONDS': (1, 3600),
-            'ANALYSIS_RETRY_ATTEMPTS': (0, 10),
-            'DB_CACHE_MAX_SIZE_MB': (1, 1000),
-            'LOG_FILE_SIZE_MB': (1, 100)
-        }
-        
-        for field, (min_val, max_val) in numeric_fields.items():
-            if field in self.config:
-                try:
-                    value = float(self.config[field])
-                    if value < min_val or value > max_val:
-                        warnings.append(f"{field} value {value} is outside valid range [{min_val}, {max_val}]")
-                        valid = False
-                except (ValueError, TypeError):
-                    warnings.append(f"{field} value '{self.config[field]}' is not a valid number")
-                    valid = False
-        
-        # Validate boolean fields
-        boolean_fields = [
-            'EXTERNAL_API_ENABLED',
-            'MUSICBRAINZ_ENABLED',
-            'LASTFM_ENABLED',
-            'METADATA_ENRICHMENT_ENABLED',
-            'LOG_CONSOLE_ENABLED',
-            'LOG_FILE_ENABLED',
-            'ANALYSIS_CACHE_ENABLED'
-        ]
-        
-        for field in boolean_fields:
-            if field in self.config:
-                value = self.config[field]
-                if not isinstance(value, bool):
-                    warnings.append(f"{field} should be boolean, got {type(value).__name__}")
-                    valid = False
-        
-        # Validate log level
-        if 'LOG_LEVEL' in self.config:
-            valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
-            if self.config['LOG_LEVEL'] not in valid_levels:
-                warnings.append(f"LOG_LEVEL '{self.config['LOG_LEVEL']}' is not valid. Use one of: {valid_levels}")
-                valid = False
-        
-        # Validate file paths exist (if not Docker paths)
-        path_fields = ['MUSIC_PATH', 'DB_PATH']
-        for field in path_fields:
-            if field in self.config:
-                path = self.config[field]
-                if not path.startswith('/app/') and not path.startswith('/music') and not path.startswith('/root/'):
-                    # Only check non-Docker paths
-                    if not os.path.exists(os.path.dirname(path)):
-                        warnings.append(f"Directory for {field} does not exist: {os.path.dirname(path)}")
-        
-        return {
-            'valid': valid,
-            'warnings': warnings
-        }
+        Returns:
+            Reloaded configuration dictionary
+        """
+        self.clear_cache()
+        return self.get_config()
 
 
-# Global config loader instance
+# Global configuration loader instance
 config_loader = ConfigLoader() 
