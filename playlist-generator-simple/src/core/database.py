@@ -129,6 +129,12 @@ class DatabaseManager:
                     # Read and apply comprehensive schema
                     schema_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database_schema.sql')
                     
+                    # Also try current directory and parent directory
+                    if not os.path.exists(schema_file):
+                        schema_file = 'database_schema.sql'
+                    if not os.path.exists(schema_file):
+                        schema_file = os.path.join('..', 'database_schema.sql')
+                    
                     if os.path.exists(schema_file):
                         log_universal('INFO', 'Database', f"Applying comprehensive schema from: {schema_file}")
                         with open(schema_file, 'r', encoding='utf-8') as f:

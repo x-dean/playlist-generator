@@ -834,6 +834,38 @@ class AudioAnalyzer:
             })
         
         return features
+    
+    def _is_long_audio_track(self, file_path: str) -> bool:
+        """
+        Check if a file is a long audio track (20+ minutes).
+        
+        Args:
+            file_path: Path to the audio file
+            
+        Returns:
+            True if it's a long audio track, False otherwise
+        """
+        try:
+            # Get file size
+            file_size_bytes = os.path.getsize(file_path)
+            file_size_mb = file_size_bytes / (1024 * 1024)
+            
+            # Estimate duration based on file size
+            # Assuming average bitrate of 320kbps for MP3
+            # Duration = (file_size_bytes * 8) / (bitrate * 1000)
+            estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
+            estimated_duration_minutes = estimated_duration_seconds / 60
+            
+            # Consider it long if estimated duration > 20 minutes
+            is_long = estimated_duration_minutes > 20
+            
+            log_universal('DEBUG', 'Audio', f'File {os.path.basename(file_path)}: {estimated_duration_minutes:.1f} minutes estimated, long_audio: {is_long}')
+            
+            return is_long
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Could not determine if {file_path} is long audio: {e}')
+            return False
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':
