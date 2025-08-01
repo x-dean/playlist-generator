@@ -426,6 +426,11 @@ class AudioAnalyzer:
                 log_universal('DEBUG', 'Audio', f'Title tags found: {[k for k in tags.keys() if "title" in k.lower() or k in ["TIT2", "TITLE"]]}')
                 log_universal('DEBUG', 'Audio', f'Artist tags found: {[k for k in tags.keys() if "artist" in k.lower() or k in ["TPE1", "ARTIST"]]}')
                 
+                # Debug: Show all tag values
+                log_universal('DEBUG', 'Audio', f'All tag values:')
+                for key, value in tags.items():
+                    log_universal('DEBUG', 'Audio', f'  {key}: {value}')
+                
                 # Basic metadata
                 metadata['title'] = self._get_tag_value(tags, ['title', 'TIT2', 'TITLE'])
                 metadata['artist'] = self._get_tag_value(tags, ['artist', 'TPE1', 'ARTIST'])
@@ -435,6 +440,12 @@ class AudioAnalyzer:
                 log_universal('DEBUG', 'Audio', f'Set artist to: "{metadata["artist"]}"')
                 metadata['album'] = self._get_tag_value(tags, ['album', 'TALB', 'ALBUM'])
                 metadata['genre'] = self._get_tag_value(tags, ['genre', 'TCON', 'GENRE'])
+                
+                # Debug: Show all metadata values being set
+                log_universal('DEBUG', 'Audio', f'All metadata values being set:')
+                for key, value in metadata.items():
+                    if value is not None:
+                        log_universal('DEBUG', 'Audio', f'  {key}: "{value}"')
                 metadata['year'] = self._get_tag_value(tags, ['year', 'TYER', 'YEAR', 'date'])
                 metadata['track_number'] = self._get_tag_value(tags, ['tracknumber', 'TRCK', 'TRACK'])
                 metadata['disc_number'] = self._get_tag_value(tags, ['discnumber', 'TPOS', 'DISC'])
