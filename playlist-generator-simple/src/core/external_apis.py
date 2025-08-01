@@ -451,6 +451,19 @@ class MetadataEnrichmentService:
         title = metadata.get('title', '')
         artist = metadata.get('artist', '')
         
+        # Debug: Log what we found
+        log_universal('DEBUG', 'Enrichment', f'Title: "{title}", Artist: "{artist}"')
+        log_universal('DEBUG', 'Enrichment', f'Available metadata keys: {list(metadata.keys())}')
+        
+        # Try alternative field names if primary ones are empty
+        if not title:
+            title = metadata.get('TIT2', metadata.get('TITLE', ''))
+            log_universal('DEBUG', 'Enrichment', f'Trying alternative title: "{title}"')
+        
+        if not artist:
+            artist = metadata.get('TPE1', metadata.get('ARTIST', ''))
+            log_universal('DEBUG', 'Enrichment', f'Trying alternative artist: "{artist}"')
+        
         if not title or not artist:
             log_universal('WARNING', 'Enrichment', 'Missing title or artist')
             return enriched_metadata
