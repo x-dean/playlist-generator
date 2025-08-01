@@ -760,6 +760,110 @@ class DatabaseManager:
             log_universal('ERROR', 'Database', f"Failed to delete failed analysis: {e}")
             return False
 
+    @log_function_call
+    def get_analysis_result(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Get analysis result for a specific file from tracks table."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, file_path, filename, file_size_bytes, file_hash, 
+                           analysis_date, analysis_type, long_audio_category,
+                           title, artist, album, genre, year, duration,
+                           bpm, key, mode, loudness, danceability, energy,
+                           discovery_date, discovery_source, created_at, updated_at
+                    FROM tracks 
+                    WHERE file_path = ?
+                """, (file_path,))
+                
+                result = cursor.fetchone()
+                if not result:
+                    return None
+                
+                # Convert to dictionary
+                analysis_result = {
+                    'id': result[0],
+                    'file_path': result[1],
+                    'filename': result[2],
+                    'file_size_bytes': result[3],
+                    'file_hash': result[4],
+                    'analysis_date': result[5],
+                    'analysis_type': result[6],
+                    'long_audio_category': result[7],
+                    'title': result[8],
+                    'artist': result[9],
+                    'album': result[10],
+                    'genre': result[11],
+                    'year': result[12],
+                    'duration': result[13],
+                    'bpm': result[14],
+                    'key': result[15],
+                    'mode': result[16],
+                    'loudness': result[17],
+                    'danceability': result[18],
+                    'energy': result[19],
+                    'discovery_date': result[20],
+                    'discovery_source': result[21],
+                    'created_at': result[22],
+                    'updated_at': result[23]
+                }
+                
+                # Get tags for this track
+                cursor.execute("""
+                    SELECT source, tag_name, tag_value, confidence
+                    FROM tags 
+                    WHERE track_id = ?
+                """, (analysis_result['id'],))
+                
+                tags = {}
+                for tag_row in cursor.fetchall():
+                    source = tag_row[0]
+                    if source not in tags:
+                        tags[source] = {}
+                    tags[source][tag_row[1]] = tag_row[2]
+                
+                analysis_result['tags'] = tags
+                
+                log_universal('DEBUG', 'Database', f"Retrieved analysis result for: {file_path}")
+                return analysis_result
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to get analysis result: {e}")
+            return None
+
+    @log_function_call
+    def delete_analysis_result(self, file_path: str) -> bool:
+        """Delete analysis result for a specific file from tracks table."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get track_id first
+                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
+                result = cursor.fetchone()
+                if not result:
+                    log_universal('DEBUG', 'Database', f"No analysis result found for: {file_path}")
+                    return True  # Nothing to delete
+                
+                track_id = result[0]
+                
+                # Delete tags first (due to foreign key constraint)
+                cursor.execute("DELETE FROM tags WHERE track_id = ?", (track_id,))
+                
+                # Delete from playlist_tracks
+                cursor.execute("DELETE FROM playlist_tracks WHERE track_id = ?", (track_id,))
+                
+                # Delete from tracks
+                cursor.execute("DELETE FROM tracks WHERE file_path = ?", (file_path,))
+                
+                conn.commit()
+                log_universal('INFO', 'Database', f"Deleted analysis result for: {file_path}")
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to delete analysis result: {e}")
+            return False
+
 
 def get_db_manager() -> 'DatabaseManager':
     """Get database manager instance."""
