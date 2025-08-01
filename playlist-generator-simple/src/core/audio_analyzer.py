@@ -530,12 +530,7 @@ class AudioAnalyzer:
             if is_long_audio:
                 log_universal('INFO', 'Audio', f"Long audio track detected ({filename}), using simplified analysis")
                 
-                # Determine the category of the long audio track
-                long_audio_category = self._determine_long_audio_category(audio_path, metadata)
-                metadata['long_audio_category'] = long_audio_category
-                log_universal('INFO', 'Audio', f"Long audio category determined: {long_audio_category}")
-                
-                # Extract simplified features for long audio tracks
+                # Extract simplified features for long audio tracks first
                 try:
                     @timeout(timeout_seconds, f"Simplified analysis timed out for {filename}")
                     def extract_simplified_with_timeout():
@@ -546,6 +541,11 @@ class AudioAnalyzer:
                     if features is None:
                         log_universal('ERROR', 'Audio', f"Failed to extract simplified features: {filename}")
                         return None
+                    
+                    # Determine the category of the long audio track using extracted features
+                    long_audio_category = self._determine_long_audio_category(audio_path, metadata, features)
+                    metadata['long_audio_category'] = long_audio_category
+                    log_universal('INFO', 'Audio', f"Long audio category determined: {long_audio_category}")
                         
                 except TimeoutException as te:
                     log_universal('ERROR', 'Audio', f"Simplified analysis timed out for {filename}: {te}")
@@ -1830,13 +1830,15 @@ class AudioAnalyzer:
             log_universal('WARNING', 'Audio', f"Error checking if audio is long track: {e}")
             return False
 
-    def _determine_long_audio_category(self, audio_path: str, metadata: Dict[str, Any] = None) -> str:
+    def _determine_long_audio_category(self, audio_path: str, metadata: Dict[str, Any] = None, 
+                                     audio_features: Dict[str, Any] = None) -> str:
         """
-        Determine the category of a long audio track.
+        Determine the category of a long audio track using metadata and audio features.
         
         Args:
             audio_path: Path to the audio file
             metadata: Optional metadata dictionary
+            audio_features: Optional audio features dictionary
             
         Returns:
             Category string (long_mix, podcast, radio, compilation, or unknown)
@@ -1849,7 +1851,7 @@ class AudioAnalyzer:
             else:
                 categories = categories_str.split(',')
             
-            # Check metadata first
+            # Priority 1: Check metadata first
             if metadata:
                 title = metadata.get('title', '').lower()
                 artist = metadata.get('artist', '').lower()
@@ -1875,7 +1877,14 @@ class AudioAnalyzer:
                    any(word in album for word in ['compilation', 'collection', 'various']):
                     return 'compilation'
             
-            # Check filename for patterns
+            # Priority 2: Use audio features for categorization
+            if audio_features:
+                category = self._categorize_by_audio_features(audio_features)
+                if category:
+                    log_universal('INFO', 'Audio', f"Category determined by audio features: {category}")
+                    return category
+            
+            # Priority 3: Check filename for patterns
             filename = os.path.basename(audio_path).lower()
             
             if any(word in filename for word in ['podcast', 'episode', 'show']):
@@ -1893,6 +1902,52 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f"Error determining long audio category: {e}")
             return 'long_mix'
+
+    def _categorize_by_audio_features(self, features: Dict[str, Any]) -> Optional[str]:
+        """
+        Categorize long audio track based on audio features.
+        
+        Args:
+            features: Dictionary of audio features
+            
+        Returns:
+            Category string or None if cannot determine
+        """
+        try:
+            # Extract key features
+            bpm = features.get('bpm', -1)
+            confidence = features.get('confidence', 0.5)
+            spectral_centroid = features.get('spectral_centroid', 0)
+            spectral_flatness = features.get('spectral_flatness', 0.5)
+            loudness = features.get('loudness', 0.5)
+            dynamic_complexity = features.get('dynamic_complexity', 0.5)
+            
+            # Podcast detection (speech-like characteristics)
+            if (bpm > 0 and bpm < 90 and confidence < 0.6 and 
+                spectral_centroid < 2500 and spectral_flatness > 0.3):
+                return 'podcast'
+            
+            # Radio detection (mixed content, variable characteristics)
+            if (bpm > 0 and 80 <= bpm <= 140 and 0.4 <= confidence <= 0.8 and
+                spectral_centroid > 2000 and spectral_flatness < 0.4):
+                return 'radio'
+            
+            # Long mix detection (consistent music, high energy)
+            if (bpm > 0 and bpm > 120 and confidence > 0.7 and
+                spectral_centroid > 3000 and spectral_flatness < 0.3 and
+                loudness > 0.5):
+                return 'long_mix'
+            
+            # Compilation detection (variable characteristics)
+            if (bpm > 0 and confidence < 0.6 and
+                spectral_flatness > 0.4 and dynamic_complexity > 0.6):
+                return 'compilation'
+            
+            return None
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f"Error in audio feature categorization: {e}")
+            return None
 
     def _extract_simplified_features(self, audio: np.ndarray, audio_path: str = None, 
                                    metadata: Dict[str, Any] = None) -> Dict[str, Any]:

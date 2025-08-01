@@ -179,29 +179,6 @@ class DatabaseManager:
                 cursor.execute("INSERT INTO schema_version (version) VALUES (2)")
                 log_universal('INFO', 'Database', "Database schema migrated to version 2")
             
-            if current_version < 3:
-                # Migrate to version 3 (add long audio track category field)
-                log_universal('INFO', 'Database', "Migrating database schema to version 3...")
-                
-                # Check if analysis_results table exists
-                cursor.execute("""
-                    SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name='analysis_results'
-                """)
-                
-                if cursor.fetchone():
-                    log_universal('INFO', 'Database', "analysis_results table exists, adding long audio category column...")
-                    # Add long audio category column if it doesn't exist
-                    try:
-                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN long_audio_category TEXT")
-                        log_universal('INFO', 'Database', "Added long_audio_category column")
-                    except sqlite3.OperationalError as e:
-                        log_universal('INFO', 'Database', f"long_audio_category column already exists: {e}")
-                else:
-                    log_universal('INFO', 'Database', "analysis_results table does not exist yet")
-                
-                cursor.execute("INSERT INTO schema_version (version) VALUES (3)")
-                log_universal('INFO', 'Database', "Database schema migrated to version 3")
             else:
                 log_universal('INFO', 'Database', "Database schema is up to date")
             
@@ -344,6 +321,11 @@ class DatabaseManager:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_year ON analysis_results(year)")
                 except sqlite3.OperationalError:
                     log_universal('DEBUG', 'Database', "Skipping year index - column may not exist yet")
+                
+                try:
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_long_audio_category ON analysis_results(long_audio_category)")
+                except sqlite3.OperationalError:
+                    log_universal('DEBUG', 'Database', "Skipping long_audio_category index - column may not exist yet")
                 
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_date ON analysis_results(analysis_date)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_analysis_filename ON analysis_results(filename)")
