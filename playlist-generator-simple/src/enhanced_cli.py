@@ -50,12 +50,12 @@ def check_verbose_args():
 verbose_level = check_verbose_args()
 
 # --- Stage 1: Set initial log level based on CLI verbose flags immediately ---
-# This ensures that any logs from config_loader.load_config() respect the CLI verbosity
+# This ensures that any logs from config_loader.get_config() respect the CLI verbosity
 if verbose_level:
     setup_logging(log_level=verbose_level, console_logging=True, file_logging=False)
 
 # Now load the config. Logs from config_loader will now respect the verbose_level.
-config = config_loader.load_config()
+config = config_loader.get_config()
 logging_config = config_loader.get_logging_config()
 
 # Use config values or defaults, potentially overridden by CLI verbose_level
@@ -99,7 +99,7 @@ class EnhancedCLI:
     
     def __init__(self):
         """Initialize the enhanced CLI interface."""
-        self.config = config_loader.load_config()
+        self.config = config_loader.get_config()
         
         # Use local database path for development
         db_path = os.path.join(os.path.dirname(__file__), '..', 'cache', 'playlista.db')
@@ -913,7 +913,7 @@ Examples:
             
             # Reload configuration if requested
             if args.reload:
-                self.config = config_loader.load_config()
+                self.config = config_loader.get_config()
                 log_universal('INFO', 'Config', "Configuration reloaded")
             
             return 0

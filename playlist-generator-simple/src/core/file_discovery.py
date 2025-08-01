@@ -39,7 +39,7 @@ class FileDiscovery:
         """
         # Load configuration
         if config is None:
-            config = config_loader.load_config()
+            config = config_loader.get_config()
         
         # Fixed paths for Docker environment
         self.music_dir = '/music'  # Fixed Docker path
