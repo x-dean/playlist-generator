@@ -111,7 +111,7 @@ class ResourceManager:
     def stop_monitoring(self):
         """Stop resource monitoring."""
         if not self._monitoring:
-            log_universal('WARNING', 'Resource', "️ Resource monitoring not active")
+            log_universal('WARNING', 'Resource', "Resource monitoring not active")
             return
         
         log_universal('INFO', 'Resource', f"Stopping resource monitoring")
@@ -230,15 +230,15 @@ class ResourceManager:
         
         # Handle critical conditions
         if memory_used_gb > self.memory_limit_gb or memory_percent > 90:
-            log_universal('WARNING', 'Resource', f"️ High memory usage: {memory_used_gb:.2f}GB ({memory_percent:.1f}%)")
+            log_universal('WARNING', 'Resource', f"High memory usage: {memory_used_gb:.2f}GB ({memory_percent:.1f}%)")
             self._handle_high_memory()
         
         if cpu_percent > self.cpu_threshold_percent:
-            log_universal('WARNING', 'Resource', f"️ High CPU usage: {cpu_percent:.1f}%")
+            log_universal('WARNING', 'Resource', f"High CPU usage: {cpu_percent:.1f}%")
             self._handle_high_cpu()
         
         if disk_percent > self.disk_threshold_percent:
-            log_universal('WARNING', 'Resource', f"️ High disk usage: {disk_percent:.1f}%")
+            log_universal('WARNING', 'Resource', f"High disk usage: {disk_percent:.1f}%")
             self._handle_high_disk()
         
         # Notify callbacks
@@ -304,7 +304,7 @@ class ResourceManager:
 
     def _handle_high_cpu(self):
         """Handle high CPU usage."""
-        log_universal('INFO', 'Resource', f"⏸️ High CPU usage detected - consider throttling analysis")
+        log_universal('INFO', 'Resource', f"High CPU usage detected - consider throttling analysis")
         
         # Could implement analysis throttling here
         # For now, just log the condition

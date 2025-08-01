@@ -105,7 +105,7 @@ def analyze_files(args):
         )
         
         if not files:
-            log_universal('WARNING', 'CLI', "️ No files found for analysis")
+            log_universal('WARNING', 'CLI', "No files found for analysis")
             return
         
         log_universal('INFO', 'CLI', f"Found {len(files)} files to analyze")
@@ -243,7 +243,7 @@ def monitor_resources(args):
                         memory = resources['memory']
                         log_universal('INFO', 'CLI', f"Memory: {memory['used_gb']:.2f}GB used ({memory['percent']:.1f}%)")
                     if 'cpu_percent' in resources:
-                        log_universal('INFO', 'CLI', f"️ CPU: {resources['cpu_percent']:.1f}%")
+                        log_universal('INFO', 'CLI', f"CPU: {resources['cpu_percent']:.1f}%")
         except KeyboardInterrupt:
             log_universal('INFO', 'CLI', "Stopping resource monitoring")
         finally:
@@ -288,7 +288,7 @@ def generate_playlists(args):
         )
         
         if not playlists:
-            log_universal('WARNING', 'CLI', "️ No playlists generated")
+            log_universal('WARNING', 'CLI', "No playlists generated")
             return
         
         # Display results

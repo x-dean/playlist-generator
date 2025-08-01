@@ -210,7 +210,7 @@ class StreamingAudioLoader:
                 'percent_used': memory.percent
             }
         except Exception as e:
-            log_universal('WARNING', 'Streaming', f"️ Could not get memory info: {e}")
+            log_universal('WARNING', 'Streaming', f"Could not get memory info: {e}")
             return {'available_gb': 1.0, 'percent_used': 0.0}
     
     def _get_audio_duration(self, audio_path: str) -> Optional[float]:
@@ -359,7 +359,7 @@ class StreamingAudioLoader:
                                 self._handle_critical_memory()
                             # More aggressive memory management - trigger GC at 70% instead of 90%
                             elif current_memory['percent_used'] > 70:
-                                log_universal('WARNING', 'Streaming', f"️ High memory usage detected! Forcing aggressive memory cleanup...")
+                                log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing aggressive memory cleanup...")
                                 self._force_memory_cleanup()
                         
                         # Always force garbage collection after each chunk to prevent accumulation
@@ -593,7 +593,7 @@ class StreamingAudioLoader:
                     import gc
                     gc.collect()
                 else:
-                    log_universal('WARNING', 'Streaming', f"️ Empty chunk {chunk_index + 1}")
+                    log_universal('WARNING', 'Streaming', f"Empty chunk {chunk_index + 1}")
                 
                 current_sample = end_sample
                 chunk_index += 1
@@ -678,7 +678,7 @@ class StreamingAudioLoader:
                     import gc
                     gc.collect()
                 else:
-                    log_universal('WARNING', 'Streaming', f"️ Empty chunk {chunk_index + 1}")
+                    log_universal('WARNING', 'Streaming', f"Empty chunk {chunk_index + 1}")
             
             log_universal('INFO', 'Streaming', f"Essentia Slicer processing completed: {num_chunks} chunks processed")
                 
@@ -789,9 +789,9 @@ class StreamingAudioLoader:
                         import gc
                         gc.collect()
                     else:
-                        log_universal('WARNING', 'Streaming', f"️ No frames generated for chunk {chunk_index + 1}")
+                        log_universal('WARNING', 'Streaming', f"No frames generated for chunk {chunk_index + 1}")
                 else:
-                    log_universal('WARNING', 'Streaming', f"️ No frames in pool for chunk {chunk_index + 1}")
+                    log_universal('WARNING', 'Streaming', f"No frames in pool for chunk {chunk_index + 1}")
                 
                 current_sample = end_sample
                 chunk_index += 1
@@ -831,7 +831,7 @@ class StreamingAudioLoader:
                     )
                     log_universal('INFO', 'Streaming', f"Audio loaded with Librosa: {len(audio)} samples, {sample_rate}Hz")
                 except Exception as e:
-                    log_universal('WARNING', 'Streaming', f"️ Librosa loading failed: {e}")
+                    log_universal('WARNING', 'Streaming', f"Librosa loading failed: {e}")
             
             if audio is None and SOUNDFILE_AVAILABLE:
                 try:
@@ -841,7 +841,7 @@ class StreamingAudioLoader:
                         audio = audio.mean(axis=1)  # Convert to mono
                     log_universal('INFO', 'Streaming', f"Audio loaded with SoundFile: {len(audio)} samples, {sample_rate}Hz")
                 except Exception as e:
-                    log_universal('WARNING', 'Streaming', f"️ SoundFile loading failed: {e}")
+                    log_universal('WARNING', 'Streaming', f"SoundFile loading failed: {e}")
             
             if audio is None and WAVE_AVAILABLE and audio_path.lower().endswith('.wav'):
                 try:
@@ -852,7 +852,7 @@ class StreamingAudioLoader:
                         audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
                         log_universal('INFO', 'Streaming', f"Audio loaded with Wave: {len(audio)} samples, {sample_rate}Hz")
                 except Exception as e:
-                    log_universal('WARNING', 'Streaming', f"️ Wave loading failed: {e}")
+                    log_universal('WARNING', 'Streaming', f"Wave loading failed: {e}")
             
             if audio is None:
                 log_universal('ERROR', 'Streaming', "No audio loading method available")
@@ -1025,7 +1025,7 @@ class StreamingAudioLoader:
                     gc.collect()
                     
                 else:
-                    log_universal('WARNING', 'Streaming', f"️ Empty chunk {chunk_index + 1}")
+                    log_universal('WARNING', 'Streaming', f"Empty chunk {chunk_index + 1}")
                 
                 current_time = end_time
                 chunk_index += 1
@@ -1033,7 +1033,7 @@ class StreamingAudioLoader:
                 # Monitor memory every 10 chunks
                 if chunk_index % 10 == 0:
                     current_memory = self._get_current_memory_usage()
-                    log_universal('WARNING', 'Streaming', f"️ Memory usage after chunk {chunk_index}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                    log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_index}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
             
             log_universal('INFO', 'Streaming', f"Librosa streaming completed: {chunk_index} chunks processed")
                 
@@ -1134,7 +1134,7 @@ class StreamingAudioLoader:
                 'memory_limit_percent': self.memory_limit_percent
             }
         except Exception as e:
-            log_universal('WARNING', 'Streaming', f"️ Could not get memory info: {e}")
+            log_universal('WARNING', 'Streaming', f"Could not get memory info: {e}")
             return {}
 
 

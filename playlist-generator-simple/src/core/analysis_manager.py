@@ -168,7 +168,7 @@ class AnalysisManager:
                 log_universal('INFO', 'Analysis', f"  Errors: {stats['errors']}")
             
             if not audio_files:
-                log_universal('WARNING', 'Analysis', "️ No audio files found for analysis")
+                log_universal('WARNING', 'Analysis', "No audio files found for analysis")
                 return []
             
             # Filter files based on analysis status
@@ -194,7 +194,7 @@ class AnalysisManager:
             select_time = time.time() - start_time
             log_universal('INFO', 'Analysis', f"File selection completed in {select_time:.2f}s")
             log_universal('INFO', 'Analysis', f"Selected {len(files_to_analyze)} files for analysis")
-            log_universal('INFO', 'Analysis', f"⏭️ Skipped {skipped_count} files (already analyzed)")
+            log_universal('INFO', 'Analysis', f"Skipped {skipped_count} files (already analyzed)")
             log_universal('INFO', 'Analysis', f"Previously failed: {failed_count} files")
             
             # Log performance
@@ -445,7 +445,7 @@ class AnalysisManager:
             Dictionary with analysis results and statistics
         """
         if not files:
-            log_universal('WARNING', 'Analysis', "️ No files provided for analysis")
+            log_universal('WARNING', 'Analysis', "No files provided for analysis")
             return {'success_count': 0, 'failed_count': 0, 'total_time': 0}
         
         log_universal('INFO', 'Analysis', f"Starting analysis of {len(files)} files")

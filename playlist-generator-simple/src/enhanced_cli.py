@@ -590,11 +590,11 @@ Examples:
             # Monitor for specified duration or indefinitely
             if args.duration:
                 import time
-                log_universal('INFO', 'Resource', f"⏱️ Monitoring for {args.duration} seconds")
+                log_universal('INFO', 'Resource', f"Monitoring for {args.duration} seconds")
                 time.sleep(args.duration)
                 self.resource_manager.stop_monitoring()
             else:
-                log_universal('INFO', 'Resource', "⏱️ Monitoring indefinitely (press Ctrl+C to stop)")
+                log_universal('INFO', 'Resource', "Monitoring indefinitely (press Ctrl+C to stop)")
                 try:
                     while True:
                         import time
@@ -728,7 +728,7 @@ Examples:
         try:
             # For now, just show a placeholder message
             # This would need to be implemented in the analysis manager
-            log_universal('INFO', 'Enrichment', "️ Metadata enrichment not yet implemented")
+            log_universal('INFO', 'Enrichment', "Metadata enrichment not yet implemented")
             log_universal('INFO', 'Enrichment', "  This feature requires external API integration")
             log_universal('INFO', 'Enrichment', "  (MusicBrainz, Last.fm, etc.)")
             
@@ -745,7 +745,7 @@ Examples:
         try:
             # For now, just show a placeholder message
             # This would need to be implemented in the playlist generator
-            log_universal('INFO', 'Export', "️ Export functionality not yet implemented")
+            log_universal('INFO', 'Export', "Export functionality not yet implemented")
             log_universal('INFO', 'Export', "  This feature requires playlist export methods")
             log_universal('INFO', 'Export', f"  Format: {args.format}")
             log_universal('INFO', 'Export', f"  File: {args.playlist_file}")
@@ -799,7 +799,7 @@ Examples:
         try:
             # For now, just run analysis and playlist generation separately
             # This would need to be implemented as a full pipeline
-            log_universal('INFO', 'Pipeline', "️ Full pipeline not yet implemented")
+            log_universal('INFO', 'Pipeline', "Full pipeline not yet implemented")
             log_universal('INFO', 'Pipeline', "  Running analysis and playlist generation separately")
             
             # Run analysis
@@ -827,7 +827,7 @@ Examples:
             
             # Export if requested
             if args.export:
-                log_universal('INFO', 'Export', "️ Export functionality not yet implemented")
+                log_universal('INFO', 'Export', "Export functionality not yet implemented")
             
             return 0
             

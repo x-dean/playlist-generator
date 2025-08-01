@@ -188,7 +188,7 @@ class DatabaseManager:
     @log_function_call
     def _init_database(self):
         """Initialize the database with all required tables."""
-        log_universal('INFO', 'Database', "️ Initializing database tables...")
+        log_universal('INFO', 'Database', "Initializing database tables...")
         
         tables_created = 0
         start_time = time.time()
@@ -253,7 +253,7 @@ class DatabaseManager:
                 log_universal('DEBUG', 'Database', "Cache table ready")
                 
                 # Create tags table
-                log_universal('DEBUG', 'Database', "️ Creating tags table...")
+                log_universal('DEBUG', 'Database', "Creating tags table...")
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS tags (
                         file_path TEXT PRIMARY KEY,
@@ -1705,7 +1705,7 @@ class DatabaseManager:
                     WHERE created_at < ?
                 """, (cutoff_time,))
                 results['cache_cleaned'] = cursor.rowcount
-                log_universal('DEBUG', 'Database', f"️ Cleaned {results['cache_cleaned']} cache entries")
+                log_universal('DEBUG', 'Database', f"Cleaned {results['cache_cleaned']} cache entries")
                 
                 # Clean up old statistics
                 cursor.execute("""
@@ -1713,7 +1713,7 @@ class DatabaseManager:
                     WHERE timestamp < datetime('now', '-{} days')
                 """.format(stats_retention_days))
                 results['statistics_cleaned'] = cursor.rowcount
-                log_universal('DEBUG', 'Database', f"️ Cleaned {results['statistics_cleaned']} statistics entries")
+                log_universal('DEBUG', 'Database', f"Cleaned {results['statistics_cleaned']} statistics entries")
                 
                 # Clean up old failed analysis (keep for shorter time)
                 cursor.execute("""
@@ -1721,7 +1721,7 @@ class DatabaseManager:
                     WHERE failed_date < datetime('now', '-{} days')
                 """.format(failed_retention_days))
                 results['failed_analysis_cleaned'] = cursor.rowcount
-                log_universal('DEBUG', 'Database', f"️ Cleaned {results['failed_analysis_cleaned']} failed analysis entries")
+                log_universal('DEBUG', 'Database', f"Cleaned {results['failed_analysis_cleaned']} failed analysis entries")
                 
                 conn.commit()
                 

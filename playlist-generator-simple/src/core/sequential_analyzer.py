@@ -176,7 +176,7 @@ class SequentialAnalyzer:
             
             # Check memory before processing
             if self.resource_manager.is_memory_critical():
-                log_universal('WARNING', 'Sequential', f"️ High memory usage before processing {filename}")
+                log_universal('WARNING', 'Sequential', f"High memory usage before processing {filename}")
                 self._cleanup_memory()
             
             # Process file in separate process to isolate memory

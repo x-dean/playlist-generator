@@ -287,7 +287,7 @@ class PlaylistGenerator:
                 method_playlists = self.generate_playlists(method, playlists_per_method, playlist_size)
                 all_playlists.update(method_playlists)
             except Exception as e:
-                log_universal('WARNING', 'Playlist', f"️ Failed to generate playlists with method {method}: {e}")
+                log_universal('WARNING', 'Playlist', f"Failed to generate playlists with method {method}: {e}")
         
         return all_playlists
     
@@ -505,7 +505,7 @@ class KMeansPlaylistGenerator(BasePlaylistGenerator):
             features = self._extract_features(tracks)
             
             if len(features) < num_playlists:
-                log_universal('WARNING', 'Playlist', f"️ Not enough tracks for {num_playlists} playlists")
+                log_universal('WARNING', 'Playlist', f"Not enough tracks for {num_playlists} playlists")
                 num_playlists = max(1, len(features) // 2)
             
             # Perform K-means clustering

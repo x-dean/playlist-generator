@@ -152,7 +152,7 @@ class CPUOptimizedAnalyzer:
                 return None
                 
         except Exception as e:
-            log_universal('WARNING', 'CPU Optimizer', f"️ Failed to extract melspectrogram from {audio_file}: {e}")
+            log_universal('WARNING', 'CPU Optimizer', f"Failed to extract melspectrogram from {audio_file}: {e}")
             return None
     
     def _extract_melspectrogram_essentia(self, audio_file: str) -> Optional[np.ndarray]:
@@ -195,7 +195,7 @@ class CPUOptimizedAnalyzer:
                 return None
                 
         except Exception as e:
-            log_universal('WARNING', 'CPU Optimizer', f"️ Essentia melspectrogram extraction failed: {e}")
+            log_universal('WARNING', 'CPU Optimizer', f"Essentia melspectrogram extraction failed: {e}")
             return None
     
     def _extract_melspectrogram_librosa(self, audio_file: str) -> Optional[np.ndarray]:
@@ -227,7 +227,7 @@ class CPUOptimizedAnalyzer:
             return mel_spectrogram_db.T
             
         except Exception as e:
-            log_universal('WARNING', 'CPU Optimizer', f"️ Librosa melspectrogram extraction failed: {e}")
+            log_universal('WARNING', 'CPU Optimizer', f"Librosa melspectrogram extraction failed: {e}")
             return None
     
     def process_audio_batch(self, audio_files: List[str], 
