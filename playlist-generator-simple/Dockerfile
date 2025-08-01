@@ -44,6 +44,7 @@ WORKDIR /app
 COPY src /app/src
 COPY playlista.conf /app/playlista.conf
 COPY playlista /app/playlista
+COPY database_schema.sql /app/database_schema.sql
 
 # Create directories with proper permissions
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/feature_extraction/models
