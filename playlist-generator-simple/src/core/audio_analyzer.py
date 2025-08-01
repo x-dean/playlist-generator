@@ -279,7 +279,7 @@ class AudioAnalyzer:
             'filename': os.path.basename(file_path),
             'file_size_bytes': file_size,
             'file_hash': file_hash,
-            'analysis_date': datetime.now(),
+            'analysis_date': datetime.now().isoformat(),
             'analysis_version': '1.0.0',
             'audio_type': audio_type,
             'is_long_audio': is_long_audio,
@@ -1085,9 +1085,9 @@ class AudioAnalyzer:
 
             # Priority 1: Check metadata first
             if metadata:
-                title = metadata.get('title', '').lower()
-                artist = metadata.get('artist', '').lower()
-                album = metadata.get('album', '').lower()
+                title = str(metadata.get('title', '')).lower()
+                artist = str(metadata.get('artist', '')).lower()
+                album = str(metadata.get('album', '')).lower()
 
                 # Podcast detection
                 if any(word in title for word in ['podcast', 'episode', 'show', 'talk']):
@@ -1262,7 +1262,7 @@ class AudioAnalyzer:
                 'filename': os.path.basename(file_path),
                 'file_size_bytes': file_size,
                 'file_hash': file_hash,
-                'analysis_date': datetime.now(),
+                'analysis_date': datetime.now().isoformat(),
                 'analysis_version': '1.0.0',
                 'audio_type': 'large_file',
                 'is_long_audio': is_long_audio,

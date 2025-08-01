@@ -1772,7 +1772,9 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                value_json = json.dumps(value)
+                # Convert to JSON-serializable format before caching
+                serializable_value = self._convert_to_json_serializable(value)
+                value_json = json.dumps(serializable_value)
                 expires_at = datetime.now() + timedelta(hours=expires_hours)
                 
                 cursor.execute("""
@@ -2329,6 +2331,8 @@ class DatabaseManager:
             return [self._convert_to_json_serializable(item) for item in obj]
         elif isinstance(obj, (int, float, str, bool)):
             return obj
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
         else:
             # Handle numpy arrays and other non-serializable objects
             try:
