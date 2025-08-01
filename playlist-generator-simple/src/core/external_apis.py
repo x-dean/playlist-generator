@@ -44,6 +44,27 @@ class MusicBrainzTrack:
     def __post_init__(self):
         if self.tags is None:
             self.tags = []
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'id': self.id,
+            'title': self.title,
+            'artist': self.artist,
+            'artist_id': self.artist_id,
+            'album': self.album,
+            'album_id': self.album_id,
+            'release_date': self.release_date,
+            'track_number': self.track_number,
+            'disc_number': self.disc_number,
+            'duration_ms': self.duration_ms,
+            'tags': self.tags
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MusicBrainzTrack':
+        """Create from dictionary."""
+        return cls(**data)
 
 
 @dataclass
@@ -60,6 +81,23 @@ class LastFMTrack:
     def __post_init__(self):
         if self.tags is None:
             self.tags = []
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'name': self.name,
+            'artist': self.artist,
+            'play_count': self.play_count,
+            'listeners': self.listeners,
+            'tags': self.tags,
+            'rating': self.rating,
+            'url': self.url
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'LastFMTrack':
+        """Create from dictionary."""
+        return cls(**data)
 
 
 class MusicBrainzClient:
@@ -112,7 +150,9 @@ class MusicBrainzClient:
         
         if cached_result:
             log_universal('DEBUG', 'MB API', f'Using cached result for: {title} by {artist}')
-            return cached_result
+            if cached_result is not None:
+                return MusicBrainzTrack.from_dict(cached_result)
+            return None
         
         try:
             start_time = time.time()
@@ -208,7 +248,7 @@ class MusicBrainzClient:
                         success=True, details=f"found {len(mb_track.tags)} tags", duration=duration)
             
             # Cache successful results for 24 hours
-            db_manager.save_cache(cache_key, mb_track, expires_hours=24)
+            db_manager.save_cache(cache_key, mb_track.to_dict(), expires_hours=24)
             
             return mb_track
             
@@ -304,7 +344,9 @@ class LastFMClient:
         
         if cached_result:
             log_universal('DEBUG', 'LF API', f'Using cached result for: {track} by {artist}')
-            return cached_result
+            if cached_result is not None:
+                return LastFMTrack.from_dict(cached_result)
+            return None
         
         try:
             start_time = time.time()
@@ -365,7 +407,7 @@ class LastFMClient:
                         success=True, details=f"found {len(lastfm_track.tags)} tags", duration=duration)
             
             # Cache successful results for 24 hours
-            db_manager.save_cache(cache_key, lastfm_track, expires_hours=24)
+            db_manager.save_cache(cache_key, lastfm_track.to_dict(), expires_hours=24)
             
             return lastfm_track
             
