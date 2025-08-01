@@ -226,7 +226,12 @@ class AudioAnalyzer:
                 return cached_result
         
         # Extract metadata first
+        log_universal('DEBUG', 'Audio', f'About to call _extract_metadata for: {os.path.basename(file_path)}')
         metadata = self._extract_metadata(file_path)
+        log_universal('DEBUG', 'Audio', f'Metadata extraction completed, result: {metadata is not None}')
+        if metadata:
+            log_universal('DEBUG', 'Audio', f'Metadata keys: {list(metadata.keys())}')
+            log_universal('DEBUG', 'Audio', f'Metadata title: "{metadata.get("title")}", artist: "{metadata.get("artist")}"')
         
         # Enrich metadata with external APIs FIRST (before audio analysis)
         if metadata:
@@ -386,6 +391,8 @@ class AudioAnalyzer:
         if os.path.basename(file_path) == "Armin van Buuren - A State Of Trance 1204 (Top 50 of 2024).mp3":
             log_universal('DEBUG', 'Audio', 'Forcing fresh extraction for debugging')
             self.db_manager.delete_cache(cache_key)
+        
+        log_universal('DEBUG', 'Audio', f'Starting mutagen extraction for: {os.path.basename(file_path)}')
         
         try:
             log_universal('DEBUG', 'Audio', f'Extracting metadata from: {os.path.basename(file_path)}')
