@@ -525,24 +525,53 @@ class AudioAnalyzer:
             # Extract metadata (always enabled)
             metadata = self._extract_metadata(audio_path)
             
-            # Extract features based on configuration with timeout
-            try:
-                @timeout(timeout_seconds, f"Analysis timed out for {filename}")
-                def extract_with_timeout():
-                    return self._extract_features_by_config(audio_path, audio, metadata, features_config)
+            # Check if this is a long audio track and apply simplified analysis
+            is_long_audio = self._is_long_audio_track(audio_path, audio_length)
+            if is_long_audio:
+                log_universal('INFO', 'Audio', f"Long audio track detected ({filename}), using simplified analysis")
                 
-                features = extract_with_timeout()
+                # Determine the category of the long audio track
+                long_audio_category = self._determine_long_audio_category(audio_path, metadata)
+                metadata['long_audio_category'] = long_audio_category
+                log_universal('INFO', 'Audio', f"Long audio category determined: {long_audio_category}")
                 
-                if features is None:
-                    log_universal('ERROR', 'Audio', f"Failed to extract features: {filename}")
-                    return None
+                # Extract simplified features for long audio tracks
+                try:
+                    @timeout(timeout_seconds, f"Simplified analysis timed out for {filename}")
+                    def extract_simplified_with_timeout():
+                        return self._extract_simplified_features(audio, audio_path, metadata)
                     
-            except TimeoutException as te:
-                log_universal('ERROR', 'Audio', f"Analysis timed out for {filename}: {te}")
-                return None
-            except Exception as e:
-                log_universal('ERROR', 'Audio', f"Analysis failed for {filename}: {e}")
-                return None
+                    features = extract_simplified_with_timeout()
+                    
+                    if features is None:
+                        log_universal('ERROR', 'Audio', f"Failed to extract simplified features: {filename}")
+                        return None
+                        
+                except TimeoutException as te:
+                    log_universal('ERROR', 'Audio', f"Simplified analysis timed out for {filename}: {te}")
+                    return None
+                except Exception as e:
+                    log_universal('ERROR', 'Audio', f"Simplified analysis failed for {filename}: {e}")
+                    return None
+            else:
+                # Extract features based on configuration with timeout
+                try:
+                    @timeout(timeout_seconds, f"Analysis timed out for {filename}")
+                    def extract_with_timeout():
+                        return self._extract_features_by_config(audio_path, audio, metadata, features_config)
+                    
+                    features = extract_with_timeout()
+                    
+                    if features is None:
+                        log_universal('ERROR', 'Audio', f"Failed to extract features: {filename}")
+                        return None
+                        
+                except TimeoutException as te:
+                    log_universal('ERROR', 'Audio', f"Analysis timed out for {filename}: {te}")
+                    return None
+                except Exception as e:
+                    log_universal('ERROR', 'Audio', f"Analysis failed for {filename}: {e}")
+                    return None
             
             # Validate features
             if not self._validate_features(features):
@@ -1758,6 +1787,192 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f"Error extracting key features: {e}")
             log_universal('DEBUG', 'Audio', f"Key extraction exception details: {type(e).__name__}: {e}")
+        
+        return features
+
+    def _is_long_audio_track(self, audio_path: str, audio_length: int = None) -> bool:
+        """
+        Determine if an audio track is considered "long" (e.g., mixes, podcasts, radio).
+        
+        Args:
+            audio_path: Path to the audio file
+            audio_length: Length of audio in samples (if known)
+            
+        Returns:
+            True if the track is considered long
+        """
+        try:
+            # Check if long audio detection is enabled
+            if not self.config.get('LONG_AUDIO_ENABLED', True):
+                return False
+            
+            # Get duration threshold from configuration
+            duration_threshold_minutes = self.config.get('LONG_AUDIO_DURATION_THRESHOLD_MINUTES', 20)
+            
+            # Check audio length if provided
+            if audio_length is not None:
+                duration_minutes = (audio_length / DEFAULT_SAMPLE_RATE) / 60
+                if duration_minutes > duration_threshold_minutes:
+                    log_universal('DEBUG', 'Audio', f"Audio duration {duration_minutes:.1f}min > {duration_threshold_minutes}min, classified as long audio")
+                    return True
+            
+            # Fallback: check file duration
+            duration = self._get_audio_duration(audio_path)
+            if duration is not None:
+                duration_minutes = duration / 60
+                if duration_minutes > duration_threshold_minutes:
+                    log_universal('DEBUG', 'Audio', f"Audio duration {duration_minutes:.1f}min > {duration_threshold_minutes}min, classified as long audio")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f"Error checking if audio is long track: {e}")
+            return False
+
+    def _determine_long_audio_category(self, audio_path: str, metadata: Dict[str, Any] = None) -> str:
+        """
+        Determine the category of a long audio track.
+        
+        Args:
+            audio_path: Path to the audio file
+            metadata: Optional metadata dictionary
+            
+        Returns:
+            Category string (long_mix, podcast, radio, compilation, or unknown)
+        """
+        try:
+            # Get available categories from configuration
+            categories_str = self.config.get('LONG_AUDIO_CATEGORIES', 'long_mix,podcast,radio,compilation')
+            if isinstance(categories_str, list):
+                categories = categories_str
+            else:
+                categories = categories_str.split(',')
+            
+            # Check metadata first
+            if metadata:
+                title = metadata.get('title', '').lower()
+                artist = metadata.get('artist', '').lower()
+                album = metadata.get('album', '').lower()
+                
+                # Check for podcast indicators
+                if any(word in title for word in ['podcast', 'episode', 'show']) or \
+                   any(word in artist for word in ['podcast', 'radio', 'show']):
+                    return 'podcast'
+                
+                # Check for radio indicators
+                if any(word in title for word in ['radio', 'broadcast', 'live']) or \
+                   any(word in artist for word in ['radio', 'station', 'broadcast']):
+                    return 'radio'
+                
+                # Check for mix indicators
+                if any(word in title for word in ['mix', 'compilation', 'collection']) or \
+                   any(word in album for word in ['mix', 'compilation', 'collection']):
+                    return 'long_mix'
+                
+                # Check for compilation indicators
+                if any(word in title for word in ['compilation', 'collection', 'various']) or \
+                   any(word in album for word in ['compilation', 'collection', 'various']):
+                    return 'compilation'
+            
+            # Check filename for patterns
+            filename = os.path.basename(audio_path).lower()
+            
+            if any(word in filename for word in ['podcast', 'episode', 'show']):
+                return 'podcast'
+            elif any(word in filename for word in ['radio', 'broadcast', 'live']):
+                return 'radio'
+            elif any(word in filename for word in ['mix', 'compilation']):
+                return 'long_mix'
+            elif any(word in filename for word in ['compilation', 'collection', 'various']):
+                return 'compilation'
+            
+            # Default to long_mix for unknown long tracks
+            return 'long_mix'
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f"Error determining long audio category: {e}")
+            return 'long_mix'
+
+    def _extract_simplified_features(self, audio: np.ndarray, audio_path: str = None, 
+                                   metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Extract simplified features for long audio tracks.
+        
+        Args:
+            audio: Audio data as numpy array
+            audio_path: Path to the audio file
+            metadata: Optional metadata dictionary
+            
+        Returns:
+            Dictionary with simplified features
+        """
+        features = {}
+        extracted_features = []
+        failed_features = []
+        
+        try:
+            log_universal('INFO', 'Audio', f"Extracting simplified features for long audio track")
+            
+            # Basic tempo and rhythm features (essential for any audio)
+            try:
+                rhythm_features = self._extract_rhythm_features(audio, audio_path, metadata)
+                if rhythm_features:
+                    features.update(rhythm_features)
+                    extracted_features.append('rhythm')
+                    log_universal('INFO', 'Audio', f"Simplified feature extraction: rhythm completed")
+                else:
+                    failed_features.append('rhythm')
+            except Exception as e:
+                failed_features.append('rhythm')
+                log_universal('ERROR', 'Audio', f"Simplified feature extraction: rhythm error: {e}")
+            
+            # Basic loudness features
+            try:
+                loudness_features = self._extract_loudness(audio)
+                if loudness_features:
+                    features.update(loudness_features)
+                    extracted_features.append('loudness')
+                    log_universal('INFO', 'Audio', f"Simplified feature extraction: loudness completed")
+                else:
+                    failed_features.append('loudness')
+            except Exception as e:
+                failed_features.append('loudness')
+                log_universal('ERROR', 'Audio', f"Simplified feature extraction: loudness error: {e}")
+            
+            # Basic spectral features (energy, spectral centroid)
+            try:
+                spectral_features = self._extract_spectral_features(audio)
+                if spectral_features:
+                    # Only keep essential spectral features
+                    essential_spectral = {
+                        'spectral_centroid_mean': spectral_features.get('spectral_centroid_mean'),
+                        'spectral_centroid_std': spectral_features.get('spectral_centroid_std'),
+                        'spectral_rolloff_mean': spectral_features.get('spectral_rolloff_mean'),
+                        'spectral_rolloff_std': spectral_features.get('spectral_rolloff_std'),
+                        'spectral_bandwidth_mean': spectral_features.get('spectral_bandwidth_mean'),
+                        'spectral_bandwidth_std': spectral_features.get('spectral_bandwidth_std'),
+                        'spectral_energy_mean': spectral_features.get('spectral_energy_mean'),
+                        'spectral_energy_std': spectral_features.get('spectral_energy_std')
+                    }
+                    features.update(essential_spectral)
+                    extracted_features.append('spectral_basic')
+                    log_universal('INFO', 'Audio', f"Simplified feature extraction: spectral_basic completed")
+                else:
+                    failed_features.append('spectral_basic')
+            except Exception as e:
+                failed_features.append('spectral_basic')
+                log_universal('ERROR', 'Audio', f"Simplified feature extraction: spectral_basic error: {e}")
+            
+            # Add simplified analysis metadata
+            features['analysis_type'] = 'simplified'
+            features['extracted_features'] = extracted_features
+            features['failed_features'] = failed_features
+            
+            log_universal('INFO', 'Audio', f"Simplified feature extraction completed: {len(extracted_features)} features extracted, {len(failed_features)} failed")
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f"Error in simplified feature extraction: {e}")
         
         return features
 

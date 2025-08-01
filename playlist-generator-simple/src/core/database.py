@@ -178,6 +178,30 @@ class DatabaseManager:
                 
                 cursor.execute("INSERT INTO schema_version (version) VALUES (2)")
                 log_universal('INFO', 'Database', "Database schema migrated to version 2")
+            
+            if current_version < 3:
+                # Migrate to version 3 (add long audio track category field)
+                log_universal('INFO', 'Database', "Migrating database schema to version 3...")
+                
+                # Check if analysis_results table exists
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='analysis_results'
+                """)
+                
+                if cursor.fetchone():
+                    log_universal('INFO', 'Database', "analysis_results table exists, adding long audio category column...")
+                    # Add long audio category column if it doesn't exist
+                    try:
+                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN long_audio_category TEXT")
+                        log_universal('INFO', 'Database', "Added long_audio_category column")
+                    except sqlite3.OperationalError as e:
+                        log_universal('INFO', 'Database', f"long_audio_category column already exists: {e}")
+                else:
+                    log_universal('INFO', 'Database', "analysis_results table does not exist yet")
+                
+                cursor.execute("INSERT INTO schema_version (version) VALUES (3)")
+                log_universal('INFO', 'Database', "Database schema migrated to version 3")
             else:
                 log_universal('INFO', 'Database', "Database schema is up to date")
             
@@ -232,6 +256,7 @@ class DatabaseManager:
                         title TEXT,
                         genre TEXT,
                         year INTEGER,
+                        long_audio_category TEXT,
                         analysis_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         last_checked TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -951,6 +976,77 @@ class DatabaseManager:
             return []
 
     @log_function_call
+    def get_tracks_by_long_audio_category(self, category: str) -> List[Dict[str, Any]]:
+        """
+        Get tracks by long audio category.
+        
+        Args:
+            category: Long audio category to filter by (long_mix, podcast, radio, compilation)
+            
+        Returns:
+            List of track dictionaries
+        """
+        log_universal('DEBUG', 'Database', f"Getting tracks by long audio category: {category}")
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT file_path, filename, metadata, long_audio_category
+                    FROM analysis_results 
+                    WHERE long_audio_category = ? AND long_audio_category IS NOT NULL
+                    ORDER BY filename
+                """, (category,))
+                
+                tracks = []
+                for row in cursor.fetchall():
+                    track = {
+                        'file_path': row[0],
+                        'filename': row[1],
+                        'metadata': json.loads(row[2]) if row[2] else {},
+                        'long_audio_category': row[3]
+                    }
+                    tracks.append(track)
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(tracks)} tracks with category {category}")
+                return tracks
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting tracks by long audio category: {e}")
+            return []
+
+    @log_function_call
+    def get_all_long_audio_categories(self) -> List[str]:
+        """
+        Get all available long audio categories.
+        
+        Returns:
+            List of unique category names
+        """
+        log_universal('DEBUG', 'Database', "Getting all long audio categories")
+        
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT DISTINCT long_audio_category
+                    FROM analysis_results 
+                    WHERE long_audio_category IS NOT NULL
+                    ORDER BY long_audio_category
+                """)
+                
+                categories = [row[0] for row in cursor.fetchall()]
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(categories)} long audio categories: {categories}")
+                return categories
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error getting long audio categories: {e}")
+            return []
+
+    @log_function_call
     def get_tracks_by_feature_range(self, feature: str, min_value: float, max_value: float) -> List[Dict[str, Any]]:
         """
         Get tracks within a specific feature range.
@@ -1044,14 +1140,15 @@ class DatabaseManager:
                 title = metadata.get('title') if metadata else None
                 genre = metadata.get('genre') if metadata else None
                 year = metadata.get('year') if metadata else None
+                long_audio_category = metadata.get('long_audio_category') if metadata else None
                 
                 cursor.execute("""
                     INSERT OR REPLACE INTO analysis_results 
                     (file_path, filename, file_size_bytes, file_hash, 
-                     analysis_data, metadata, artist, album, title, genre, year, analysis_date, last_checked)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                     analysis_data, metadata, artist, album, title, genre, year, long_audio_category, analysis_date, last_checked)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """, (file_path, filename, file_size_bytes, file_hash, 
-                     analysis_json, metadata_json, artist, album, title, genre, year))
+                     analysis_json, metadata_json, artist, album, title, genre, year, long_audio_category))
                 
                 conn.commit()
                 save_time = time.time() - start_time
