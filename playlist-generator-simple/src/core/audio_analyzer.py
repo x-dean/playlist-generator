@@ -905,6 +905,72 @@ class AudioAnalyzer:
         
         return metadata
     
+    def _extract_bpm_from_metadata(self, metadata: Dict[str, Any]) -> Optional[float]:
+        """
+        Extract BPM from metadata tags.
+        
+        Args:
+            metadata: Metadata dictionary
+            
+        Returns:
+            BPM value as float if found, None otherwise
+        """
+        if not metadata:
+            return None
+            
+        try:
+            # Check various BPM-related metadata fields
+            bpm_fields = [
+                'bpm', 'BPM', 'tempo', 'TEMPO', 'TBPM', 'TBP',
+                'musicbrainz_track_id', 'musicbrainz_artist_id'
+            ]
+            
+            for field in bpm_fields:
+                if field in metadata:
+                    value = metadata[field]
+                    if value is not None:
+                        try:
+                            # Try to convert to float
+                            bpm = float(value)
+                            if 30 <= bpm <= 300:  # Valid BPM range
+                                log_universal('DEBUG', 'Audio', f"Found BPM in metadata field '{field}': {bpm}")
+                                return bpm
+                        except (ValueError, TypeError):
+                            continue
+            
+            # Check for BPM in comment fields
+            comment_fields = ['comment', 'COMM', 'TXXX:BPM', 'TXXX:Tempo']
+            for field in comment_fields:
+                if field in metadata:
+                    value = metadata[field]
+                    if value is not None:
+                        # Try to extract BPM from comment text
+                        try:
+                            import re
+                            # Look for BPM patterns like "BPM: 128", "128 BPM", etc.
+                            bpm_patterns = [
+                                r'BPM[:\s]*(\d+(?:\.\d+)?)',
+                                r'(\d+(?:\.\d+)?)\s*BPM',
+                                r'Tempo[:\s]*(\d+(?:\.\d+)?)',
+                                r'(\d+(?:\.\d+)?)\s*Tempo'
+                            ]
+                            
+                            for pattern in bpm_patterns:
+                                match = re.search(pattern, str(value), re.IGNORECASE)
+                                if match:
+                                    bpm = float(match.group(1))
+                                    if 30 <= bpm <= 300:
+                                        log_universal('DEBUG', 'Audio', f"Found BPM in comment field '{field}': {bpm}")
+                                        return bpm
+                        except (ValueError, TypeError):
+                            continue
+            
+            return None
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f"Error extracting BPM from metadata: {e}")
+            return None
+
     @timeout(60, "External API enrichment timed out")  # 1 minute for external APIs
     def _enrich_metadata_with_external_apis(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1248,6 +1314,19 @@ class AudioAnalyzer:
                 log_universal('WARNING', 'Audio', "Skipping MFCC and MusiCNN for very large file")
                 features.setdefault('mfcc', [-999.0] * 13)  # Invalid MFCC values
                 features.setdefault('musicnn_features', [-999.0] * 50)  # Invalid MusiCNN features
+            
+            # Check for BPM in metadata if audio analysis failed
+            if 'rhythm' in failed_features or (features.get('bpm') == -999.0):
+                bpm_from_metadata = self._extract_bpm_from_metadata(metadata)
+                if bpm_from_metadata is not None:
+                    features['bpm'] = bpm_from_metadata
+                    features['bpm_source'] = 'metadata'
+                    log_universal('INFO', 'Audio', f"Using BPM from metadata: {bpm_from_metadata}")
+                    if 'rhythm' in failed_features:
+                        failed_features.remove('rhythm')
+                        extracted_features.append('rhythm')
+                else:
+                    log_universal('INFO', 'Audio', "No BPM found in metadata")
             
             # Add metadata (always included)
             features['metadata'] = metadata
@@ -2019,6 +2098,19 @@ class AudioAnalyzer:
                 failed_features.append('spectral_basic')
                 log_universal('ERROR', 'Audio', f"Simplified feature extraction: spectral_basic error: {e}")
             
+            # Check for BPM in metadata if audio analysis failed
+            if 'rhythm' in failed_features or (features.get('bpm') == -999.0):
+                bpm_from_metadata = self._extract_bpm_from_metadata(metadata)
+                if bpm_from_metadata is not None:
+                    features['bpm'] = bpm_from_metadata
+                    features['bpm_source'] = 'metadata'
+                    log_universal('INFO', 'Audio', f"Using BPM from metadata: {bpm_from_metadata}")
+                    if 'rhythm' in failed_features:
+                        failed_features.remove('rhythm')
+                        extracted_features.append('rhythm')
+                else:
+                    log_universal('INFO', 'Audio', "No BPM found in metadata")
+            
             # Add simplified analysis metadata
             features['analysis_type'] = 'simplified'
             features['extracted_features'] = extracted_features
@@ -2396,8 +2488,17 @@ class AudioAnalyzer:
             True if features are valid, False otherwise
         """
         try:
-            # Check for essential features
-            essential_features = ['bpm', 'loudness']
+            # Check if this is simplified analysis (more lenient validation)
+            is_simplified = features.get('analysis_type') == 'simplified'
+            
+            # For simplified analysis, only loudness is truly essential
+            # BPM can fail for long audio tracks and that's acceptable
+            if is_simplified:
+                essential_features = ['loudness']
+                log_universal('DEBUG', 'Audio', "Using simplified validation (lenient for BPM)")
+            else:
+                essential_features = ['bpm', 'loudness']
+            
             missing_features = [f for f in essential_features if f not in features]
             
             if missing_features:
@@ -2405,13 +2506,23 @@ class AudioAnalyzer:
                 return False
             
             # Check for valid BPM (excluding invalid markers)
+            # For simplified analysis, BPM failure is acceptable
             bpm = features.get('bpm')
             if bpm is not None and bpm == -999.0:
-                log_universal('WARNING', 'Audio', f"BPM extraction failed (invalid marker: {bpm})")
-                return False
+                if is_simplified:
+                    log_universal('INFO', 'Audio', f"BPM extraction failed for simplified analysis (acceptable for long audio)")
+                    # Remove BPM from features to avoid downstream issues
+                    features.pop('bpm', None)
+                else:
+                    log_universal('WARNING', 'Audio', f"BPM extraction failed (invalid marker: {bpm})")
+                    return False
             elif bpm is not None and (bpm < 30 or bpm > 300):
-                log_universal('WARNING', 'Audio', f"Invalid BPM value: {bpm}")
-                return False
+                if is_simplified:
+                    log_universal('INFO', 'Audio', f"Invalid BPM value for simplified analysis: {bpm} (acceptable for long audio)")
+                    features.pop('bpm', None)
+                else:
+                    log_universal('WARNING', 'Audio', f"Invalid BPM value: {bpm}")
+                    return False
             
             # Check for valid loudness (excluding invalid markers)
             loudness = features.get('loudness')
