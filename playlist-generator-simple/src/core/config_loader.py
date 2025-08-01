@@ -355,7 +355,14 @@ class ConfigLoader:
             'EXTRACT_CHROMA': config.get('EXTRACT_CHROMA', True),
             'FORCE_REANALYSIS': config.get('FORCE_REANALYSIS', False),
             'CACHE_ENABLED': config.get('CACHE_ENABLED', True),
-            'CACHE_EXPIRY_HOURS': config.get('CACHE_EXPIRY_HOURS', 168)
+            'CACHE_EXPIRY_HOURS': config.get('CACHE_EXPIRY_HOURS', 168),
+            # Long audio configuration
+            'LONG_AUDIO_ENABLED': config.get('LONG_AUDIO_ENABLED', True),
+            'LONG_AUDIO_DURATION_THRESHOLD_MINUTES': config.get('LONG_AUDIO_DURATION_THRESHOLD_MINUTES', 20),
+            'LONG_AUDIO_SIMPLIFIED_FEATURES': config.get('LONG_AUDIO_SIMPLIFIED_FEATURES', True),
+            'LONG_AUDIO_CATEGORIES': config.get('LONG_AUDIO_CATEGORIES', 'long_mix,podcast,radio,compilation'),
+            'LONG_AUDIO_SKIP_DETAILED_ANALYSIS': config.get('LONG_AUDIO_SKIP_DETAILED_ANALYSIS', True),
+            'LONG_AUDIO_EXTRACT_BASIC_FEATURES': config.get('LONG_AUDIO_EXTRACT_BASIC_FEATURES', True)
         }
         
         self._update_cache(cache_key, audio_config)

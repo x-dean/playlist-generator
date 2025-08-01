@@ -217,6 +217,15 @@ class AudioAnalyzer:
         # Extract metadata first
         metadata = self._extract_metadata(file_path)
         
+        # Check if this is a long audio track
+        is_long_audio = self._is_long_audio_track(file_path)
+        
+        # Add long audio flag to metadata for feature extraction
+        if metadata:
+            metadata['is_long_audio'] = is_long_audio
+        else:
+            metadata = {'is_long_audio': is_long_audio}
+        
         # Perform audio analysis
         analysis_result = self._extract_audio_features(audio, sample_rate, metadata)
         if analysis_result is None:
@@ -232,6 +241,14 @@ class AudioAnalyzer:
         
         # Determine audio type and add file information
         audio_type = self._get_audio_type(file_path, audio)
+        is_long_audio = self._is_long_audio_track(file_path)
+        
+        # Determine long audio category if it's a long audio track
+        long_audio_category = None
+        if is_long_audio:
+            long_audio_category = self._determine_long_audio_category(file_path, metadata, features)
+            log_universal('INFO', 'Audio', f'Long audio category determined: {long_audio_category}')
+        
         analysis_result.update({
             'file_path': file_path,
             'filename': os.path.basename(file_path),
@@ -240,9 +257,14 @@ class AudioAnalyzer:
             'analysis_date': datetime.now(),
             'analysis_version': '1.0.0',
             'audio_type': audio_type,
-            'is_long_audio': self._is_long_audio_track(file_path),
-            'is_extremely_large': self._is_extremely_large_for_processing(audio)
+            'is_long_audio': is_long_audio,
+            'is_extremely_large': self._is_extremely_large_for_processing(audio),
+            'long_audio_category': long_audio_category
         })
+        
+        # Update metadata with long audio category
+        if metadata and long_audio_category:
+            metadata['long_audio_category'] = long_audio_category
         
         # Cache results
         if self.cache_enabled:
@@ -518,6 +540,7 @@ class AudioAnalyzer:
         """
         Extract comprehensive audio features.
         Uses original skip logic for extremely large files to prevent RAM saturation.
+        Also uses simplified analysis for long audio tracks based on configuration.
         
         Args:
             audio: Audio data as numpy array
@@ -531,6 +554,16 @@ class AudioAnalyzer:
         
         # Check if file is extremely large (original logic)
         is_extremely_large_for_processing = self._is_extremely_large_for_processing(audio)
+        
+        # Check if this is a long audio track that should use simplified analysis
+        is_long_audio = metadata.get('is_long_audio', False) if metadata else False
+        long_audio_simplified = self.config.get('LONG_AUDIO_SIMPLIFIED_FEATURES', True)
+        long_audio_skip_detailed = self.config.get('LONG_AUDIO_SKIP_DETAILED_ANALYSIS', True)
+        
+        # Use simplified analysis for long audio tracks if configured
+        if is_long_audio and long_audio_simplified and long_audio_skip_detailed:
+            log_universal('INFO', 'Audio', 'Using simplified analysis for long audio track')
+            return self._extract_simplified_features(audio, sample_rate, metadata)
         
         try:
             # Extract rhythm features (skip for extremely large files)
@@ -959,6 +992,173 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Could not determine audio type: {e}')
             return 'normal'
+
+    def _determine_long_audio_category(self, audio_path: str, metadata: Dict[str, Any] = None, 
+                                     audio_features: Dict[str, Any] = None) -> str:
+        """
+        Determine the category of a long audio track using metadata and audio features.
+
+        Args:
+            audio_path: Path to the audio file
+            metadata: Optional metadata dictionary
+            audio_features: Optional audio features dictionary
+
+        Returns:
+            Category string (long_mix, podcast, radio, compilation, or unknown)
+        """
+        try:
+            # Get configured categories
+            categories_str = self.config.get('LONG_AUDIO_CATEGORIES', 'long_mix,podcast,radio,compilation')
+            if isinstance(categories_str, str):
+                categories = categories_str.split(',')
+            else:
+                categories = categories_str
+
+            # Priority 1: Check metadata first
+            if metadata:
+                title = metadata.get('title', '').lower()
+                artist = metadata.get('artist', '').lower()
+                album = metadata.get('album', '').lower()
+
+                # Podcast detection
+                if any(word in title for word in ['podcast', 'episode', 'show', 'talk']):
+                    return 'podcast'
+                if any(word in artist for word in ['podcast', 'radio', 'station']):
+                    return 'podcast'
+
+                # Radio detection
+                if any(word in title for word in ['radio', 'broadcast', 'live']):
+                    return 'radio'
+                if any(word in artist for word in ['radio', 'station', 'broadcast']):
+                    return 'radio'
+
+                # Long mix detection
+                if any(word in title for word in ['mix', 'dj', 'set', 'session']):
+                    return 'long_mix'
+                if any(word in artist for word in ['dj', 'mix', 'session']):
+                    return 'long_mix'
+
+                # Compilation detection
+                if any(word in title for word in ['compilation', 'collection', 'various']):
+                    return 'compilation'
+                if any(word in album for word in ['compilation', 'collection', 'various']):
+                    return 'compilation'
+
+            # Priority 2: Use audio features for categorization
+            if audio_features:
+                category = self._categorize_by_audio_features(audio_features)
+                if category:
+                    log_universal('INFO', 'Audio', f"Category determined by audio features: {category}")
+                    return category
+
+            # Priority 3: Check filename for patterns
+            filename = os.path.basename(audio_path).lower()
+
+            if any(word in filename for word in ['podcast', 'episode', 'show']):
+                return 'podcast'
+            if any(word in filename for word in ['radio', 'broadcast', 'live']):
+                return 'radio'
+            if any(word in filename for word in ['mix', 'dj', 'set']):
+                return 'long_mix'
+            if any(word in filename for word in ['compilation', 'collection', 'various']):
+                return 'compilation'
+
+            # Default fallback
+            return 'long_mix'
+
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f"Error determining long audio category: {e}")
+            return 'long_mix'
+
+    def _categorize_by_audio_features(self, features: Dict[str, Any]) -> Optional[str]:
+        """
+        Categorize long audio track based on audio features.
+
+        Args:
+            features: Dictionary of audio features
+
+        Returns:
+            Category string or None if cannot determine
+        """
+        try:
+            # Extract key features
+            bpm = features.get('bpm', -1)
+            confidence = features.get('confidence', 0.5)
+            spectral_centroid = features.get('spectral_centroid', 0)
+            spectral_flatness = features.get('spectral_flatness', 0.5)
+            loudness = features.get('loudness', 0.5)
+            dynamic_complexity = features.get('dynamic_complexity', 0.5)
+
+            # Podcast detection (speech-like characteristics)
+            if (bpm > 0 and bpm < 90 and confidence < 0.6 and
+                spectral_centroid < 2500 and spectral_flatness > 0.3):
+                return 'podcast'
+
+            # Radio detection (mixed content, variable characteristics)
+            if (bpm > 0 and 80 <= bpm <= 140 and 0.4 <= confidence <= 0.8 and
+                spectral_centroid > 2000 and spectral_flatness < 0.4):
+                return 'radio'
+
+            # Long mix detection (consistent music, high energy)
+            if (bpm > 0 and bpm > 120 and confidence > 0.7 and
+                spectral_centroid > 3000 and spectral_flatness < 0.3 and
+                loudness > 0.5):
+                return 'long_mix'
+
+            # Compilation detection (variable characteristics)
+            if (bpm > 0 and confidence < 0.6 and
+                spectral_flatness > 0.4 and dynamic_complexity > 0.6):
+                return 'compilation'
+
+            return None
+
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f"Error in audio feature categorization: {e}")
+            return None
+
+    def _extract_simplified_features(self, audio: np.ndarray, sample_rate: int,
+                                   metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Extract simplified features for long audio tracks.
+        
+        Args:
+            audio: Audio data as numpy array
+            sample_rate: Sample rate in Hz
+            metadata: Optional metadata dictionary
+            
+        Returns:
+            Simplified features dictionary
+        """
+        features = {}
+        
+        try:
+            # Basic rhythm features (essential for categorization)
+            if self.extract_rhythm:
+                rhythm_features = self._extract_rhythm_features(audio, sample_rate)
+                features.update(rhythm_features)
+            
+            # Basic loudness features (essential for categorization)
+            if self.extract_loudness:
+                loudness_features = self._extract_loudness_features(audio, sample_rate)
+                features.update(loudness_features)
+            
+            # Basic spectral features (essential for categorization)
+            if self.extract_spectral:
+                spectral_features = self._extract_spectral_features(audio, sample_rate)
+                features.update(spectral_features)
+            
+            # Skip memory-intensive features for long audio tracks
+            log_universal('INFO', 'Audio', 'Skipping detailed analysis (MFCC, MusiCNN, chroma) for long audio track')
+            
+            # Add BPM from metadata if available
+            if metadata and 'bpm_from_metadata' in metadata:
+                features['external_bpm'] = metadata['bpm_from_metadata']
+            
+            return features
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Simplified feature extraction failed: {e}')
+            return {}
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':
