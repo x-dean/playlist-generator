@@ -684,27 +684,83 @@ class AudioAnalyzer:
             return None
     
     def _extract_rhythm_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Extract rhythm-related features with improved handling for large files."""
+        """Extract rhythm-related features using lightweight approach for large files."""
         features = {}
         
         try:
             if ESSENTIA_AVAILABLE:
-                # For large files, use a sample to avoid buffer overflow
-                if len(audio) > 10000000:  # More than 10M samples (~3.8 minutes)
-                    log_universal('INFO', 'Audio', 'Using audio sample for rhythm analysis (large file)')
-                    sample_size = min(10000000, len(audio))  # Use first 10M samples
+                # For large files, use a much smaller sample to avoid RAM issues
+                if len(audio) > 5000000:  # More than 5M samples (~1.9 minutes)
+                    log_universal('INFO', 'Audio', 'Using lightweight rhythm analysis (large file)')
+                    # Use only first 15 seconds for rhythm analysis - ultra memory efficient
+                    sample_size = min(15 * sample_rate, len(audio))
                     audio_sample = audio[:sample_size]
                 else:
                     audio_sample = audio
                 
-                # Use Essentia for rhythm analysis
-                rhythm_extractor = es.RhythmExtractor2013()
-                rhythm_result = rhythm_extractor(audio_sample)
-                
-                features['bpm'] = float(rhythm_result[0])
-                features['rhythm_confidence'] = float(rhythm_result[1])
-                features['bpm_estimates'] = rhythm_result[2].tolist() if len(rhythm_result) > 2 else []
-                features['bpm_intervals'] = rhythm_result[3].tolist() if len(rhythm_result) > 3 else []
+                # Try a simpler approach first - use TempoTapDegara which is more reliable
+                try:
+                    tempo_tap = es.TempoTapDegara()
+                    ticks = tempo_tap(audio_sample)
+                    if len(ticks) > 0:
+                        # Calculate BPM from ticks
+                        intervals = np.diff(ticks)
+                        if len(intervals) > 0:
+                            mean_interval = np.mean(intervals)
+                            bpm = 60.0 / mean_interval if mean_interval > 0 else 120.0
+                            features['bpm'] = float(bpm)
+                            features['rhythm_confidence'] = 0.7
+                            features['bpm_estimates'] = [bpm]
+                            features['bpm_intervals'] = intervals.tolist()
+                        else:
+                            features['bpm'] = -1  # Out of range for failed extraction
+                            features['rhythm_confidence'] = 0.0
+                            features['bpm_estimates'] = []
+                            features['bpm_intervals'] = []
+                    else:
+                        features['bpm'] = -1  # Out of range for failed extraction
+                        features['rhythm_confidence'] = 0.0
+                        features['bpm_estimates'] = []
+                        features['bpm_intervals'] = []
+                        
+                except Exception as e:
+                    log_universal('DEBUG', 'Audio', f'TempoTapDegara failed, trying RhythmExtractor2013: {e}')
+                    
+                    # Fallback to RhythmExtractor2013 with better error handling
+                    rhythm_extractor = es.RhythmExtractor2013()
+                    rhythm_result = rhythm_extractor(audio_sample)
+                    
+                    # Handle the result more carefully
+                    try:
+                        if hasattr(rhythm_result, '__len__') and len(rhythm_result) > 0:
+                            # It's an array-like object
+                            if hasattr(rhythm_result[0], '__len__'):
+                                # First element is also an array, take its first element
+                                features['bpm'] = float(rhythm_result[0][0]) if len(rhythm_result[0]) > 0 else -1
+                            else:
+                                features['bpm'] = float(rhythm_result[0])
+                            
+                            if len(rhythm_result) > 1:
+                                if hasattr(rhythm_result[1], '__len__'):
+                                    features['rhythm_confidence'] = float(rhythm_result[1][0]) if len(rhythm_result[1]) > 0 else 0.0
+                                else:
+                                    features['rhythm_confidence'] = float(rhythm_result[1])
+                            else:
+                                features['rhythm_confidence'] = 0.0
+                        else:
+                            # Single value
+                            features['bpm'] = float(rhythm_result)
+                            features['rhythm_confidence'] = 0.0
+                            
+                        features['bpm_estimates'] = [features['bpm']] if features['bpm'] > 0 else []
+                        features['bpm_intervals'] = []
+                        
+                    except Exception as e2:
+                        log_universal('DEBUG', 'Audio', f'RhythmExtractor2013 also failed: {e2}')
+                        features['bpm'] = -1  # Out of range for failed extraction
+                        features['rhythm_confidence'] = 0.0
+                        features['bpm_estimates'] = []
+                        features['bpm_intervals'] = []
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa as fallback
@@ -713,13 +769,21 @@ class AudioAnalyzer:
                 features['rhythm_confidence'] = 0.5  # Default confidence for librosa
                 features['bpm_estimates'] = [tempo]
                 features['bpm_intervals'] = []
+            else:
+                # No rhythm extraction available
+                features['bpm'] = -1  # Out of range for failed extraction
+                features['rhythm_confidence'] = 0.0
+                features['bpm_estimates'] = []
+                features['bpm_intervals'] = []
             
             log_universal('DEBUG', 'Audio', f'Extracted rhythm features: BPM={features.get("bpm")}')
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Rhythm feature extraction failed: {e}')
-            features['bpm'] = None
-            features['rhythm_confidence'] = None
+            features['bpm'] = -1  # Out of range for failed extraction
+            features['rhythm_confidence'] = 0.0
+            features['bpm_estimates'] = []
+            features['bpm_intervals'] = []
         
         return features
     
@@ -745,7 +809,8 @@ class AudioAnalyzer:
                 
                 # Add spectral flatness for better categorization
                 try:
-                    flatness_algo = es.SpectralFlatness()
+                    # Use FlatnessSFX which is available in Essentia
+                    flatness_algo = es.FlatnessSFX()
                     flatness_values = flatness_algo(audio)
                     flatness_mean = float(np.nanmean(flatness_values)) if isinstance(
                         flatness_values, (list, np.ndarray)) else float(flatness_values)
@@ -807,9 +872,15 @@ class AudioAnalyzer:
                 
                 # Add dynamic complexity for better categorization
                 try:
-                    dynamic_algo = es.DynamicComplexity()
-                    dynamic_result = dynamic_algo(audio)
-                    features['dynamic_complexity'] = float(dynamic_result)
+                    # Use RMS-based dynamic complexity calculation
+                    rms_values = rms_algo(audio)
+                    if isinstance(rms_values, (list, np.ndarray)):
+                        rms_std = float(np.nanstd(rms_values))
+                        rms_mean = float(np.nanmean(rms_values))
+                        # Dynamic complexity as coefficient of variation
+                        features['dynamic_complexity'] = rms_std / rms_mean if rms_mean > 0 else 0.5
+                    else:
+                        features['dynamic_complexity'] = 0.5
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Dynamic complexity extraction failed: {e}')
                     features['dynamic_complexity'] = 0.5  # Default value
@@ -1040,12 +1111,12 @@ class AudioAnalyzer:
             file_size_mb = file_size / (1024 * 1024)
             
             # Get configuration values
-            max_file_size_mb = self.config.get('MAX_AUDIO_FILE_SIZE_MB', 500)
+            streaming_threshold_mb = self.config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 50)
             skip_large_files = self.config.get('SKIP_LARGE_FILES', True)
             
-            # Skip files larger than configured limit to prevent RAM saturation
-            if skip_large_files and file_size_mb > max_file_size_mb:
-                log_universal('WARNING', 'Audio', f'Skipping audio loading for large file ({file_size_mb:.1f}MB): {os.path.basename(file_path)}')
+            # Skip files larger than streaming threshold to prevent RAM saturation
+            if skip_large_files and file_size_mb > streaming_threshold_mb:
+                log_universal('WARNING', 'Audio', f'Using lightweight analysis for large file ({file_size_mb:.1f}MB): {os.path.basename(file_path)}')
                 return True
                 
             return False
@@ -1199,7 +1270,7 @@ class AudioAnalyzer:
             if bpm is None:
                 bpm = -1
             if confidence is None:
-                confidence = 0.5
+                confidence = 0.0
             if spectral_centroid is None:
                 spectral_centroid = 0
             if spectral_flatness is None:
@@ -1251,7 +1322,8 @@ class AudioAnalyzer:
             # - Lower confidence (inconsistent rhythm)
             # - Higher spectral flatness (variable content)
             # - Higher dynamic complexity (varied sections)
-            if (bpm > 0 and confidence < 0.7 and
+            # But exclude high-BPM electronic music which can have high flatness
+            if (bpm > 0 and bpm < 120 and confidence < 0.7 and
                 spectral_flatness > 0.3 and dynamic_complexity > 0.5):
                 log_universal('INFO', 'Audio', 'Detected as compilation based on variable characteristics')
                 return 'compilation'
@@ -1271,12 +1343,29 @@ class AudioAnalyzer:
                     log_universal('INFO', 'Audio', 'Fallback: Detected as radio based on medium characteristics')
                     return 'radio'
             
+            # 6. Handle failed rhythm extraction (BPM = -1)
+            if bpm == -1:
+                log_universal('INFO', 'Audio', 'Rhythm extraction failed, using spectral features for categorization')
+                # Use spectral features when BPM extraction fails
+                if spectral_centroid > 2500 and spectral_flatness < 0.3:
+                    log_universal('INFO', 'Audio', 'Fallback: Detected as long mix based on spectral characteristics')
+                    return 'long_mix'
+                elif spectral_flatness > 0.4:
+                    log_universal('INFO', 'Audio', 'Fallback: Detected as compilation based on spectral flatness')
+                    return 'compilation'
+                elif spectral_centroid < 2000:
+                    log_universal('INFO', 'Audio', 'Fallback: Detected as podcast based on low spectral centroid')
+                    return 'podcast'
+                else:
+                    log_universal('INFO', 'Audio', 'Fallback: Detected as radio based on spectral characteristics')
+                    return 'radio'
+            
             # 6. Final fallback based on spectral characteristics
             if spectral_centroid < 2000:
                 log_universal('INFO', 'Audio', 'Final fallback: Detected as podcast based on low spectral centroid')
                 return 'podcast'
-            elif spectral_flatness > 0.4:
-                log_universal('INFO', 'Audio', 'Final fallback: Detected as compilation based on high spectral flatness')
+            elif spectral_flatness > 0.4 and spectral_centroid < 2500:
+                log_universal('INFO', 'Audio', 'Final fallback: Detected as compilation based on high spectral flatness and low centroid')
                 return 'compilation'
             else:
                 log_universal('INFO', 'Audio', 'Final fallback: Detected as long mix based on tonal characteristics')
@@ -1417,8 +1506,8 @@ class AudioAnalyzer:
             
             features = {}
             
-            # Try to load a small sample for analysis (first 30 seconds)
-            sample_duration = 30  # seconds
+            # Try to load a small sample for analysis (first 15 seconds)
+            sample_duration = 15  # seconds
             sample_size = sample_duration * self.sample_rate
             
             try:

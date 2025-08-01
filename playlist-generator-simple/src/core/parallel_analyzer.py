@@ -110,7 +110,7 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
         
         duration = time.time() - start_time
         
-        if analysis_result and analysis_result.get('success', False):
+        if analysis_result:
             # Save to database using standalone database manager
             if db_path:
                 from .database import DatabaseManager

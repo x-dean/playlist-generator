@@ -715,6 +715,36 @@ class DatabaseManager:
                 key_confidence = analysis_data.get('key_confidence')
                 
                 # Insert into tracks table (excluding auto-increment id)
+                # Ensure we have exactly 59 values (excluding auto-increment id)
+                values = (file_path, file_hash, filename, file_size_bytes, analysis_date, analysis_version,
+                         analysis_type, long_audio_category, title, artist, album, track_number, genre, year,
+                         duration, bitrate, sample_rate, channels, composer, lyricist, band, conductor, remixer,
+                         subtitle, grouping, publisher, copyright, encoded_by, language, mood, style, quality,
+                         original_artist, original_album, original_year, original_filename, content_group, encoder,
+                         file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain,
+                         replaygain_album_gain, replaygain_track_peak, replaygain_album_peak, bpm, key, mode,
+                         scale, key_strength, loudness, danceability, energy, rhythm_confidence, key_confidence,
+                         analysis_date, analysis_date)  # created_at and updated_at use analysis_date
+                
+                # Verify we have exactly 59 values
+                if len(values) != 59:
+                    log_universal('ERROR', 'Database', f"Expected 59 values, got {len(values)}")
+                    return False
+                
+                # Debug: Log the number of values and the actual values
+                log_universal('DEBUG', 'Database', f"Inserting {len(values)} values into tracks table")
+                log_universal('DEBUG', 'Database', f"Values tuple: {values}")
+                
+                # Convert datetime objects to strings for SQLite compatibility
+                converted_values = []
+                for i, value in enumerate(values):
+                    if isinstance(value, datetime):
+                        converted_values.append(value.isoformat())
+                        log_universal('DEBUG', 'Database', f"Converted datetime at position {i}: {value} -> {value.isoformat()}")
+                    else:
+                        converted_values.append(value)
+                
+                log_universal('DEBUG', 'Database', f"About to execute INSERT with {len(converted_values)} values")
                 cursor.execute("""
                     INSERT OR REPLACE INTO tracks (
                         file_path, file_hash, filename, file_size_bytes, analysis_date, analysis_version, 
@@ -727,15 +757,8 @@ class DatabaseManager:
                         scale, key_strength, loudness, danceability, energy, rhythm_confidence, key_confidence,
                         created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (file_path, file_hash, filename, file_size_bytes, analysis_date, analysis_version,
-                     analysis_type, long_audio_category, title, artist, album, track_number, genre, year,
-                     duration, bitrate, sample_rate, channels, composer, lyricist, band, conductor, remixer,
-                     subtitle, grouping, publisher, copyright, encoded_by, language, mood, style, quality,
-                     original_artist, original_album, original_year, original_filename, content_group, encoder,
-                     file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain,
-                     replaygain_album_gain, replaygain_track_peak, replaygain_album_peak, bpm, key, mode,
-                     scale, key_strength, loudness, danceability, energy, rhythm_confidence, key_confidence,
-                     analysis_date, analysis_date))  # created_at and updated_at use analysis_date
+                """, converted_values)
+                log_universal('DEBUG', 'Database', f"INSERT executed successfully")
                 
                 # Get the track ID for related tables
                 track_id = cursor.lastrowid
@@ -812,6 +835,8 @@ class DatabaseManager:
     def _save_audio_features(self, cursor, track_id: int, analysis_data: Dict[str, Any]):
         """Save audio features to specialized tables."""
         try:
+            log_universal('DEBUG', 'Database', f"Saving audio features for track_id {track_id}")
+            log_universal('DEBUG', 'Database', f"Analysis data keys: {list(analysis_data.keys())}")
             # Spectral features
             if 'spectral_features' in analysis_data:
                 sf = analysis_data['spectral_features']

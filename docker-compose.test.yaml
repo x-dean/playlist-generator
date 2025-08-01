@@ -1,22 +1,27 @@
 version: '3.8'
 
 services:
-  playlista:
-    # Build from the local Dockerfile in the current directory
-    build: .
-    container_name: playlista_test
+  playlista-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: playlista-test
     volumes:
-      - /root/music/test_files:/music
-      - /root/music/test/cache:/app/cache
-      - /root/music/test/logs:/app/logs
-      - /root/music/playlista/models/musicnn:/app/feature_extraction/models/musicnn
-      - /root/music/playlist_output:/app/playlists
-    # Optional: set working directory if needed
-    # working_dir: /app
-    # Optional: environment variables
-    # environment:
-    #   - SOME_ENV_VAR=value
-    # Optional: entrypoint override if needed
-    # entrypoint: ["/bin/bash"]
-    # Remove container after run
-    restart: "no" 
+      - ./test_large_files:/app/test_music:ro
+      - ./cache:/app/cache
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+    working_dir: /app
+    command: >
+      sh -c "
+        echo 'Starting test analysis of large files...' &&
+        python -m src.core.sequential_analyzer /app/test_music/*.mp3 /app/test_music/*.flac /app/test_music/*.ogg /app/test_music/*.m4a
+      "
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G 

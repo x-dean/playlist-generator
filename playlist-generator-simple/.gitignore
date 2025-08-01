@@ -121,4 +121,18 @@ Thumbs.db
 *.sqlite3
 logs/
 cache/
-failed_files/ 
+failed_files/
+
+# Test directories with large audio files
+test_large_files/
+test_large_files_only/
+test_music/
+
+# Audio files
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.wav
+*.aac
+*.wma 
