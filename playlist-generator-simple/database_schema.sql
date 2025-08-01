@@ -113,10 +113,7 @@ CREATE TABLE tracks (
     replaygain_track_gain REAL,
     replaygain_album_gain REAL,
     replaygain_track_peak REAL,
-    replaygain_album_peak REAL,
-    scale TEXT, -- Duplicate for compatibility
-    key_strength REAL, -- Duplicate for compatibility
-    rhythm_confidence REAL -- Duplicate for compatibility
+    replaygain_album_peak REAL
 );
 
 -- Tags table for external API data and enrichment
