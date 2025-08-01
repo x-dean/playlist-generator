@@ -28,10 +28,10 @@ class ColoredFormatter(logging.Formatter):
         'Database': '\033[95m',   # Magenta
         'Config': '\033[96m',     # Cyan
         'Playlist': '\033[92m',   # Green
-        'Analysis': '\033[91m',   # Red
+        'Analysis': '\033[93m',   # Yellow (changed from red)
         'Resource': '\033[93m',   # Yellow
         'System': '\033[90m',     # Gray
-        'FileDiscovery': '\033[97m', # White
+        'FileDiscovery': '\033[96m', # Cyan (changed from white)
         'Enrichment': '\033[96m', # Cyan
         'Export': '\033[95m',     # Magenta
         'Pipeline': '\033[92m',   # Green
@@ -193,30 +193,62 @@ def log_universal(level: str, component: str, message: str, **kwargs):
 
 
 def log_api_call(api_name: str, operation: str, target: str, success: bool = True, 
-                details: str = None, duration: float = None, **kwargs):
+                details: str = None, duration: float = None, failure_type: str = None, **kwargs):
     """
-    Log API call.
+    Log API call with detailed information.
     
     Args:
-        api_name: Name of the API
-        operation: Operation performed
-        target: Target of the operation
-        success: Whether the operation was successful
-        details: Additional details
-        duration: Duration in seconds
-        **kwargs: Additional fields (ignored)
+        api_name: Name of the API (e.g., 'MusicBrainz', 'LastFM')
+        operation: Operation being performed (e.g., 'search', 'lookup')
+        target: Target of the operation (e.g., 'artist', 'album')
+        success: Whether the API call was successful
+        details: Additional details about the call
+        duration: Duration of the API call in seconds
+        failure_type: Type of failure ('no_data', 'network', 'timeout', etc.)
+        **kwargs: Additional keyword arguments
     """
-    status = "SUCCESS" if success else "FAILED"
-    message = f"{api_name} API {operation} {target}: {status}"
+    if success:
+        level = 'INFO'
+    else:
+        # Determine log level based on failure type
+        if failure_type in ['no_data', 'not_found', 'no_recordings']:
+            level = 'WARNING'  # API responded but no data found
+        else:
+            level = 'ERROR'    # Network issues, timeouts, etc.
+    
+    # Build the message with more detailed information
+    message_parts = [f"{api_name} API: {operation} {target}"]
     
     if details:
-        message += f" - {details}"
+        message_parts.append(f"({details})")
     
-    if duration:
-        message += f" ({duration:.2f}s)"
+    if duration is not None:
+        message_parts.append(f"took {duration:.2f}s")
     
-    log_level = 'INFO' if success else 'ERROR'
-    log_universal(log_level, api_name, message)
+    status = "SUCCESS" if success else "FAILED"
+    message_parts.append(f"- {status}")
+    
+    message = " ".join(message_parts)
+    
+    log_universal(level, f"{api_name} API", message, **kwargs)
+
+
+def log_session_header(session_name: str = None, **kwargs):
+    """
+    Log a session header with separator lines.
+    
+    Args:
+        session_name: Name of the session (optional)
+        **kwargs: Additional keyword arguments
+    """
+    separator = "-" * 50
+    log_universal('INFO', 'CLI', separator, **kwargs)
+    
+    if session_name:
+        log_universal('INFO', 'CLI', f"Session: {session_name}", **kwargs)
+        log_universal('INFO', 'CLI', separator, **kwargs)
+    else:
+        log_universal('INFO', 'CLI', separator, **kwargs)
 
 
 def log_function_call(func):

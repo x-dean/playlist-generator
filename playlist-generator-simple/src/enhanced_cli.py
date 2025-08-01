@@ -125,6 +125,10 @@ class EnhancedCLI:
             self._show_help()
             return 0
         
+        # Add session header
+        from core.logging_setup import log_session_header
+        log_session_header(f"playlista {parsed_args.command}")
+        
         # Route to appropriate handler
         try:
             if parsed_args.command == 'analyze':

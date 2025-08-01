@@ -1887,29 +1887,43 @@ class AudioAnalyzer:
             True if the track is considered long
         """
         try:
+            filename = os.path.basename(audio_path)
+            
             # Check if long audio detection is enabled
             if not self.config.get('LONG_AUDIO_ENABLED', True):
+                log_universal('DEBUG', 'Audio', f"Long audio detection disabled for: {filename}")
                 return False
             
             # Get duration threshold from configuration
             duration_threshold_minutes = self.config.get('LONG_AUDIO_DURATION_THRESHOLD_MINUTES', 20)
+            log_universal('DEBUG', 'Audio', f"Checking if {filename} is long audio (threshold: {duration_threshold_minutes}min)")
             
             # Check audio length if provided
             if audio_length is not None:
                 duration_minutes = (audio_length / DEFAULT_SAMPLE_RATE) / 60
+                log_universal('DEBUG', 'Audio', f"Audio length provided: {duration_minutes:.1f}min")
                 if duration_minutes > duration_threshold_minutes:
-                    log_universal('DEBUG', 'Audio', f"Audio duration {duration_minutes:.1f}min > {duration_threshold_minutes}min, classified as long audio")
+                    log_universal('INFO', 'Audio', f"Track classified as long audio: {filename} ({duration_minutes:.1f}min > {duration_threshold_minutes}min)")
                     return True
+                else:
+                    log_universal('DEBUG', 'Audio', f"Track not long enough: {filename} ({duration_minutes:.1f}min <= {duration_threshold_minutes}min)")
+                    return False
             
             # Fallback: check file duration
+            log_universal('DEBUG', 'Audio', f"Getting duration for: {filename}")
             duration = self._get_audio_duration(audio_path)
             if duration is not None:
                 duration_minutes = duration / 60
+                log_universal('DEBUG', 'Audio', f"File duration: {duration_minutes:.1f}min")
                 if duration_minutes > duration_threshold_minutes:
-                    log_universal('DEBUG', 'Audio', f"Audio duration {duration_minutes:.1f}min > {duration_threshold_minutes}min, classified as long audio")
+                    log_universal('INFO', 'Audio', f"Track classified as long audio: {filename} ({duration_minutes:.1f}min > {duration_threshold_minutes}min)")
                     return True
-            
-            return False
+                else:
+                    log_universal('DEBUG', 'Audio', f"Track not long enough: {filename} ({duration_minutes:.1f}min <= {duration_threshold_minutes}min)")
+                    return False
+            else:
+                log_universal('DEBUG', 'Audio', f"Could not determine duration for: {filename}")
+                return False
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f"Error checking if audio is long track: {e}")
@@ -1929,12 +1943,16 @@ class AudioAnalyzer:
             Category string (long_mix, podcast, radio, compilation, or unknown)
         """
         try:
+            filename = os.path.basename(audio_path)
+            log_universal('INFO', 'Audio', f"Starting long audio category determination for: {filename}")
+            
             # Get available categories from configuration
             categories_str = self.config.get('LONG_AUDIO_CATEGORIES', 'long_mix,podcast,radio,compilation')
             if isinstance(categories_str, list):
                 categories = categories_str
             else:
                 categories = categories_str.split(',')
+            log_universal('DEBUG', 'Audio', f"Available categories: {categories}")
             
             # Priority 1: Check metadata first
             if metadata:
@@ -1942,46 +1960,67 @@ class AudioAnalyzer:
                 artist = metadata.get('artist', '').lower()
                 album = metadata.get('album', '').lower()
                 
+                log_universal('DEBUG', 'Audio', f"Metadata check - Title: '{title}', Artist: '{artist}', Album: '{album}'")
+                
                 # Check for podcast indicators
                 if any(word in title for word in ['podcast', 'episode', 'show']) or \
                    any(word in artist for word in ['podcast', 'radio', 'show']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (podcast indicators): podcast")
                     return 'podcast'
                 
                 # Check for radio indicators
                 if any(word in title for word in ['radio', 'broadcast', 'live']) or \
                    any(word in artist for word in ['radio', 'station', 'broadcast']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (radio indicators): radio")
                     return 'radio'
                 
                 # Check for mix indicators
                 if any(word in title for word in ['mix', 'compilation', 'collection']) or \
                    any(word in album for word in ['mix', 'compilation', 'collection']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (mix indicators): long_mix")
                     return 'long_mix'
                 
                 # Check for compilation indicators
                 if any(word in title for word in ['compilation', 'collection', 'various']) or \
                    any(word in album for word in ['compilation', 'collection', 'various']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (compilation indicators): compilation")
                     return 'compilation'
+                
+                log_universal('DEBUG', 'Audio', "No category indicators found in metadata")
+            else:
+                log_universal('DEBUG', 'Audio', "No metadata available for category determination")
             
             # Priority 2: Use audio features for categorization
             if audio_features:
+                log_universal('DEBUG', 'Audio', "Attempting categorization using audio features")
                 category = self._categorize_by_audio_features(audio_features)
                 if category:
                     log_universal('INFO', 'Audio', f"Category determined by audio features: {category}")
                     return category
+                else:
+                    log_universal('DEBUG', 'Audio', "Audio features categorization returned no result")
+            else:
+                log_universal('DEBUG', 'Audio', "No audio features available for categorization")
             
             # Priority 3: Check filename for patterns
-            filename = os.path.basename(audio_path).lower()
+            filename_lower = filename.lower()
+            log_universal('DEBUG', 'Audio', f"Checking filename patterns: '{filename_lower}'")
             
-            if any(word in filename for word in ['podcast', 'episode', 'show']):
+            if any(word in filename_lower for word in ['podcast', 'episode', 'show']):
+                log_universal('INFO', 'Audio', f"Category determined by filename (podcast patterns): podcast")
                 return 'podcast'
-            elif any(word in filename for word in ['radio', 'broadcast', 'live']):
+            elif any(word in filename_lower for word in ['radio', 'broadcast', 'live']):
+                log_universal('INFO', 'Audio', f"Category determined by filename (radio patterns): radio")
                 return 'radio'
-            elif any(word in filename for word in ['mix', 'compilation']):
+            elif any(word in filename_lower for word in ['mix', 'compilation']):
+                log_universal('INFO', 'Audio', f"Category determined by filename (mix patterns): long_mix")
                 return 'long_mix'
-            elif any(word in filename for word in ['compilation', 'collection', 'various']):
+            elif any(word in filename_lower for word in ['compilation', 'collection', 'various']):
+                log_universal('INFO', 'Audio', f"Category determined by filename (compilation patterns): compilation")
                 return 'compilation'
             
             # Default to long_mix for unknown long tracks
+            log_universal('INFO', 'Audio', f"Category determination complete - using default: long_mix")
             return 'long_mix'
             
         except Exception as e:
@@ -2007,27 +2046,36 @@ class AudioAnalyzer:
             loudness = features.get('loudness', 0.5)
             dynamic_complexity = features.get('dynamic_complexity', 0.5)
             
+            log_universal('DEBUG', 'Audio', f"Audio feature values - BPM: {bpm}, Confidence: {confidence}, "
+                        f"Spectral Centroid: {spectral_centroid}, Spectral Flatness: {spectral_flatness}, "
+                        f"Loudness: {loudness}, Dynamic Complexity: {dynamic_complexity}")
+            
             # Podcast detection (speech-like characteristics)
             if (bpm > 0 and bpm < 90 and confidence < 0.6 and 
                 spectral_centroid < 2500 and spectral_flatness > 0.3):
+                log_universal('DEBUG', 'Audio', "Podcast detection criteria met (speech-like characteristics)")
                 return 'podcast'
             
             # Radio detection (mixed content, variable characteristics)
             if (bpm > 0 and 80 <= bpm <= 140 and 0.4 <= confidence <= 0.8 and
                 spectral_centroid > 2000 and spectral_flatness < 0.4):
+                log_universal('DEBUG', 'Audio', "Radio detection criteria met (mixed content)")
                 return 'radio'
             
             # Long mix detection (consistent music, high energy)
             if (bpm > 0 and bpm > 120 and confidence > 0.7 and
                 spectral_centroid > 3000 and spectral_flatness < 0.3 and
                 loudness > 0.5):
+                log_universal('DEBUG', 'Audio', "Long mix detection criteria met (consistent music, high energy)")
                 return 'long_mix'
             
             # Compilation detection (variable characteristics)
             if (bpm > 0 and confidence < 0.6 and
                 spectral_flatness > 0.4 and dynamic_complexity > 0.6):
+                log_universal('DEBUG', 'Audio', "Compilation detection criteria met (variable characteristics)")
                 return 'compilation'
             
+            log_universal('DEBUG', 'Audio', "No audio feature categorization criteria met")
             return None
             
         except Exception as e:

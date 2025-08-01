@@ -100,7 +100,8 @@ class MusicBrainzClient:
             return None
             
         try:
-            log_api_call('MB API', 'search', f"'{title}' by '{artist or 'Unknown'}'")
+            import time
+            start_time = time.time()
             
             # Build search query
             query_parts = [f'title:"{title}"']
@@ -115,13 +116,17 @@ class MusicBrainzClient:
                 limit=1
             )
             
+            duration = time.time() - start_time
+            
             if not result or 'recording-list' not in result:
-                log_api_call('MB API', 'search', f"'{title}'", success=False, details='No data returned')
+                log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist or 'Unknown'}'", 
+                           success=False, details='No data returned', duration=duration, failure_type='no_data')
                 return None
             
             recordings = result['recording-list']
             if not recordings:
-                log_api_call('MB API', 'search', f"'{title}'", success=False, details='No recordings found')
+                log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist or 'Unknown'}'", 
+                           success=False, details='No recordings found', duration=duration, failure_type='no_recordings')
                 return None
             
             recording = recordings[0]
@@ -190,12 +195,13 @@ class MusicBrainzClient:
                 tags=tags
             )
             
-            log_api_call('MB API', 'search', f"'{track.artist}' - '{track.title}'", 
-                        success=True, details=f"{len(tags)} tags")
+            log_api_call('MusicBrainz', 'search', f"'{track.artist}' - '{track.title}'", 
+                        success=True, details=f"found {len(tags)} tags", duration=duration)
             return track
             
         except Exception as e:
-            log_api_call('MB API', 'search', f"'{title}'", success=False, details=f"Error: {e}")
+            log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist or 'Unknown'}'", 
+                        success=False, details=f"Error: {e}", duration=duration, failure_type='network')
             return None
 
 
@@ -259,9 +265,14 @@ class LastFMClient:
                 'format': 'json'
             })
             
-            log_api_call('LF API', method, 'API request')
+            import time
+            start_time = time.time()
+            
+            log_api_call('LastFM', method, 'API request')
             
             response = self.session.get(self.BASE_URL, params=params, timeout=30)
+            
+            duration = time.time() - start_time
             
             # Rate limiting
             time.sleep(self._rate_limit_delay)
@@ -269,17 +280,17 @@ class LastFMClient:
             if response.status_code == 200:
                 data = response.json()
                 if 'error' in data:
-                    log_api_call('LF API', method, 'API request', success=False, details=data['message'])
+                    log_api_call('LastFM', method, 'API request', success=False, details=data['message'], duration=duration, failure_type='no_data')
                     return {}
-                log_api_call('LF API', method, 'API request', success=True)
+                log_api_call('LastFM', method, 'API request', success=True, duration=duration)
                 return data
             else:
-                log_api_call('LF API', method, 'API request', success=False, 
-                           details=f"HTTP {response.status_code}: {response.text}")
+                log_api_call('LastFM', method, 'API request', success=False, 
+                           details=f"HTTP {response.status_code}: {response.text}", duration=duration, failure_type='network')
                 return {}
                 
         except requests.RequestException as e:
-            log_api_call('LF API', method, 'API request', success=False, details=f"Request failed: {e}")
+            log_api_call('LastFM', method, 'API request', success=False, details=f"Request failed: {e}", duration=duration, failure_type='network')
             return {}
     
     def get_track_info(self, track: str, artist: str) -> Optional[LastFMTrack]:
@@ -294,15 +305,20 @@ class LastFMClient:
             LastFMTrack object or None if not found
         """
         try:
-            log_api_call('LF API', 'get_track_info', f"'{track}' by '{artist}'")
+            import time
+            start_time = time.time()
+            
+            log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'")
             
             result = self._make_request('track.getInfo', {
                 'track': track,
                 'artist': artist
             })
             
+            duration = time.time() - start_time
+            
             if not result or 'track' not in result:
-                log_api_call('LF API', 'get_track_info', f"'{track}'", success=False, details='No data returned')
+                log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'", success=False, details='No data returned', duration=duration, failure_type='no_data')
                 return None
             
             track_data = result['track']
@@ -342,12 +358,12 @@ class LastFMClient:
                 url=url
             )
             
-            log_api_call('LF API', 'get_track_info', f"'{lastfm_track.artist}' - '{lastfm_track.name}'", 
-                        success=True, details=f"{len(lastfm_track.tags)} tags")
+            log_api_call('LastFM', 'get_track_info', f"'{lastfm_track.artist}' - '{lastfm_track.name}'", 
+                        success=True, details=f"found {len(lastfm_track.tags)} tags", duration=duration)
             return lastfm_track
             
         except Exception as e:
-            log_api_call('LF API', 'get_track_info', f"'{track}'", success=False, details=f"Error: {e}")
+            log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'", success=False, details=f"Error: {e}", duration=duration, failure_type='network')
             return None
     
     def get_track_tags(self, track: str, artist: str) -> List[str]:
