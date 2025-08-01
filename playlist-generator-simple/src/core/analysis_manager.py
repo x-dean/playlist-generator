@@ -154,7 +154,7 @@ class AnalysisManager:
                 music_path = self.config.get('MUSIC_PATH', '/music')
             
             # Discover audio files
-            audio_files = self.file_discovery.discover_audio_files(music_path)
+            audio_files = self.file_discovery.discover_files()
             
             if not audio_files:
                 log_universal('WARNING', 'Analysis', f"No audio files found in {music_path}")
