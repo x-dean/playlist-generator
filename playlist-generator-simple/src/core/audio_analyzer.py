@@ -603,46 +603,35 @@ class AudioAnalyzer:
         return features
     
     def _extract_spectral_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Extract spectral features."""
+        """Extract spectral features using the old working approach."""
         features = {}
         
         try:
             if ESSENTIA_AVAILABLE:
-                # Spectral centroid
-                centroid = es.SpectralCentroid()
-                spectral_centroid = centroid(audio)
-                features['spectral_centroid'] = float(np.mean(spectral_centroid))
+                # Use SpectralCentroidTime like the old working version
+                log_universal('DEBUG', 'Audio', "Initializing Essentia SpectralCentroidTime algorithm")
+                centroid_algo = es.SpectralCentroidTime()
+                log_universal('DEBUG', 'Audio', "Running spectral centroid analysis on audio")
+                centroid_values = centroid_algo(audio)
+                log_universal('DEBUG', 'Audio', "Spectral analysis completed successfully")
                 
-                # Spectral rolloff
-                rolloff = es.SpectralRolloff()
-                spectral_rolloff = rolloff(audio)
-                features['spectral_rolloff'] = float(np.mean(spectral_rolloff))
+                centroid_mean = float(np.nanmean(centroid_values)) if isinstance(
+                    centroid_values, (list, np.ndarray)) else float(centroid_values)
+                log_universal('DEBUG', 'Audio', f"Calculated mean spectral centroid: {centroid_mean:.1f}")
+                log_universal('INFO', 'Audio', f"Spectral features completed: centroid = {centroid_mean:.1f}Hz")
                 
-                # Spectral flatness
-                flatness = es.SpectralFlatness()
-                spectral_flatness = flatness(audio)
-                features['spectral_flatness'] = float(np.mean(spectral_flatness))
-                
-                # Spectral bandwidth
-                bandwidth = es.SpectralBandwidth()
-                spectral_bandwidth = bandwidth(audio)
-                features['spectral_bandwidth'] = float(np.mean(spectral_bandwidth))
-                
-                # Spectral contrast
-                contrast = es.SpectralContrast()
-                spectral_contrast = contrast(audio)
-                features['spectral_contrast_mean'] = float(np.mean(spectral_contrast))
-                features['spectral_contrast_std'] = float(np.std(spectral_contrast))
+                features['spectral_centroid'] = centroid_mean
+                features['spectral_rolloff'] = 0.0  # Not available in old version
+                features['spectral_flatness'] = 0.0  # Not available in old version
+                features['spectral_bandwidth'] = 0.0  # Not available in old version
+                features['spectral_contrast_mean'] = 0.0  # Not available in old version
+                features['spectral_contrast_std'] = 0.0  # Not available in old version
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa as fallback
                 spectral_centroids = librosa.feature.spectral_centroid(y=audio, sr=sample_rate)
                 features['spectral_centroid'] = float(np.mean(spectral_centroids))
-                
-                spectral_rolloff = librosa.feature.spectral_rolloff(y=audio, sr=sample_rate)
-                features['spectral_rolloff'] = float(np.mean(spectral_rolloff))
-                
-                # Simplified features for librosa
+                features['spectral_rolloff'] = 0.0
                 features['spectral_flatness'] = 0.0
                 features['spectral_bandwidth'] = 0.0
                 features['spectral_contrast_mean'] = 0.0
@@ -652,48 +641,46 @@ class AudioAnalyzer:
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Spectral feature extraction failed: {e}')
+            # Return default values like the old working version
             features.update({
-                'spectral_centroid': None,
-                'spectral_rolloff': None,
-                'spectral_flatness': None,
-                'spectral_bandwidth': None,
-                'spectral_contrast_mean': None,
-                'spectral_contrast_std': None
+                'spectral_centroid': 0.0,
+                'spectral_rolloff': 0.0,
+                'spectral_flatness': 0.0,
+                'spectral_bandwidth': 0.0,
+                'spectral_contrast_mean': 0.0,
+                'spectral_contrast_std': 0.0
             })
         
         return features
     
     def _extract_loudness_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Extract loudness features."""
+        """Extract loudness features using the old working approach."""
         features = {}
         
         try:
             if ESSENTIA_AVAILABLE:
-                # Loudness
-                loudness = es.Loudness()
-                loudness_value = loudness(audio)
-                features['loudness'] = float(loudness_value)
+                # Use RMS like the old working version
+                log_universal('DEBUG', 'Audio', "Initializing Essentia RMS algorithm")
+                rms_algo = es.RMS()
+                log_universal('DEBUG', 'Audio', "Running RMS analysis on audio")
+                rms_values = rms_algo(audio)
+                log_universal('DEBUG', 'Audio', "Loudness analysis completed successfully")
                 
-                # Loudness range
-                loudness_range = es.LoudnessRange()
-                loudness_range_value = loudness_range(audio)
-                features['loudness_range'] = float(loudness_range_value)
+                rms_mean = float(np.nanmean(rms_values)) if isinstance(
+                    rms_values, (list, np.ndarray)) else float(rms_values)
+                log_universal('DEBUG', 'Audio', f"Calculated mean RMS: {rms_mean:.3f}")
+                log_universal('INFO', 'Audio', f"Loudness extraction completed: RMS = {rms_mean:.3f}")
                 
-                # Dynamic complexity
-                dynamic_complexity = es.DynamicComplexity()
-                dynamic_complexity_value = dynamic_complexity(audio)
-                features['dynamic_complexity'] = float(dynamic_complexity_value)
-                
-                # Dynamic range
-                dynamic_range = es.DynamicRange()
-                dynamic_range_value = dynamic_range(audio)
-                features['dynamic_range'] = float(dynamic_range_value)
+                features['loudness'] = rms_mean
+                features['loudness_range'] = 0.0  # Not available in old version
+                features['dynamic_complexity'] = 0.0  # Not available in old version
+                features['dynamic_range'] = 0.0  # Not available in old version
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa as fallback
                 rms = librosa.feature.rms(y=audio)
                 features['loudness'] = float(np.mean(rms))
-                features['loudness_range'] = float(np.std(rms))
+                features['loudness_range'] = 0.0
                 features['dynamic_complexity'] = 0.0
                 features['dynamic_range'] = 0.0
             
@@ -701,47 +688,52 @@ class AudioAnalyzer:
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Loudness feature extraction failed: {e}')
+            # Return default values like the old working version
             features.update({
-                'loudness': None,
-                'loudness_range': None,
-                'dynamic_complexity': None,
-                'dynamic_range': None
+                'loudness': 0.0,
+                'loudness_range': 0.0,
+                'dynamic_complexity': 0.0,
+                'dynamic_range': 0.0
             })
         
         return features
     
     def _extract_key_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Extract key and mode features."""
+        """Extract key and mode features using the old working approach."""
         features = {}
         
         try:
             if ESSENTIA_AVAILABLE:
-                # Key detection
-                key_detector = es.Key()
-                key_result = key_detector(audio)
-                features['key'] = key_result[0]
-                features['mode'] = key_result[1]
-                features['key_strength'] = float(key_result[2])
-                features['key_confidence'] = float(key_result[3])
+                # Use KeyExtractor like the old working version
+                log_universal('DEBUG', 'Audio', "Using Essentia KeyExtractor for key detection")
+                key_algo = es.KeyExtractor()
+                log_universal('DEBUG', 'Audio', "Running key analysis on audio")
+                key, scale, strength = key_algo(audio)
+                log_universal('DEBUG', 'Audio', f"Extracted key: {key} {scale}, strength: {strength}")
+                
+                features['key'] = str(key)
+                features['scale'] = str(scale)
+                features['key_strength'] = float(strength)
+                log_universal('INFO', 'Audio', f"Key extraction completed: {key} {scale} (strength: {strength:.3f})")
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa as fallback
                 chroma = librosa.feature.chroma_cqt(y=audio, sr=sample_rate)
                 key_detector = librosa.feature.key_mode(chroma)
                 features['key'] = key_detector[0]
-                features['mode'] = key_detector[1]
+                features['scale'] = key_detector[1]
                 features['key_strength'] = 0.5
                 features['key_confidence'] = 0.5
             
-            log_universal('DEBUG', 'Audio', f'Extracted key features: {features.get("key")} {features.get("mode")}')
+            log_universal('DEBUG', 'Audio', f'Extracted key features: {features.get("key")} {features.get("scale")}')
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Key feature extraction failed: {e}')
+            # Return default values like the old working version
             features.update({
-                'key': None,
-                'mode': None,
-                'key_strength': None,
-                'key_confidence': None
+                'key': 'C',
+                'scale': 'major',
+                'key_strength': 0.0
             })
         
         return features
