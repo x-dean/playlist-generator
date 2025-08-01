@@ -104,87 +104,8 @@ class DatabaseManager:
         log_universal('INFO', 'Database', f"DatabaseManager initialization completed in {init_time:.2f}s")
 
     def _check_and_migrate_schema(self, cursor):
-        """Check and migrate database schema if needed."""
-        try:
-            log_universal('INFO', 'Database', "Checking database schema...")
-            
-            # Check if schema_version table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='schema_version'
-            """)
-            
-            if not cursor.fetchone():
-                # Create schema_version table
-                cursor.execute("""
-                    CREATE TABLE schema_version (
-                        version INTEGER PRIMARY KEY,
-                        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cursor.execute("INSERT INTO schema_version (version) VALUES (1)")
-                log_universal('INFO', 'Database', "Created schema_version table")
-                return
-            
-            # Check current schema version
-            cursor.execute("SELECT MAX(version) FROM schema_version")
-            current_version = cursor.fetchone()[0] or 0
-            log_universal('INFO', 'Database', f"Current schema version: {current_version}")
-            
-            if current_version < 2:
-                # Migrate to version 2 (add missing columns)
-                log_universal('INFO', 'Database', "Migrating database schema to version 2...")
-                
-                # Check if analysis_results table exists
-                cursor.execute("""
-                    SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name='analysis_results'
-                """)
-                
-                if cursor.fetchone():
-                    log_universal('INFO', 'Database', "analysis_results table exists, adding missing columns...")
-                    # Add missing columns if they don't exist
-                    try:
-                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN artist TEXT")
-                        log_universal('INFO', 'Database', "Added artist column")
-                    except sqlite3.OperationalError as e:
-                        log_universal('INFO', 'Database', f"artist column already exists: {e}")
-                    
-                    try:
-                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN album TEXT")
-                        log_universal('INFO', 'Database', "Added album column")
-                    except sqlite3.OperationalError as e:
-                        log_universal('INFO', 'Database', f"album column already exists: {e}")
-                    
-                    try:
-                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN title TEXT")
-                        log_universal('INFO', 'Database', "Added title column")
-                    except sqlite3.OperationalError as e:
-                        log_universal('INFO', 'Database', f"title column already exists: {e}")
-                    
-                    try:
-                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN genre TEXT")
-                        log_universal('INFO', 'Database', "Added genre column")
-                    except sqlite3.OperationalError as e:
-                        log_universal('INFO', 'Database', f"genre column already exists: {e}")
-                    
-                    try:
-                        cursor.execute("ALTER TABLE analysis_results ADD COLUMN year INTEGER")
-                        log_universal('INFO', 'Database', "Added year column")
-                    except sqlite3.OperationalError as e:
-                        log_universal('INFO', 'Database', f"year column already exists: {e}")
-                else:
-                    log_universal('INFO', 'Database', "analysis_results table does not exist yet")
-                
-                cursor.execute("INSERT INTO schema_version (version) VALUES (2)")
-                log_universal('INFO', 'Database', "Database schema migrated to version 2")
-            
-            else:
-                log_universal('INFO', 'Database', "Database schema is up to date")
-            
-        except Exception as e:
-            log_universal('ERROR', 'Database', f"Error during schema migration: {e}")
-            # Continue with normal initialization
+        """Schema migration removed - using fresh database approach."""
+        pass
 
     @log_function_call
     def _init_database(self):
@@ -198,8 +119,7 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Check if database needs migration
-                self._check_and_migrate_schema(cursor)
+                # Schema migration removed - using fresh database approach
                 
                 # Create playlists table
                 log_universal('DEBUG', 'Database', "Creating playlists table...")
