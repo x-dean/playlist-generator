@@ -40,9 +40,9 @@ def check_verbose_args():
             verbosity_map = {
                 1: 'INFO',
                 2: 'DEBUG', 
-                3: 'TRACE'
+                3: 'DEBUG'  # Max out at DEBUG level
             }
-            return verbosity_map.get(args.verbose, 'TRACE')
+            return verbosity_map.get(args.verbose, 'DEBUG')
     except:
         pass
     return None  # Return None if no verbose flags, so we use config default

@@ -39,9 +39,9 @@ def check_verbose_args():
             verbosity_map = {
                 1: 'INFO',
                 2: 'DEBUG', 
-                3: 'TRACE'
+                3: 'DEBUG'  # Max out at DEBUG level
             }
-            return verbosity_map.get(args.verbose, 'TRACE')
+            return verbosity_map.get(args.verbose, 'DEBUG')
     except:
         pass
     return None  # Return None if no verbose flags, so we use config default
@@ -202,7 +202,7 @@ Examples:
         
         # Global verbose options
         parser.add_argument('-v', '--verbose', action='count', default=0,
-                           help='Increase verbosity (-v: INFO, -vv: DEBUG, -vvv: TRACE)')
+                           help='Increase verbosity (-v: INFO, -vv: DEBUG, -vvv: DEBUG)')
         
         subparsers = parser.add_subparsers(dest='command', help='Available commands')
         
