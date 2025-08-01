@@ -8,10 +8,10 @@ from logging.handlers import RotatingFileHandler
 
 
 class ColoredFormatter(logging.Formatter):
-    """Custom formatter with colored log levels."""
+    """Custom formatter with colored log levels and modules."""
     
-    # ANSI color codes
-    COLORS = {
+    # ANSI color codes for log levels
+    LEVEL_COLORS = {
         'DEBUG': '\033[36m',    # Cyan
         'INFO': '\033[32m',     # Green
         'WARNING': '\033[33m',  # Yellow
@@ -20,16 +20,58 @@ class ColoredFormatter(logging.Formatter):
         'RESET': '\033[0m'      # Reset
     }
     
+    # ANSI color codes for modules
+    MODULE_COLORS = {
+        # Core components
+        'CLI': '\033[97m',        # White
+        'Audio': '\033[94m',      # Blue
+        'Database': '\033[95m',   # Magenta
+        'Config': '\033[96m',     # Cyan
+        'Playlist': '\033[92m',   # Green
+        'Analysis': '\033[91m',   # Red
+        'Resource': '\033[93m',   # Yellow
+        'System': '\033[90m',     # Gray
+        'FileDiscovery': '\033[97m', # White
+        'Enrichment': '\033[96m', # Cyan
+        'Export': '\033[95m',     # Magenta
+        'Pipeline': '\033[92m',   # Green
+        
+        # APIs
+        'API': '\033[93m',        # Yellow
+        'MB API': '\033[93m',     # Yellow (MusicBrainz)
+        'LF API': '\033[93m',     # Yellow (LastFM)
+        
+        # Audio processing libraries
+        'Essentia': '\033[94m',   # Blue
+        'Librosa': '\033[95m',    # Magenta
+        'TensorFlow': '\033[96m', # Cyan
+        'MusicBrainz': '\033[93m', # Yellow
+        
+        # Other components
+        'Cache': '\033[90m',      # Gray
+        'File': '\033[97m',       # White
+    }
+    
     def format(self, record):
         # Get the original formatted message
         formatted = super().format(record)
         
         # Add color to the level name
         level_name = record.levelname
-        if level_name in self.COLORS:
-            # Replace the level name with colored version
-            colored_level = f"{self.COLORS[level_name]}{level_name}{self.COLORS['RESET']}"
+        if level_name in self.LEVEL_COLORS:
+            colored_level = f"{self.LEVEL_COLORS[level_name]}{level_name}{self.LEVEL_COLORS['RESET']}"
             formatted = formatted.replace(level_name, colored_level)
+        
+        # Add color to module names in the message
+        message = record.getMessage()
+        for module, color in self.MODULE_COLORS.items():
+            if f"{module}:" in message:
+                colored_module = f"{color}{module}{self.LEVEL_COLORS['RESET']}"
+                message = message.replace(f"{module}:", f"{colored_module}:")
+        
+        # Replace the message in the formatted string
+        if record.getMessage() != message:
+            formatted = formatted.replace(record.getMessage(), message)
         
         return formatted
 
