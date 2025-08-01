@@ -219,13 +219,13 @@ class DatabaseManager:
                         file_path, file_hash, filename, file_size_bytes, analysis_date,
                         title, artist, album, track_number, genre, year, duration,
                         bpm, key, mode, loudness, danceability, energy,
-                        analysis_type, long_audio_category, discovery_date, discovery_source
+                        analysis_type, analyzed, long_audio_category, discovery_date, discovery_source
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     file_path, file_hash, filename, file_size_bytes, datetime.now(),
                     title, artist, album, track_number, genre, year, duration,
                     bpm, key, mode, loudness, danceability, energy,
-                    analysis_type, long_audio_category, datetime.now(), discovery_source
+                    analysis_type, True, long_audio_category, datetime.now(), discovery_source
                 ))
                 
                 track_id = cursor.lastrowid
@@ -768,7 +768,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT id, file_path, filename, file_size_bytes, file_hash, 
-                           analysis_date, analysis_type, long_audio_category,
+                           analysis_date, analysis_type, analyzed, long_audio_category,
                            title, artist, album, genre, year, duration,
                            bpm, key, mode, loudness, danceability, energy,
                            discovery_date, discovery_source, created_at, updated_at
@@ -789,23 +789,24 @@ class DatabaseManager:
                     'file_hash': result[4],
                     'analysis_date': result[5],
                     'analysis_type': result[6],
-                    'long_audio_category': result[7],
-                    'title': result[8],
-                    'artist': result[9],
-                    'album': result[10],
-                    'genre': result[11],
-                    'year': result[12],
-                    'duration': result[13],
-                    'bpm': result[14],
-                    'key': result[15],
-                    'mode': result[16],
-                    'loudness': result[17],
-                    'danceability': result[18],
-                    'energy': result[19],
-                    'discovery_date': result[20],
-                    'discovery_source': result[21],
-                    'created_at': result[22],
-                    'updated_at': result[23]
+                    'analyzed': result[7],
+                    'long_audio_category': result[8],
+                    'title': result[9],
+                    'artist': result[10],
+                    'album': result[11],
+                    'genre': result[12],
+                    'year': result[13],
+                    'duration': result[14],
+                    'bpm': result[15],
+                    'key': result[16],
+                    'mode': result[17],
+                    'loudness': result[18],
+                    'danceability': result[19],
+                    'energy': result[20],
+                    'discovery_date': result[21],
+                    'discovery_source': result[22],
+                    'created_at': result[23],
+                    'updated_at': result[24]
                 }
                 
                 # Get tags for this track

@@ -29,6 +29,7 @@ CREATE TABLE tracks (
     
     -- Analysis metadata
     analysis_type TEXT DEFAULT 'full',
+    analyzed BOOLEAN DEFAULT FALSE,
     long_audio_category TEXT,
     
     -- Discovery metadata

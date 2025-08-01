@@ -67,6 +67,9 @@ def migrate_database(db_path: str) -> bool:
         # Add filename column to analysis_cache if needed
         add_filename_column_to_analysis_cache(cursor)
         
+        # Add analyzed column to tracks table if needed
+        add_analyzed_column_to_tracks(cursor)
+        
         # Check if old table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='analysis_results'")
         if not cursor.fetchone():
@@ -132,6 +135,30 @@ def add_filename_column_to_analysis_cache(cursor: sqlite3.Cursor) -> None:
             
     except Exception as e:
         print(f"Error adding filename column: {e}")
+        raise
+
+def add_analyzed_column_to_tracks(cursor):
+    """Add analyzed column to tracks table if it doesn't exist."""
+    try:
+        cursor.execute("PRAGMA table_info(tracks)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'analyzed' not in columns:
+            cursor.execute("ALTER TABLE tracks ADD COLUMN analyzed BOOLEAN DEFAULT FALSE")
+            print("Added 'analyzed' column to tracks table")
+            
+            # Update existing records to set analyzed = TRUE where analysis_type = 'full'
+            cursor.execute("""
+                UPDATE tracks 
+                SET analyzed = TRUE 
+                WHERE analysis_type = 'full' AND analyzed IS NULL
+            """)
+            print("Updated existing records to set analyzed = TRUE for full analysis")
+        else:
+            print("'analyzed' column already exists in tracks table")
+            
+    except Exception as e:
+        print(f"Failed to add analyzed column: {e}")
         raise
 
 def migrate_single_record(cursor: sqlite3.Cursor, row: tuple, record_num: int) -> None:
