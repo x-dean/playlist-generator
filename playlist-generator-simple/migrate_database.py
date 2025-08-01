@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Database migration script to upgrade from JSON blob to normalized schema.
+Database migration script for simplified schema.
 """
 
 import sqlite3
@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional
 
 def migrate_database(db_path: str) -> bool:
     """
-    Migrate existing database to new normalized schema.
+    Migrate existing database to new simplified schema.
     
     Args:
         db_path: Path to the database file
@@ -99,205 +99,105 @@ def migrate_existing_data(cursor: sqlite3.Cursor) -> None:
     for i, row in enumerate(rows):
         try:
             migrate_single_record(cursor, row, i + 1)
+            if (i + 1) % 100 == 0:
+                print(f"Migrated {i + 1} records...")
         except Exception as e:
             print(f"Failed to migrate record {i + 1}: {e}")
             continue
-    
-    print("Data migration completed")
 
 def migrate_single_record(cursor: sqlite3.Cursor, row: tuple, record_num: int) -> None:
     """
-    Migrate a single record from old to new schema.
+    Migrate a single record from old format to new schema.
     """
-    # Parse old row structure
-    file_path, filename, file_size_bytes, file_hash, analysis_data, metadata, artist, album, title, genre, year, long_audio_category, analysis_date = row
-    
-    # Parse JSON data
+    # Parse the old JSON data
     try:
-        analysis_dict = json.loads(analysis_data) if analysis_data else {}
-        metadata_dict = json.loads(metadata) if metadata else {}
-    except json.JSONDecodeError:
-        print(f"Invalid JSON in record {record_num}, skipping")
+        data = json.loads(row[1])  # Assuming JSON data is in second column
+    except (json.JSONDecodeError, IndexError):
+        print(f"Invalid JSON data in record {record_num}")
         return
     
-    # Insert into tracks table
+    # Extract basic file info
+    file_path = data.get('file_path', '')
+    filename = data.get('filename', '')
+    file_size_bytes = data.get('file_size_bytes', 0)
+    file_hash = data.get('file_hash', '')
+    
+    # Extract metadata
+    metadata = data.get('metadata', {})
+    title = metadata.get('title', 'Unknown')
+    artist = metadata.get('artist', 'Unknown')
+    album = metadata.get('album')
+    track_number = metadata.get('track_number')
+    genre = metadata.get('genre')
+    year = metadata.get('year')
+    
+    # Extract analysis data
+    analysis_data = data.get('analysis_data', {})
+    duration = analysis_data.get('duration')
+    bpm = analysis_data.get('bpm')
+    key = analysis_data.get('key')
+    mode = analysis_data.get('mode')
+    loudness = analysis_data.get('loudness')
+    danceability = analysis_data.get('danceability')
+    energy = analysis_data.get('energy')
+    
+    # Determine analysis type and category
+    analysis_type = analysis_data.get('analysis_type', 'full')
+    long_audio_category = analysis_data.get('long_audio_category')
+    
+    # Insert into new tracks table
     cursor.execute("""
-        INSERT INTO tracks (
-            file_path, filename, file_size_bytes, file_hash, analysis_date,
-            title, artist, album, genre, year, long_audio_category,
+        INSERT OR REPLACE INTO tracks (
+            file_path, file_hash, filename, file_size_bytes, analysis_date,
+            title, artist, album, track_number, genre, year, duration,
             bpm, key, mode, loudness, danceability, energy,
-            rhythm_confidence, key_confidence, duration
+            analysis_type, long_audio_category
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        file_path, filename, file_size_bytes, file_hash, analysis_date,
-        title, artist, album, genre, year, long_audio_category,
-        analysis_dict.get('bpm'), analysis_dict.get('key'), analysis_dict.get('mode'),
-        analysis_dict.get('loudness'), analysis_dict.get('danceability'), analysis_dict.get('energy'),
-        analysis_dict.get('confidence'), analysis_dict.get('key_confidence'), metadata_dict.get('duration')
+        file_path, file_hash, filename, file_size_bytes, 'now',
+        title, artist, album, track_number, genre, year, duration,
+        bpm, key, mode, loudness, danceability, energy,
+        analysis_type, long_audio_category
     ))
     
     track_id = cursor.lastrowid
     
-    # Migrate external API data
-    migrate_external_data(cursor, track_id, metadata_dict)
-    
-    # Migrate tags
-    migrate_tags(cursor, track_id, metadata_dict)
-    
-    # Migrate spectral features
-    migrate_spectral_features(cursor, track_id, analysis_dict)
-    
-    # Migrate loudness features
-    migrate_loudness_features(cursor, track_id, analysis_dict)
-    
-    # Migrate MFCC features
-    migrate_mfcc_features(cursor, track_id, analysis_dict)
-    
-    # Migrate MusiCNN features
-    migrate_musicnn_features(cursor, track_id, analysis_dict)
-    
-    # Migrate chroma features
-    migrate_chroma_features(cursor, track_id, analysis_dict)
-    
-    # Migrate rhythm features
-    migrate_rhythm_features(cursor, track_id, analysis_dict)
-    
-    # Migrate advanced features
-    migrate_advanced_features(cursor, track_id, analysis_dict)
-    
-    if record_num % 10 == 0:
-        print(f"Migrated {record_num} records...")
+    # Migrate tags if available
+    if 'tags' in data:
+        migrate_tags(cursor, track_id, data['tags'])
 
-def migrate_external_data(cursor: sqlite3.Cursor, track_id: int, metadata: Dict[str, Any]) -> None:
-    """Migrate external API data."""
-    if 'musicbrainz_id' in metadata:
-        cursor.execute("""
-            INSERT INTO external_metadata (
-                track_id, source, musicbrainz_id, musicbrainz_artist_id, 
-                musicbrainz_album_id, release_date
-            ) VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            track_id, 'musicbrainz',
-            metadata.get('musicbrainz_id'),
-            metadata.get('musicbrainz_artist_id'),
-            metadata.get('musicbrainz_album_id'),
-            metadata.get('release_date')
-        ))
+def migrate_tags(cursor: sqlite3.Cursor, track_id: int, tags: Dict[str, Any]) -> None:
+    """
+    Migrate tags to new schema.
+    """
+    for source, tag_data in tags.items():
+        if isinstance(tag_data, dict):
+            for tag_name, tag_value in tag_data.items():
+                cursor.execute("""
+                    INSERT OR REPLACE INTO tags (track_id, source, tag_name, tag_value)
+                    VALUES (?, ?, ?, ?)
+                """, (track_id, source, tag_name, str(tag_value)))
+        elif isinstance(tag_data, list):
+            for tag_name in tag_data:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO tags (track_id, source, tag_name)
+                    VALUES (?, ?, ?)
+                """, (track_id, source, tag_name))
 
-def migrate_tags(cursor: sqlite3.Cursor, track_id: int, metadata: Dict[str, Any]) -> None:
-    """Migrate tags from metadata."""
-    # MusicBrainz tags
-    if 'musicbrainz_tags' in metadata:
-        for tag in metadata['musicbrainz_tags']:
-            cursor.execute("""
-                INSERT INTO tags (track_id, source, tag_name)
-                VALUES (?, ?, ?)
-            """, (track_id, 'musicbrainz', tag))
+def main():
+    """Main migration function."""
+    if len(sys.argv) != 2:
+        print("Usage: python migrate_database.py <database_path>")
+        sys.exit(1)
     
-    # Last.fm tags
-    if 'lastfm_tags' in metadata:
-        for tag in metadata['lastfm_tags']:
-            cursor.execute("""
-                INSERT INTO tags (track_id, source, tag_name)
-                VALUES (?, ?, ?)
-            """, (track_id, 'lastfm', tag))
-
-def migrate_spectral_features(cursor: sqlite3.Cursor, track_id: int, analysis: Dict[str, Any]) -> None:
-    """Migrate spectral features."""
-    if any(key in analysis for key in ['spectral_centroid', 'spectral_rolloff', 'spectral_flatness']):
-        cursor.execute("""
-            INSERT INTO spectral_features (
-                track_id, spectral_centroid, spectral_rolloff, spectral_flatness
-            ) VALUES (?, ?, ?, ?)
-        """, (
-            track_id,
-            analysis.get('spectral_centroid'),
-            analysis.get('spectral_rolloff'),
-            analysis.get('spectral_flatness')
-        ))
-
-def migrate_loudness_features(cursor: sqlite3.Cursor, track_id: int, analysis: Dict[str, Any]) -> None:
-    """Migrate loudness features."""
-    if 'loudness' in analysis:
-        cursor.execute("""
-            INSERT INTO loudness_features (
-                track_id, integrated_loudness
-            ) VALUES (?, ?)
-        """, (track_id, analysis.get('loudness')))
-
-def migrate_mfcc_features(cursor: sqlite3.Cursor, track_id: int, analysis: Dict[str, Any]) -> None:
-    """Migrate MFCC features."""
-    if 'mfcc' in analysis:
-        cursor.execute("""
-            INSERT INTO mfcc_features (
-                track_id, mfcc_coefficients, mfcc_bands, mfcc_std
-            ) VALUES (?, ?, ?, ?)
-        """, (
-            track_id,
-            json.dumps(analysis.get('mfcc')),
-            json.dumps(analysis.get('mfcc_bands')),
-            json.dumps(analysis.get('mfcc_std'))
-        ))
-
-def migrate_musicnn_features(cursor: sqlite3.Cursor, track_id: int, analysis: Dict[str, Any]) -> None:
-    """Migrate MusiCNN features."""
-    if 'musicnn_embedding' in analysis:
-        cursor.execute("""
-            INSERT INTO musicnn_features (
-                track_id, embedding, tags
-            ) VALUES (?, ?, ?)
-        """, (
-            track_id,
-            json.dumps(analysis.get('musicnn_embedding')),
-            json.dumps(analysis.get('musicnn_tags'))
-        ))
-
-def migrate_chroma_features(cursor: sqlite3.Cursor, track_id: int, analysis: Dict[str, Any]) -> None:
-    """Migrate chroma features."""
-    if 'chroma' in analysis:
-        cursor.execute("""
-            INSERT INTO chroma_features (
-                track_id, chroma_mean, chroma_std
-            ) VALUES (?, ?, ?)
-        """, (
-            track_id,
-            json.dumps(analysis.get('chroma')),
-            json.dumps(analysis.get('chroma_std'))
-        ))
-
-def migrate_rhythm_features(cursor: sqlite3.Cursor, track_id: int, analysis: Dict[str, Any]) -> None:
-    """Migrate rhythm features."""
-    if any(key in analysis for key in ['bpm', 'estimates', 'bpm_intervals']):
-        cursor.execute("""
-            INSERT INTO rhythm_features (
-                track_id, bpm_estimates, bpm_intervals, external_bpm
-            ) VALUES (?, ?, ?, ?)
-        """, (
-            track_id,
-            json.dumps(analysis.get('estimates')),
-            json.dumps(analysis.get('bpm_intervals')),
-            analysis.get('external_bpm')
-        ))
-
-def migrate_advanced_features(cursor: sqlite3.Cursor, track_id: int, analysis: Dict[str, Any]) -> None:
-    """Migrate advanced features."""
-    if any(key in analysis for key in ['onset_rate', 'zero_crossing_rate']):
-        cursor.execute("""
-            INSERT INTO advanced_features (
-                track_id, onset_rate, zero_crossing_rate
-            ) VALUES (?, ?, ?)
-        """, (
-            track_id,
-            analysis.get('onset_rate'),
-            analysis.get('zero_crossing_rate')
-        ))
+    db_path = sys.argv[1]
+    
+    if migrate_database(db_path):
+        print("Migration completed successfully!")
+        sys.exit(0)
+    else:
+        print("Migration failed!")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    # Default database path
-    db_path = "cache/playlista.db"
-    
-    if len(sys.argv) > 1:
-        db_path = sys.argv[1]
-    
-    success = migrate_database(db_path)
-    sys.exit(0 if success else 1) 
+    main() 

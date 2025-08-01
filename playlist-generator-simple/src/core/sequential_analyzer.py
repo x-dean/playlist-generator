@@ -227,14 +227,24 @@ class SequentialAnalyzer:
                 # Prepare analysis data with status
                 analysis_data = analysis_result.get('features', {})
                 analysis_data['status'] = 'analyzed'
+                analysis_data['analysis_type'] = 'full'
                 
-                success = self.db_manager.save_track_to_normalized_schema(
+                # Extract metadata
+                metadata = analysis_result.get('metadata', {})
+                
+                # Determine long audio category
+                long_audio_category = None
+                if 'long_audio_category' in analysis_data:
+                    long_audio_category = analysis_data['long_audio_category']
+                
+                success = self.db_manager.save_analysis_result(
                     file_path=file_path,
                     filename=filename,
                     file_size_bytes=file_size_bytes,
                     file_hash=file_hash,
                     analysis_data=analysis_data,
-                    metadata=analysis_result.get('metadata', {})
+                    metadata=metadata,
+                    discovery_source='file_system'
                 )
                 
                 return success
@@ -242,7 +252,17 @@ class SequentialAnalyzer:
                 # Mark analysis as failed
                 filename = os.path.basename(file_path)
                 error_message = "Analysis failed - no valid result returned"
-                self.db_manager.mark_analysis_failed(file_path, filename, error_message)
+                
+                # Use analysis_cache table for failed analysis
+                with self.db_manager._get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO analysis_cache 
+                        (file_path, filename, error_message, status, retry_count)
+                        VALUES (?, ?, ?, 'failed', 0)
+                    """, (file_path, filename, error_message))
+                    conn.commit()
+                
                 log_universal('ERROR', 'Sequential', f"Analysis failed for {filename}: {error_message}")
                 return False
                 

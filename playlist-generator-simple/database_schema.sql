@@ -1,121 +1,52 @@
--- Ultimate Playlist Generator Database Schema
--- Captures ALL analysis data in normalized, indexed structure
+-- Optimized Playlist Generator Database Schema
+-- Designed for web UI performance with comprehensive data storage
 
--- Main tracks table
+-- Main tracks table with all essential data
 CREATE TABLE tracks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    file_path TEXT UNIQUE NOT NULL,  -- File storage reference
-    file_hash TEXT NOT NULL,         -- Change detection key (triggers re-analysis)
+    file_path TEXT UNIQUE NOT NULL,
+    file_hash TEXT NOT NULL,
     filename TEXT NOT NULL,
     file_size_bytes INTEGER NOT NULL,
     analysis_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    analysis_version TEXT,
-    analysis_type TEXT DEFAULT 'full', -- 'basic', 'full', 'simplified'
-    long_audio_category TEXT, -- 'podcast', 'audiobook', 'music', 'other'
     
-    -- Music identifiers (main lookup keys)
+    -- Core music metadata (indexed for fast lookups)
     title TEXT NOT NULL,
     artist TEXT NOT NULL,
     album TEXT,
     track_number INTEGER,
-    
-    -- Music metadata (indexed for fast queries)
     genre TEXT,
     year INTEGER,
-    duration REAL, -- seconds
-    bitrate INTEGER,
-    sample_rate INTEGER,
-    channels INTEGER,
+    duration REAL,
     
-    -- Extended metadata from file tags (Mutagen)
-    composer TEXT,
-    lyricist TEXT,
-    band TEXT,
-    conductor TEXT,
-    remixer TEXT,
-    subtitle TEXT,
-    grouping TEXT,
-    publisher TEXT,
-    copyright TEXT,
-    encoded_by TEXT,
-    language TEXT,
-    mood TEXT,
-    style TEXT,
-    quality TEXT,
-    original_artist TEXT,
-    original_album TEXT,
-    original_year INTEGER,
-    original_filename TEXT,
-    content_group TEXT,
-    encoder TEXT,
-    file_type TEXT,
-    playlist_delay INTEGER,
-    recording_time TEXT,
-    
-    -- Music-specific metadata from file tags
-    tempo TEXT,  -- Alternative BPM field
-    length TEXT, -- Track length in milliseconds
-    
-    -- ReplayGain metadata
-    replaygain_track_gain REAL,
-    replaygain_album_gain REAL,
-    replaygain_track_peak REAL,
-    replaygain_album_peak REAL,
-    
-    -- Audio features (indexed for playlist generation)
+    -- Audio features for playlist generation (indexed)
     bpm REAL,
     key TEXT,
-    mode TEXT, -- 'major', 'minor'
-    scale TEXT, -- 'major', 'minor', etc.
-    key_strength REAL,
+    mode TEXT,
     loudness REAL,
     danceability REAL,
     energy REAL,
     
-    -- Analysis confidence
-    rhythm_confidence REAL,
-    key_confidence REAL,
+    -- Analysis metadata
+    analysis_type TEXT DEFAULT 'full',
+    long_audio_category TEXT,
+    
+    -- Discovery metadata
+    discovery_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    discovery_source TEXT, -- 'file_system', 'user_input', 'api'
     
     -- Timestamps
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- External API data
-CREATE TABLE external_metadata (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL,
-    source TEXT NOT NULL, -- 'musicbrainz', 'lastfm', 'spotify'
-    
-    -- MusicBrainz data
-    musicbrainz_id TEXT,
-    musicbrainz_artist_id TEXT,
-    musicbrainz_album_id TEXT,
-    release_date DATE,
-    disc_number INTEGER,
-    duration_ms INTEGER,
-    
-    -- Last.fm data
-    lastfm_url TEXT,
-    play_count INTEGER,
-    listeners INTEGER,
-    rating REAL,
-    
-    -- Confidence and timestamps
-    confidence REAL DEFAULT 1.0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id, source)
-);
-
--- Tags from external APIs
+-- Tags table for external API data and enrichment
 CREATE TABLE tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     track_id INTEGER NOT NULL,
-    source TEXT NOT NULL, -- 'musicbrainz', 'lastfm', 'musicnn', 'user'
+    source TEXT NOT NULL, -- 'musicbrainz', 'lastfm', 'spotify', 'user'
     tag_name TEXT NOT NULL,
-    tag_value TEXT, -- For key-value tags
+    tag_value TEXT,
     confidence REAL DEFAULT 1.0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
@@ -123,113 +54,20 @@ CREATE TABLE tags (
     UNIQUE(track_id, source, tag_name, tag_value)
 );
 
--- Spectral features
-CREATE TABLE spectral_features (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL,
-    spectral_centroid REAL,
-    spectral_rolloff REAL,
-    spectral_flatness REAL,
-    spectral_bandwidth REAL,
-    spectral_contrast_mean REAL,
-    spectral_contrast_std REAL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id)
-);
-
--- Loudness features
-CREATE TABLE loudness_features (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL,
-    integrated_loudness REAL,
-    loudness_range REAL,
-    momentary_loudness_mean REAL,
-    momentary_loudness_std REAL,
-    short_term_loudness_mean REAL,
-    short_term_loudness_std REAL,
-    dynamic_complexity REAL,
-    dynamic_range REAL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id)
-);
-
--- MFCC features (stored as JSON for efficiency)
-CREATE TABLE mfcc_features (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL,
-    mfcc_coefficients TEXT, -- JSON array of 13+ values
-    mfcc_bands TEXT, -- JSON array
-    mfcc_std TEXT, -- JSON array
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id)
-);
-
--- MusiCNN features (neural embeddings)
-CREATE TABLE musicnn_features (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL,
-    embedding TEXT, -- JSON array of 200+ dimensions
-    tags TEXT, -- JSON object of predicted tags
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id)
-);
-
--- Chroma features
-CREATE TABLE chroma_features (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL,
-    chroma_mean TEXT, -- JSON array of 12 values
-    chroma_std TEXT, -- JSON array of 12 values
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id)
-);
-
--- Rhythm analysis details
-CREATE TABLE rhythm_features (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL,
-    bpm_estimates TEXT, -- JSON array
-    bpm_intervals TEXT, -- JSON array
-    external_bpm REAL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id)
-);
-
--- Advanced features
-CREATE TABLE advanced_features (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL,
-    onset_rate REAL,
-    zero_crossing_rate REAL,
-    harmonic_complexity REAL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(track_id)
-);
-
--- Playlists
+-- Playlists table
 CREATE TABLE playlists (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
     description TEXT,
+    generation_method TEXT, -- 'manual', 'auto', 'hybrid'
+    generation_params TEXT, -- JSON parameters used for generation
+    track_count INTEGER DEFAULT 0,
+    total_duration REAL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Playlist tracks
+-- Playlist tracks junction table with ordering
 CREATE TABLE playlist_tracks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     playlist_id INTEGER NOT NULL,
@@ -242,7 +80,7 @@ CREATE TABLE playlist_tracks (
     UNIQUE(playlist_id, track_id)
 );
 
--- Analysis cache (for failed/partial analyses)
+-- Analysis cache for failed/partial analyses
 CREATE TABLE analysis_cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_path TEXT UNIQUE NOT NULL,
@@ -250,164 +88,153 @@ CREATE TABLE analysis_cache (
     status TEXT DEFAULT 'failed', -- 'failed', 'partial', 'success'
     error_message TEXT,
     retry_count INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Failed analysis tracking
-CREATE TABLE failed_analysis (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    file_path TEXT UNIQUE NOT NULL,
-    filename TEXT NOT NULL,
-    error_message TEXT,
-    retry_count INTEGER DEFAULT 0,
-    failed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_retry_date TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- General cache table for API responses and other data
+-- Discovery cache for file system scanning
+CREATE TABLE discovery_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    directory_path TEXT NOT NULL,
+    file_count INTEGER DEFAULT 0,
+    last_scan_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    scan_duration REAL DEFAULT 0,
+    status TEXT DEFAULT 'completed', -- 'completed', 'failed', 'in_progress'
+    error_message TEXT,
+    
+    UNIQUE(directory_path)
+);
+
+-- General cache table for API responses and computed data
 CREATE TABLE cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cache_key TEXT UNIQUE NOT NULL,
     cache_value TEXT, -- JSON serialized data
+    cache_type TEXT DEFAULT 'general', -- 'api_response', 'computed', 'statistics'
     expires_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Statistics table for web UI dashboards
+CREATE TABLE statistics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL, -- 'tracks', 'playlists', 'analysis', 'discovery'
+    metric_name TEXT NOT NULL,
+    metric_value REAL,
+    metric_data TEXT, -- JSON for complex metrics
+    date_recorded TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(category, metric_name, date_recorded)
+);
+
 -- =============================================================================
--- INDEXES FOR LIGHTNING FAST QUERIES
+-- PERFORMANCE INDEXES FOR WEB UI
 -- =============================================================================
 
--- Music identifier indexes (highest priority)
-CREATE INDEX idx_tracks_artist ON tracks(artist);        -- Main music lookup key
-CREATE INDEX idx_tracks_title ON tracks(title);          -- Track identification
-CREATE INDEX idx_tracks_artist_title ON tracks(artist, title);  -- Combined lookup
-CREATE INDEX idx_tracks_album ON tracks(album);          -- Album grouping
-
--- File system indexes (for change detection)
-CREATE INDEX idx_tracks_file_path ON tracks(file_path);  -- File storage reference
-CREATE INDEX idx_tracks_file_hash ON tracks(file_hash);  -- Change detection key
-
--- Music metadata indexes (for filtering and search)
+-- Music lookup indexes (highest priority for web UI)
+CREATE INDEX idx_tracks_artist ON tracks(artist);
+CREATE INDEX idx_tracks_title ON tracks(title);
+CREATE INDEX idx_tracks_artist_title ON tracks(artist, title);
+CREATE INDEX idx_tracks_album ON tracks(album);
 CREATE INDEX idx_tracks_genre ON tracks(genre);
 CREATE INDEX idx_tracks_year ON tracks(year);
-CREATE INDEX idx_tracks_composer ON tracks(composer);
-CREATE INDEX idx_tracks_band ON tracks(band);
-CREATE INDEX idx_tracks_mood ON tracks(mood);
-CREATE INDEX idx_tracks_style ON tracks(style);
-CREATE INDEX idx_tracks_lyricist ON tracks(lyricist);
-CREATE INDEX idx_tracks_conductor ON tracks(conductor);
-CREATE INDEX idx_tracks_remixer ON tracks(remixer);
-CREATE INDEX idx_tracks_publisher ON tracks(publisher);
-CREATE INDEX idx_tracks_language ON tracks(language);
-CREATE INDEX idx_tracks_quality ON tracks(quality);
+CREATE INDEX idx_tracks_analysis_date ON tracks(analysis_date);
+CREATE INDEX idx_tracks_discovery_date ON tracks(discovery_date);
 
--- Audio feature indexes (for playlist generation)
+-- File system indexes
+CREATE INDEX idx_tracks_file_path ON tracks(file_path);
+CREATE INDEX idx_tracks_file_hash ON tracks(file_hash);
+
+-- Audio feature indexes for playlist generation
 CREATE INDEX idx_tracks_bpm ON tracks(bpm);
 CREATE INDEX idx_tracks_key ON tracks(key);
-CREATE INDEX idx_tracks_scale ON tracks(scale);
 CREATE INDEX idx_tracks_loudness ON tracks(loudness);
 CREATE INDEX idx_tracks_danceability ON tracks(danceability);
 CREATE INDEX idx_tracks_energy ON tracks(energy);
 CREATE INDEX idx_tracks_duration ON tracks(duration);
-CREATE INDEX idx_tracks_analysis_date ON tracks(analysis_date);
 
--- Tag queries
+-- Composite indexes for common web UI queries
+CREATE INDEX idx_tracks_artist_album ON tracks(artist, album);
+CREATE INDEX idx_tracks_genre_year ON tracks(genre, year);
+CREATE INDEX idx_tracks_bpm_energy ON tracks(bpm, energy);
+CREATE INDEX idx_tracks_key_mode ON tracks(key, mode);
+
+-- Tags indexes
 CREATE INDEX idx_tags_track_id ON tags(track_id);
 CREATE INDEX idx_tags_source ON tags(source);
 CREATE INDEX idx_tags_name ON tags(tag_name);
-CREATE INDEX idx_tags_value ON tags(tag_value);
+CREATE INDEX idx_tags_source_name ON tags(source, tag_name);
 
--- External metadata queries
-CREATE INDEX idx_external_metadata_track_id ON external_metadata(track_id);
-CREATE INDEX idx_external_metadata_source ON external_metadata(source);
-CREATE INDEX idx_external_metadata_musicbrainz_id ON external_metadata(musicbrainz_id);
-
--- Playlist queries
+-- Playlist indexes
+CREATE INDEX idx_playlists_name ON playlists(name);
+CREATE INDEX idx_playlists_created_at ON playlists(created_at);
 CREATE INDEX idx_playlist_tracks_playlist_id ON playlist_tracks(playlist_id);
 CREATE INDEX idx_playlist_tracks_track_id ON playlist_tracks(track_id);
 CREATE INDEX idx_playlist_tracks_position ON playlist_tracks(position);
 
--- Analysis cache
-CREATE INDEX idx_analysis_cache_status ON analysis_cache(status);
-CREATE INDEX idx_analysis_cache_retry_count ON analysis_cache(retry_count);
-
--- Failed analysis indexes
-CREATE INDEX idx_failed_analysis_file_path ON failed_analysis(file_path);
-CREATE INDEX idx_failed_analysis_retry_count ON failed_analysis(retry_count);
-CREATE INDEX idx_failed_analysis_failed_date ON failed_analysis(failed_date);
-
 -- Cache indexes
 CREATE INDEX idx_cache_key ON cache(cache_key);
+CREATE INDEX idx_cache_type ON cache(cache_type);
 CREATE INDEX idx_cache_expires_at ON cache(expires_at);
 
+-- Statistics indexes
+CREATE INDEX idx_statistics_category ON statistics(category);
+CREATE INDEX idx_statistics_date ON statistics(date_recorded);
+CREATE INDEX idx_statistics_category_date ON statistics(category, date_recorded);
+
 -- =============================================================================
--- VIEWS FOR COMMON QUERIES
+-- VIEWS FOR WEB UI PERFORMANCE
 -- =============================================================================
 
--- Complete track view with all data
+-- Complete track view with tags for web UI
 CREATE VIEW track_complete AS
 SELECT 
     t.*,
-    sf.spectral_centroid,
-    sf.spectral_rolloff,
-    sf.spectral_flatness,
-    lf.integrated_loudness,
-    lf.loudness_range,
-    af.onset_rate,
-    af.zero_crossing_rate,
-    rf.bpm_estimates,
-    rf.external_bpm,
-    GROUP_CONCAT(DISTINCT tag.tag_name) as all_tags
+    GROUP_CONCAT(DISTINCT tag.tag_name) as all_tags,
+    GROUP_CONCAT(DISTINCT tag.source) as tag_sources
 FROM tracks t
-LEFT JOIN spectral_features sf ON t.id = sf.track_id
-LEFT JOIN loudness_features lf ON t.id = lf.track_id
-LEFT JOIN advanced_features af ON t.id = af.track_id
-LEFT JOIN rhythm_features rf ON t.id = rf.track_id
 LEFT JOIN tags tag ON t.id = tag.track_id
 GROUP BY t.id;
 
--- Track summary for web UI
+-- Track summary for web UI lists
 CREATE VIEW track_summary AS
 SELECT 
-    id,
-    file_path,
-    filename,
-    title,
-    artist,
-    album,
-    genre,
-    year,
-    composer,
-    lyricist,
-    band,
-    conductor,
-    remixer,
-    mood,
-    style,
-    language,
-    quality,
-    duration,
-    bpm,
-    key,
-    mode,
-    scale,
-    key_strength,
-    loudness,
-    danceability,
-    energy,
-    analysis_date,
-    long_audio_category
+    id, file_path, filename, title, artist, album, genre, year,
+    duration, bpm, key, mode, loudness, danceability, energy,
+    analysis_date, discovery_date, long_audio_category
 FROM tracks;
 
+-- Playlist summary with track count
+CREATE VIEW playlist_summary AS
+SELECT 
+    p.*,
+    COUNT(pt.track_id) as actual_track_count,
+    SUM(t.duration) as actual_total_duration
+FROM playlists p
+LEFT JOIN playlist_tracks pt ON p.id = pt.playlist_id
+LEFT JOIN tracks t ON pt.track_id = t.id
+GROUP BY p.id;
+
+-- Statistics summary for web UI dashboard
+CREATE VIEW statistics_summary AS
+SELECT 
+    category,
+    metric_name,
+    AVG(metric_value) as avg_value,
+    MAX(metric_value) as max_value,
+    MIN(metric_value) as min_value,
+    COUNT(*) as data_points,
+    MAX(date_recorded) as last_updated
+FROM statistics
+GROUP BY category, metric_name;
+
 -- =============================================================================
--- TRIGGERS FOR DATA INTEGRITY
+-- TRIGGERS FOR DATA INTEGRITY AND CACHING
 -- =============================================================================
 
--- Update timestamp trigger
+-- Update timestamp triggers
 CREATE TRIGGER update_tracks_timestamp 
     AFTER UPDATE ON tracks
     FOR EACH ROW
@@ -415,7 +242,6 @@ BEGIN
     UPDATE tracks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
--- Update playlist timestamp
 CREATE TRIGGER update_playlists_timestamp 
     AFTER UPDATE ON playlists
     FOR EACH ROW
@@ -423,112 +249,29 @@ BEGIN
     UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
--- =============================================================================
--- SAMPLE QUERIES FOR WEB UI
--- =============================================================================
+-- Auto-update playlist track count
+CREATE TRIGGER update_playlist_track_count_insert
+    AFTER INSERT ON playlist_tracks
+    FOR EACH ROW
+BEGIN
+    UPDATE playlists SET track_count = (
+        SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = NEW.playlist_id
+    ) WHERE id = NEW.playlist_id;
+END;
 
--- =============================================================================
--- MUSIC LOOKUP QUERIES (Primary Operations)
--- =============================================================================
+CREATE TRIGGER update_playlist_track_count_delete
+    AFTER DELETE ON playlist_tracks
+    FOR EACH ROW
+BEGIN
+    UPDATE playlists SET track_count = (
+        SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = OLD.playlist_id
+    ) WHERE id = OLD.playlist_id;
+END;
 
--- Find track by artist and title (main music lookup)
--- SELECT * FROM track_summary WHERE artist = 'Queen' AND title = 'Bohemian Rhapsody';
-
--- Find all tracks by artist
--- SELECT * FROM track_summary WHERE artist = 'Queen' ORDER BY album, track_number;
-
--- Find all tracks from an album
--- SELECT * FROM track_summary WHERE artist = 'Queen' AND album = 'A Night at the Opera' ORDER BY track_number;
-
--- Find track by title (across all artists)
--- SELECT * FROM track_summary WHERE title LIKE '%Bohemian%';
-
--- Get complete track data with all features
--- SELECT * FROM track_complete WHERE artist = 'Queen' AND title = 'Bohemian Rhapsody';
-
--- =============================================================================
--- FILTERING AND SEARCH QUERIES
--- =============================================================================
-
--- Find tracks by BPM range and key
--- SELECT * FROM track_summary WHERE bpm BETWEEN 120 AND 140 AND key = 'C';
-
--- Find tracks by genre and year
--- SELECT * FROM track_summary WHERE genre = 'Rock' AND year >= 1990;
-
--- Find tracks by composer
--- SELECT * FROM track_summary WHERE composer = 'Mozart';
-
--- Find tracks by mood/style
--- SELECT * FROM track_summary WHERE mood = 'energetic' OR style = 'electronic';
-
--- =============================================================================
--- PLAYLIST GENERATION QUERIES
--- =============================================================================
-
--- Find similar tracks (by BPM and key)
--- SELECT * FROM track_summary WHERE bpm BETWEEN 125 AND 135 AND key = 'G' LIMIT 10;
-
--- Find high-energy dance tracks
--- SELECT * FROM track_summary WHERE energy > 0.8 AND danceability > 0.7;
-
--- Find tracks by audio features
--- SELECT * FROM track_summary WHERE loudness BETWEEN -20 AND -10 AND duration > 180;
-
--- =============================================================================
--- RELATED DATA QUERIES
--- =============================================================================
-
--- Get all tags for a track
--- SELECT tag_name, tag_value, source FROM tags WHERE track_id = (
---     SELECT id FROM tracks WHERE artist = 'Queen' AND title = 'Bohemian Rhapsody'
--- );
-
--- Get external API data for a track
--- SELECT * FROM external_metadata WHERE track_id = (
---     SELECT id FROM tracks WHERE artist = 'Queen' AND title = 'Bohemian Rhapsody'
--- );
-
--- Get spectral features for a track
--- SELECT * FROM spectral_features WHERE track_id = (
---     SELECT id FROM tracks WHERE artist = 'Queen' AND title = 'Bohemian Rhapsody'
--- );
-
--- =============================================================================
--- PLAYLIST MANAGEMENT QUERIES
--- =============================================================================
-
--- Get playlist with track details
--- SELECT pt.position, ts.* FROM playlist_tracks pt 
--- JOIN track_summary ts ON pt.track_id = ts.id 
--- WHERE pt.playlist_id = ? ORDER BY pt.position;
-
--- =============================================================================
--- CHANGE DETECTION QUERIES
--- =============================================================================
-
--- Find tracks that need re-analysis (hash changed)
--- SELECT file_path, file_hash FROM tracks WHERE file_hash != (
---     SELECT file_hash FROM analysis_cache WHERE file_path = tracks.file_path
--- );
-
--- =============================================================================
--- STATISTICS QUERIES
--- =============================================================================
-
--- Count tracks by genre
--- SELECT genre, COUNT(*) as count FROM track_summary GROUP BY genre ORDER BY count DESC;
-
--- Average BPM by year
--- SELECT year, AVG(bpm) as avg_bpm FROM track_summary 
--- WHERE bpm IS NOT NULL GROUP BY year ORDER BY year;
-
--- Energy distribution
--- SELECT 
---     CASE 
---         WHEN energy < 0.3 THEN 'Low'
---         WHEN energy < 0.7 THEN 'Medium'
---         ELSE 'High'
---     END as energy_level,
---     COUNT(*) as count
--- FROM track_summary WHERE energy IS NOT NULL GROUP BY energy_level; 
+-- Auto-cleanup expired cache entries
+CREATE TRIGGER cleanup_expired_cache
+    AFTER INSERT ON cache
+    FOR EACH ROW
+BEGIN
+    DELETE FROM cache WHERE expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP;
+END; 

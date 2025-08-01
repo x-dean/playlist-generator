@@ -129,14 +129,24 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
                 # Prepare analysis data with status
                 analysis_data = analysis_result.get('features', {})
                 analysis_data['status'] = 'analyzed'
+                analysis_data['analysis_type'] = 'full'
                 
-                success = db_manager.save_track_to_normalized_schema(
+                # Extract metadata
+                metadata = analysis_result.get('metadata', {})
+                
+                # Determine long audio category
+                long_audio_category = None
+                if 'long_audio_category' in analysis_data:
+                    long_audio_category = analysis_data['long_audio_category']
+                
+                success = db_manager.save_analysis_result(
                     file_path=file_path,
                     filename=filename,
                     file_size_bytes=file_size_bytes,
                     file_hash=file_hash,
                     analysis_data=analysis_data,
-                    metadata=analysis_result.get('metadata', {})
+                    metadata=metadata,
+                    discovery_source='file_system'
                 )
                 
                 log_universal('INFO', 'Parallel', f'{worker_id} completed: {filename} in {duration:.2f}s')
@@ -150,7 +160,16 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
                 from .database import DatabaseManager
                 db_manager = DatabaseManager(db_path=db_path)
                 filename = os.path.basename(file_path)
-                db_manager.mark_analysis_failed(file_path, filename, "Analysis failed")
+                
+                # Use analysis_cache table for failed analysis
+                with db_manager._get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO analysis_cache 
+                        (file_path, filename, error_message, status, retry_count)
+                        VALUES (?, ?, ?, 'failed', 0)
+                    """, (file_path, filename, "Analysis failed"))
+                    conn.commit()
             
             log_universal('DEBUG', 'Parallel', f"Worker {worker_id} failed: {os.path.basename(file_path)}")
             return False
@@ -163,7 +182,16 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
             from .database import DatabaseManager
             db_manager = DatabaseManager(db_path=db_path)
             filename = os.path.basename(file_path)
-            db_manager.mark_analysis_failed(file_path, filename, "Analysis timed out")
+            
+            # Use analysis_cache table for failed analysis
+            with db_manager._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO analysis_cache 
+                    (file_path, filename, error_message, status, retry_count)
+                    VALUES (?, ?, ?, 'failed', 0)
+                """, (file_path, filename, "Analysis timed out"))
+                conn.commit()
         
         return False
     except Exception as e:
@@ -174,7 +202,16 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
             from .database import DatabaseManager
             db_manager = DatabaseManager(db_path=db_path)
             filename = os.path.basename(file_path)
-            db_manager.mark_analysis_failed(file_path, filename, f"Worker error: {str(e)}")
+            
+            # Use analysis_cache table for failed analysis
+            with db_manager._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO analysis_cache 
+                    (file_path, filename, error_message, status, retry_count)
+                    VALUES (?, ?, ?, 'failed', 0)
+                """, (file_path, filename, f"Worker error: {str(e)}"))
+                conn.commit()
         
         return False
 
@@ -439,14 +476,24 @@ class ParallelAnalyzer:
                 # Prepare analysis data with status
                 analysis_data = analysis_result.get('features', {})
                 analysis_data['status'] = 'analyzed'
+                analysis_data['analysis_type'] = 'full'
                 
-                success = self.db_manager.save_track_to_normalized_schema(
+                # Extract metadata
+                metadata = analysis_result.get('metadata', {})
+                
+                # Determine long audio category
+                long_audio_category = None
+                if 'long_audio_category' in analysis_data:
+                    long_audio_category = analysis_data['long_audio_category']
+                
+                success = self.db_manager.save_analysis_result(
                     file_path=file_path,
                     filename=filename,
                     file_size_bytes=file_size_bytes,
                     file_hash=file_hash,
                     analysis_data=analysis_data,
-                    metadata=analysis_result.get('metadata', {})
+                    metadata=metadata,
+                    discovery_source='file_system'
                 )
                 
                 # Log successful worker performance
@@ -456,7 +503,16 @@ class ParallelAnalyzer:
             else:
                 # Mark as failed
                 filename = os.path.basename(file_path)
-                self.db_manager.mark_analysis_failed(file_path, filename, "Analysis failed")
+                
+                # Use analysis_cache table for failed analysis
+                with self.db_manager._get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO analysis_cache 
+                        (file_path, filename, error_message, status, retry_count)
+                        VALUES (?, ?, ?, 'failed', 0)
+                    """, (file_path, filename, "Analysis failed"))
+                    conn.commit()
                 
                 # Log failed worker performance
                 log_universal('ERROR', 'Parallel', f"Worker {worker_id} file analysis failed: {os.path.basename(file_path)}")
@@ -467,7 +523,16 @@ class ParallelAnalyzer:
             duration = time.time() - start_time
             log_universal('ERROR', 'Parallel', f"⏰ Analysis timed out for {os.path.basename(file_path)}")
             filename = os.path.basename(file_path)
-            self.db_manager.mark_analysis_failed(file_path, filename, "Analysis timed out")
+            
+            # Use analysis_cache table for failed analysis
+            with self.db_manager._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO analysis_cache 
+                    (file_path, filename, error_message, status, retry_count)
+                    VALUES (?, ?, ?, 'failed', 0)
+                """, (file_path, filename, "Analysis timed out"))
+                conn.commit()
             
             # Log timeout worker performance
             log_universal('ERROR', 'Parallel', f"Worker {worker_id} file analysis timeout: {os.path.basename(file_path)}")
@@ -477,7 +542,16 @@ class ParallelAnalyzer:
             duration = time.time() - start_time
             log_universal('ERROR', 'Parallel', f"Worker error for {os.path.basename(file_path)}: {e}")
             filename = os.path.basename(file_path)
-            self.db_manager.mark_analysis_failed(file_path, filename, str(e))
+            
+            # Use analysis_cache table for failed analysis
+            with self.db_manager._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO analysis_cache 
+                    (file_path, filename, error_message, status, retry_count)
+                    VALUES (?, ?, ?, 'failed', 0)
+                """, (file_path, filename, str(e)))
+                conn.commit()
             
             # Log error worker performance
             log_universal('ERROR', 'Parallel', f"Worker {worker_id} file analysis error: {os.path.basename(file_path)}")

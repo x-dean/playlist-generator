@@ -234,36 +234,35 @@ class FileDiscovery:
     @log_function_call
     def save_discovered_files_to_db(self, filepaths: List[str]) -> Dict[str, int]:
         """
-        Save discovered files to database with tracking information.
+        Save discovered files to database with proper tracking.
         
         Args:
             filepaths: List of file paths to save
             
         Returns:
-            Dictionary with save statistics
+            Dictionary with statistics about the save operation
         """
-        if not filepaths:
-            log_universal('INFO', 'FileDiscovery', "No files to save to database")
-            return {'new': 0, 'updated': 0, 'unchanged': 0, 'errors': 0}
+        log_universal('INFO', 'FileDiscovery', f"Saving {len(filepaths)} discovered files to database...")
         
-        log_universal('INFO', 'FileDiscovery', f"Starting database save for {len(filepaths)} files...")
-        
-        stats = {'new': 0, 'updated': 0, 'unchanged': 0, 'errors': 0}
+        stats = {
+            'new': 0,
+            'updated': 0,
+            'unchanged': 0,
+            'errors': 0
+        }
         
         try:
-            log_universal('DEBUG', 'FileDiscovery', "Database connection established")
+            db_manager = get_db_manager()
             
             for filepath in filepaths:
                 try:
-                    # Get file information
-                    stat = os.stat(filepath)
                     filename = os.path.basename(filepath)
-                    file_size = stat.st_size
+                    file_size = os.path.getsize(filepath)
                     file_hash = self._get_file_hash(filepath)
-                    modified_time = stat.st_mtime
+                    modified_time = os.path.getmtime(filepath)
                     
-                    # Check if file with same hash already exists in database
-                    existing_result = get_db_manager().get_analysis_result(filepath)
+                    # Check if file already exists in database
+                    existing_result = db_manager.get_analysis_result(filepath)
                     
                     if existing_result:
                         existing_hash = existing_result.get('file_hash')
@@ -274,26 +273,44 @@ class FileDiscovery:
                             stats['unchanged'] += 1
                             log_universal('DEBUG', 'FileDiscovery', f"File unchanged: {filename}")
                         else:
-                            # File modified - save to normalized schema
-                            get_db_manager().save_track_to_normalized_schema(
+                            # File modified - update with discovery info
+                            db_manager.save_analysis_result(
                                 file_path=filepath,
                                 filename=filename,
                                 file_size_bytes=file_size,
                                 file_hash=file_hash,
-                                analysis_data={'status': 'discovered', 'modified_time': modified_time},
-                                metadata={'discovered_date': datetime.now().isoformat()}
+                                analysis_data={
+                                    'status': 'discovered',
+                                    'modified_time': modified_time,
+                                    'analysis_type': 'discovery_only'
+                                },
+                                metadata={
+                                    'title': filename,
+                                    'artist': 'Unknown',
+                                    'discovered_date': datetime.now().isoformat()
+                                },
+                                discovery_source='file_system'
                             )
                             stats['updated'] += 1
                             log_universal('DEBUG', 'FileDiscovery', f"Updated modified file in database: {filepath}")
                     else:
-                        # New file - save to normalized schema
-                        get_db_manager().save_track_to_normalized_schema(
+                        # New file - save with discovery info
+                        db_manager.save_analysis_result(
                             file_path=filepath,
                             filename=filename,
                             file_size_bytes=file_size,
                             file_hash=file_hash,
-                            analysis_data={'status': 'discovered', 'modified_time': modified_time},
-                            metadata={'discovered_date': datetime.now().isoformat()}
+                            analysis_data={
+                                'status': 'discovered',
+                                'modified_time': modified_time,
+                                'analysis_type': 'discovery_only'
+                            },
+                            metadata={
+                                'title': filename,
+                                'artist': 'Unknown',
+                                'discovered_date': datetime.now().isoformat()
+                            },
+                            discovery_source='file_system'
                         )
                         stats['new'] += 1
                         log_universal('DEBUG', 'FileDiscovery', f"Saved new file to database: {filepath}")
@@ -302,7 +319,6 @@ class FileDiscovery:
                     stats['errors'] += 1
                     log_universal('ERROR', 'FileDiscovery', f"Error saving file {filepath} to database: {e}")
             
-            log_universal('DEBUG', 'FileDiscovery', "Committing database changes...")
             log_universal('DEBUG', 'FileDiscovery', "Database changes committed")
             
         except Exception as e:
@@ -329,10 +345,9 @@ class FileDiscovery:
         
         try:
             results = get_db_manager().get_all_analysis_results()
-            file_paths = {result['file_path'] for result in results 
-                         if result.get('analysis_data', {}).get('status') == 'discovered'}
+            file_paths = {result['file_path'] for result in results}
             
-            log_universal('DEBUG', 'FileDiscovery', f"Retrieved {len(file_paths)} valid files from database")
+            log_universal('DEBUG', 'FileDiscovery', f"Retrieved {len(file_paths)} files from database")
             return file_paths
             
         except Exception as e:
@@ -350,8 +365,14 @@ class FileDiscovery:
         log_universal('DEBUG', 'FileDiscovery', "Retrieving failed files from database...")
         
         try:
-            failed_files = get_db_manager().get_failed_analysis_files()
-            failed_paths = {failed_file['file_path'] for failed_file in failed_files}
+            # Get files from analysis_cache table
+            db_manager = get_db_manager()
+            with db_manager._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT file_path FROM analysis_cache WHERE status = 'failed'
+                """)
+                failed_paths = {row['file_path'] for row in cursor.fetchall()}
             
             log_universal('DEBUG', 'FileDiscovery', f"Retrieved {len(failed_paths)} failed files from database")
             return failed_paths
@@ -372,16 +393,20 @@ class FileDiscovery:
         log_universal('INFO', 'FileDiscovery', f"Marking file as failed: {filepath}")
         
         try:
-            filename = os.path.basename(filepath)
-            file_hash = self._get_file_hash(filepath)
+            db_manager = get_db_manager()
+            with db_manager._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO analysis_cache 
+                    (file_path, filename, error_message, status, retry_count)
+                    VALUES (?, ?, ?, 'failed', 0)
+                """, (filepath, os.path.basename(filepath), error_message))
+                conn.commit()
             
-            # Use DatabaseManager's failed analysis tracking
-            get_db_manager().mark_analysis_failed(filepath, filename, error_message)
-            
-            log_universal('INFO', 'FileDiscovery', f"Successfully marked file as failed: {filename}")
+            log_universal('INFO', 'FileDiscovery', f"File marked as failed: {filepath}")
             
         except Exception as e:
-            log_universal('ERROR', 'FileDiscovery', f"Error marking file as failed {filepath}: {e}")
+            log_universal('ERROR', 'FileDiscovery', f"Error marking file as failed: {e}")
 
     @log_function_call
     def cleanup_removed_files_from_db(self) -> int:
