@@ -715,10 +715,13 @@ class AudioAnalyzer:
                 # Estimate audio duration from file size (rough estimate: 1MB ≈ 1 minute for MP3)
                 estimated_duration_minutes = file_size_mb
                 
-                # Fail fast for extremely large files (> 500MB ≈ 500 minutes)
-                if file_size_mb > 500:
+                # Check if this might be a long audio track that should use simplified analysis
+                # Allow files up to 2GB (≈ 2000 minutes) for long audio processing
+                if file_size_mb > 2000:
                     log_universal('WARNING', 'Audio', f"File extremely large ({file_size_mb:.1f}MB, ~{estimated_duration_minutes:.0f}min) - skipping to prevent memory issues")
                     return None
+                elif file_size_mb > 500:
+                    log_universal('INFO', 'Audio', f"Large file detected ({file_size_mb:.1f}MB, ~{estimated_duration_minutes:.0f}min) - will use simplified analysis if applicable")
                 
                 log_universal('DEBUG', 'Audio', f"File size: {file_size_mb:.1f}MB, estimated duration: ~{estimated_duration_minutes:.0f} minutes")
                 
@@ -738,10 +741,13 @@ class AudioAnalyzer:
                         duration_minutes = duration_seconds / 60
                         log_universal('DEBUG', 'Audio', f"Essentia loaded audio: {len(audio)} samples at 44.1kHz ({duration_seconds:.1f}s, ~{duration_minutes:.1f}min)")
                         
-                        # Fail fast for extremely long files (> 500 minutes)
-                        if duration_minutes > 500:
+                        # Check if this might be a long audio track that should use simplified analysis
+                        # Allow files up to 2000 minutes for long audio processing
+                        if duration_minutes > 2000:
                             log_universal('WARNING', 'Audio', f"Audio extremely long ({duration_minutes:.1f} minutes) - skipping to prevent memory issues")
                             return None
+                        elif duration_minutes > 500:
+                            log_universal('INFO', 'Audio', f"Long audio detected ({duration_minutes:.1f} minutes) - will use simplified analysis if applicable")
                         
                         # Force garbage collection for large files (like old setup)
                         if len(audio) > 100000000:  # ~3.8 hours at 44kHz

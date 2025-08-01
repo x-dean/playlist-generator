@@ -65,6 +65,11 @@ console_logging = logging_config.get('LOG_CONSOLE_ENABLED', True)  # Default to 
 file_logging = logging_config.get('LOG_FILE_ENABLED', True)
 max_log_files = logging_config.get('LOG_MAX_FILES', 10)
 log_file_size_mb = logging_config.get('LOG_FILE_SIZE_MB', 50)
+
+# Force console logging when verbose flag is used
+if verbose_level is not None:
+    console_logging = True
+
 # --- Stage 2: Full logging setup with all config parameters ---
 setup_logging(
     log_level=verbose_level if verbose_level is not None else log_level_from_config, # Prioritize CLI verbose_level
@@ -126,6 +131,8 @@ class EnhancedCLI:
                 return self._handle_analyze(parsed_args)
             elif parsed_args.command == 'stats':
                 return self._handle_stats(parsed_args)
+            elif parsed_args.command == 'retry-failed':
+                return self._handle_retry_failed(parsed_args)
             elif parsed_args.command == 'test-audio':
                 return self._handle_test_audio(parsed_args)
             elif parsed_args.command == 'monitor':
@@ -240,6 +247,8 @@ Examples:
                                    help='Re-analyze only failed files')
         analyze_parser.add_argument('--include-failed', action='store_true', 
                                    help='Include previously failed files')
+        analyze_parser.add_argument('--retry-failed', action='store_true', 
+                                   help='Retry files that failed in current analysis run')
         
         # File handling
         analyze_parser.add_argument('--large-file-threshold', type=int, default=50, 
@@ -258,9 +267,16 @@ Examples:
         stats_parser.add_argument('--memory-usage', action='store_true', 
                                  help='Show memory usage')
         
+        # Final retry command
+        retry_parser = subparsers.add_parser('retry-failed', help='Final retry of failed files')
+        retry_parser.add_argument('--failed-dir', default='/music/failed',
+                                 help='Directory to move permanently failed files')
+        retry_parser.add_argument('--force', action='store_true',
+                                 help='Force retry even if files were already moved')
+        
         # Test audio analyzer command
         test_parser = subparsers.add_parser('test-audio', help='Test audio analyzer')
-        test_parser.add_argument('--file', required=True, 
+        test_parser.add_argument('--file', required=True,
                                 help='Audio file to test')
         test_parser.add_argument('--force', action='store_true', 
                                 help='Force re-extraction')
@@ -357,6 +373,8 @@ Examples:
                                     help='Generate playlists after analysis')
         pipeline_parser.add_argument('--export', action='store_true', 
                                     help='Export playlists after generation')
+        pipeline_parser.add_argument('--no-final-retry', action='store_true', 
+                                    help='Skip final retry of failed files (enabled by default)')
         
         # Config command
         config_parser = subparsers.add_parser('config', help='Show configuration information')
@@ -469,6 +487,12 @@ Examples:
             if 'small_files_processed' in results:
                 log_universal('INFO', 'Analysis', f"  Small files: {results['small_files_processed']}")
             
+            # Retry failed files from current analysis run if requested
+            if args.retry_failed and results.get('failed_count', 0) > 0:
+                log_universal('INFO', 'Analysis', "Retrying files that failed in current analysis run")
+                retry_results = self.analysis_manager.retry_current_failed_files()
+                log_universal('INFO', 'Analysis', f"Retry completed: {retry_results.get('successful', 0)} recovered, {retry_results.get('still_failed', 0)} still failed")
+            
             return 0
             
         except FileNotFoundError as e:
@@ -535,6 +559,37 @@ Examples:
             log_universal('ERROR', 'CLI', f"Unexpected error getting statistics: {e}")
             return 1
     
+    def _handle_retry_failed(self, args) -> int:
+        """Handle retry-failed command."""
+        log_universal('INFO', 'CLI', 'Starting final retry of failed files')
+        
+        try:
+            # Update configuration with failed directory
+            if args.failed_dir:
+                self.analysis_manager.config['FAILED_FILES_DIR'] = args.failed_dir
+            
+            # Run final retry
+            results = self.analysis_manager.final_retry_failed_files()
+            
+            # Display results
+            log_universal('INFO', 'CLI', "Final Retry Results:")
+            log_universal('INFO', 'CLI', f"  Files retried: {results.get('retried', 0)}")
+            log_universal('INFO', 'CLI', f"  Successfully analyzed: {results.get('successful', 0)}")
+            log_universal('INFO', 'CLI', f"  Moved to failed directory: {results.get('moved_to_failed_dir', 0)}")
+            log_universal('INFO', 'CLI', f"  Total time: {results.get('total_time', 0):.2f}s")
+            
+            if results.get('successful', 0) > 0:
+                log_universal('INFO', 'CLI', f"✅ Successfully recovered {results['successful']} files")
+            
+            if results.get('moved_to_failed_dir', 0) > 0:
+                log_universal('INFO', 'CLI', f"📁 Moved {results['moved_to_failed_dir']} files to failed directory")
+            
+            return 0
+            
+        except Exception as e:
+            log_universal('ERROR', 'CLI', f"Error during final retry: {e}")
+            return 1
+
     def _handle_test_audio(self, args) -> int:
         """Handle test-audio command."""
         log_universal('INFO', 'Audio', f"Testing audio analyzer with file: {args.file}")
@@ -816,6 +871,12 @@ Examples:
             # Export if requested
             if args.export:
                 log_universal('INFO', 'Export', "Export functionality not yet implemented")
+            
+            # Final retry of failed files (if any)
+            if not args.no_final_retry: # Only run final retry if not explicitly skipped
+                log_universal('INFO', 'Pipeline', "Running final retry of failed files")
+                retry_results = self.analysis_manager.final_retry_failed_files()
+                log_universal('INFO', 'Pipeline', f"Final retry completed: {retry_results.get('successful', 0)} recovered, {retry_results.get('moved_to_failed_dir', 0)} moved to failed directory")
             
             return 0
             

@@ -239,6 +239,11 @@ class SequentialAnalyzer:
                 
                 return success
             else:
+                # Mark analysis as failed
+                filename = os.path.basename(file_path)
+                error_message = "Analysis failed - no valid result returned"
+                self.db_manager.mark_analysis_failed(file_path, filename, error_message)
+                log_universal('ERROR', 'Sequential', f"Analysis failed for {filename}: {error_message}")
                 return False
                 
         except Exception as e:

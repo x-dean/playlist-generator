@@ -127,6 +127,9 @@ def setup_logging(
     # Clear existing handlers
     logger.handlers.clear()
     
+    # Prevent propagation to root logger to avoid duplicate output
+    logger.propagate = False
+    
     # Console handler with colored output
     if console_logging:
         console_handler = logging.StreamHandler()

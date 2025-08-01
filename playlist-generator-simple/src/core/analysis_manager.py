@@ -67,6 +67,8 @@ class AnalysisManager:
         self.audio_frame_size = config.get('AUDIO_FRAME_SIZE', 2048)
         self.force_reextract = config.get('FORCE_REEXTRACT', False)
         self.include_failed_files = config.get('INCLUDE_FAILED_FILES', False)
+        self.failed_files_max_retries = config.get('FAILED_FILES_MAX_RETRIES', 3)
+        self.failed_files_retry_delay_hours = config.get('FAILED_FILES_RETRY_DELAY_HOURS', 24)
         self.max_workers = config.get('MAX_WORKERS', None)
         self.worker_timeout_seconds = config.get('WORKER_TIMEOUT_SECONDS', DEFAULT_TIMEOUT_SECONDS)
         self.analysis_cache_enabled = config.get('ANALYSIS_CACHE_ENABLED', True)
@@ -134,51 +136,45 @@ class AnalysisManager:
     def select_files_for_analysis(self, music_path: str = None, force_reextract: bool = False,
                                 include_failed: bool = False) -> List[str]:
         """
-        Select files for analysis based on various criteria.
+        Select files for analysis based on configuration and current state.
         
         Args:
-            music_path: Path to music directory (uses config default if None)
-            force_reextract: If True, re-analyze all files
+            music_path: Path to music directory
+            force_reextract: If True, re-analyze regardless of cache
             include_failed: If True, include previously failed files
             
         Returns:
             List of file paths to analyze
         """
-        if music_path is None:
-            music_path = self.config.get('MUSIC_PATH', '/music')
-        
-        log_universal('INFO', 'Analysis', f"Selecting files for analysis from: {music_path}")
-        log_universal('DEBUG', 'Analysis', f"  Force re-extract: {force_reextract}")
-        log_universal('DEBUG', 'Analysis', f"  Include failed: {include_failed}")
-        
         start_time = time.time()
         
         try:
-            # Discover audio files
-            audio_files = self.file_discovery.discover_files()
-            log_universal('INFO', 'Analysis', f"Found {len(audio_files)} audio files")
+            # Get music path from config if not provided
+            if music_path is None:
+                music_path = self.config.get('MUSIC_PATH', '/music')
             
-            # Save discovered files to database for tracking
-            if audio_files:
-                stats = self.file_discovery.save_discovered_files_to_db(audio_files)
-                log_universal('INFO', 'Analysis', f"Database tracking updated:")
-                log_universal('INFO', 'Analysis', f"  New files: {stats['new']}")
-                log_universal('INFO', 'Analysis', f"  Updated files: {stats['updated']}")
-                log_universal('INFO', 'Analysis', f"  Unchanged files: {stats['unchanged']}")
-                log_universal('INFO', 'Analysis', f"  Errors: {stats['errors']}")
+            # Discover audio files
+            audio_files = self.file_discovery.discover_audio_files(music_path)
             
             if not audio_files:
-                log_universal('WARNING', 'Analysis', "No audio files found for analysis")
+                log_universal('WARNING', 'Analysis', f"No audio files found in {music_path}")
                 return []
             
-            # Filter files based on analysis status
+            log_universal('INFO', 'Analysis', f"Discovered {len(audio_files)} audio files")
+            
+            # Cache failed files list to avoid duplicate database calls
+            failed_files_cache = None
+            if not include_failed:
+                failed_files_cache = self.db_manager.get_failed_analysis_files(max_retries=self.failed_files_max_retries)
+                failed_files_paths = {f['file_path'] for f in failed_files_cache}
+            
             files_to_analyze = []
             skipped_count = 0
             failed_count = 0
             
             for file_path in audio_files:
                 # Check if file should be analyzed
-                should_analyze = self._should_analyze_file(file_path, force_reextract, include_failed)
+                should_analyze = self._should_analyze_file(file_path, force_reextract, include_failed, failed_files_cache)
                 
                 if should_analyze:
                     files_to_analyze.append(file_path)
@@ -187,8 +183,7 @@ class AnalysisManager:
                     
                     # Count failed files for reporting
                     if self.db_manager.get_analysis_result(file_path) is None:
-                        failed_entry = self.db_manager.get_failed_analysis_files()
-                        if any(f['file_path'] == file_path for f in failed_entry):
+                        if failed_files_cache and file_path in failed_files_paths:
                             failed_count += 1
             
             select_time = time.time() - start_time
@@ -197,16 +192,13 @@ class AnalysisManager:
             log_universal('INFO', 'Analysis', f"Skipped {skipped_count} files (already analyzed)")
             log_universal('INFO', 'Analysis', f"Previously failed: {failed_count} files")
             
-            # Log performance
-            log_universal('INFO', 'Analysis', f"File selection completed in {select_time:.2f}s")
-            
             return files_to_analyze
             
         except Exception as e:
             log_universal('ERROR', 'Analysis', f"Error selecting files for analysis: {e}")
             return []
 
-    def _should_analyze_file(self, file_path: str, force_reextract: bool, include_failed: bool) -> bool:
+    def _should_analyze_file(self, file_path: str, force_reextract: bool, include_failed: bool, failed_files_cache: Optional[List[Dict[str, Any]]]) -> bool:
         """
         Determine if a file should be analyzed.
         
@@ -214,6 +206,7 @@ class AnalysisManager:
             file_path: Path to the file
             force_reextract: If True, re-analyze regardless of cache
             include_failed: If True, include previously failed files
+            failed_files_cache: Optional cached list of failed files
             
         Returns:
             True if file should be analyzed
@@ -252,10 +245,16 @@ class AnalysisManager:
         
         # Check if file previously failed
         if not include_failed:
-            failed_files = self.db_manager.get_failed_analysis_files()
-            if any(f['file_path'] == file_path for f in failed_files):
-                log_universal('DEBUG', 'Analysis', f"File previously failed analysis: {file_path}")
-                return False
+            if failed_files_cache:
+                for failed_file in failed_files_cache:
+                    if failed_file['file_path'] == file_path:
+                        retry_count = failed_file.get('retry_count', 0)
+                        if retry_count >= self.failed_files_max_retries:
+                            log_universal('DEBUG', 'Analysis', f"File previously failed analysis (max retries reached): {file_path}")
+                            return False
+                        else:
+                            log_universal('DEBUG', 'Analysis', f"File previously failed analysis (retry {retry_count}/{self.failed_files_max_retries}): {file_path}")
+                            return False
         
         return True
 
@@ -583,6 +582,160 @@ class AnalysisManager:
             return {}
 
     @log_function_call
+    def final_retry_failed_files(self) -> Dict[str, Any]:
+        """
+        Final retry step: re-analyze failed files and move permanently failed ones to failed directory.
+        
+        Returns:
+            Dictionary with retry results
+        """
+        log_universal('INFO', 'Analysis', "Starting final retry of failed files")
+        
+        try:
+            # Get all failed files
+            failed_files = self.db_manager.get_failed_analysis_files()
+            
+            if not failed_files:
+                log_universal('INFO', 'Analysis', "No failed files to retry")
+                return {'retried': 0, 'successful': 0, 'moved_to_failed_dir': 0, 'total_time': 0}
+            
+            log_universal('INFO', 'Analysis', f"Found {len(failed_files)} failed files for final retry")
+            
+            start_time = time.time()
+            retried_count = 0
+            successful_count = 0
+            moved_to_failed_dir_count = 0
+            
+            # Create failed directory if it doesn't exist
+            failed_dir = self.config.get('FAILED_FILES_DIR', '/music/failed')
+            os.makedirs(failed_dir, exist_ok=True)
+            
+            for failed_file in failed_files:
+                file_path = failed_file['file_path']
+                filename = failed_file['filename']
+                retry_count = failed_file.get('retry_count', 0)
+                
+                log_universal('INFO', 'Analysis', f"Final retry for {filename} (attempt {retry_count + 1})")
+                
+                # Check if file still exists
+                if not os.path.exists(file_path):
+                    log_universal('WARNING', 'Analysis', f"File no longer exists: {file_path}")
+                    continue
+                
+                retried_count += 1
+                
+                # Try to analyze the file one more time
+                success = self._analyze_single_file_final_retry(file_path)
+                
+                if success:
+                    # Remove from failed files database
+                    self.db_manager.delete_failed_analysis(file_path)
+                    successful_count += 1
+                    log_universal('INFO', 'Analysis', f"Final retry successful: {filename}")
+                else:
+                    # Move to failed directory
+                    moved = self._move_to_failed_directory(file_path, failed_dir)
+                    if moved:
+                        moved_to_failed_dir_count += 1
+                        log_universal('INFO', 'Analysis', f"Moved to failed directory: {filename}")
+                    else:
+                        log_universal('ERROR', 'Analysis', f"Failed to move to failed directory: {filename}")
+            
+            total_time = time.time() - start_time
+            
+            results = {
+                'retried': retried_count,
+                'successful': successful_count,
+                'moved_to_failed_dir': moved_to_failed_dir_count,
+                'total_time': total_time
+            }
+            
+            log_universal('INFO', 'Analysis', f"Final retry completed in {total_time:.2f}s")
+            log_universal('INFO', 'Analysis', f"Results: {successful_count} successful, {moved_to_failed_dir_count} moved to failed directory")
+            
+            return results
+            
+        except Exception as e:
+            log_universal('ERROR', 'Analysis', f"Error in final retry of failed files: {e}")
+            return {'retried': 0, 'successful': 0, 'moved_to_failed_dir': 0, 'total_time': 0}
+
+    def _analyze_single_file_final_retry(self, file_path: str) -> bool:
+        """
+        Analyze a single file during final retry with simplified analysis.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Use simplified analysis for final retry
+            analysis_config = {
+                'analysis_type': 'basic',
+                'use_full_analysis': False,
+                'features_config': {
+                    'extract_rhythm': True,
+                    'extract_loudness': True,
+                    'extract_metadata': True,
+                    'extract_spectral': False,
+                    'extract_key': False,
+                    'extract_mfcc': False,
+                    'extract_musicnn': False
+                }
+            }
+            
+            # Use sequential analyzer for final retry
+            success = self.sequential_analyzer._process_single_file(file_path, force_reextract=True)
+            return success
+            
+        except Exception as e:
+            log_universal('ERROR', 'Analysis', f"Error in final retry analysis for {file_path}: {e}")
+            return False
+
+    def _move_to_failed_directory(self, file_path: str, failed_dir: str) -> bool:
+        """
+        Move a file to the failed directory.
+        
+        Args:
+            file_path: Path to the file
+            failed_dir: Path to the failed directory
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            import shutil
+            from pathlib import Path
+            
+            # Get filename
+            filename = os.path.basename(file_path)
+            
+            # Create destination path
+            dest_path = os.path.join(failed_dir, filename)
+            
+            # Handle filename conflicts
+            counter = 1
+            original_dest_path = dest_path
+            while os.path.exists(dest_path):
+                name, ext = os.path.splitext(filename)
+                dest_path = os.path.join(failed_dir, f"{name}_{counter}{ext}")
+                counter += 1
+            
+            # Move the file
+            shutil.move(file_path, dest_path)
+            
+            # Remove from failed analysis database
+            self.db_manager.delete_failed_analysis(file_path)
+            
+            log_universal('INFO', 'Analysis', f"Moved {filename} to failed directory: {dest_path}")
+            return True
+            
+        except Exception as e:
+            log_universal('ERROR', 'Analysis', f"Error moving file to failed directory: {e}")
+            return False
+
+    @log_function_call
     def cleanup_failed_analysis(self, max_retries: int = 3) -> int:
         """
         Clean up failed analysis entries.
@@ -610,6 +763,74 @@ class AnalysisManager:
         except Exception as e:
             log_universal('ERROR', 'Analysis', f"Error cleaning up failed analysis: {e}")
             return 0
+
+    @log_function_call
+    def retry_current_failed_files(self) -> Dict[str, Any]:
+        """
+        Retry files that failed in the current analysis run with simplified analysis.
+        
+        Returns:
+            Dictionary with retry results
+        """
+        log_universal('INFO', 'Analysis', "Starting retry of files that failed in current analysis run")
+        
+        try:
+            # Get failed files from current run (files that were processed but failed)
+            failed_files = self.db_manager.get_failed_analysis_files(max_retries=0)  # Only get files that failed in current run
+            
+            if not failed_files:
+                log_universal('INFO', 'Analysis', "No files failed in current analysis run")
+                return {'retried': 0, 'successful': 0, 'still_failed': 0, 'total_time': 0}
+            
+            log_universal('INFO', 'Analysis', f"Found {len(failed_files)} files that failed in current run")
+            
+            start_time = time.time()
+            retried_count = 0
+            successful_count = 0
+            still_failed_count = 0
+            
+            for failed_file in failed_files:
+                file_path = failed_file['file_path']
+                filename = failed_file['filename']
+                
+                log_universal('INFO', 'Analysis', f"Retrying {filename}")
+                
+                # Check if file still exists
+                if not os.path.exists(file_path):
+                    log_universal('WARNING', 'Analysis', f"File no longer exists: {file_path}")
+                    continue
+                
+                retried_count += 1
+                
+                # Try to analyze the file with simplified analysis
+                success = self._analyze_single_file_final_retry(file_path)
+                
+                if success:
+                    # Remove from failed files database
+                    self.db_manager.delete_failed_analysis(file_path)
+                    successful_count += 1
+                    log_universal('INFO', 'Analysis', f"Retry successful: {filename}")
+                else:
+                    still_failed_count += 1
+                    log_universal('WARNING', 'Analysis', f"Retry failed: {filename}")
+            
+            total_time = time.time() - start_time
+            
+            results = {
+                'retried': retried_count,
+                'successful': successful_count,
+                'still_failed': still_failed_count,
+                'total_time': total_time
+            }
+            
+            log_universal('INFO', 'Analysis', f"Current run retry completed in {total_time:.2f}s")
+            log_universal('INFO', 'Analysis', f"Results: {successful_count} successful, {still_failed_count} still failed")
+            
+            return results
+            
+        except Exception as e:
+            log_universal('ERROR', 'Analysis', f"Error in retry of current failed files: {e}")
+            return {'retried': 0, 'successful': 0, 'still_failed': 0, 'total_time': 0}
 
     def get_config(self) -> Dict[str, Any]:
         """Get current analysis configuration."""
