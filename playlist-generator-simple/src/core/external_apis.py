@@ -100,8 +100,8 @@ class MusicBrainzClient:
             return None
             
         try:
-            import time
             start_time = time.time()
+            duration = None  # Initialize duration
             
             # Build search query
             query_parts = [f'title:"{title}"']
@@ -200,6 +200,9 @@ class MusicBrainzClient:
             return track
             
         except Exception as e:
+            # Calculate duration if not already calculated
+            if duration is None:
+                duration = time.time() - start_time
             log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist or 'Unknown'}'", 
                         success=False, details=f"Error: {e}", duration=duration, failure_type='network')
             return None
@@ -265,8 +268,8 @@ class LastFMClient:
                 'format': 'json'
             })
             
-            import time
             start_time = time.time()
+            duration = None  # Initialize duration
             
             log_api_call('LastFM', method, 'API request')
             
@@ -290,6 +293,9 @@ class LastFMClient:
                 return {}
                 
         except requests.RequestException as e:
+            # Calculate duration if not already calculated
+            if duration is None:
+                duration = time.time() - start_time
             log_api_call('LastFM', method, 'API request', success=False, details=f"Request failed: {e}", duration=duration, failure_type='network')
             return {}
     
@@ -305,8 +311,8 @@ class LastFMClient:
             LastFMTrack object or None if not found
         """
         try:
-            import time
             start_time = time.time()
+            duration = None  # Initialize duration
             
             log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'")
             
@@ -363,6 +369,9 @@ class LastFMClient:
             return lastfm_track
             
         except Exception as e:
+            # Calculate duration if not already calculated
+            if duration is None:
+                duration = time.time() - start_time
             log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'", success=False, details=f"Error: {e}", duration=duration, failure_type='network')
             return None
     
@@ -479,7 +488,11 @@ class MetadataEnrichmentService:
                     log_universal('INFO', 'Enrichment', 'MusicBrainz no data')
                     
             except Exception as e:
-                log_universal('WARNING', 'Enrichment', f'MusicBrainz failed - {e}')
+                # Check if this is a programming error (like variable reference issues)
+                if 'referenced before assignment' in str(e) or 'UnboundLocalError' in str(type(e).__name__):
+                    log_universal('ERROR', 'Enrichment', f'MusicBrainz failed - Programming error: {e}')
+                else:
+                    log_universal('WARNING', 'Enrichment', f'MusicBrainz failed - {e}')
         else:
             log_universal('INFO', 'Enrichment', 'MusicBrainz not available')
         
@@ -512,7 +525,11 @@ class MetadataEnrichmentService:
                     log_universal('INFO', 'Enrichment', 'Last.fm no data')
                     
             except Exception as e:
-                log_universal('WARNING', 'Enrichment', f'Last.fm failed - {e}')
+                # Check if this is a programming error (like variable reference issues)
+                if 'referenced before assignment' in str(e) or 'UnboundLocalError' in str(type(e).__name__):
+                    log_universal('ERROR', 'Enrichment', f'Last.fm failed - Programming error: {e}')
+                else:
+                    log_universal('WARNING', 'Enrichment', f'Last.fm failed - {e}')
         else:
             log_universal('INFO', 'Enrichment', 'Last.fm not available')
         

@@ -2050,30 +2050,48 @@ class AudioAnalyzer:
                         f"Spectral Centroid: {spectral_centroid}, Spectral Flatness: {spectral_flatness}, "
                         f"Loudness: {loudness}, Dynamic Complexity: {dynamic_complexity}")
             
+            # Check if BPM is valid (not -1 or None)
+            has_valid_bpm = bpm is not None and bpm > 0 and bpm != -1
+            
             # Podcast detection (speech-like characteristics)
-            if (bpm > 0 and bpm < 90 and confidence < 0.6 and 
-                spectral_centroid < 2500 and spectral_flatness > 0.3):
+            # Low BPM, low confidence, low spectral centroid, high spectral flatness
+            if (has_valid_bpm and bpm < 85 and confidence < 0.5 and 
+                spectral_centroid < 2000 and spectral_flatness > 0.4):
                 log_universal('DEBUG', 'Audio', "Podcast detection criteria met (speech-like characteristics)")
                 return 'podcast'
             
-            # Radio detection (mixed content, variable characteristics)
-            if (bpm > 0 and 80 <= bpm <= 140 and 0.4 <= confidence <= 0.8 and
+            # Long mix detection (consistent music, high energy)
+            # High BPM, high confidence, high spectral centroid, low spectral flatness, high loudness
+            if (has_valid_bpm and bpm >= 120 and confidence > 0.7 and
+                spectral_centroid > 3000 and spectral_flatness < 0.3 and
+                loudness > 0.6):
+                log_universal('DEBUG', 'Audio', "Long mix detection criteria met (consistent music, high energy)")
+                return 'long_mix'
+            
+            # Radio detection (mixed content, moderate characteristics)
+            # Moderate BPM, moderate confidence, moderate spectral characteristics
+            if (has_valid_bpm and 95 <= bpm <= 125 and 0.4 <= confidence <= 0.7 and
                 spectral_centroid > 2000 and spectral_flatness < 0.4):
                 log_universal('DEBUG', 'Audio', "Radio detection criteria met (mixed content)")
                 return 'radio'
             
-            # Long mix detection (consistent music, high energy)
-            if (bpm > 0 and bpm > 120 and confidence > 0.7 and
-                spectral_centroid > 3000 and spectral_flatness < 0.3 and
-                loudness > 0.5):
-                log_universal('DEBUG', 'Audio', "Long mix detection criteria met (consistent music, high energy)")
-                return 'long_mix'
-            
             # Compilation detection (variable characteristics)
-            if (bpm > 0 and confidence < 0.6 and
-                spectral_flatness > 0.4 and dynamic_complexity > 0.6):
+            # Variable BPM, low confidence, high spectral flatness, high dynamic complexity
+            if (confidence < 0.6 and spectral_flatness > 0.4 and dynamic_complexity > 0.6):
                 log_universal('DEBUG', 'Audio', "Compilation detection criteria met (variable characteristics)")
                 return 'compilation'
+            
+            # Fallback: If we have valid BPM but no other criteria match
+            if has_valid_bpm:
+                if bpm < 95:
+                    log_universal('DEBUG', 'Audio', "Fallback categorization: low BPM suggests podcast")
+                    return 'podcast'
+                elif bpm > 125:
+                    log_universal('DEBUG', 'Audio', "Fallback categorization: high BPM suggests long_mix")
+                    return 'long_mix'
+                else:
+                    log_universal('DEBUG', 'Audio', "Fallback categorization: moderate BPM suggests radio")
+                    return 'radio'
             
             log_universal('DEBUG', 'Audio', "No audio feature categorization criteria met")
             return None
