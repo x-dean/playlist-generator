@@ -128,7 +128,7 @@ def setup_logging(
         if console_logging:
             logger.add(
                 sys.stdout,
-                format="<green>{time}</green> <level>{message}</level>",
+                format="<green>{time}</green> <level>{extra[component]}</level> | <level>{message}</level>",
                 level=log_level,
                 colorize=True,
                 backtrace=True,
@@ -154,7 +154,7 @@ def setup_logging(
             else:
                 logger.add(
                     log_file,
-                    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra[extra][component]} | {message}",
+                    format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra[component]} | {message}",
                     level=log_level,
                     rotation=f"{log_file_size_mb} MB",
                     retention=max_log_files,
