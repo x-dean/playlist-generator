@@ -49,7 +49,7 @@ class AnalysisManager:
         # Load configuration
         if config is None:
             from .config_loader import config_loader
-            config = config_loader.get_analysis_config()
+            config = config_loader.get_audio_analysis_config()
         
         self.config = config
         self.file_discovery = FileDiscovery()
