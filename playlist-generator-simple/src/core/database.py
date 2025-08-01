@@ -1776,7 +1776,7 @@ class DatabaseManager:
                 expires_at = datetime.now() + timedelta(hours=expires_hours)
                 
                 cursor.execute("""
-                    INSERT OR REPLACE INTO cache (key, value, created_at, expires_at)
+                    INSERT OR REPLACE INTO cache (cache_key, cache_value, created_at, expires_at)
                     VALUES (?, ?, CURRENT_TIMESTAMP, ?)
                 """, (key, value_json, expires_at))
                 
@@ -1809,8 +1809,8 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT value, expires_at FROM cache 
-                    WHERE key = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                    SELECT cache_value, expires_at FROM cache 
+                    WHERE cache_key = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
                 """, (key,))
                 
                 row = cursor.fetchone()
@@ -1975,7 +1975,7 @@ class DatabaseManager:
                 cursor.execute("""
                     INSERT OR REPLACE INTO failed_analysis 
                     (file_path, filename, error_message, retry_count, 
-                     failed_date, last_retry)
+                     failed_date, last_retry_date)
                     VALUES (?, ?, ?, 
                            COALESCE((SELECT retry_count FROM failed_analysis WHERE file_path = ?), 0) + 1,
                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -2011,10 +2011,10 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT file_path, filename, error_message, retry_count, 
-                           failed_date, last_retry
+                           failed_date, last_retry_date
                     FROM failed_analysis 
                     WHERE retry_count <= ?
-                    ORDER BY last_retry ASC
+                    ORDER BY last_retry_date ASC
                 """, (max_retries,))
                 
                 failed_files = []
@@ -2025,7 +2025,7 @@ class DatabaseManager:
                         'error_message': row[2],
                         'retry_count': row[3],
                         'failed_date': row[4],
-                        'last_retry': row[5]
+                        'last_retry_date': row[5]
                     }
                     failed_files.append(failed_file)
                 
@@ -2417,7 +2417,7 @@ class DatabaseManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute("DELETE FROM cache WHERE key = ?", (key,))
+                cursor.execute("DELETE FROM cache WHERE cache_key = ?", (key,))
                 conn.commit()
                 
                 deleted = cursor.rowcount > 0
