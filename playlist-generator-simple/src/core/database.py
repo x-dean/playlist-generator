@@ -192,13 +192,38 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Extract core data
-                title = metadata.get('title', 'Unknown') if metadata else 'Unknown'
-                artist = metadata.get('artist', 'Unknown') if metadata else 'Unknown'
-                album = metadata.get('album')
-                track_number = metadata.get('track_number')
-                genre = metadata.get('genre')
-                year = metadata.get('year')
+                # Extract core data with better fallbacks
+                title = 'Unknown'
+                artist = 'Unknown'
+                
+                if metadata:
+                    title = metadata.get('title', 'Unknown')
+                    artist = metadata.get('artist', 'Unknown')
+                
+                # If still unknown, try to extract from filename
+                if title == 'Unknown' or artist == 'Unknown':
+                    # Try to parse artist - title from filename
+                    filename_without_ext = os.path.splitext(filename)[0]
+                    if ' - ' in filename_without_ext:
+                        parts = filename_without_ext.split(' - ', 1)
+                        if len(parts) == 2:
+                            if artist == 'Unknown':
+                                artist = parts[0].strip()
+                            if title == 'Unknown':
+                                title = parts[1].strip()
+                    else:
+                        # No separator found, use filename as title
+                        if title == 'Unknown':
+                            title = filename_without_ext
+                
+                # Final fallback - use filename as title
+                if title == 'Unknown':
+                    title = os.path.splitext(filename)[0]
+                
+                album = metadata.get('album') if metadata else None
+                track_number = metadata.get('track_number') if metadata else None
+                genre = metadata.get('genre') if metadata else None
+                year = metadata.get('year') if metadata else None
                 duration = analysis_data.get('duration')
                 
                 # Extract audio features
