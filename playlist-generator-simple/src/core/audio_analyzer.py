@@ -226,12 +226,7 @@ class AudioAnalyzer:
                 return cached_result
         
         # Extract metadata first
-        log_universal('DEBUG', 'Audio', f'About to call _extract_metadata for: {os.path.basename(file_path)}')
         metadata = self._extract_metadata(file_path)
-        log_universal('DEBUG', 'Audio', f'Metadata extraction completed, result: {metadata is not None}')
-        if metadata:
-            log_universal('DEBUG', 'Audio', f'Metadata keys: {list(metadata.keys())}')
-            log_universal('DEBUG', 'Audio', f'Metadata title: "{metadata.get("title")}", artist: "{metadata.get("artist")}"')
         
         # Enrich metadata with external APIs FIRST (before audio analysis)
         if metadata:
@@ -369,8 +364,6 @@ class AudioAnalyzer:
         Returns:
             Metadata dictionary or None on failure
         """
-        log_universal('DEBUG', 'Audio', f'Starting metadata extraction for: {os.path.basename(file_path)}')
-        
         if not MUTAGEN_AVAILABLE:
             log_universal('WARNING', 'Audio', 'Mutagen not available - skipping metadata extraction')
             return None
@@ -382,26 +375,7 @@ class AudioAnalyzer:
         
         if cached_metadata:
             log_universal('DEBUG', 'Audio', f'Using cached metadata for: {os.path.basename(file_path)}')
-            log_universal('DEBUG', 'Audio', f'Cached metadata title: "{cached_metadata.get("title")}", artist: "{cached_metadata.get("artist")}"')
-            
-            # Force fresh extraction for debugging if cached values are "None"
-            if (cached_metadata.get("title") == "None" or cached_metadata.get("artist") == "None") and \
-               os.path.basename(file_path) == "Armin van Buuren - A State Of Trance 1204 (Top 50 of 2024).mp3":
-                log_universal('DEBUG', 'Audio', 'Clearing cache due to "None" values for debugging')
-                self.db_manager.delete_cache(cache_key)
-                cached_metadata = None
-            
-            if cached_metadata:
-                return cached_metadata
-        
-        log_universal('DEBUG', 'Audio', f'No cached metadata found, extracting from file')
-        
-        # Force fresh extraction for debugging
-        if os.path.basename(file_path) == "Armin van Buuren - A State Of Trance 1204 (Top 50 of 2024).mp3":
-            log_universal('DEBUG', 'Audio', 'Forcing fresh extraction for debugging')
-            self.db_manager.delete_cache(cache_key)
-        
-        log_universal('DEBUG', 'Audio', f'Starting mutagen extraction for: {os.path.basename(file_path)}')
+            return cached_metadata
         
         try:
             log_universal('DEBUG', 'Audio', f'Extracting metadata from: {os.path.basename(file_path)}')
@@ -411,41 +385,15 @@ class AudioAnalyzer:
                 log_universal('WARNING', 'Audio', f'Could not open file for metadata: {os.path.basename(file_path)}')
                 return None
             
-            log_universal('DEBUG', 'Audio', f'Successfully opened file with mutagen')
-            log_universal('DEBUG', 'Audio', f'Has tags: {hasattr(audio_file, "tags")}')
-            log_universal('DEBUG', 'Audio', f'Tags exist: {audio_file.tags is not None}')
-            
             metadata = {}
             
             # Extract common tags
             if hasattr(audio_file, 'tags') and audio_file.tags:
                 tags = audio_file.tags
                 
-                # Debug: Show what tags are available
-                log_universal('DEBUG', 'Audio', f'Available tags: {list(tags.keys())}')
-                log_universal('DEBUG', 'Audio', f'Title tags found: {[k for k in tags.keys() if "title" in k.lower() or k in ["TIT2", "TITLE"]]}')
-                log_universal('DEBUG', 'Audio', f'Artist tags found: {[k for k in tags.keys() if "artist" in k.lower() or k in ["TPE1", "ARTIST"]]}')
-                
-                # Debug: Show all tag values
-                log_universal('DEBUG', 'Audio', f'All tag values:')
-                for key, value in tags.items():
-                    log_universal('DEBUG', 'Audio', f'  {key}: {value}')
-                
                 # Basic metadata
                 metadata['title'] = self._get_tag_value(tags, ['title', 'TIT2', 'TITLE'])
                 metadata['artist'] = self._get_tag_value(tags, ['artist', 'TPE1', 'ARTIST'])
-                
-                # Debug: Show what values were set
-                log_universal('DEBUG', 'Audio', f'Set title to: "{metadata["title"]}"')
-                log_universal('DEBUG', 'Audio', f'Set artist to: "{metadata["artist"]}"')
-                metadata['album'] = self._get_tag_value(tags, ['album', 'TALB', 'ALBUM'])
-                metadata['genre'] = self._get_tag_value(tags, ['genre', 'TCON', 'GENRE'])
-                
-                # Debug: Show all metadata values being set
-                log_universal('DEBUG', 'Audio', f'All metadata values being set:')
-                for key, value in metadata.items():
-                    if value is not None:
-                        log_universal('DEBUG', 'Audio', f'  {key}: "{value}"')
                 metadata['year'] = self._get_tag_value(tags, ['year', 'TYER', 'YEAR', 'date'])
                 metadata['track_number'] = self._get_tag_value(tags, ['tracknumber', 'TRCK', 'TRACK'])
                 metadata['disc_number'] = self._get_tag_value(tags, ['discnumber', 'TPOS', 'DISC'])
@@ -511,10 +459,6 @@ class AudioAnalyzer:
                     metadata['bitrate'] = getattr(info, 'bitrate', None)
                     metadata['sample_rate'] = getattr(info, 'sample_rate', None)
                     metadata['channels'] = getattr(info, 'channels', None)
-                else:
-                    log_universal('DEBUG', 'Audio', 'No audio info available')
-            else:
-                log_universal('DEBUG', 'Audio', 'No tags found in file')
             
             # Extract BPM from metadata if available
             bpm_from_metadata = self._extract_bpm_from_metadata(metadata)
@@ -525,7 +469,6 @@ class AudioAnalyzer:
             self.db_manager.save_cache(cache_key, metadata, expires_hours=self.cache_expiry_hours)
             
             log_universal('DEBUG', 'Audio', f'Extracted metadata: {len(metadata)} fields from {os.path.basename(file_path)}')
-            log_universal('DEBUG', 'Audio', f'Final metadata title: "{metadata.get("title")}", artist: "{metadata.get("artist")}"')
             return metadata
             
         except Exception as e:
@@ -538,17 +481,21 @@ class AudioAnalyzer:
             try:
                 if key in tags:
                     value = tags[key]
-                    log_universal('DEBUG', 'Audio', f'Found tag {key}: {value}')
-                    if hasattr(value, '__len__') and len(value) > 0:
-                        result = str(value[0]) if isinstance(value, list) else str(value)
-                        log_universal('DEBUG', 'Audio', f'Extracted value for {key}: {result}')
-                        return result
+                    
+                    # Handle different value types
+                    if isinstance(value, list):
+                        if len(value) > 0:
+                            return str(value[0])
+                    elif isinstance(value, str):
+                        if value.strip():  # Check if string is not empty after stripping whitespace
+                            return value.strip()
                     else:
-                        log_universal('DEBUG', 'Audio', f'Tag {key} has empty value: {value}')
-            except Exception as e:
-                log_universal('DEBUG', 'Audio', f'Error extracting tag {key}: {e}')
+                        # Convert other types to string
+                        result = str(value)
+                        if result.strip():
+                            return result
+            except Exception:
                 continue
-        log_universal('DEBUG', 'Audio', f'No value found for keys: {possible_keys}')
         return None
     
     def _extract_bpm_from_metadata(self, metadata: Dict[str, Any]) -> Optional[float]:
