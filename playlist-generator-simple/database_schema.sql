@@ -254,6 +254,29 @@ CREATE TABLE analysis_cache (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Failed analysis tracking
+CREATE TABLE failed_analysis (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path TEXT UNIQUE NOT NULL,
+    filename TEXT NOT NULL,
+    error_message TEXT,
+    retry_count INTEGER DEFAULT 0,
+    failed_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_retry_date TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- General cache table for API responses and other data
+CREATE TABLE cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cache_key TEXT UNIQUE NOT NULL,
+    cache_value TEXT, -- JSON serialized data
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- =============================================================================
 -- INDEXES FOR LIGHTNING FAST QUERIES
 -- =============================================================================
@@ -311,6 +334,15 @@ CREATE INDEX idx_playlist_tracks_position ON playlist_tracks(position);
 -- Analysis cache
 CREATE INDEX idx_analysis_cache_status ON analysis_cache(status);
 CREATE INDEX idx_analysis_cache_retry_count ON analysis_cache(retry_count);
+
+-- Failed analysis indexes
+CREATE INDEX idx_failed_analysis_file_path ON failed_analysis(file_path);
+CREATE INDEX idx_failed_analysis_retry_count ON failed_analysis(retry_count);
+CREATE INDEX idx_failed_analysis_failed_date ON failed_analysis(failed_date);
+
+-- Cache indexes
+CREATE INDEX idx_cache_key ON cache(cache_key);
+CREATE INDEX idx_cache_expires_at ON cache(expires_at);
 
 -- =============================================================================
 -- VIEWS FOR COMMON QUERIES

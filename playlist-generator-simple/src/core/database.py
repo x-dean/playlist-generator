@@ -2156,7 +2156,7 @@ class DatabaseManager:
                 stats = {}
                 
                 # Count records in each table
-                tables = ['playlists', 'tracks', 'analysis_cache', 'tags', 'spectral_features', 'loudness_features', 'advanced_features', 'external_metadata', 'mfcc_features', 'musicnn_features', 'chroma_features', 'rhythm_features', 'playlist_tracks']
+                tables = ['playlists', 'tracks', 'analysis_cache', 'failed_analysis', 'cache', 'tags', 'spectral_features', 'loudness_features', 'advanced_features', 'external_metadata', 'mfcc_features', 'musicnn_features', 'chroma_features', 'rhythm_features', 'playlist_tracks']
                 for table in tables:
                     cursor.execute(f"SELECT COUNT(*) FROM {table}")
                     count = cursor.fetchone()[0]
