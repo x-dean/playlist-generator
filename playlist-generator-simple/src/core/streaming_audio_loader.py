@@ -973,7 +973,7 @@ class StreamingAudioLoader:
                     window_end = min(window_start + processing_window, end_time)
                     window_duration = window_end - window_start
                     
-                                        try:
+                    try:
                         # Load only this small window using librosa's streaming capabilities
                         # Use librosa API compatible with older versions
                         window_chunk, sr = librosa.load(
