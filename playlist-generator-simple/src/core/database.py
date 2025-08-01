@@ -209,6 +209,77 @@ class DatabaseManager:
                 danceability = analysis_data.get('danceability')
                 energy = analysis_data.get('energy')
                 
+                # Extract rhythm features
+                rhythm_confidence = analysis_data.get('rhythm_confidence')
+                bpm_estimates = json.dumps(analysis_data.get('bpm_estimates', []))
+                bpm_intervals = json.dumps(analysis_data.get('bpm_intervals', []))
+                external_bpm = analysis_data.get('external_bpm')
+                
+                # Extract spectral features
+                spectral_centroid = analysis_data.get('spectral_centroid')
+                spectral_flatness = analysis_data.get('spectral_flatness')
+                spectral_rolloff = analysis_data.get('spectral_rolloff')
+                spectral_bandwidth = analysis_data.get('spectral_bandwidth')
+                spectral_contrast_mean = analysis_data.get('spectral_contrast_mean')
+                spectral_contrast_std = analysis_data.get('spectral_contrast_std')
+                
+                # Extract loudness features
+                dynamic_complexity = analysis_data.get('dynamic_complexity')
+                loudness_range = analysis_data.get('loudness_range')
+                dynamic_range = analysis_data.get('dynamic_range')
+                
+                # Extract key features
+                scale = analysis_data.get('scale')
+                key_strength = analysis_data.get('key_strength')
+                key_confidence = analysis_data.get('key_confidence')
+                
+                # Extract MFCC features
+                mfcc_coefficients = json.dumps(analysis_data.get('mfcc_coefficients', []))
+                mfcc_bands = json.dumps(analysis_data.get('mfcc_bands', []))
+                mfcc_std = json.dumps(analysis_data.get('mfcc_std', []))
+                
+                # Extract MusiCNN features
+                embedding = json.dumps(analysis_data.get('embedding', []))
+                tags = json.dumps(analysis_data.get('tags', {}))
+                
+                # Extract chroma features
+                chroma_mean = json.dumps(analysis_data.get('chroma_mean', []))
+                chroma_std = json.dumps(analysis_data.get('chroma_std', []))
+                
+                # Extract additional metadata
+                bitrate = metadata.get('bitrate') if metadata else None
+                sample_rate = metadata.get('sample_rate') if metadata else None
+                channels = metadata.get('channels') if metadata else None
+                composer = metadata.get('composer') if metadata else None
+                lyricist = metadata.get('lyricist') if metadata else None
+                band = metadata.get('band') if metadata else None
+                conductor = metadata.get('conductor') if metadata else None
+                remixer = metadata.get('remixer') if metadata else None
+                subtitle = metadata.get('subtitle') if metadata else None
+                grouping = metadata.get('grouping') if metadata else None
+                publisher = metadata.get('publisher') if metadata else None
+                copyright = metadata.get('copyright') if metadata else None
+                encoded_by = metadata.get('encoded_by') if metadata else None
+                language = metadata.get('language') if metadata else None
+                mood = metadata.get('mood') if metadata else None
+                style = metadata.get('style') if metadata else None
+                quality = metadata.get('quality') if metadata else None
+                original_artist = metadata.get('original_artist') if metadata else None
+                original_album = metadata.get('original_album') if metadata else None
+                original_year = metadata.get('original_year') if metadata else None
+                original_filename = metadata.get('original_filename') if metadata else None
+                content_group = metadata.get('content_group') if metadata else None
+                encoder = metadata.get('encoder') if metadata else None
+                file_type = metadata.get('file_type') if metadata else None
+                playlist_delay = metadata.get('playlist_delay') if metadata else None
+                recording_time = metadata.get('recording_time') if metadata else None
+                tempo = metadata.get('tempo') if metadata else None
+                length = metadata.get('length') if metadata else None
+                replaygain_track_gain = metadata.get('replaygain_track_gain') if metadata else None
+                replaygain_album_gain = metadata.get('replaygain_album_gain') if metadata else None
+                replaygain_track_peak = metadata.get('replaygain_track_peak') if metadata else None
+                replaygain_album_peak = metadata.get('replaygain_album_peak') if metadata else None
+                
                 # Determine analysis type and category
                 analysis_type = analysis_data.get('analysis_type', 'full')
                 long_audio_category = analysis_data.get('long_audio_category')

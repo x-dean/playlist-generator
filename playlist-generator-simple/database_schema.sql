@@ -38,7 +38,85 @@ CREATE TABLE tracks (
     
     -- Timestamps
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- =============================================================================
+    -- EXTENDED AUDIO FEATURES
+    -- =============================================================================
+    
+    -- Rhythm features
+    rhythm_confidence REAL,
+    bpm_estimates TEXT, -- JSON array of BPM estimates
+    bpm_intervals TEXT, -- JSON array of BPM intervals
+    external_bpm REAL, -- BPM from metadata
+    
+    -- Spectral features
+    spectral_centroid REAL,
+    spectral_flatness REAL,
+    spectral_rolloff REAL,
+    spectral_bandwidth REAL,
+    spectral_contrast_mean REAL,
+    spectral_contrast_std REAL,
+    
+    -- Loudness features
+    dynamic_complexity REAL,
+    loudness_range REAL,
+    dynamic_range REAL,
+    
+    -- Key features
+    scale TEXT, -- 'major', 'minor', etc.
+    key_strength REAL,
+    key_confidence REAL,
+    
+    -- MFCC features (stored as JSON for arrays)
+    mfcc_coefficients TEXT, -- JSON array of MFCC coefficients
+    mfcc_bands TEXT, -- JSON array of MFCC bands
+    mfcc_std TEXT, -- JSON array of MFCC standard deviations
+    
+    -- MusiCNN features (stored as JSON)
+    embedding TEXT, -- JSON array of MusiCNN embedding
+    tags TEXT, -- JSON object of MusiCNN tags
+    
+    -- Chroma features (stored as JSON)
+    chroma_mean TEXT, -- JSON array of chroma means
+    chroma_std TEXT, -- JSON array of chroma standard deviations
+    
+    -- Additional metadata fields
+    bitrate INTEGER,
+    sample_rate INTEGER,
+    channels INTEGER,
+    composer TEXT,
+    lyricist TEXT,
+    band TEXT,
+    conductor TEXT,
+    remixer TEXT,
+    subtitle TEXT,
+    grouping TEXT,
+    publisher TEXT,
+    copyright TEXT,
+    encoded_by TEXT,
+    language TEXT,
+    mood TEXT,
+    style TEXT,
+    quality TEXT,
+    original_artist TEXT,
+    original_album TEXT,
+    original_year INTEGER,
+    original_filename TEXT,
+    content_group TEXT,
+    encoder TEXT,
+    file_type TEXT,
+    playlist_delay INTEGER,
+    recording_time TEXT,
+    tempo TEXT,
+    length TEXT,
+    replaygain_track_gain REAL,
+    replaygain_album_gain REAL,
+    replaygain_track_peak REAL,
+    replaygain_album_peak REAL,
+    scale TEXT, -- Duplicate for compatibility
+    key_strength REAL, -- Duplicate for compatibility
+    rhythm_confidence REAL -- Duplicate for compatibility
 );
 
 -- Tags table for external API data and enrichment
