@@ -383,7 +383,16 @@ class AudioAnalyzer:
         if cached_metadata:
             log_universal('DEBUG', 'Audio', f'Using cached metadata for: {os.path.basename(file_path)}')
             log_universal('DEBUG', 'Audio', f'Cached metadata title: "{cached_metadata.get("title")}", artist: "{cached_metadata.get("artist")}"')
-            return cached_metadata
+            
+            # Force fresh extraction for debugging if cached values are "None"
+            if (cached_metadata.get("title") == "None" or cached_metadata.get("artist") == "None") and \
+               os.path.basename(file_path) == "Armin van Buuren - A State Of Trance 1204 (Top 50 of 2024).mp3":
+                log_universal('DEBUG', 'Audio', 'Clearing cache due to "None" values for debugging')
+                self.db_manager.delete_cache(cache_key)
+                cached_metadata = None
+            
+            if cached_metadata:
+                return cached_metadata
         
         log_universal('DEBUG', 'Audio', f'No cached metadata found, extracting from file')
         
