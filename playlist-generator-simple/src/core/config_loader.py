@@ -456,6 +456,78 @@ class ConfigLoader:
         self._update_cache(cache_key, logging_config)
         return logging_config
     
+    def get_resource_config(self) -> Dict[str, Any]:
+        """
+        Get resource management specific configuration.
+        
+        Returns:
+            Resource configuration dictionary
+        """
+        cache_key = self._get_cache_key('resource')
+        
+        if self._is_cache_valid(cache_key):
+            return self._config_cache[cache_key]
+        
+        config = self.get_config()
+        
+        # Extract resource management specific settings
+        resource_config = {
+            'MEMORY_LIMIT_GB': config.get('MEMORY_LIMIT_GB', 8.0),
+            'CPU_THRESHOLD_PERCENT': config.get('CPU_THRESHOLD_PERCENT', 80),
+            'DISK_THRESHOLD_PERCENT': config.get('DISK_THRESHOLD_PERCENT', 90),
+            'MONITORING_INTERVAL_SECONDS': config.get('MONITORING_INTERVAL_SECONDS', 5),
+            'RESOURCE_HISTORY_SIZE': config.get('RESOURCE_HISTORY_SIZE', 100),
+            'RESOURCE_ALERT_THRESHOLD_PERCENT': config.get('RESOURCE_ALERT_THRESHOLD_PERCENT', 85),
+            'RESOURCE_AUTO_CLEANUP_ENABLED': config.get('RESOURCE_AUTO_CLEANUP_ENABLED', True),
+            'RESOURCE_CALLBACK_ENABLED': config.get('RESOURCE_CALLBACK_ENABLED', True),
+            'RESOURCE_PERFORMANCE_MONITORING': config.get('RESOURCE_PERFORMANCE_MONITORING', True),
+            'RESOURCE_MEMORY_LIMIT_GB': config.get('RESOURCE_MEMORY_LIMIT_GB', 8.0),
+            'RESOURCE_CPU_LIMIT_PERCENT': config.get('RESOURCE_CPU_LIMIT_PERCENT', 80),
+            'RESOURCE_LOG_LEVEL': config.get('RESOURCE_LOG_LEVEL', 'INFO'),
+            'RESOURCE_MONITORING_ENABLED': config.get('RESOURCE_MONITORING_ENABLED', True)
+        }
+        
+        self._update_cache(cache_key, resource_config)
+        return resource_config
+    
+    def get_playlist_config(self) -> Dict[str, Any]:
+        """
+        Get playlist generation specific configuration.
+        
+        Returns:
+            Playlist configuration dictionary
+        """
+        cache_key = self._get_cache_key('playlist')
+        
+        if self._is_cache_valid(cache_key):
+            return self._config_cache[cache_key]
+        
+        config = self.get_config()
+        
+        # Extract playlist generation specific settings
+        playlist_config = {
+            'PLAYLIST_MAX_TRACKS': config.get('PLAYLIST_MAX_TRACKS', 50),
+            'PLAYLIST_MIN_TRACKS': config.get('PLAYLIST_MIN_TRACKS', 10),
+            'PLAYLIST_TARGET_DURATION_MINUTES': config.get('PLAYLIST_TARGET_DURATION_MINUTES', 60),
+            'PLAYLIST_SIMILARITY_THRESHOLD': config.get('PLAYLIST_SIMILARITY_THRESHOLD', 0.7),
+            'PLAYLIST_DIVERSITY_FACTOR': config.get('PLAYLIST_DIVERSITY_FACTOR', 0.3),
+            'PLAYLIST_ENERGY_VARIATION': config.get('PLAYLIST_ENERGY_VARIATION', 0.2),
+            'PLAYLIST_TEMPO_VARIATION': config.get('PLAYLIST_TEMPO_VARIATION', 0.15),
+            'PLAYLIST_KEY_COMPATIBILITY': config.get('PLAYLIST_KEY_COMPATIBILITY', True),
+            'PLAYLIST_GENRE_MIXING': config.get('PLAYLIST_GENRE_MIXING', True),
+            'PLAYLIST_ARTIST_VARIETY': config.get('PLAYLIST_ARTIST_VARIETY', True),
+            'PLAYLIST_YEAR_RANGE': config.get('PLAYLIST_YEAR_RANGE', 10),
+            'PLAYLIST_ENERGY_PROGRESSION': config.get('PLAYLIST_ENERGY_PROGRESSION', True),
+            'PLAYLIST_TEMPO_PROGRESSION': config.get('PLAYLIST_TEMPO_PROGRESSION', True),
+            'PLAYLIST_KEY_PROGRESSION': config.get('PLAYLIST_KEY_PROGRESSION', True),
+            'PLAYLIST_QUALITY_THRESHOLD': config.get('PLAYLIST_QUALITY_THRESHOLD', 0.6),
+            'PLAYLIST_CACHE_ENABLED': config.get('PLAYLIST_CACHE_ENABLED', True),
+            'PLAYLIST_CACHE_EXPIRY_HOURS': config.get('PLAYLIST_CACHE_EXPIRY_HOURS', 24)
+        }
+        
+        self._update_cache(cache_key, playlist_config)
+        return playlist_config
+    
     def clear_cache(self):
         """Clear all configuration caches."""
         self._config_cache.clear()

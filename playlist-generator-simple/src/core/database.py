@@ -118,25 +118,33 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Read and apply comprehensive schema
-                schema_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database_schema.sql')
+                # Check if database already has tables
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tracks'")
+                has_tables = cursor.fetchone() is not None
                 
-                if os.path.exists(schema_file):
-                    log_universal('INFO', 'Database', f"Applying comprehensive schema from: {schema_file}")
-                    with open(schema_file, 'r', encoding='utf-8') as f:
-                        schema_sql = f.read()
-                    
-                    # Execute comprehensive schema
-                    cursor.executescript(schema_sql)
-                    tables_created = 19  # Our schema has 19 tables
-                    log_universal('INFO', 'Database', "Comprehensive schema applied successfully")
+                if has_tables:
+                    log_universal('INFO', 'Database', "Database already has tables, skipping schema creation")
+                    tables_created = 0
                 else:
-                    log_universal('WARNING', 'Database', f"Schema file not found: {schema_file}")
-                    log_universal('INFO', 'Database', "Falling back to simple schema")
+                    # Read and apply comprehensive schema
+                    schema_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database_schema.sql')
                     
-                    # Fallback to simple schema
-                    self._create_simple_schema(cursor)
-                    tables_created = 8  # Simple schema has 8 tables
+                    if os.path.exists(schema_file):
+                        log_universal('INFO', 'Database', f"Applying comprehensive schema from: {schema_file}")
+                        with open(schema_file, 'r', encoding='utf-8') as f:
+                            schema_sql = f.read()
+                        
+                        # Execute comprehensive schema
+                        cursor.executescript(schema_sql)
+                        tables_created = 19  # Our schema has 19 tables
+                        log_universal('INFO', 'Database', "Comprehensive schema applied successfully")
+                    else:
+                        log_universal('WARNING', 'Database', f"Schema file not found: {schema_file}")
+                        log_universal('INFO', 'Database', "Falling back to simple schema")
+                        
+                        # Fallback to simple schema
+                        self._create_simple_schema(cursor)
+                        tables_created = 8  # Simple schema has 8 tables
                 
                 conn.commit()
                 init_time = time.time() - start_time
