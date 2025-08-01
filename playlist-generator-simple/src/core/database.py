@@ -219,13 +219,15 @@ class DatabaseManager:
                         file_path, file_hash, filename, file_size_bytes, analysis_date,
                         title, artist, album, track_number, genre, year, duration,
                         bpm, key, mode, loudness, danceability, energy,
-                        analysis_type, analyzed, long_audio_category, discovery_date, discovery_source
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        analysis_type, analyzed, long_audio_category, discovery_date, discovery_source,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     file_path, file_hash, filename, file_size_bytes, datetime.now(),
                     title, artist, album, track_number, genre, year, duration,
                     bpm, key, mode, loudness, danceability, energy,
-                    analysis_type, True, long_audio_category, datetime.now(), discovery_source
+                    analysis_type, True, long_audio_category, datetime.now(), discovery_source,
+                    datetime.now(), datetime.now()
                 ))
                 
                 track_id = cursor.lastrowid
