@@ -230,6 +230,8 @@ class AudioAnalyzer:
         
         # Enrich metadata with external APIs FIRST (before audio analysis)
         if metadata:
+            # Add filename to metadata for fallback extraction
+            metadata['filename'] = os.path.basename(file_path)
             enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
             metadata = enriched_metadata
         

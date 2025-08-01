@@ -455,6 +455,12 @@ class MetadataEnrichmentService:
         log_universal('DEBUG', 'Enrichment', f'Title: "{title}", Artist: "{artist}"')
         log_universal('DEBUG', 'Enrichment', f'Available metadata keys: {list(metadata.keys())}')
         
+        # Handle "None" string values (from failed tag extraction)
+        if title == "None":
+            title = ""
+        if artist == "None":
+            artist = ""
+        
         # Try alternative field names if primary ones are empty
         if not title:
             title = metadata.get('TIT2', metadata.get('TITLE', ''))
@@ -463,6 +469,30 @@ class MetadataEnrichmentService:
         if not artist:
             artist = metadata.get('TPE1', metadata.get('ARTIST', ''))
             log_universal('DEBUG', 'Enrichment', f'Trying alternative artist: "{artist}"')
+        
+        # Try to extract from filename if still missing
+        if not title or not artist:
+            # Get filename from metadata if available, otherwise we'll need to pass it
+            filename = metadata.get('filename', '')
+            if filename:
+                log_universal('DEBUG', 'Enrichment', f'Attempting to extract from filename: {filename}')
+                # Try to parse "Artist - Title" format
+                if ' - ' in filename:
+                    parts = filename.split(' - ', 1)
+                    if len(parts) == 2:
+                        extracted_artist = parts[0].strip()
+                        extracted_title = parts[1].strip()
+                        # Remove file extension
+                        if '.' in extracted_title:
+                            extracted_title = extracted_title.rsplit('.', 1)[0]
+                        
+                        if not artist and extracted_artist:
+                            artist = extracted_artist
+                            log_universal('DEBUG', 'Enrichment', f'Extracted artist from filename: "{artist}"')
+                        
+                        if not title and extracted_title:
+                            title = extracted_title
+                            log_universal('DEBUG', 'Enrichment', f'Extracted title from filename: "{title}"')
         
         if not title or not artist:
             log_universal('WARNING', 'Enrichment', 'Missing title or artist')
