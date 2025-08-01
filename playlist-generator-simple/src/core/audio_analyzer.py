@@ -391,6 +391,11 @@ class AudioAnalyzer:
             if hasattr(audio_file, 'tags') and audio_file.tags:
                 tags = audio_file.tags
                 
+                # Debug: Show what tags are available
+                log_universal('DEBUG', 'Audio', f'Available tags: {list(tags.keys())}')
+                log_universal('DEBUG', 'Audio', f'Title tags found: {[k for k in tags.keys() if "title" in k.lower() or k in ["TIT2", "TITLE"]]}')
+                log_universal('DEBUG', 'Audio', f'Artist tags found: {[k for k in tags.keys() if "artist" in k.lower() or k in ["TPE1", "ARTIST"]]}')
+                
                 # Basic metadata
                 metadata['title'] = self._get_tag_value(tags, ['title', 'TIT2', 'TITLE'])
                 metadata['artist'] = self._get_tag_value(tags, ['artist', 'TPE1', 'ARTIST'])
@@ -483,10 +488,17 @@ class AudioAnalyzer:
             try:
                 if key in tags:
                     value = tags[key]
+                    log_universal('DEBUG', 'Audio', f'Found tag {key}: {value}')
                     if hasattr(value, '__len__') and len(value) > 0:
-                        return str(value[0]) if isinstance(value, list) else str(value)
-            except Exception:
+                        result = str(value[0]) if isinstance(value, list) else str(value)
+                        log_universal('DEBUG', 'Audio', f'Extracted value for {key}: {result}')
+                        return result
+                    else:
+                        log_universal('DEBUG', 'Audio', f'Tag {key} has empty value: {value}')
+            except Exception as e:
+                log_universal('DEBUG', 'Audio', f'Error extracting tag {key}: {e}')
                 continue
+        log_universal('DEBUG', 'Audio', f'No value found for keys: {possible_keys}')
         return None
     
     def _extract_bpm_from_metadata(self, metadata: Dict[str, Any]) -> Optional[float]:
