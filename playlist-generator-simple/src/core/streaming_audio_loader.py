@@ -239,10 +239,8 @@ class StreamingAudioLoader:
                 log_universal('DEBUG', 'Streaming', f"Duration calculated: {duration:.1f}s ({len(audio)} samples)")
                 return duration
             elif LIBROSA_AVAILABLE:
-                # Use librosa for duration with soundfile backend to avoid audioread warnings
-                log_universal('DEBUG', 'Streaming', f"Getting duration with Librosa (soundfile backend): {os.path.basename(audio_path)}")
-                # Configure librosa to use soundfile backend to avoid audioread warnings
-                librosa.set_backend('soundfile')
+                # Use librosa for duration
+                log_universal('DEBUG', 'Streaming', f"Getting duration with Librosa: {os.path.basename(audio_path)}")
                 duration = librosa.get_duration(path=audio_path, sr=self.sample_rate)
                 log_universal('DEBUG', 'Streaming', f"Duration calculated: {duration:.1f}s")
                 return duration
@@ -523,18 +521,17 @@ class StreamingAudioLoader:
                         sub_end_time = sub_end / self.sample_rate
                         sub_duration = sub_end_time - sub_start_time
                         
-                        # Use librosa's streaming capabilities if available
+                                                # Use librosa's streaming capabilities if available
                         if LIBROSA_AVAILABLE:
                             # Load only this small chunk using librosa's offset and duration
-                            # Use newer librosa API to avoid deprecation warnings
+                            # Use librosa API compatible with older versions
                             sub_chunk, sr = librosa.load(
                                 audio_path,
                                 sr=self.sample_rate,
                                 mono=True,
                                 offset=sub_start_time,
                                 duration=sub_duration,
-                                res_type='kaiser_best',  # Use high-quality resampling
-                                backend='soundfile'  # Explicitly use soundfile backend
+                                res_type='kaiser_best'  # Use high-quality resampling
                             )
                             
                             # Ensure correct sample rate
@@ -822,13 +819,12 @@ class StreamingAudioLoader:
             if LIBROSA_AVAILABLE:
                 try:
                     log_universal('INFO', 'Streaming', "Trying Librosa audio loading...")
-                    # Use newer librosa API to avoid deprecation warnings
+                    # Use librosa API compatible with older versions
                     audio, sample_rate = librosa.load(
                         audio_path, 
                         sr=self.sample_rate, 
                         mono=True,
-                        res_type='kaiser_best',  # Use high-quality resampling
-                        backend='soundfile'  # Explicitly use soundfile backend
+                        res_type='kaiser_best'  # Use high-quality resampling
                     )
                     log_universal('INFO', 'Streaming', f"Audio loaded with Librosa: {len(audio)} samples, {sample_rate}Hz")
                 except Exception as e:
@@ -922,15 +918,14 @@ class StreamingAudioLoader:
                 start_sample = current_sample
                 end_sample = min(start_sample + samples_per_chunk, total_samples)
                 
-                # Load chunk using librosa with newer API to avoid deprecation warnings
+                # Load chunk using librosa with compatible API
                 chunk, sr = librosa.load(
                     audio_path, 
                     sr=self.sample_rate, 
                     mono=True,
                     offset=start_sample / self.sample_rate,
                     duration=(end_sample - start_sample) / self.sample_rate,
-                    res_type='kaiser_best',  # Use high-quality resampling
-                    backend='soundfile'  # Explicitly use soundfile backend
+                    res_type='kaiser_best'  # Use high-quality resampling
                 )
                 
                 # Calculate time boundaries
@@ -978,17 +973,16 @@ class StreamingAudioLoader:
                     window_end = min(window_start + processing_window, end_time)
                     window_duration = window_end - window_start
                     
-                    try:
+                                        try:
                         # Load only this small window using librosa's streaming capabilities
-                        # Use newer librosa API to avoid deprecation warnings
+                        # Use librosa API compatible with older versions
                         window_chunk, sr = librosa.load(
                             audio_path,
                             sr=self.sample_rate,
                             mono=True,
                             offset=window_start,
                             duration=window_duration,
-                            res_type='kaiser_best',  # Use high-quality resampling
-                            backend='soundfile'  # Explicitly use soundfile backend
+                            res_type='kaiser_best'  # Use high-quality resampling
                         )
                         
                         # Ensure correct sample rate
