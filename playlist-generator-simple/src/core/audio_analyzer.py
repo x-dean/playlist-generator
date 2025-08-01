@@ -228,10 +228,15 @@ class AudioAnalyzer:
         # Extract metadata first
         metadata = self._extract_metadata(file_path)
         
+        # Enrich metadata with external APIs FIRST (before audio analysis)
+        if metadata:
+            enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
+            metadata = enriched_metadata
+        
         # Check if we should skip audio loading for large files
         if self._should_skip_audio_loading(file_path):
             log_universal('WARNING', 'Audio', f'Skipping audio analysis for large file: {os.path.basename(file_path)}')
-            # Return basic analysis with metadata only
+            # Return basic analysis with enriched metadata
             return self._create_basic_analysis_for_large_file(file_path, file_size, file_hash, metadata)
         
         # Load audio data
@@ -249,18 +254,14 @@ class AudioAnalyzer:
         else:
             metadata = {'is_long_audio': is_long_audio}
         
-        # Perform audio analysis
+        # Perform audio analysis with enriched metadata
         analysis_result = self._extract_audio_features(audio, sample_rate, metadata)
         if analysis_result is None:
             log_universal('ERROR', 'Audio', f'Feature extraction failed: {os.path.basename(file_path)}')
             return None
         
-        # Enrich metadata with external APIs
-        if metadata:
-            enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
-            analysis_result['metadata'] = enriched_metadata
-        else:
-            analysis_result['metadata'] = metadata or {}
+        # Set the enriched metadata in results
+        analysis_result['metadata'] = metadata or {}
         
         # Determine audio type and add file information
         audio_type = self._get_audio_type(file_path, audio)

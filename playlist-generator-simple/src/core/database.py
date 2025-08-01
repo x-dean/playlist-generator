@@ -764,12 +764,28 @@ class DatabaseManager:
                 track_id = cursor.lastrowid
                 
                 # Save external metadata if available
-                if metadata and (metadata.get('musicbrainz_id') or metadata.get('lastfm_url')):
-                    self._save_external_metadata(cursor, track_id, metadata)
-                
-                # Save tags if available
-                if metadata and metadata.get('tags'):
-                    self._save_tags(cursor, track_id, metadata.get('tags'), metadata.get('tag_source', 'file'))
+                if metadata:
+                    # Save MusicBrainz data
+                    if (metadata.get('musicbrainz_id') or metadata.get('musicbrainz_artist_id') or 
+                        metadata.get('musicbrainz_album_id') or metadata.get('musicbrainz_tags')):
+                        self._save_external_metadata(cursor, track_id, metadata)
+                    
+                    # Save Last.fm data
+                    if (metadata.get('play_count') or metadata.get('listeners') or 
+                        metadata.get('rating') or metadata.get('lastfm_tags')):
+                        self._save_external_metadata(cursor, track_id, metadata)
+                    
+                    # Save MusicBrainz tags
+                    if metadata.get('musicbrainz_tags'):
+                        self._save_tags(cursor, track_id, {'musicbrainz_tags': metadata['musicbrainz_tags']}, 'musicbrainz')
+                    
+                    # Save Last.fm tags
+                    if metadata.get('lastfm_tags'):
+                        self._save_tags(cursor, track_id, {'lastfm_tags': metadata['lastfm_tags']}, 'lastfm')
+                    
+                    # Save combined tags
+                    if metadata.get('all_tags'):
+                        self._save_tags(cursor, track_id, {'all_tags': metadata['all_tags']}, 'combined')
                 
                 # Save audio features to specialized tables
                 if analysis_data:
@@ -797,7 +813,8 @@ class DatabaseManager:
         """Save external API metadata to external_metadata table."""
         try:
             # MusicBrainz data
-            if metadata.get('musicbrainz_id'):
+            if (metadata.get('musicbrainz_id') or metadata.get('musicbrainz_artist_id') or 
+                metadata.get('musicbrainz_album_id') or metadata.get('musicbrainz_tags')):
                 cursor.execute("""
                     INSERT OR REPLACE INTO external_metadata 
                     (track_id, source, musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id, 
@@ -805,15 +822,16 @@ class DatabaseManager:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (track_id, 'musicbrainz', metadata.get('musicbrainz_id'), 
                      metadata.get('musicbrainz_artist_id'), metadata.get('musicbrainz_album_id'),
-                     metadata.get('release_date'), metadata.get('disc_number'), metadata.get('duration_ms'), 1.0))
+                     metadata.get('release_date'), metadata.get('track_number'), metadata.get('duration'), 1.0))
             
             # Last.fm data
-            if metadata.get('lastfm_url'):
+            if (metadata.get('play_count') or metadata.get('listeners') or 
+                metadata.get('rating') or metadata.get('lastfm_tags')):
                 cursor.execute("""
                     INSERT OR REPLACE INTO external_metadata 
                     (track_id, source, lastfm_url, play_count, listeners, rating, confidence)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (track_id, 'lastfm', metadata.get('lastfm_url'), metadata.get('play_count'),
+                """, (track_id, 'lastfm', metadata.get('lastfm_url', ''), metadata.get('play_count'),
                      metadata.get('listeners'), metadata.get('rating'), 1.0))
                      
         except Exception as e:
@@ -824,11 +842,23 @@ class DatabaseManager:
         try:
             for tag_name, tag_value in tags.items():
                 if tag_value is not None:
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO tags 
-                        (track_id, source, tag_name, tag_value, confidence)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (track_id, source, tag_name, str(tag_value), 1.0))
+                    # Handle both single values and lists
+                    if isinstance(tag_value, list):
+                        # Save each tag in the list individually
+                        for i, tag in enumerate(tag_value):
+                            if tag:  # Skip empty tags
+                                cursor.execute("""
+                                    INSERT OR REPLACE INTO tags 
+                                    (track_id, source, tag_name, tag_value, confidence)
+                                    VALUES (?, ?, ?, ?, ?)
+                                """, (track_id, source, f"{tag_name}_{i}", str(tag), 1.0))
+                    else:
+                        # Save single value
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO tags 
+                            (track_id, source, tag_name, tag_value, confidence)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (track_id, source, tag_name, str(tag_value), 1.0))
         except Exception as e:
             log_universal('WARNING', 'Database', f"Error saving tags: {e}")
 
