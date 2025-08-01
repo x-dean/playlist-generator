@@ -1043,7 +1043,7 @@ class AudioAnalyzer:
                     duration = time.time() - start_time
                     log_universal('ERROR', 'Audio', f"Feature extraction step: loudness error: {e}")
             
-            # Extract key (if enabled) - skip for extremely large files (like old setup)
+            # Extract key (if enabled) - use streaming for large files
             if features_config.get('extract_key', True):
                 if is_extremely_large_for_processing:
                     log_universal('WARNING', 'Audio', f"Skipping key extraction for extremely large file")
@@ -1051,7 +1051,13 @@ class AudioAnalyzer:
                 else:
                     start_time = time.time()
                     try:
-                        key_features = self._extract_key(audio)
+                        # Use streaming key extraction for large files
+                        if self._should_use_streaming_key_extraction(audio_path, len(audio)):
+                            log_universal('INFO', 'Audio', f"Using streaming key extraction for large file")
+                            key_features = self._extract_key_streaming(audio_path, chunk_duration=30.0)
+                        else:
+                            key_features = self._extract_key(audio)
+                        
                         if key_features:
                             features.update(key_features)
                             extracted_features.append('key')
@@ -1522,6 +1528,185 @@ class AudioAnalyzer:
             log_universal('WARNING', 'Audio', f"Error extracting loudness features: {e}")
         
         return features
+
+    def _should_use_streaming_key_extraction(self, audio_path: str, audio_length: int = None) -> bool:
+        """
+        Determine if streaming key extraction should be used for a file.
+        
+        Args:
+            audio_path: Path to the audio file
+            audio_length: Length of audio in samples (if known)
+            
+        Returns:
+            True if streaming should be used
+        """
+        try:
+            # Check if streaming key extraction is enabled
+            if not self.config.get('STREAMING_KEY_EXTRACTION_ENABLED', True):
+                return False
+            
+            # Get thresholds from configuration
+            file_size_threshold_mb = self.config.get('STREAMING_KEY_FILE_SIZE_THRESHOLD_MB', 50)
+            duration_threshold_minutes = self.config.get('STREAMING_KEY_DURATION_THRESHOLD_MINUTES', 15)
+            
+            # Check file size first
+            file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+            
+            # Use streaming for files larger than threshold
+            if file_size_mb > file_size_threshold_mb:
+                log_universal('DEBUG', 'Audio', f"File size {file_size_mb:.1f}MB > {file_size_threshold_mb}MB, using streaming key extraction")
+                return True
+            
+            # Check audio length if provided
+            if audio_length is not None:
+                duration_minutes = (audio_length / DEFAULT_SAMPLE_RATE) / 60
+                if duration_minutes > duration_threshold_minutes:
+                    log_universal('DEBUG', 'Audio', f"Audio duration {duration_minutes:.1f}min > {duration_threshold_minutes}min, using streaming key extraction")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f"Error checking file size for streaming decision: {e}")
+            return False
+
+    def _extract_key_streaming(self, audio_path: str, chunk_duration: float = 30.0) -> Dict[str, Any]:
+        """
+        Extract key features using streaming approach for large files.
+        
+        Args:
+            audio_path: Path to the audio file
+            chunk_duration: Duration of each chunk in seconds
+            
+        Returns:
+            Dictionary with key features
+        """
+        # Get timeout from configuration
+        timeout_seconds = self.config.get('STREAMING_KEY_TIMEOUT_SECONDS', 600)
+        
+        @timeout(timeout_seconds, "Streaming key extraction timed out")
+        def _extract_key_streaming_with_timeout():
+            features = {}
+            
+            try:
+                log_universal('DEBUG', 'Audio', f"Starting streaming key extraction for: {os.path.basename(audio_path)}")
+                
+                # Force memory cleanup before starting
+                gc.collect()
+                
+                # Get streaming loader with configuration settings
+                from .streaming_audio_loader import get_streaming_loader
+                memory_limit_percent = self.config.get('STREAMING_KEY_MEMORY_LIMIT_PERCENT', 20)
+                streaming_loader = get_streaming_loader(memory_limit_percent=memory_limit_percent, chunk_duration_seconds=chunk_duration)
+                
+                def process_chunk_key(chunk: np.ndarray, start_time: float, end_time: float) -> Dict[str, Any]:
+                    """Process key detection for a single chunk."""
+                    chunk_result = {}
+                    
+                    try:
+                        if ESSENTIA_AVAILABLE:
+                            # Key detection on chunk
+                            key = es.Key()
+                            key_result = key(chunk)
+                            
+                            chunk_result['key'] = str(key_result[0])
+                            chunk_result['scale'] = str(key_result[1])
+                            chunk_result['strength'] = ensure_float(key_result[2])
+                            chunk_result['start_time'] = start_time
+                            chunk_result['end_time'] = end_time
+                            
+                            log_universal('DEBUG', 'Audio', f"Chunk key: {chunk_result['key']} {chunk_result['scale']} (strength: {chunk_result['strength']:.3f})")
+                            
+                        elif LIBROSA_AVAILABLE:
+                            # Use librosa for key detection on chunk
+                            chroma = librosa.feature.chroma_cqt(y=chunk, sr=DEFAULT_SAMPLE_RATE)
+                            chroma_mean = np.mean(chroma, axis=1)
+                            key_idx = np.argmax(chroma_mean)
+                            keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+                            
+                            chunk_result['key'] = keys[key_idx]
+                            chunk_result['scale'] = 'major'  # Simplified
+                            chunk_result['strength'] = ensure_float(chroma_mean[key_idx])
+                            chunk_result['start_time'] = start_time
+                            chunk_result['end_time'] = end_time
+                            
+                            log_universal('DEBUG', 'Audio', f"Chunk key (librosa): {chunk_result['key']} (strength: {chunk_result['strength']:.3f})")
+                        
+                    except Exception as e:
+                        log_universal('WARNING', 'Audio', f"Error processing chunk key: {e}")
+                        chunk_result['error'] = str(e)
+                    
+                    return chunk_result
+                
+                # Process audio in chunks
+                streaming_results = streaming_loader.process_audio_streaming(audio_path, process_chunk_key, chunk_duration)
+                
+                # Force final memory cleanup
+                gc.collect()
+                
+                if streaming_results['success'] and streaming_results['results']:
+                    # Aggregate results from all chunks
+                    valid_results = [r for r in streaming_results['results'] if 'error' not in r]
+                    
+                    if valid_results:
+                        # Find the most common key and scale
+                        key_counts = {}
+                        scale_counts = {}
+                        total_strength = 0
+                        
+                        for result in valid_results:
+                            key = result.get('key', 'unknown')
+                            scale = result.get('scale', 'unknown')
+                            strength = result.get('strength', 0)
+                            
+                            key_counts[key] = key_counts.get(key, 0) + 1
+                            scale_counts[scale] = scale_counts.get(scale, 0) + 1
+                            total_strength += strength
+                        
+                        # Get most common key and scale
+                        most_common_key = max(key_counts.items(), key=lambda x: x[1])[0] if key_counts else 'unknown'
+                        most_common_scale = max(scale_counts.items(), key=lambda x: x[1])[0] if scale_counts else 'unknown'
+                        avg_strength = total_strength / len(valid_results) if valid_results else 0
+                        
+                        features['key'] = most_common_key
+                        features['scale'] = most_common_scale
+                        features['key_strength'] = ensure_float(avg_strength)
+                        features['chunks_analyzed'] = len(valid_results)
+                        features['total_chunks'] = len(streaming_results['results'])
+                        
+                        log_universal('INFO', 'Audio', f"Streaming key extraction completed: {features['key']} {features['scale']} (strength: {features['key_strength']:.3f})")
+                        log_universal('INFO', 'Audio', f"Analyzed {features['chunks_analyzed']}/{features['total_chunks']} chunks")
+                    else:
+                        log_universal('WARNING', 'Audio', "No valid key results from streaming analysis")
+                else:
+                    log_universal('ERROR', 'Audio', f"Streaming key extraction failed: {streaming_results['errors']}")
+                    # Try fallback to regular key extraction if streaming fails
+                    try:
+                        log_universal('INFO', 'Audio', "Attempting fallback to regular key extraction")
+                        audio = self._safe_audio_load(audio_path)
+                        if audio is not None:
+                            features = self._extract_key(audio)
+                            if features:
+                                log_universal('INFO', 'Audio', "Fallback key extraction successful")
+                    except Exception as fallback_e:
+                        log_universal('ERROR', 'Audio', f"Fallback key extraction also failed: {fallback_e}")
+                    
+            except Exception as e:
+                log_universal('ERROR', 'Audio', f"Error in streaming key extraction: {e}")
+                # Try fallback to regular key extraction
+                try:
+                    log_universal('INFO', 'Audio', "Attempting fallback to regular key extraction after error")
+                    audio = self._safe_audio_load(audio_path)
+                    if audio is not None:
+                        features = self._extract_key(audio)
+                        if features:
+                            log_universal('INFO', 'Audio', "Fallback key extraction successful after error")
+                except Exception as fallback_e:
+                    log_universal('ERROR', 'Audio', f"Fallback key extraction failed after error: {fallback_e}")
+            
+            return features
+        
+        return _extract_key_streaming_with_timeout()
 
     @timeout(180, "Key feature extraction timed out")  # 3 minutes for key analysis
     def _extract_key(self, audio: np.ndarray) -> Dict[str, Any]:

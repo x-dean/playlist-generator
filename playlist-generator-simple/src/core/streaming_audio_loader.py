@@ -4,6 +4,7 @@ Processes audio files in chunks to reduce memory usage and handle large files.
 """
 
 import os
+import gc
 import logging
 import psutil
 from typing import Optional, Dict, Any, Iterator, Tuple, Generator
@@ -1101,6 +1102,10 @@ class StreamingAudioLoader:
                     results['chunks_processed'] += 1
                     
                     log_universal('DEBUG', 'Streaming', f"Processed chunk {chunk_index + 1}/{total_chunks}")
+                    
+                    # Force memory cleanup after each chunk for memory-intensive operations
+                    if chunk_index % 5 == 0:  # Every 5 chunks
+                        gc.collect()
                     
                 except Exception as e:
                     error_msg = f"Error processing chunk {chunk_index + 1}: {e}"
