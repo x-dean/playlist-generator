@@ -19,9 +19,6 @@ import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-# Add core to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'core'))
-
 from core.analysis_manager import AnalysisManager
 from core.resource_manager import ResourceManager
 from core.audio_analyzer import AudioAnalyzer
@@ -66,23 +63,14 @@ log_level_from_config = logging_config.get('LOG_LEVEL', 'INFO') # Get config's L
 log_file_prefix = logging_config.get('LOG_FILE_PREFIX', 'playlista')
 console_logging = logging_config.get('LOG_CONSOLE_ENABLED', True)  # Default to console logging
 file_logging = logging_config.get('LOG_FILE_ENABLED', True)
-colored_output = logging_config.get('LOG_COLORED_OUTPUT', True)
-file_colored_output = logging_config.get('LOG_FILE_COLORED_OUTPUT', None)  # None means use colored_output
 max_log_files = logging_config.get('LOG_MAX_FILES', 10)
 log_file_size_mb = logging_config.get('LOG_FILE_SIZE_MB', 50)
-log_file_format = logging_config.get('LOG_FILE_FORMAT', 'text')
-log_file_encoding = logging_config.get('LOG_FILE_ENCODING', 'utf-8')
-
 # --- Stage 2: Full logging setup with all config parameters ---
 setup_logging(
     log_level=verbose_level if verbose_level is not None else log_level_from_config, # Prioritize CLI verbose_level
     log_file_prefix=log_file_prefix,
     console_logging=console_logging,
-    file_logging=file_logging,
-    colored_output=colored_output,
-    max_log_files=max_log_files,
-    log_file_size_mb=log_file_size_mb,
-    log_file_format=log_file_format
+    file_logging=file_logging
 )
 
 logger = get_logger('playlista.enhanced_cli')

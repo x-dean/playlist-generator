@@ -21,8 +21,7 @@ from .logging_setup import (
     log_api_call,
     setup_logging,
     cleanup_logging,
-    get_log_config,
-    reload_logging_from_config
+    get_log_config
 )
 from .parallel_analyzer import ParallelAnalyzer
 from .playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
@@ -48,7 +47,6 @@ __all__ = [
     'setup_logging',
     'cleanup_logging',
     'get_log_config',
-    'reload_logging_from_config',
     'ParallelAnalyzer',
     'PlaylistGenerator',
     'PlaylistGenerationMethod',
