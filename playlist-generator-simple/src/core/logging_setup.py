@@ -128,9 +128,9 @@ def setup_logging(
         if console_logging:
             logger.add(
                 sys.stdout,
-                format="<green>{time}</green> <level>{extra[component]}</level> | <level>{message}</level>",
+                format="\033[32m{time}\033[0m \033[36m{extra[component]}\033[0m | \033[1m{level: <8}\033[0m | \033[33m{message}\033[0m",
                 level=log_level,
-                colorize=True,
+                colorize=False,  # Disable Loguru color detection, use explicit ANSI codes
                 backtrace=True,
                 diagnose=True
             )
