@@ -84,6 +84,7 @@ CREATE TABLE playlist_tracks (
 CREATE TABLE analysis_cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_path TEXT UNIQUE NOT NULL,
+    filename TEXT NOT NULL,
     analysis_data TEXT, -- JSON blob of partial analysis
     status TEXT DEFAULT 'failed', -- 'failed', 'partial', 'success'
     error_message TEXT,

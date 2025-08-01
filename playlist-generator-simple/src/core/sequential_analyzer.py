@@ -171,8 +171,8 @@ class SequentialAnalyzer:
                     cursor = conn.cursor()
                     cursor.execute("""
                         INSERT OR REPLACE INTO analysis_cache 
-                        (file_path, filename, error_message, status, retry_count)
-                        VALUES (?, ?, ?, 'failed', 0)
+                        (file_path, filename, error_message, status, retry_count, last_retry_date)
+                        VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
                     """, (file_path, filename, "File not found"))
                     conn.commit()
                 
@@ -207,8 +207,8 @@ class SequentialAnalyzer:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count)
-                    VALUES (?, ?, ?, 'failed', 0)
+                    (file_path, filename, error_message, status, retry_count, last_retry_date)
+                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
                 """, (file_path, filename, str(e)))
                 conn.commit()
             
@@ -278,8 +278,8 @@ class SequentialAnalyzer:
                     cursor = conn.cursor()
                     cursor.execute("""
                         INSERT OR REPLACE INTO analysis_cache 
-                        (file_path, filename, error_message, status, retry_count)
-                        VALUES (?, ?, ?, 'failed', 0)
+                        (file_path, filename, error_message, status, retry_count, last_retry_date)
+                        VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
                     """, (file_path, filename, error_message))
                     conn.commit()
                 

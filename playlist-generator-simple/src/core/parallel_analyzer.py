@@ -166,8 +166,8 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
                     cursor = conn.cursor()
                     cursor.execute("""
                         INSERT OR REPLACE INTO analysis_cache 
-                        (file_path, filename, error_message, status, retry_count)
-                        VALUES (?, ?, ?, 'failed', 0)
+                        (file_path, filename, error_message, status, retry_count, last_retry_date)
+                        VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
                     """, (file_path, filename, "Analysis failed"))
                     conn.commit()
             
@@ -188,8 +188,8 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count)
-                    VALUES (?, ?, ?, 'failed', 0)
+                    (file_path, filename, error_message, status, retry_count, last_retry_date)
+                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
                 """, (file_path, filename, "Analysis timed out"))
                 conn.commit()
         
@@ -208,8 +208,8 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count)
-                    VALUES (?, ?, ?, 'failed', 0)
+                    (file_path, filename, error_message, status, retry_count, last_retry_date)
+                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
                 """, (file_path, filename, f"Worker error: {str(e)}"))
                 conn.commit()
         
@@ -509,8 +509,8 @@ class ParallelAnalyzer:
                     cursor = conn.cursor()
                     cursor.execute("""
                         INSERT OR REPLACE INTO analysis_cache 
-                        (file_path, filename, error_message, status, retry_count)
-                        VALUES (?, ?, ?, 'failed', 0)
+                        (file_path, filename, error_message, status, retry_count, last_retry_date)
+                        VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
                     """, (file_path, filename, "Analysis failed"))
                     conn.commit()
                 
@@ -529,8 +529,8 @@ class ParallelAnalyzer:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count)
-                    VALUES (?, ?, ?, 'failed', 0)
+                    (file_path, filename, error_message, status, retry_count, last_retry_date)
+                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
                 """, (file_path, filename, "Analysis timed out"))
                 conn.commit()
             
@@ -548,8 +548,8 @@ class ParallelAnalyzer:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count)
-                    VALUES (?, ?, ?, 'failed', 0)
+                    (file_path, filename, error_message, status, retry_count, last_retry_date)
+                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
                 """, (file_path, filename, str(e)))
                 conn.commit()
             

@@ -64,6 +64,9 @@ def migrate_database(db_path: str) -> bool:
         print("Creating new schema...")
         cursor.executescript(schema_sql)
         
+        # Add filename column to analysis_cache if needed
+        add_filename_column_to_analysis_cache(cursor)
+        
         # Check if old table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='analysis_results'")
         if not cursor.fetchone():
@@ -104,6 +107,32 @@ def migrate_existing_data(cursor: sqlite3.Cursor) -> None:
         except Exception as e:
             print(f"Failed to migrate record {i + 1}: {e}")
             continue
+
+def add_filename_column_to_analysis_cache(cursor: sqlite3.Cursor) -> None:
+    """Add filename column to analysis_cache table if it doesn't exist."""
+    try:
+        # Check if filename column exists
+        cursor.execute("PRAGMA table_info(analysis_cache)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        if 'filename' not in columns:
+            print("Adding filename column to analysis_cache table...")
+            cursor.execute("ALTER TABLE analysis_cache ADD COLUMN filename TEXT")
+            
+            # Update existing records with filename from file_path
+            cursor.execute("""
+                UPDATE analysis_cache 
+                SET filename = SUBSTR(file_path, LENGTH(file_path) - LENGTH(REPLACE(file_path, '/', '')) + 1)
+                WHERE filename IS NULL
+            """)
+            
+            print("Successfully added filename column to analysis_cache table")
+        else:
+            print("Filename column already exists in analysis_cache table")
+            
+    except Exception as e:
+        print(f"Error adding filename column: {e}")
+        raise
 
 def migrate_single_record(cursor: sqlite3.Cursor, row: tuple, record_num: int) -> None:
     """
