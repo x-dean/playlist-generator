@@ -273,6 +273,14 @@ class SequentialAnalyzer:
                 analysis_type = 'basic'
                 use_full_analysis = False
             
+            # Check if this is a long audio track (20+ minutes)
+            from .audio_analyzer import AudioAnalyzer
+            temp_analyzer = AudioAnalyzer()
+            is_long_audio = temp_analyzer._is_long_audio_track(file_path)
+            
+            # Enable MusiCNN only for short tracks in sequential processing
+            enable_musicnn = not is_long_audio
+            
             analysis_config = {
                 'analysis_type': analysis_type,
                 'use_full_analysis': use_full_analysis,
@@ -282,12 +290,18 @@ class SequentialAnalyzer:
                     'extract_loudness': True,
                     'extract_key': True,
                     'extract_mfcc': True,
-                    'extract_musicnn': False,
-                    'extract_metadata': True
+                    'extract_musicnn': enable_musicnn,
+                    'extract_metadata': True,
+                    'extract_danceability': True,
+                    'extract_onset_rate': True,
+                    'extract_zcr': True,
+                    'extract_spectral_contrast': True,
+                    'extract_chroma': True
                 }
             }
             
             log_universal('DEBUG', 'Sequential', f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
+            log_universal('DEBUG', 'Sequential', f"MusiCNN enabled: {enable_musicnn} (long_audio: {is_long_audio})")
             
             return analysis_config
             
@@ -303,8 +317,13 @@ class SequentialAnalyzer:
                     'extract_loudness': True,
                     'extract_key': True,
                     'extract_mfcc': True,
-                    'extract_musicnn': False,
-                    'extract_metadata': True
+                    'extract_musicnn': False,  # Disabled in fallback
+                    'extract_metadata': True,
+                    'extract_danceability': True,
+                    'extract_onset_rate': True,
+                    'extract_zcr': True,
+                    'extract_spectral_contrast': True,
+                    'extract_chroma': True
                 }
             }
 

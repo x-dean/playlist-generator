@@ -40,7 +40,8 @@ def timeout_handler(signum, frame):
 
 
 def _standalone_worker_process(file_path: str, force_reextract: bool = False, 
-                             timeout_seconds: int = 300, db_path: str = None) -> bool:
+                             timeout_seconds: int = 300, db_path: str = None,
+                             analysis_config: Dict[str, Any] = None) -> bool:
     """
     Standalone worker function that can be pickled for multiprocessing.
     
@@ -49,6 +50,7 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
         force_reextract: If True, bypass cache
         timeout_seconds: Timeout for analysis
         db_path: Database path
+        analysis_config: Analysis configuration dictionary (uses default if None)
         
     Returns:
         True if successful, False otherwise
@@ -92,24 +94,13 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
         # Create analyzer instance
         analyzer = AudioAnalyzer()
         
-        # Extract features with basic config
-        analysis_result = analyzer.extract_features(file_path, {
-            'analysis_type': 'basic',
-            'use_full_analysis': False,
-            'features_config': {
-                'extract_rhythm': True,
-                'extract_spectral': True,
-                'extract_loudness': True,
-                'extract_key': False,
-                'extract_mfcc': False,
-                'extract_musicnn': False,
-                'extract_danceability': False,
-                'extract_onset_rate': False,
-                'extract_zcr': False,
-                'extract_spectral_contrast': False,
-                'extract_chroma': False
-            }
-        })
+        # Use provided analysis config or get default
+        if analysis_config is None:
+            # Get default config from analyzer
+            analysis_config = analyzer._get_default_analysis_config()
+        
+        # Extract features with dynamic config
+        analysis_result = analyzer.extract_features(file_path, analysis_config)
         
         # Get final resource usage
         final_memory = process.memory_info().rss / (1024 * 1024)  # MB
@@ -270,8 +261,11 @@ class ParallelAnalyzer:
                     future_to_file = {}
                     for file_path in files:
                         try:
+                            # Get analysis config for each file
+                            analysis_config = self._get_analysis_config(file_path)
                             future = executor.submit(_standalone_worker_process, file_path, force_reextract, 
-                                                  self.timeout_seconds, self.db_manager.db_path)
+                                                  self.timeout_seconds, self.db_manager.db_path,
+                                                  analysis_config)
                             future_to_file[future] = file_path
                         except Exception as e:
                             log_universal('ERROR', 'Parallel', f"Failed to submit task for {file_path}: {e}")
@@ -332,8 +326,11 @@ class ParallelAnalyzer:
                 log_universal('INFO', 'Parallel', "Falling back to sequential processing due to multiprocessing error")
                 for file_path in files:
                     try:
+                        # Get analysis config for each file
+                        analysis_config = self._get_analysis_config(file_path)
                         success = _standalone_worker_process(file_path, force_reextract, 
-                                                          self.timeout_seconds, self.db_manager.db_path)
+                                                          self.timeout_seconds, self.db_manager.db_path,
+                                                          analysis_config)
                         if success:
                             results['success_count'] += 1
                         else:
@@ -510,6 +507,9 @@ class ParallelAnalyzer:
                 analysis_type = 'basic'
                 use_full_analysis = False
             
+            # Enable MusiCNN for parallel processing (smaller files)
+            enable_musicnn = True
+            
             analysis_config = {
                 'analysis_type': analysis_type,
                 'use_full_analysis': use_full_analysis,
@@ -519,12 +519,18 @@ class ParallelAnalyzer:
                     'extract_loudness': True,
                     'extract_key': True,
                     'extract_mfcc': True,
-                    'extract_musicnn': False,
-                    'extract_metadata': True
+                    'extract_musicnn': enable_musicnn,
+                    'extract_metadata': True,
+                    'extract_danceability': True,
+                    'extract_onset_rate': True,
+                    'extract_zcr': True,
+                    'extract_spectral_contrast': True,
+                    'extract_chroma': True
                 }
             }
             
             log_universal('DEBUG', 'Parallel', f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
+            log_universal('DEBUG', 'Parallel', f"MusiCNN enabled: {enable_musicnn}")
             
             return analysis_config
             
@@ -540,8 +546,13 @@ class ParallelAnalyzer:
                     'extract_loudness': True,
                     'extract_key': True,
                     'extract_mfcc': True,
-                    'extract_musicnn': False,
-                    'extract_metadata': True
+                    'extract_musicnn': True,  # Enabled in fallback for parallel
+                    'extract_metadata': True,
+                    'extract_danceability': True,
+                    'extract_onset_rate': True,
+                    'extract_zcr': True,
+                    'extract_spectral_contrast': True,
+                    'extract_chroma': True
                 }
             }
 

@@ -9,6 +9,7 @@ import logging
 import psutil
 from typing import Optional, Dict, Any, Iterator, Tuple, Generator
 import numpy as np
+import time # Added for timeout mechanism
 
 # Import audio processing libraries
 try:
@@ -319,12 +320,22 @@ class StreamingAudioLoader:
         log_universal('INFO', 'Streaming', f"  Estimated chunks: {int(total_duration / chunk_duration) + 1}")
         
         chunk_count = 0
+        start_time = time.time()
+        max_processing_time = 600  # 10 minutes max processing time
+        
         try:
             # Prioritize true streaming with librosa if available
             if LIBROSA_AVAILABLE:
                 log_universal('INFO', 'Streaming', f"Using Librosa true streaming for: {os.path.basename(audio_path)}")
                 for chunk, start_time, end_time in self._load_chunks_librosa_streaming(audio_path, total_duration, chunk_duration):
                     chunk_count += 1
+                    
+                    # Check timeout
+                    elapsed_time = time.time() - start_time
+                    if elapsed_time > max_processing_time:
+                        log_universal('ERROR', 'Streaming', f"Processing timeout after {elapsed_time:.1f}s (max: {max_processing_time}s)")
+                        log_universal('ERROR', 'Streaming', f"Processed {chunk_count} chunks before timeout")
+                        return
                     
                     # Monitor memory every 5 chunks
                     if chunk_count % 5 == 0:
@@ -347,6 +358,13 @@ class StreamingAudioLoader:
                     log_universal('INFO', 'Streaming', f"Using Essentia Slicer for streaming audio: {os.path.basename(audio_path)}")
                     for chunk, start_time, end_time in self._load_chunks_essentia_slicer(audio_path, total_duration, chunk_duration):
                         chunk_count += 1
+                        
+                        # Check timeout
+                        elapsed_time = time.time() - start_time
+                        if elapsed_time > max_processing_time:
+                            log_universal('ERROR', 'Streaming', f"Processing timeout after {elapsed_time:.1f}s (max: {max_processing_time}s)")
+                            log_universal('ERROR', 'Streaming', f"Processed {chunk_count} chunks before timeout")
+                            return
                         
                         # Monitor memory every 5 chunks
                         if chunk_count % 5 == 0:
@@ -371,6 +389,13 @@ class StreamingAudioLoader:
                     for chunk, start_time, end_time in self._load_chunks_essentia_streaming(audio_path, total_duration, chunk_duration):
                         chunk_count += 1
                         
+                        # Check timeout
+                        elapsed_time = time.time() - start_time
+                        if elapsed_time > max_processing_time:
+                            log_universal('ERROR', 'Streaming', f"Processing timeout after {elapsed_time:.1f}s (max: {max_processing_time}s)")
+                            log_universal('ERROR', 'Streaming', f"Processed {chunk_count} chunks before timeout")
+                            return
+                        
                         # Monitor memory every 5 chunks
                         if chunk_count % 5 == 0:
                             current_memory = self._get_current_memory_usage()
@@ -387,6 +412,13 @@ class StreamingAudioLoader:
                     log_universal('INFO', 'Streaming', f"Using Essentia with memory optimization for streaming audio: {os.path.basename(audio_path)}")
                     for chunk, start_time, end_time in self._load_chunks_essentia(audio_path, total_duration, chunk_duration):
                         chunk_count += 1
+                        
+                        # Check timeout
+                        elapsed_time = time.time() - start_time
+                        if elapsed_time > max_processing_time:
+                            log_universal('ERROR', 'Streaming', f"Processing timeout after {elapsed_time:.1f}s (max: {max_processing_time}s)")
+                            log_universal('ERROR', 'Streaming', f"Processed {chunk_count} chunks before timeout")
+                            return
                         
                         # Monitor memory every 5 chunks
                         if chunk_count % 5 == 0:
@@ -412,6 +444,13 @@ class StreamingAudioLoader:
                 for chunk, start_time, end_time in self._load_chunks_librosa(audio_path, total_duration, chunk_duration):
                     chunk_count += 1
                     
+                    # Check timeout
+                    elapsed_time = time.time() - start_time
+                    if elapsed_time > max_processing_time:
+                        log_universal('ERROR', 'Streaming', f"Processing timeout after {elapsed_time:.1f}s (max: {max_processing_time}s)")
+                        log_universal('ERROR', 'Streaming', f"Processed {chunk_count} chunks before timeout")
+                        return
+                    
                     # Monitor memory every 5 chunks
                     if chunk_count % 5 == 0:
                         current_memory = self._get_current_memory_usage()
@@ -435,6 +474,13 @@ class StreamingAudioLoader:
                 log_universal('INFO', 'Streaming', f"Using fallback method for streaming audio: {os.path.basename(audio_path)}")
                 for chunk, start_time, end_time in self._load_chunks_fallback(audio_path, total_duration, chunk_duration):
                     chunk_count += 1
+                    
+                    # Check timeout
+                    elapsed_time = time.time() - start_time
+                    if elapsed_time > max_processing_time:
+                        log_universal('ERROR', 'Streaming', f"Processing timeout after {elapsed_time:.1f}s (max: {max_processing_time}s)")
+                        log_universal('ERROR', 'Streaming', f"Processed {chunk_count} chunks before timeout")
+                        return
                     
                     # Monitor memory every 5 chunks
                     if chunk_count % 5 == 0:
@@ -460,8 +506,9 @@ class StreamingAudioLoader:
         finally:
             # Final memory check
             final_memory = self._get_current_memory_usage()
+            total_time = time.time() - start_time
             log_universal('INFO', 'Streaming', f"Final memory usage: {final_memory['percent_used']:.1f}% ({final_memory['used_gb']:.1f}GB / {final_memory['total_gb']:.1f}GB)")
-            log_universal('INFO', 'Streaming', f"Processed {chunk_count} chunks successfully")
+            log_universal('INFO', 'Streaming', f"Processed {chunk_count} chunks successfully in {total_time:.1f}s")
             
             if chunk_count == 0:
                 log_universal('ERROR', 'Streaming', f"No chunks were processed for {os.path.basename(audio_path)}")
@@ -954,8 +1001,8 @@ class StreamingAudioLoader:
             current_time = 0.0
             
             # Use a much smaller processing window to minimize memory usage
-            # Process only 30 seconds at a time to keep memory usage very low
-            processing_window = min(chunk_duration, 30.0)  # Max 30 seconds per processing window
+            # Process only 10 seconds at a time to keep memory usage very low
+            processing_window = min(chunk_duration, 10.0)  # Max 10 seconds per processing window
             
             log_universal('INFO', 'Streaming', f"Using true streaming with {processing_window:.1f}s processing windows")
             
@@ -974,20 +1021,96 @@ class StreamingAudioLoader:
                     window_duration = window_end - window_start
                     
                     try:
-                        # Load only this small window using librosa's streaming capabilities
-                        # Use librosa API compatible with older versions
-                        window_chunk, sr = librosa.load(
-                            audio_path,
-                            sr=self.sample_rate,
-                            mono=True,
-                            offset=window_start,
-                            duration=window_duration,
-                            res_type='kaiser_best'  # Use high-quality resampling
-                        )
+                        # Use soundfile for true streaming - load only the specific window
+                        if SOUNDFILE_AVAILABLE:
+                            # Calculate frame positions for this window
+                            start_frame = int(window_start * self.sample_rate)
+                            end_frame = int(window_end * self.sample_rate)
+                            num_frames = end_frame - start_frame
+                            
+                            # Load only this specific window using soundfile
+                            with sf.SoundFile(audio_path, 'r') as audio_file:
+                                # Seek to the start position
+                                audio_file.seek(start_frame)
+                                
+                                # Read only the frames we need
+                                window_chunk = audio_file.read(num_frames)
+                                
+                                # Convert to mono if stereo
+                                if len(window_chunk.shape) > 1:
+                                    window_chunk = window_chunk.mean(axis=1)
+                                
+                                # Ensure correct sample rate
+                                if audio_file.samplerate != self.sample_rate:
+                                    if LIBROSA_AVAILABLE:
+                                        window_chunk = librosa.resample(window_chunk, orig_sr=audio_file.samplerate, target_sr=self.sample_rate)
+                                    else:
+                                        # Simple resampling
+                                        ratio = self.sample_rate / audio_file.samplerate
+                                        new_length = int(len(window_chunk) * ratio)
+                                        indices = np.linspace(0, len(window_chunk) - 1, new_length)
+                                        window_chunk = np.interp(indices, np.arange(len(window_chunk)), window_chunk)
                         
-                        # Ensure correct sample rate
-                        if sr != self.sample_rate:
-                            window_chunk = librosa.resample(window_chunk, orig_sr=sr, target_sr=self.sample_rate)
+                        elif WAVE_AVAILABLE and audio_path.lower().endswith('.wav'):
+                            # Use wave module for WAV files
+                            with wave.open(audio_path, 'rb') as wav_file:
+                                # Calculate frame positions
+                                start_frame = int(window_start * wav_file.getframerate())
+                                end_frame = int(window_end * wav_file.getframerate())
+                                num_frames = end_frame - start_frame
+                                
+                                # Seek to position and read frames
+                                wav_file.setpos(start_frame)
+                                frames = wav_file.readframes(num_frames)
+                                window_chunk = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+                                
+                                # Resample if needed
+                                if wav_file.getframerate() != self.sample_rate:
+                                    if LIBROSA_AVAILABLE:
+                                        window_chunk = librosa.resample(window_chunk, orig_sr=wav_file.getframerate(), target_sr=self.sample_rate)
+                                    else:
+                                        ratio = self.sample_rate / wav_file.getframerate()
+                                        new_length = int(len(window_chunk) * ratio)
+                                        indices = np.linspace(0, len(window_chunk) - 1, new_length)
+                                        window_chunk = np.interp(indices, np.arange(len(window_chunk)), window_chunk)
+                        
+                        else:
+                            # Fallback to librosa but with much smaller chunks
+                            # Use only 5-second windows to minimize memory usage
+                            small_window = min(processing_window, 5.0)
+                            small_end = min(window_start + small_window, window_end)
+                            small_duration = small_end - window_start
+                            
+                            # Load only this small window
+                            window_chunk, sr = librosa.load(
+                                audio_path,
+                                sr=self.sample_rate,
+                                mono=True,
+                                offset=window_start,
+                                duration=small_duration,
+                                res_type='kaiser_best'
+                            )
+                            
+                            # If we need more data for this window, load additional small chunks
+                            while small_end < window_end:
+                                window_start = small_end
+                                small_end = min(window_start + small_window, window_end)
+                                small_duration = small_end - window_start
+                                
+                                additional_chunk, sr = librosa.load(
+                                    audio_path,
+                                    sr=self.sample_rate,
+                                    mono=True,
+                                    offset=window_start,
+                                    duration=small_duration,
+                                    res_type='kaiser_best'
+                                )
+                                
+                                window_chunk = np.concatenate([window_chunk, additional_chunk])
+                                
+                                # Force GC after each small chunk
+                                import gc
+                                gc.collect()
                         
                         chunk_parts.append(window_chunk)
                         
@@ -1025,10 +1148,15 @@ class StreamingAudioLoader:
                 current_time = end_time
                 chunk_index += 1
                 
-                # Monitor memory every 10 chunks
-                if chunk_index % 10 == 0:
+                # Monitor memory every 5 chunks (more frequent monitoring)
+                if chunk_index % 5 == 0:
                     current_memory = self._get_current_memory_usage()
                     log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_index}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
+                    
+                    # Force aggressive cleanup if memory usage is high
+                    if current_memory['percent_used'] > 70:
+                        log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing aggressive cleanup...")
+                        self._force_memory_cleanup()
             
             log_universal('INFO', 'Streaming', f"Librosa streaming completed: {chunk_index} chunks processed")
                 
@@ -1060,6 +1188,9 @@ class StreamingAudioLoader:
             'results': []
         }
         
+        start_time = time.time()
+        max_processing_time = 600  # 10 minutes max processing time
+        
         try:
             # Get total duration for progress tracking
             total_duration = self._get_audio_duration(audio_path)
@@ -1082,6 +1213,15 @@ class StreamingAudioLoader:
             for chunk_index, (chunk, start_time, end_time) in enumerate(
                 self.load_audio_chunks(audio_path, chunk_duration)
             ):
+                # Check timeout
+                elapsed_time = time.time() - start_time
+                if elapsed_time > max_processing_time:
+                    timeout_msg = f"Processing timeout after {elapsed_time:.1f}s (max: {max_processing_time}s)"
+                    log_universal('ERROR', 'Streaming', timeout_msg)
+                    results['errors'].append(timeout_msg)
+                    results['errors'].append(f"Processed {chunk_index} chunks before timeout")
+                    return results
+                
                 try:
                     # Process chunk
                     chunk_result = processor_func(chunk, start_time, end_time)
@@ -1109,7 +1249,8 @@ class StreamingAudioLoader:
             # Check if processing was successful
             if results['chunks_processed'] > 0:
                 results['success'] = True
-                log_universal('INFO', 'Streaming', f"Successfully processed {results['chunks_processed']}/{total_chunks} chunks")
+                total_time = time.time() - start_time
+                log_universal('INFO', 'Streaming', f"Successfully processed {results['chunks_processed']}/{total_chunks} chunks in {total_time:.1f}s")
             else:
                 log_universal('ERROR', 'Streaming', "No chunks were processed successfully")
             

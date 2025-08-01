@@ -1645,43 +1645,55 @@ class AudioAnalyzer:
 
     def _should_use_streaming_key_extraction(self, audio_path: str, audio_length: int = None) -> bool:
         """
-        Determine if streaming key extraction should be used for a file.
+        Determine if streaming key extraction should be used for this file.
         
         Args:
             audio_path: Path to the audio file
-            audio_length: Length of audio in samples (if known)
+            audio_length: Length of audio in samples (optional)
             
         Returns:
-            True if streaming should be used
+            True if streaming should be used, False otherwise
         """
         try:
-            # Check if streaming key extraction is enabled
-            if not self.config.get('STREAMING_KEY_EXTRACTION_ENABLED', True):
-                return False
-            
-            # Get thresholds from configuration
-            file_size_threshold_mb = self.config.get('STREAMING_KEY_FILE_SIZE_THRESHOLD_MB', 50)
-            duration_threshold_minutes = self.config.get('STREAMING_KEY_DURATION_THRESHOLD_MINUTES', 15)
-            
-            # Check file size first
+            # Get file size
             file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
             
-            # Use streaming for files larger than threshold
-            if file_size_mb > file_size_threshold_mb:
-                log_universal('DEBUG', 'Audio', f"File size {file_size_mb:.1f}MB > {file_size_threshold_mb}MB, using streaming key extraction")
-                return True
+            # Get duration if not provided
+            if audio_length is None:
+                duration = self._get_audio_duration(audio_path)
+                if duration is None:
+                    return False
+                audio_length = int(duration * DEFAULT_SAMPLE_RATE)
             
-            # Check audio length if provided
-            if audio_length is not None:
-                duration_minutes = (audio_length / DEFAULT_SAMPLE_RATE) / 60
-                if duration_minutes > duration_threshold_minutes:
-                    log_universal('DEBUG', 'Audio', f"Audio duration {duration_minutes:.1f}min > {duration_threshold_minutes}min, using streaming key extraction")
-                    return True
+            # Calculate duration in minutes
+            duration_minutes = audio_length / (DEFAULT_SAMPLE_RATE * 60)
             
-            return False
+            # Disable streaming for very large files (> 10 minutes or > 100MB)
+            if duration_minutes > 10 or file_size_mb > 100:
+                log_universal('INFO', 'Audio', f"File too large for streaming ({duration_minutes:.1f}min, {file_size_mb:.1f}MB) - using simplified analysis")
+                return False
+            
+            # Disable streaming for very small files (< 30 seconds)
+            if duration_minutes < 0.5:
+                log_universal('INFO', 'Audio', f"File too small for streaming ({duration_minutes:.1f}min) - using regular analysis")
+                return False
+            
+            # Check memory pressure
+            try:
+                import psutil
+                memory = psutil.virtual_memory()
+                if memory.percent > 80:
+                    log_universal('WARNING', 'Audio', f"High memory usage ({memory.percent:.1f}%) - skipping streaming key extraction")
+                    return False
+            except Exception:
+                pass
+            
+            # Enable streaming for medium-sized files
+            log_universal('INFO', 'Audio', f"Using streaming key extraction for {duration_minutes:.1f}min file ({file_size_mb:.1f}MB)")
+            return True
             
         except Exception as e:
-            log_universal('WARNING', 'Audio', f"Error checking file size for streaming decision: {e}")
+            log_universal('WARNING', 'Audio', f"Error determining streaming suitability: {e}")
             return False
 
     def _extract_key_streaming(self, audio_path: str, chunk_duration: float = 30.0) -> Dict[str, Any]:
@@ -1820,7 +1832,19 @@ class AudioAnalyzer:
             
             return features
         
-        return _extract_key_streaming_with_timeout()
+        try:
+            return _extract_key_streaming_with_timeout()
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f"Streaming key extraction timed out or failed: {e}")
+            # Return a simple fallback result
+            return {
+                'key': 'unknown',
+                'scale': 'unknown', 
+                'key_strength': 0.0,
+                'chunks_analyzed': 0,
+                'total_chunks': 0,
+                'error': 'streaming_timeout'
+            }
 
     @timeout(180, "Key feature extraction timed out")  # 3 minutes for key analysis
     def _extract_key(self, audio: np.ndarray) -> Dict[str, Any]:
