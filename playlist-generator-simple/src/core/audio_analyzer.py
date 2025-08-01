@@ -385,6 +385,10 @@ class AudioAnalyzer:
                 log_universal('WARNING', 'Audio', f'Could not open file for metadata: {os.path.basename(file_path)}')
                 return None
             
+            log_universal('DEBUG', 'Audio', f'Successfully opened file with mutagen')
+            log_universal('DEBUG', 'Audio', f'Has tags: {hasattr(audio_file, "tags")}')
+            log_universal('DEBUG', 'Audio', f'Tags exist: {audio_file.tags is not None}')
+            
             metadata = {}
             
             # Extract common tags
@@ -399,6 +403,10 @@ class AudioAnalyzer:
                 # Basic metadata
                 metadata['title'] = self._get_tag_value(tags, ['title', 'TIT2', 'TITLE'])
                 metadata['artist'] = self._get_tag_value(tags, ['artist', 'TPE1', 'ARTIST'])
+                
+                # Debug: Show what values were set
+                log_universal('DEBUG', 'Audio', f'Set title to: "{metadata["title"]}"')
+                log_universal('DEBUG', 'Audio', f'Set artist to: "{metadata["artist"]}"')
                 metadata['album'] = self._get_tag_value(tags, ['album', 'TALB', 'ALBUM'])
                 metadata['genre'] = self._get_tag_value(tags, ['genre', 'TCON', 'GENRE'])
                 metadata['year'] = self._get_tag_value(tags, ['year', 'TYER', 'YEAR', 'date'])
@@ -459,13 +467,17 @@ class AudioAnalyzer:
                     if key.startswith('TXXX') or key.startswith('custom'):
                         metadata['custom_tags'][key] = value
             
-            # Extract audio properties
-            if hasattr(audio_file, 'info'):
-                info = audio_file.info
-                metadata['duration'] = getattr(info, 'length', None)
-                metadata['bitrate'] = getattr(info, 'bitrate', None)
-                metadata['sample_rate'] = getattr(info, 'sample_rate', None)
-                metadata['channels'] = getattr(info, 'channels', None)
+                            # Extract audio properties
+                if hasattr(audio_file, 'info'):
+                    info = audio_file.info
+                    metadata['duration'] = getattr(info, 'length', None)
+                    metadata['bitrate'] = getattr(info, 'bitrate', None)
+                    metadata['sample_rate'] = getattr(info, 'sample_rate', None)
+                    metadata['channels'] = getattr(info, 'channels', None)
+                else:
+                    log_universal('DEBUG', 'Audio', 'No audio info available')
+            else:
+                log_universal('DEBUG', 'Audio', 'No tags found in file')
             
             # Extract BPM from metadata if available
             bpm_from_metadata = self._extract_bpm_from_metadata(metadata)
