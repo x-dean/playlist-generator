@@ -56,6 +56,7 @@ DEFAULT_TIMEOUT_SECONDS = 600
 def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
     Safely load audio file using Essentia with fallback to librosa.
+    Skips extremely large files to prevent RAM saturation.
     
     Args:
         audio_path: Path to audio file
@@ -68,12 +69,28 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
         log_universal('ERROR', 'Audio', f'File not found: {audio_path}')
         return None, None
     
-    # Check file size
+    # Check file size and skip extremely large files
     try:
         file_size = os.path.getsize(audio_path)
+        file_size_mb = file_size / (1024 * 1024)
+        
         if file_size < 1024:  # Less than 1KB
             log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
             return None, None
+        
+        # Get configuration values
+        max_file_size_mb = 500  # Default if not in config
+        warning_threshold_mb = 100  # Default if not in config
+        
+        # Skip extremely large files to prevent RAM saturation
+        if file_size_mb > max_file_size_mb:
+            log_universal('WARNING', 'Audio', f'File too large ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - skipping to prevent RAM saturation')
+            return None, None
+            
+        # Warn for large files
+        if file_size_mb > warning_threshold_mb:
+            log_universal('WARNING', 'Audio', f'Large file detected ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - may cause memory issues')
+            
     except Exception as e:
         log_universal('WARNING', 'Audio', f'Cannot check file size for {os.path.basename(audio_path)}: {e}')
     
@@ -207,6 +224,12 @@ class AudioAnalyzer:
                 analysis_time = time.time() - start_time
                 log_universal('INFO', 'Audio', f'Using cached analysis for {os.path.basename(file_path)} ({analysis_time:.2f}s)')
                 return cached_result
+        
+        # Check if we should skip audio loading for large files
+        if self._should_skip_audio_loading(file_path):
+            log_universal('WARNING', 'Audio', f'Skipping audio analysis for large file: {os.path.basename(file_path)}')
+            # Return basic analysis with metadata only
+            return self._create_basic_analysis_for_large_file(file_path, file_size, file_hash, metadata)
         
         # Load audio data
         audio, sample_rate = safe_essentia_load(file_path, self.sample_rate)
@@ -973,6 +996,35 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Could not determine if file is extremely large: {e}')
             return False
+
+    def _should_skip_audio_loading(self, file_path: str) -> bool:
+        """
+        Check if audio file should be skipped from loading into RAM.
+        
+        Args:
+            file_path: Path to audio file
+            
+        Returns:
+            True if should be skipped, False otherwise
+        """
+        try:
+            file_size = os.path.getsize(file_path)
+            file_size_mb = file_size / (1024 * 1024)
+            
+            # Get configuration values
+            max_file_size_mb = self.config.get('MAX_AUDIO_FILE_SIZE_MB', 500)
+            skip_large_files = self.config.get('SKIP_LARGE_FILES', True)
+            
+            # Skip files larger than configured limit to prevent RAM saturation
+            if skip_large_files and file_size_mb > max_file_size_mb:
+                log_universal('WARNING', 'Audio', f'Skipping audio loading for large file ({file_size_mb:.1f}MB): {os.path.basename(file_path)}')
+                return True
+                
+            return False
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Cannot check file size for {os.path.basename(file_path)}: {e}')
+            return False
     
     def _get_audio_type(self, file_path: str, audio: np.ndarray = None) -> str:
         """
@@ -1176,6 +1228,196 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('ERROR', 'Audio', f'Simplified feature extraction failed: {e}')
             return {}
+
+    def _create_basic_analysis_for_large_file(self, file_path: str, file_size: int, file_hash: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Create basic analysis result for large files with lightweight feature extraction.
+        
+        Args:
+            file_path: Path to the audio file
+            file_size: File size in bytes
+            file_hash: File hash
+            metadata: Optional metadata dictionary
+            
+        Returns:
+            Basic analysis result dictionary
+        """
+        try:
+            # Determine if it's a long audio track based on file size
+            is_long_audio = self._is_long_audio_track(file_path)
+            
+            # Extract lightweight features for categorization
+            audio_features = self._extract_lightweight_features_for_large_file(file_path, metadata)
+            
+            # Determine long audio category if it's a long audio track
+            long_audio_category = None
+            if is_long_audio:
+                log_universal('INFO', 'Audio', f'Large long audio track detected: {os.path.basename(file_path)}')
+                long_audio_category = self._determine_long_audio_category(file_path, metadata, audio_features)
+                log_universal('INFO', 'Audio', f'Long audio category determined: {long_audio_category}')
+            
+            # Create basic analysis result
+            analysis_result = {
+                'file_path': file_path,
+                'filename': os.path.basename(file_path),
+                'file_size_bytes': file_size,
+                'file_hash': file_hash,
+                'analysis_date': datetime.now(),
+                'analysis_version': '1.0.0',
+                'audio_type': 'large_file',
+                'is_long_audio': is_long_audio,
+                'is_extremely_large': True,
+                'long_audio_category': long_audio_category,
+                'metadata': metadata or {},
+                'status': 'analyzed_large_file',
+                'warning': 'File too large for full analysis - lightweight features extracted'
+            }
+            
+            # Add basic features that can be estimated from file size
+            estimated_duration_seconds = (file_size * 8) / (320 * 1000)  # Assuming 320kbps
+            analysis_result.update({
+                'estimated_duration_seconds': estimated_duration_seconds,
+                'estimated_duration_minutes': estimated_duration_seconds / 60,
+                'file_size_mb': file_size / (1024 * 1024)
+            })
+            
+            # Add lightweight audio features if available
+            if audio_features:
+                analysis_result['audio_features'] = audio_features
+                log_universal('INFO', 'Audio', f'Extracted lightweight features for large file: {list(audio_features.keys())}')
+            
+            # Update metadata with long audio category
+            if metadata and long_audio_category:
+                metadata['long_audio_category'] = long_audio_category
+                analysis_result['metadata']['long_audio_category'] = long_audio_category
+                log_universal('DEBUG', 'Audio', f'Set long_audio_category in metadata: {long_audio_category}')
+            
+            log_universal('INFO', 'Audio', f'Created analysis for large file: {os.path.basename(file_path)}')
+            return analysis_result
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Error creating analysis for large file {os.path.basename(file_path)}: {e}')
+            return None
+
+    def _extract_lightweight_features_for_large_file(self, file_path: str, metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Extract lightweight audio features for large files using streaming approach.
+        Only extracts features needed for long audio categorization.
+        
+        Args:
+            file_path: Path to the audio file
+            metadata: Optional metadata dictionary for fallback BPM
+            
+        Returns:
+            Dictionary of lightweight audio features
+        """
+        try:
+            log_universal('INFO', 'Audio', f'Extracting lightweight features for large file: {os.path.basename(file_path)}')
+            
+            features = {}
+            
+            # Try to load a small sample for analysis (first 30 seconds)
+            sample_duration = 30  # seconds
+            sample_size = sample_duration * self.sample_rate
+            
+            try:
+                # Load only a sample of the audio for lightweight analysis
+                audio_sample, sample_rate = self._load_audio_sample(file_path, sample_duration)
+                
+                if audio_sample is not None and len(audio_sample) > 0:
+                    log_universal('INFO', 'Audio', f'Successfully loaded {sample_duration}s sample for lightweight analysis')
+                    
+                    # Extract essential features for categorization
+                    if self.extract_rhythm:
+                        rhythm_features = self._extract_rhythm_features(audio_sample, sample_rate)
+                        features.update(rhythm_features)
+                        log_universal('DEBUG', 'Audio', f'Extracted rhythm features: {list(rhythm_features.keys())}')
+                    
+                    if self.extract_spectral:
+                        spectral_features = self._extract_spectral_features(audio_sample, sample_rate)
+                        features.update(spectral_features)
+                        log_universal('DEBUG', 'Audio', f'Extracted spectral features: {list(spectral_features.keys())}')
+                    
+                    if self.extract_loudness:
+                        loudness_features = self._extract_loudness_features(audio_sample, sample_rate)
+                        features.update(loudness_features)
+                        log_universal('DEBUG', 'Audio', f'Extracted loudness features: {list(loudness_features.keys())}')
+                    
+                    log_universal('INFO', 'Audio', f'Successfully extracted {len(features)} lightweight features')
+                else:
+                    log_universal('WARNING', 'Audio', f'Failed to load audio sample for lightweight analysis')
+                    
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f'Error extracting lightweight features: {e}')
+            
+            # Add BPM from metadata if available (fallback when audio extraction fails)
+            if metadata and 'bpm_from_metadata' in metadata:
+                features['external_bpm'] = metadata['bpm_from_metadata']
+                log_universal('DEBUG', 'Audio', f'Added BPM from metadata: {metadata["bpm_from_metadata"]}')
+            
+            return features
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Error in lightweight feature extraction: {e}')
+            return {}
+
+    def _load_audio_sample(self, file_path: str, duration_seconds: int) -> Tuple[Optional[np.ndarray], Optional[int]]:
+        """
+        Load a sample of audio from the beginning of the file.
+        
+        Args:
+            file_path: Path to the audio file
+            duration_seconds: Duration of sample to load in seconds
+            
+        Returns:
+            Tuple of (audio_sample, sample_rate) or (None, None) on failure
+        """
+        try:
+            # Calculate sample size
+            sample_size = duration_seconds * self.sample_rate
+            
+            # Try using Essentia with sample loading
+            try:
+                import essentia.standard as es
+                log_universal('DEBUG', 'Audio', f'Loading {duration_seconds}s sample with Essentia')
+                
+                # Use MonoLoader with sample size limit
+                loader = es.MonoLoader(filename=file_path, sampleRate=self.sample_rate)
+                audio = loader()
+                
+                # Take only the first N samples
+                if audio is not None and len(audio) > 0:
+                    sample_end = min(sample_size, len(audio))
+                    audio_sample = audio[:sample_end]
+                    
+                    log_universal('DEBUG', 'Audio', f'Loaded sample: {len(audio_sample)} samples ({len(audio_sample)/self.sample_rate:.1f}s)')
+                    return audio_sample, self.sample_rate
+                    
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f'Essentia sample loading failed: {e}')
+            
+            # Fallback to librosa if available
+            if LIBROSA_AVAILABLE:
+                try:
+                    import librosa
+                    log_universal('DEBUG', 'Audio', f'Loading {duration_seconds}s sample with librosa')
+                    
+                    # Load with duration parameter
+                    audio_sample, sr = librosa.load(file_path, sr=self.sample_rate, duration=duration_seconds, mono=True)
+                    
+                    if audio_sample is not None and len(audio_sample) > 0:
+                        log_universal('DEBUG', 'Audio', f'Loaded sample with librosa: {len(audio_sample)} samples ({len(audio_sample)/sr:.1f}s)')
+                        return audio_sample, sr
+                        
+                except Exception as e:
+                    log_universal('WARNING', 'Audio', f'Librosa sample loading failed: {e}')
+            
+            log_universal('WARNING', 'Audio', f'All sample loading methods failed for {os.path.basename(file_path)}')
+            return None, None
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Error in audio sample loading: {e}')
+            return None, None
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':

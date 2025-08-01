@@ -362,7 +362,11 @@ class ConfigLoader:
             'LONG_AUDIO_SIMPLIFIED_FEATURES': config.get('LONG_AUDIO_SIMPLIFIED_FEATURES', True),
             'LONG_AUDIO_CATEGORIES': config.get('LONG_AUDIO_CATEGORIES', 'long_mix,podcast,radio,compilation'),
             'LONG_AUDIO_SKIP_DETAILED_ANALYSIS': config.get('LONG_AUDIO_SKIP_DETAILED_ANALYSIS', True),
-            'LONG_AUDIO_EXTRACT_BASIC_FEATURES': config.get('LONG_AUDIO_EXTRACT_BASIC_FEATURES', True)
+            'LONG_AUDIO_EXTRACT_BASIC_FEATURES': config.get('LONG_AUDIO_EXTRACT_BASIC_FEATURES', True),
+            # Large file handling
+            'MAX_AUDIO_FILE_SIZE_MB': config.get('MAX_AUDIO_FILE_SIZE_MB', 500),
+            'LARGE_FILE_WARNING_THRESHOLD_MB': config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 100),
+            'SKIP_LARGE_FILES': config.get('SKIP_LARGE_FILES', True)
         }
         
         self._update_cache(cache_key, audio_config)
