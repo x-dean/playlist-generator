@@ -249,6 +249,56 @@ class DatabaseManager:
         """Save track to normalized schema (alias for save_analysis_result)."""
         return self.save_analysis_result(file_path, filename, file_size_bytes, file_hash, analysis_data, metadata)
 
+    @log_function_call
+    def get_failed_analysis_files(self, max_retries: int = 3) -> List[Dict[str, Any]]:
+        """Get list of failed analysis files from analysis_cache table."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT file_path, filename, error_message, retry_count, last_retry_date
+                    FROM analysis_cache 
+                    WHERE status = 'failed' AND retry_count < ?
+                    ORDER BY last_retry_date DESC
+                """, (max_retries,))
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'file_path': row[0],
+                        'filename': row[1],
+                        'error_message': row[2],
+                        'retry_count': row[3],
+                        'last_retry_date': row[4]
+                    })
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(results)} failed analysis files")
+                return results
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to get failed analysis files: {e}")
+            return []
+
+    @log_function_call
+    def mark_analysis_failed(self, file_path: str, filename: str, error_message: str) -> bool:
+        """Mark an analysis as failed in the analysis_cache table."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO analysis_cache 
+                    (file_path, filename, error_message, status, retry_count, last_retry_date)
+                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
+                """, (file_path, filename, error_message))
+                conn.commit()
+                
+                log_universal('INFO', 'Database', f"Marked analysis as failed: {filename}")
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to mark analysis as failed: {e}")
+            return False
+
     # =============================================================================
     # PLAYLIST METHODS
     # =============================================================================
@@ -598,6 +648,117 @@ class DatabaseManager:
                         INSERT OR REPLACE INTO tags (track_id, source, tag_name)
                         VALUES (?, ?, ?)
                     """, (track_id, source, tag_name))
+
+    @log_function_call
+    def get_database_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive database statistics."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                stats = {}
+                
+                # Get track counts
+                cursor.execute("SELECT COUNT(*) FROM tracks")
+                stats['total_tracks'] = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM tracks WHERE analysis_type = 'full'")
+                stats['fully_analyzed_tracks'] = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM tracks WHERE analysis_type = 'discovery_only'")
+                stats['discovered_tracks'] = cursor.fetchone()[0]
+                
+                # Get playlist counts
+                cursor.execute("SELECT COUNT(*) FROM playlists")
+                stats['total_playlists'] = cursor.fetchone()[0]
+                
+                # Get failed analysis counts
+                cursor.execute("SELECT COUNT(*) FROM analysis_cache WHERE status = 'failed'")
+                stats['failed_analyses'] = cursor.fetchone()[0]
+                
+                # Get cache statistics
+                cursor.execute("SELECT COUNT(*) FROM cache")
+                stats['cache_entries'] = cursor.fetchone()[0]
+                
+                # Get discovery statistics
+                cursor.execute("SELECT COUNT(*) FROM discovery_cache")
+                stats['discovery_entries'] = cursor.fetchone()[0]
+                
+                # Get tag statistics
+                cursor.execute("SELECT COUNT(*) FROM tags")
+                stats['total_tags'] = cursor.fetchone()[0]
+                
+                log_universal('DEBUG', 'Database', f"Retrieved database statistics: {stats}")
+                return stats
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to get database statistics: {e}")
+            return {}
+
+    @log_function_call
+    def get_all_analysis_results(self) -> List[Dict[str, Any]]:
+        """Get all analysis results from tracks table."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, file_path, filename, file_size_bytes, file_hash, 
+                           analysis_date, analysis_type, long_audio_category,
+                           title, artist, album, genre, year, duration,
+                           bpm, key, mode, loudness, danceability, energy
+                    FROM tracks
+                    ORDER BY analysis_date DESC
+                """)
+                
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        'id': row[0],
+                        'file_path': row[1],
+                        'filename': row[2],
+                        'file_size_bytes': row[3],
+                        'file_hash': row[4],
+                        'analysis_date': row[5],
+                        'analysis_type': row[6],
+                        'long_audio_category': row[7],
+                        'title': row[8],
+                        'artist': row[9],
+                        'album': row[10],
+                        'genre': row[11],
+                        'year': row[12],
+                        'duration': row[13],
+                        'bpm': row[14],
+                        'key': row[15],
+                        'mode': row[16],
+                        'loudness': row[17],
+                        'danceability': row[18],
+                        'energy': row[19]
+                    })
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(results)} analysis results")
+                return results
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to get all analysis results: {e}")
+            return []
+
+    @log_function_call
+    def delete_failed_analysis(self, file_path: str) -> bool:
+        """Delete a failed analysis entry from analysis_cache table."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    DELETE FROM analysis_cache WHERE file_path = ?
+                """, (file_path,))
+                conn.commit()
+                
+                log_universal('INFO', 'Database', f"Deleted failed analysis: {file_path}")
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to delete failed analysis: {e}")
+            return False
 
 
 def get_db_manager() -> 'DatabaseManager':

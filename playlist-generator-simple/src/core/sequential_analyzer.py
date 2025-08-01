@@ -165,7 +165,17 @@ class SequentialAnalyzer:
             # Check if file exists
             if not os.path.exists(file_path):
                 log_universal('WARNING', 'Sequential', f"File not found: {file_path}")
-                self.db_manager.mark_analysis_failed(file_path, filename, "File not found")
+                
+                # Use analysis_cache table for failed analysis
+                with self.db_manager._get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO analysis_cache 
+                        (file_path, filename, error_message, status, retry_count)
+                        VALUES (?, ?, ?, 'failed', 0)
+                    """, (file_path, filename, "File not found"))
+                    conn.commit()
+                
                 return False
             
             # Get file size
@@ -191,7 +201,17 @@ class SequentialAnalyzer:
                 
         except Exception as e:
             log_universal('ERROR', 'Sequential', f"Error processing {filename}: {e}")
-            self.db_manager.mark_analysis_failed(file_path, filename, str(e))
+            
+            # Use analysis_cache table for failed analysis
+            with self.db_manager._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO analysis_cache 
+                    (file_path, filename, error_message, status, retry_count)
+                    VALUES (?, ?, ?, 'failed', 0)
+                """, (file_path, filename, str(e)))
+                conn.commit()
+            
             return False
 
     def _extract_features_in_process(self, file_path: str, force_reextract: bool = False) -> bool:
