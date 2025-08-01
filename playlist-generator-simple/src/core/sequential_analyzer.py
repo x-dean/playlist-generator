@@ -218,7 +218,7 @@ class SequentialAnalyzer:
             # Extract features
             analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
             
-            if analysis_result and analysis_result.get('success', False):
+            if analysis_result:
                 # Save to database
                 filename = os.path.basename(file_path)
                 file_size_bytes = os.path.getsize(file_path)

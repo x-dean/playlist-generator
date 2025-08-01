@@ -684,14 +684,22 @@ class AudioAnalyzer:
             return None
     
     def _extract_rhythm_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Extract rhythm-related features."""
+        """Extract rhythm-related features with improved handling for large files."""
         features = {}
         
         try:
             if ESSENTIA_AVAILABLE:
+                # For large files, use a sample to avoid buffer overflow
+                if len(audio) > 10000000:  # More than 10M samples (~3.8 minutes)
+                    log_universal('INFO', 'Audio', 'Using audio sample for rhythm analysis (large file)')
+                    sample_size = min(10000000, len(audio))  # Use first 10M samples
+                    audio_sample = audio[:sample_size]
+                else:
+                    audio_sample = audio
+                
                 # Use Essentia for rhythm analysis
                 rhythm_extractor = es.RhythmExtractor2013()
-                rhythm_result = rhythm_extractor(audio)
+                rhythm_result = rhythm_extractor(audio_sample)
                 
                 features['bpm'] = float(rhythm_result[0])
                 features['rhythm_confidence'] = float(rhythm_result[1])
@@ -734,8 +742,19 @@ class AudioAnalyzer:
                 log_universal('INFO', 'Audio', f"Spectral features completed: centroid = {centroid_mean:.1f}Hz")
                 
                 features['spectral_centroid'] = centroid_mean
+                
+                # Add spectral flatness for better categorization
+                try:
+                    flatness_algo = es.SpectralFlatness()
+                    flatness_values = flatness_algo(audio)
+                    flatness_mean = float(np.nanmean(flatness_values)) if isinstance(
+                        flatness_values, (list, np.ndarray)) else float(flatness_values)
+                    features['spectral_flatness'] = flatness_mean
+                except Exception as e:
+                    log_universal('WARNING', 'Audio', f'Spectral flatness extraction failed: {e}')
+                    features['spectral_flatness'] = 0.5  # Default value
+                
                 features['spectral_rolloff'] = 0.0  # Not available in old version
-                features['spectral_flatness'] = 0.0  # Not available in old version
                 features['spectral_bandwidth'] = 0.0  # Not available in old version
                 features['spectral_contrast_mean'] = 0.0  # Not available in old version
                 features['spectral_contrast_std'] = 0.0  # Not available in old version
@@ -785,8 +804,17 @@ class AudioAnalyzer:
                 log_universal('INFO', 'Audio', f"Loudness extraction completed: RMS = {rms_mean:.3f}")
                 
                 features['loudness'] = rms_mean
+                
+                # Add dynamic complexity for better categorization
+                try:
+                    dynamic_algo = es.DynamicComplexity()
+                    dynamic_result = dynamic_algo(audio)
+                    features['dynamic_complexity'] = float(dynamic_result)
+                except Exception as e:
+                    log_universal('WARNING', 'Audio', f'Dynamic complexity extraction failed: {e}')
+                    features['dynamic_complexity'] = 0.5  # Default value
+                
                 features['loudness_range'] = 0.0  # Not available in old version
-                features['dynamic_complexity'] = 0.0  # Not available in old version
                 features['dynamic_range'] = 0.0  # Not available in old version
                 
             elif LIBROSA_AVAILABLE:
