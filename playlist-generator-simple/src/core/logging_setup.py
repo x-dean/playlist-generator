@@ -7,6 +7,33 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 
+class ColoredFormatter(logging.Formatter):
+    """Custom formatter with colored log levels."""
+    
+    # ANSI color codes
+    COLORS = {
+        'DEBUG': '\033[36m',    # Cyan
+        'INFO': '\033[32m',     # Green
+        'WARNING': '\033[33m',  # Yellow
+        'ERROR': '\033[31m',    # Red
+        'CRITICAL': '\033[35m', # Magenta
+        'RESET': '\033[0m'      # Reset
+    }
+    
+    def format(self, record):
+        # Get the original formatted message
+        formatted = super().format(record)
+        
+        # Add color to the level name
+        level_name = record.levelname
+        if level_name in self.COLORS:
+            # Replace the level name with colored version
+            colored_level = f"{self.COLORS[level_name]}{level_name}{self.COLORS['RESET']}"
+            formatted = formatted.replace(level_name, colored_level)
+        
+        return formatted
+
+
 def setup_logging(
     log_level: str = None,
     log_dir: str = None,
@@ -53,15 +80,15 @@ def setup_logging(
     # Clear existing handlers
     logger.handlers.clear()
     
-    # Console handler
+    # Console handler with colored output
     if console_logging:
         console_handler = logging.StreamHandler()
         console_handler.setLevel(getattr(logging, log_level, logging.INFO))
-        console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S')
+        console_formatter = ColoredFormatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S')
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
     
-    # File handler
+    # File handler (no colors in file)
     if file_logging:
         log_file = os.path.join(log_dir, f"{log_file_prefix}.log")
         file_handler = RotatingFileHandler(
