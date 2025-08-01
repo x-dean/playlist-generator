@@ -209,11 +209,11 @@ class SequentialAnalyzer:
             # Import audio analyzer
             from .audio_analyzer import AudioAnalyzer
             
-            # Create analyzer instance
-            analyzer = AudioAnalyzer()
-            
             # Get analysis configuration
             analysis_config = self._get_analysis_config(file_path)
+            
+            # Create analyzer instance with configuration
+            analyzer = AudioAnalyzer(config=analysis_config)
             
             # Extract features
             analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
@@ -284,20 +284,18 @@ class SequentialAnalyzer:
             analysis_config = {
                 'analysis_type': analysis_type,
                 'use_full_analysis': use_full_analysis,
-                'features_config': {
-                    'extract_rhythm': True,
-                    'extract_spectral': True,
-                    'extract_loudness': True,
-                    'extract_key': True,
-                    'extract_mfcc': True,
-                    'extract_musicnn': enable_musicnn,
-                    'extract_metadata': True,
-                    'extract_danceability': True,
-                    'extract_onset_rate': True,
-                    'extract_zcr': True,
-                    'extract_spectral_contrast': True,
-                    'extract_chroma': True
-                }
+                'EXTRACT_RHYTHM': True,
+                'EXTRACT_SPECTRAL': True,
+                'EXTRACT_LOUDNESS': True,
+                'EXTRACT_KEY': True,
+                'EXTRACT_MFCC': True,
+                'EXTRACT_MUSICNN': enable_musicnn,
+                'EXTRACT_METADATA': True,
+                'EXTRACT_DANCEABILITY': True,
+                'EXTRACT_ONSET_RATE': True,
+                'EXTRACT_ZCR': True,
+                'EXTRACT_SPECTRAL_CONTRAST': True,
+                'EXTRACT_CHROMA': True
             }
             
             log_universal('DEBUG', 'Sequential', f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
@@ -311,20 +309,18 @@ class SequentialAnalyzer:
             return {
                 'analysis_type': 'basic',
                 'use_full_analysis': False,
-                'features_config': {
-                    'extract_rhythm': True,
-                    'extract_spectral': True,
-                    'extract_loudness': True,
-                    'extract_key': True,
-                    'extract_mfcc': True,
-                    'extract_musicnn': False,  # Disabled in fallback
-                    'extract_metadata': True,
-                    'extract_danceability': True,
-                    'extract_onset_rate': True,
-                    'extract_zcr': True,
-                    'extract_spectral_contrast': True,
-                    'extract_chroma': True
-                }
+                'EXTRACT_RHYTHM': True,
+                'EXTRACT_SPECTRAL': True,
+                'EXTRACT_LOUDNESS': True,
+                'EXTRACT_KEY': True,
+                'EXTRACT_MFCC': True,
+                'EXTRACT_MUSICNN': False,  # Disabled in fallback
+                'EXTRACT_METADATA': True,
+                'EXTRACT_DANCEABILITY': True,
+                'EXTRACT_ONSET_RATE': True,
+                'EXTRACT_ZCR': True,
+                'EXTRACT_SPECTRAL_CONTRAST': True,
+                'EXTRACT_CHROMA': True
             }
 
     def _calculate_file_hash(self, file_path: str) -> str:

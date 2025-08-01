@@ -230,14 +230,18 @@ class AudioAnalyzer:
         else:
             analysis_result['metadata'] = metadata or {}
         
-        # Add file information
+        # Determine audio type and add file information
+        audio_type = self._get_audio_type(file_path, audio)
         analysis_result.update({
             'file_path': file_path,
             'filename': os.path.basename(file_path),
             'file_size_bytes': file_size,
             'file_hash': file_hash,
             'analysis_date': datetime.now(),
-            'analysis_version': '1.0.0'
+            'analysis_version': '1.0.0',
+            'audio_type': audio_type,
+            'is_long_audio': self._is_long_audio_track(file_path),
+            'is_extremely_large': self._is_extremely_large_for_processing(audio)
         })
         
         # Cache results
@@ -513,6 +517,7 @@ class AudioAnalyzer:
     def _extract_audio_features(self, audio: np.ndarray, sample_rate: int, metadata: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """
         Extract comprehensive audio features.
+        Uses original skip logic for extremely large files to prevent RAM saturation.
         
         Args:
             audio: Audio data as numpy array
@@ -524,41 +529,76 @@ class AudioAnalyzer:
         """
         features = {}
         
+        # Check if file is extremely large (original logic)
+        is_extremely_large_for_processing = self._is_extremely_large_for_processing(audio)
+        
         try:
-            # Extract rhythm features
+            # Extract rhythm features (skip for extremely large files)
             if self.extract_rhythm:
-                rhythm_features = self._extract_rhythm_features(audio, sample_rate)
-                features.update(rhythm_features)
+                if is_extremely_large_for_processing:
+                    log_universal('WARNING', 'Audio', 'Skipping rhythm extraction for extremely large file')
+                    features['bpm'] = -1.0  # Special marker for failed BPM extraction
+                    features['rhythm_confidence'] = 0.0
+                else:
+                    rhythm_features = self._extract_rhythm_features(audio, sample_rate)
+                    features.update(rhythm_features)
             
-            # Extract spectral features
+            # Extract spectral features (skip for extremely large files)
             if self.extract_spectral:
-                spectral_features = self._extract_spectral_features(audio, sample_rate)
-                features.update(spectral_features)
+                if is_extremely_large_for_processing:
+                    log_universal('WARNING', 'Audio', 'Skipping spectral extraction for extremely large file')
+                    features['spectral_centroid'] = 0.0
+                    features['spectral_rolloff'] = 0.0
+                    features['spectral_bandwidth'] = 0.0
+                else:
+                    spectral_features = self._extract_spectral_features(audio, sample_rate)
+                    features.update(spectral_features)
             
-            # Extract loudness features
+            # Extract loudness features (skip for extremely large files)
             if self.extract_loudness:
-                loudness_features = self._extract_loudness_features(audio, sample_rate)
-                features.update(loudness_features)
+                if is_extremely_large_for_processing:
+                    log_universal('WARNING', 'Audio', 'Skipping loudness extraction for extremely large file')
+                    features['loudness'] = 0.0
+                    features['dynamic_complexity'] = 0.0
+                else:
+                    loudness_features = self._extract_loudness_features(audio, sample_rate)
+                    features.update(loudness_features)
             
-            # Extract key and mode
+            # Extract key and mode (always extract - not memory intensive)
             if self.extract_key:
                 key_features = self._extract_key_features(audio, sample_rate)
                 features.update(key_features)
             
-            # Extract MFCC features
+            # Extract MFCC features (skip for extremely large files)
             if self.extract_mfcc:
-                mfcc_features = self._extract_mfcc_features(audio, sample_rate)
-                features.update(mfcc_features)
+                if is_extremely_large_for_processing:
+                    log_universal('WARNING', 'Audio', 'Skipping MFCC extraction for extremely large file to avoid memory issues')
+                    features['mfcc_coefficients'] = []
+                    features['mfcc_bands'] = []
+                    features['mfcc_std'] = []
+                else:
+                    mfcc_features = self._extract_mfcc_features(audio, sample_rate)
+                    features.update(mfcc_features)
             
-            # Extract MusiCNN features
+            # Extract MusiCNN features (skip for extremely large files)
             if self.extract_musicnn and TENSORFLOW_AVAILABLE:
-                musicnn_features = self._extract_musicnn_features(audio, sample_rate)
-                features.update(musicnn_features)
+                if is_extremely_large_for_processing:
+                    log_universal('WARNING', 'Audio', 'Skipping MusiCNN extraction for extremely large file')
+                    features['embedding'] = []
+                    features['tags'] = {}
+                else:
+                    musicnn_features = self._extract_musicnn_features(audio, sample_rate)
+                    features.update(musicnn_features)
             
-            # Extract chroma features
+            # Extract chroma features (skip for extremely large files)
             if self.extract_chroma:
-                chroma_features = self._extract_chroma_features(audio, sample_rate)
-                features.update(chroma_features)
+                if is_extremely_large_for_processing:
+                    log_universal('WARNING', 'Audio', 'Skipping chroma, spectral contrast, flatness, and rolloff for extremely large file')
+                    features['chroma_mean'] = []
+                    features['chroma_std'] = []
+                else:
+                    chroma_features = self._extract_chroma_features(audio, sample_rate)
+                    features.update(chroma_features)
             
             # Add BPM from metadata if available
             if metadata and 'bpm_from_metadata' in metadata:
@@ -858,6 +898,67 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Could not determine if {file_path} is long audio: {e}')
             return False
+    
+    def _is_extremely_large_for_processing(self, audio: np.ndarray) -> bool:
+        """
+        Check if audio is extremely large and should skip certain features.
+        Based on original logic: skip for files > 500M samples.
+        
+        Args:
+            audio: Audio array
+            
+        Returns:
+            True if extremely large, False otherwise
+        """
+        try:
+            # Original logic: skip for files > 500M samples
+            is_extremely_large = len(audio) > 500000000
+            
+            if is_extremely_large:
+                log_universal('WARNING', 'Audio', f'Extremely large file detected: {len(audio)} samples ({len(audio)/44100/60:.1f} minutes)')
+                log_universal('WARNING', 'Audio', f'Skipping memory-intensive features for this file')
+            
+            return is_extremely_large
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Could not determine if file is extremely large: {e}')
+            return False
+    
+    def _get_audio_type(self, file_path: str, audio: np.ndarray = None) -> str:
+        """
+        Determine the type of audio file (normal, long_mix, radio, etc.).
+        Based on duration and characteristics.
+        
+        Args:
+            file_path: Path to audio file
+            audio: Optional audio array for duration calculation
+            
+        Returns:
+            Audio type string
+        """
+        try:
+            # Calculate duration
+            if audio is not None:
+                duration_minutes = len(audio) / self.sample_rate / 60
+            else:
+                # Estimate from file size
+                file_size_bytes = os.path.getsize(file_path)
+                estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
+                duration_minutes = estimated_duration_seconds / 60
+            
+            # Determine type based on duration
+            if duration_minutes > 60:  # Over 1 hour
+                return 'radio'
+            elif duration_minutes > 30:  # 30-60 minutes
+                return 'long_mix'
+            elif duration_minutes > 20:  # 20-30 minutes
+                return 'mix'
+            else:
+                return 'normal'
+                
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Could not determine audio type: {e}')
+            return 'normal'
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':

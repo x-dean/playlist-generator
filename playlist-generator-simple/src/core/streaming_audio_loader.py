@@ -45,10 +45,10 @@ logger = get_logger('playlista.streaming_loader')
 
 # Constants
 DEFAULT_SAMPLE_RATE = 44100
-DEFAULT_CHUNK_DURATION_SECONDS = 10  # Reduced from 15 to 10 seconds per chunk for large files
-DEFAULT_MEMORY_LIMIT_PERCENT = 30  # Reduced from 50% to 30% of available RAM for large files
-MIN_CHUNK_DURATION_SECONDS = 5  # Minimum chunk duration
-MAX_CHUNK_DURATION_SECONDS = 20  # Reduced from 30 to 20 seconds for memory safety
+DEFAULT_CHUNK_DURATION_SECONDS = 5  # Reduced to 5 seconds per chunk for very large files
+DEFAULT_MEMORY_LIMIT_PERCENT = 15  # Reduced to 15% of available RAM for very large files
+MIN_CHUNK_DURATION_SECONDS = 3  # Minimum chunk duration
+MAX_CHUNK_DURATION_SECONDS = 10  # Reduced to 10 seconds for memory safety
 
 
 class StreamingAudioLoader:
@@ -171,8 +171,24 @@ class StreamingAudioLoader:
         current_memory = self._get_current_memory_usage()
         available_memory_gb = current_memory.get('available_gb', 1.0)
         
-        # Use a very conservative approach - use only 10% of available memory for large files
-        conservative_memory_gb = min(available_memory_gb * 0.10, self.memory_limit_gb * 0.10)
+        # Check if this is an extremely large file (>500MB)
+        if file_size_mb > 500:
+            log_universal('WARNING', 'Streaming', f"Extremely large file detected: {file_size_mb:.1f}MB")
+            # Use ultra-conservative settings for extremely large files
+            conservative_memory_gb = min(available_memory_gb * 0.02, self.memory_limit_gb * 0.02)
+            safety_factor = 0.02
+            max_chunk_duration = 3.0
+        elif file_size_mb > 200:
+            log_universal('WARNING', 'Streaming', f"Very large file detected: {file_size_mb:.1f}MB")
+            # Use conservative settings for very large files
+            conservative_memory_gb = min(available_memory_gb * 0.05, self.memory_limit_gb * 0.05)
+            safety_factor = 0.05
+            max_chunk_duration = 5.0
+        else:
+            # Use standard settings for large files
+            conservative_memory_gb = min(available_memory_gb * 0.10, self.memory_limit_gb * 0.10)
+            safety_factor = 0.10
+            max_chunk_duration = 10.0
         
         # Estimate memory usage per second of audio (mono, 44.1kHz, float32)
         bytes_per_second = DEFAULT_SAMPLE_RATE * 4  # 4 bytes per float32 sample
@@ -181,15 +197,15 @@ class StreamingAudioLoader:
         # Calculate how many seconds we can fit in memory
         max_seconds_in_memory = conservative_memory_gb * 1024 / mb_per_second
         
-        # Use a very conservative safety factor of 0.10 to leave room for processing
-        safe_seconds = max_seconds_in_memory * 0.10
+        # Use safety factor to leave room for processing
+        safe_seconds = max_seconds_in_memory * safety_factor
         
         # Calculate optimal chunk duration
         optimal_duration = min(
             max(safe_seconds, MIN_CHUNK_DURATION_SECONDS),
             MAX_CHUNK_DURATION_SECONDS,
             duration_seconds,  # Don't exceed total duration
-            15.0  # Maximum 15 seconds per chunk for memory safety
+            max_chunk_duration  # File size specific maximum
         )
         
         log_universal('INFO', 'Streaming', f"Memory-aware chunk calculation:")
@@ -197,6 +213,7 @@ class StreamingAudioLoader:
         log_universal('INFO', 'Streaming', f"  Duration: {duration_seconds:.1f}s")
         log_universal('INFO', 'Streaming', f"  Available memory: {available_memory_gb:.1f}GB")
         log_universal('INFO', 'Streaming', f"  Conservative memory limit: {conservative_memory_gb:.1f}GB")
+        log_universal('INFO', 'Streaming', f"  Safety factor: {safety_factor}")
         log_universal('INFO', 'Streaming', f"  Optimal chunk duration: {optimal_duration:.1f}s")
         
         return optimal_duration
@@ -396,14 +413,17 @@ class StreamingAudioLoader:
                             log_universal('ERROR', 'Streaming', f"Processed {chunk_count} chunks before timeout")
                             return
                         
-                        # Monitor memory every 5 chunks
-                        if chunk_count % 5 == 0:
+                        # Monitor memory every 3 chunks for large files
+                        if chunk_count % 3 == 0:
                             current_memory = self._get_current_memory_usage()
                             log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                             
-                            # More aggressive memory management - trigger GC at 70% instead of 90%
-                            if current_memory['percent_used'] > 70:
-                                log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing garbage collection...")
+                            # More aggressive memory management - trigger GC at 60% for large files
+                            if current_memory['percent_used'] > 60:
+                                log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing aggressive cleanup...")
+                                self._force_memory_cleanup()
+                            elif current_memory['percent_used'] > 50:
+                                log_universal('WARNING', 'Streaming', f"Moderate memory usage detected! Forcing garbage collection...")
                                 import gc
                                 gc.collect()
                         
@@ -420,14 +440,17 @@ class StreamingAudioLoader:
                             log_universal('ERROR', 'Streaming', f"Processed {chunk_count} chunks before timeout")
                             return
                         
-                        # Monitor memory every 5 chunks
-                        if chunk_count % 5 == 0:
+                        # Monitor memory every 3 chunks for large files
+                        if chunk_count % 3 == 0:
                             current_memory = self._get_current_memory_usage()
                             log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                             
-                            # More aggressive memory management - trigger GC at 70% instead of 90%
-                            if current_memory['percent_used'] > 70:
-                                log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing garbage collection...")
+                            # More aggressive memory management - trigger GC at 60% for large files
+                            if current_memory['percent_used'] > 60:
+                                log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing aggressive cleanup...")
+                                self._force_memory_cleanup()
+                            elif current_memory['percent_used'] > 50:
+                                log_universal('WARNING', 'Streaming', f"Moderate memory usage detected! Forcing garbage collection...")
                                 import gc
                                 gc.collect()
                                 # Force a second collection to be more thorough
@@ -451,14 +474,17 @@ class StreamingAudioLoader:
                         log_universal('ERROR', 'Streaming', f"Processed {chunk_count} chunks before timeout")
                         return
                     
-                    # Monitor memory every 5 chunks
-                    if chunk_count % 5 == 0:
+                    # Monitor memory every 3 chunks for large files
+                    if chunk_count % 3 == 0:
                         current_memory = self._get_current_memory_usage()
                         log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                         
-                        # More aggressive memory management - trigger GC at 70% instead of 90%
-                        if current_memory['percent_used'] > 70:
-                            log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing garbage collection...")
+                        # More aggressive memory management - trigger GC at 60% for large files
+                        if current_memory['percent_used'] > 60:
+                            log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing aggressive cleanup...")
+                            self._force_memory_cleanup()
+                        elif current_memory['percent_used'] > 50:
+                            log_universal('WARNING', 'Streaming', f"Moderate memory usage detected! Forcing garbage collection...")
                             import gc
                             gc.collect()
                             # Force a second collection to be more thorough
@@ -482,14 +508,17 @@ class StreamingAudioLoader:
                         log_universal('ERROR', 'Streaming', f"Processed {chunk_count} chunks before timeout")
                         return
                     
-                    # Monitor memory every 5 chunks
-                    if chunk_count % 5 == 0:
+                    # Monitor memory every 3 chunks for large files
+                    if chunk_count % 3 == 0:
                         current_memory = self._get_current_memory_usage()
                         log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_count}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                         
-                        # More aggressive memory management - trigger GC at 70% instead of 90%
-                        if current_memory['percent_used'] > 70:
-                            log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing garbage collection...")
+                        # More aggressive memory management - trigger GC at 60% for large files
+                        if current_memory['percent_used'] > 60:
+                            log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing aggressive cleanup...")
+                            self._force_memory_cleanup()
+                        elif current_memory['percent_used'] > 50:
+                            log_universal('WARNING', 'Streaming', f"Moderate memory usage detected! Forcing garbage collection...")
                             import gc
                             gc.collect()
                             # Force a second collection to be more thorough
@@ -1148,15 +1177,19 @@ class StreamingAudioLoader:
                 current_time = end_time
                 chunk_index += 1
                 
-                # Monitor memory every 5 chunks (more frequent monitoring)
-                if chunk_index % 5 == 0:
+                # Monitor memory every 3 chunks for large files
+                if chunk_index % 3 == 0:
                     current_memory = self._get_current_memory_usage()
                     log_universal('WARNING', 'Streaming', f"Memory usage after chunk {chunk_index}: {current_memory['percent_used']:.1f}% ({current_memory['used_gb']:.1f}GB / {current_memory['total_gb']:.1f}GB)")
                     
-                    # Force aggressive cleanup if memory usage is high
-                    if current_memory['percent_used'] > 70:
+                    # More aggressive memory management - trigger GC at 60% for large files
+                    if current_memory['percent_used'] > 60:
                         log_universal('WARNING', 'Streaming', f"High memory usage detected! Forcing aggressive cleanup...")
                         self._force_memory_cleanup()
+                    elif current_memory['percent_used'] > 50:
+                        log_universal('WARNING', 'Streaming', f"Moderate memory usage detected! Forcing garbage collection...")
+                        import gc
+                        gc.collect()
             
             log_universal('INFO', 'Streaming', f"Librosa streaming completed: {chunk_index} chunks processed")
                 

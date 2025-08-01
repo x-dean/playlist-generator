@@ -91,16 +91,16 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
         # Import audio analyzer here to avoid memory issues
         from .audio_analyzer import AudioAnalyzer
         
-        # Create analyzer instance
-        analyzer = AudioAnalyzer()
-        
-        # Use provided analysis config or get default
+        # Create analyzer instance with configuration
         if analysis_config is None:
-            # Get default config from analyzer
-            analysis_config = analyzer._get_default_analysis_config()
+            # Use default configuration
+            analyzer = AudioAnalyzer()
+        else:
+            # Apply the analysis configuration to the analyzer
+            analyzer = AudioAnalyzer(config=analysis_config)
         
-        # Extract features with dynamic config
-        analysis_result = analyzer.extract_features(file_path, analysis_config)
+        # Extract features using the correct method
+        analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
         
         # Get final resource usage
         final_memory = process.memory_info().rss / (1024 * 1024)  # MB
@@ -513,20 +513,18 @@ class ParallelAnalyzer:
             analysis_config = {
                 'analysis_type': analysis_type,
                 'use_full_analysis': use_full_analysis,
-                'features_config': {
-                    'extract_rhythm': True,
-                    'extract_spectral': True,
-                    'extract_loudness': True,
-                    'extract_key': True,
-                    'extract_mfcc': True,
-                    'extract_musicnn': enable_musicnn,
-                    'extract_metadata': True,
-                    'extract_danceability': True,
-                    'extract_onset_rate': True,
-                    'extract_zcr': True,
-                    'extract_spectral_contrast': True,
-                    'extract_chroma': True
-                }
+                'EXTRACT_RHYTHM': True,
+                'EXTRACT_SPECTRAL': True,
+                'EXTRACT_LOUDNESS': True,
+                'EXTRACT_KEY': True,
+                'EXTRACT_MFCC': True,
+                'EXTRACT_MUSICNN': enable_musicnn,
+                'EXTRACT_METADATA': True,
+                'EXTRACT_DANCEABILITY': True,
+                'EXTRACT_ONSET_RATE': True,
+                'EXTRACT_ZCR': True,
+                'EXTRACT_SPECTRAL_CONTRAST': True,
+                'EXTRACT_CHROMA': True
             }
             
             log_universal('DEBUG', 'Parallel', f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
@@ -540,20 +538,18 @@ class ParallelAnalyzer:
             return {
                 'analysis_type': 'basic',
                 'use_full_analysis': False,
-                'features_config': {
-                    'extract_rhythm': True,
-                    'extract_spectral': True,
-                    'extract_loudness': True,
-                    'extract_key': True,
-                    'extract_mfcc': True,
-                    'extract_musicnn': True,  # Enabled in fallback for parallel
-                    'extract_metadata': True,
-                    'extract_danceability': True,
-                    'extract_onset_rate': True,
-                    'extract_zcr': True,
-                    'extract_spectral_contrast': True,
-                    'extract_chroma': True
-                }
+                'EXTRACT_RHYTHM': True,
+                'EXTRACT_SPECTRAL': True,
+                'EXTRACT_LOUDNESS': True,
+                'EXTRACT_KEY': True,
+                'EXTRACT_MFCC': True,
+                'EXTRACT_MUSICNN': True,  # Enabled in fallback for parallel
+                'EXTRACT_METADATA': True,
+                'EXTRACT_DANCEABILITY': True,
+                'EXTRACT_ONSET_RATE': True,
+                'EXTRACT_ZCR': True,
+                'EXTRACT_SPECTRAL_CONTRAST': True,
+                'EXTRACT_CHROMA': True
             }
 
     def _calculate_file_hash(self, file_path: str) -> str:
