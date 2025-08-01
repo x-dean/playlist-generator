@@ -192,6 +192,13 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Debug logging for metadata
+                log_universal('DEBUG', 'Database', f'Metadata received: {metadata}')
+                if metadata is None:
+                    log_universal('WARNING', 'Database', f'Metadata is None for file: {file_path}')
+                elif not metadata:
+                    log_universal('WARNING', 'Database', f'Metadata is empty for file: {file_path}')
+                
                 # Extract core data with better fallbacks
                 title = 'Unknown'
                 artist = 'Unknown'
@@ -219,6 +226,8 @@ class DatabaseManager:
                 # Final fallback - use filename as title
                 if title == 'Unknown':
                     title = os.path.splitext(filename)[0]
+                
+                log_universal('DEBUG', 'Database', f'Final title: {title}, artist: {artist} for file: {file_path}')
                 
                 album = metadata.get('album') if metadata else None
                 track_number = metadata.get('track_number') if metadata else None

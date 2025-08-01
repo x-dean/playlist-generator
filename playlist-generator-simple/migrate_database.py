@@ -48,7 +48,14 @@ def migrate_database(db_path: str) -> bool:
         # Check if new schema already exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tracks'")
         if cursor.fetchone():
-            print("New schema already exists. Skipping migration.")
+            print("Tracks table exists. Checking for missing columns...")
+            
+            # Always add missing columns even if schema exists
+            add_filename_column_to_analysis_cache(cursor)
+            add_analyzed_column_to_tracks(cursor)
+            add_last_retry_date_column_to_analysis_cache(cursor)
+            
+            print("Column checks completed.")
             return True
         
         # Read the new schema
@@ -69,6 +76,9 @@ def migrate_database(db_path: str) -> bool:
         
         # Add analyzed column to tracks table if needed
         add_analyzed_column_to_tracks(cursor)
+        
+        # Add last_retry_date column to analysis_cache if needed
+        add_last_retry_date_column_to_analysis_cache(cursor)
         
         # Check if old table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='analysis_results'")
@@ -159,6 +169,22 @@ def add_analyzed_column_to_tracks(cursor):
             
     except Exception as e:
         print(f"Failed to add analyzed column: {e}")
+        raise
+
+def add_last_retry_date_column_to_analysis_cache(cursor):
+    """Add last_retry_date column to analysis_cache table if it doesn't exist."""
+    try:
+        cursor.execute("PRAGMA table_info(analysis_cache)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'last_retry_date' not in columns:
+            cursor.execute("ALTER TABLE analysis_cache ADD COLUMN last_retry_date TIMESTAMP")
+            print("Added 'last_retry_date' column to analysis_cache table")
+        else:
+            print("'last_retry_date' column already exists in analysis_cache table")
+            
+    except Exception as e:
+        print(f"Failed to add last_retry_date column: {e}")
         raise
 
 def migrate_single_record(cursor: sqlite3.Cursor, row: tuple, record_num: int) -> None:
