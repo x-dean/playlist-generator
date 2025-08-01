@@ -36,6 +36,11 @@ class ColoredFormatter(logging.Formatter):
         'Export': '\033[95m',     # Magenta
         'Pipeline': '\033[92m',   # Green
         
+        # Processing modes
+        'Sequential': '\033[94m', # Blue
+        'Parallel': '\033[95m',   # Magenta
+        'Streaming': '\033[96m',  # Cyan
+        
         # APIs
         'API': '\033[93m',        # Yellow
         'MB API': '\033[93m',     # Yellow (MusicBrainz)
