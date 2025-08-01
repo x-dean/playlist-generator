@@ -98,7 +98,7 @@ def setup_logging(
             encoding='utf-8'
         )
         file_handler.setLevel(getattr(logging, log_level, logging.INFO))
-        file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%Y-%m-%d %H:%M:%S')
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
     
