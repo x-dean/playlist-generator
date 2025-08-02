@@ -4,9 +4,12 @@ REST endpoints with proper error handling and validation.
 """
 
 import time
+import os
+import shutil
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.responses import Response
+from datetime import datetime
 
 from .models import *
 from ..application.commands import AnalyzeTrackCommand, ImportTracksCommand, GeneratePlaylistCommand
@@ -16,6 +19,7 @@ from ..infrastructure.container import get_container
 from ..infrastructure.logging import get_logger
 from ..infrastructure.monitoring import get_metrics_collector, get_performance_monitor
 from ..domain.exceptions import DomainException, TrackNotFoundException, AnalysisFailedException
+from ..core.database import DatabaseManager
 
 
 router = APIRouter(prefix="/api/v1", tags=["playlist-generator"])
@@ -39,6 +43,11 @@ def get_metrics_dependency():
 def get_monitor_dependency():
     """Dependency to get performance monitor."""
     return get_performance_monitor()
+
+
+def get_database_manager():
+    """Dependency to get database manager."""
+    return DatabaseManager()
 
 
 @router.post("/tracks/analyze", response_model=AnalysisResultResponse)
@@ -178,6 +187,141 @@ async def generate_playlist(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
+        )
+
+
+@router.post("/database/manage", response_model=DatabaseManagementResponse)
+async def manage_database(
+    request: DatabaseManagementRequest,
+    db_manager = Depends(get_database_manager),
+    logger = Depends(get_logger_dependency),
+    monitor = Depends(get_monitor_dependency)
+):
+    """Perform database management operations."""
+    try:
+        with monitor.time_operation("database_management"):
+            operation = request.operation
+            db_path = request.db_path
+            details = {}
+            
+            if operation == DatabaseOperation.INIT:
+                db_manager.initialize_schema()
+                message = "Database schema initialized successfully"
+                
+            elif operation == DatabaseOperation.BACKUP:
+                backup_path = db_manager.create_backup()
+                details = {"backup_path": backup_path}
+                message = f"Database backup created: {backup_path}"
+                
+            elif operation == DatabaseOperation.RESTORE:
+                if not request.backup_path:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Backup path is required for restore operation"
+                    )
+                db_manager.restore_from_backup(request.backup_path)
+                message = f"Database restored from: {request.backup_path}"
+                
+            elif operation == DatabaseOperation.INTEGRITY_CHECK:
+                integrity_result = db_manager.check_integrity()
+                details = {"integrity_result": integrity_result}
+                message = "Database integrity check completed"
+                
+            elif operation == DatabaseOperation.VACUUM:
+                db_manager.vacuum_database()
+                message = "Database vacuum completed"
+                
+            elif operation == DatabaseOperation.CLEANUP:
+                cleaned_count = db_manager.cleanup_old_data(request.days_to_keep)
+                details = {"cleaned_entries": cleaned_count}
+                message = f"Database cleanup completed: {cleaned_count} entries removed"
+                
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Unsupported operation: {operation}"
+                )
+            
+            # Log success
+            logger.log_use_case_execution("database_management", "success", monitor.get_timing("database_management"))
+            
+            return DatabaseManagementResponse(
+                operation=operation,
+                status="success",
+                message=message,
+                details=details
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error in database management: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database operation failed: {str(e)}"
+        )
+
+
+@router.get("/database/info", response_model=DatabaseInfoResponse)
+async def get_database_info(
+    db_manager = Depends(get_database_manager),
+    logger = Depends(get_logger_dependency)
+):
+    """Get database information and statistics."""
+    try:
+        db_path = db_manager.db_path
+        
+        # Get database size
+        db_size_bytes = db_manager.get_database_size()
+        db_size_mb = db_size_bytes / (1024 * 1024)
+        
+        # Get table counts
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Count tables
+            cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+            table_count = cursor.fetchone()[0]
+            
+            # Count tracks
+            cursor.execute("SELECT COUNT(*) FROM tracks")
+            track_count = cursor.fetchone()[0]
+            
+            # Count playlists
+            cursor.execute("SELECT COUNT(*) FROM playlists")
+            playlist_count = cursor.fetchone()[0]
+            
+            # Check integrity
+            cursor.execute("PRAGMA integrity_check")
+            integrity_result = cursor.fetchone()
+            integrity_status = "ok" if integrity_result[0] == "ok" else "issues"
+            
+            # Get file timestamps
+            if os.path.exists(db_path):
+                stat = os.stat(db_path)
+                created_at = datetime.fromtimestamp(stat.st_ctime)
+                last_modified = datetime.fromtimestamp(stat.st_mtime)
+            else:
+                created_at = None
+                last_modified = None
+        
+        return DatabaseInfoResponse(
+            db_path=db_path,
+            db_size_bytes=db_size_bytes,
+            db_size_mb=round(db_size_mb, 2),
+            table_count=table_count,
+            track_count=track_count,
+            playlist_count=playlist_count,
+            integrity_status=integrity_status,
+            created_at=created_at,
+            last_modified=last_modified
+        )
+        
+    except Exception as e:
+        logger.exception(f"Error getting database info: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get database information"
         )
 
 

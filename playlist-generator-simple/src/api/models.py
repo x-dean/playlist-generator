@@ -25,6 +25,16 @@ class PlaylistMethod(str, Enum):
     GENRE_BASED = "genre_based"
 
 
+class DatabaseOperation(str, Enum):
+    """Database operation enumeration."""
+    INIT = "init"
+    BACKUP = "backup"
+    RESTORE = "restore"
+    INTEGRITY_CHECK = "integrity_check"
+    VACUUM = "vacuum"
+    CLEANUP = "cleanup"
+
+
 # Request Models
 class AnalyzeTrackRequest(BaseModel):
     """Request model for track analysis."""
@@ -71,6 +81,20 @@ class SearchTracksRequest(BaseModel):
     )
     limit: Optional[int] = Field(50, ge=1, le=1000, description="Maximum results")
     offset: Optional[int] = Field(0, ge=0, description="Results offset")
+
+
+class DatabaseManagementRequest(BaseModel):
+    """Request model for database management operations."""
+    operation: DatabaseOperation = Field(..., description="Database operation to perform")
+    db_path: Optional[str] = Field("/app/cache/playlista.db", description="Database file path")
+    backup_path: Optional[str] = Field(None, description="Backup file path for restore operations")
+    days_to_keep: Optional[int] = Field(30, ge=1, le=365, description="Days to keep for cleanup operations")
+    
+    @validator('db_path')
+    def validate_db_path(cls, v):
+        if v and not v.strip():
+            raise ValueError("Database path cannot be empty")
+        return v
 
 
 # Response Models
@@ -142,6 +166,34 @@ class SearchResultResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class DatabaseManagementResponse(BaseModel):
+    """Response model for database management operations."""
+    operation: DatabaseOperation
+    status: str
+    message: str
+    details: Optional[Dict[str, Any]] = None
+    timestamp: datetime = Field(default_factory=datetime.now)
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class DatabaseInfoResponse(BaseModel):
+    """Response model for database information."""
+    db_path: str
+    db_size_bytes: int
+    db_size_mb: float
+    table_count: int
+    track_count: int
+    playlist_count: int
+    last_backup: Optional[datetime] = None
+    integrity_status: str
+    created_at: Optional[datetime] = None
+    last_modified: Optional[datetime] = None
 
 
 class ErrorResponse(BaseModel):
