@@ -318,8 +318,8 @@ class SequentialAnalyzer:
             temp_analyzer = AudioAnalyzer()
             is_long_audio = temp_analyzer._is_long_audio_track(file_path)
             
-            # Enable MusiCNN only for short tracks in sequential processing
-            enable_musicnn = not is_long_audio
+            # Enable MusiCNN for all tracks in sequential processing (needed for categorization)
+            enable_musicnn = True
             
             analysis_config = {
                 'analysis_type': analysis_type,
@@ -339,7 +339,7 @@ class SequentialAnalyzer:
             }
             
             log_universal('DEBUG', 'Sequential', f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
-            log_universal('DEBUG', 'Sequential', f"MusiCNN enabled: {enable_musicnn} (long_audio: {is_long_audio})")
+            log_universal('DEBUG', 'Sequential', f"MusiCNN enabled: {enable_musicnn} (always enabled for sequential categorization)")
             
             return analysis_config
             
