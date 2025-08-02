@@ -65,112 +65,117 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
     Returns:
         Tuple of (audio_data, sample_rate) or (None, None) on failure
     """
-    if not os.path.exists(audio_path):
-        log_universal('ERROR', 'Audio', f'File not found: {audio_path}')
-        return None, None
-    
-    # Check available memory before loading
     try:
-        import psutil
-        available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
-        if available_memory_mb < 500:  # Less than 500MB available
-            log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(audio_path)}')
-            return None, None
-    except Exception:
-        pass  # Continue if memory check fails
-    
-    # Check file size and implement aggressive limits for parallel processing
-    try:
-        file_size = os.path.getsize(audio_path)
-        file_size_mb = file_size / (1024 * 1024)
-        
-        if file_size < 1024:  # Less than 1KB
-            log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
+        if not os.path.exists(audio_path):
+            log_universal('ERROR', 'Audio', f'File not found: {audio_path}')
             return None, None
         
-        # Much more aggressive limits for parallel processing
-        max_file_size_mb = 200  # Reduced from 500MB
-        warning_threshold_mb = 50  # Reduced from 100MB
+        # Check available memory before loading
+        try:
+            import psutil
+            available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
+            if available_memory_mb < 500:  # Less than 500MB available
+                log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(audio_path)}')
+                return None, None
+        except Exception:
+            pass  # Continue if memory check fails
         
-        # Skip large files to prevent RAM saturation
-        if file_size_mb > max_file_size_mb:
-            log_universal('WARNING', 'Audio', f'File too large ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - skipping to prevent RAM saturation')
-            return None, None
+        # Check file size and implement aggressive limits for parallel processing
+        file_size_mb = 0  # Initialize to avoid NameError
+        try:
+            file_size = os.path.getsize(audio_path)
+            file_size_mb = file_size / (1024 * 1024)
             
-        # Warn for large files
-        if file_size_mb > warning_threshold_mb:
-            log_universal('WARNING', 'Audio', f'Large file detected ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - may cause memory issues')
+            if file_size < 1024:  # Less than 1KB
+                log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
+                return None, None
             
-    except Exception as e:
-        log_universal('WARNING', 'Audio', f'Cannot check file size for {os.path.basename(audio_path)}: {e}')
-    
-    # Force garbage collection before loading
-    try:
-        import gc
-        gc.collect()
-    except Exception:
-        pass
-    
-    try:
-        import essentia.standard as es
-        log_universal('DEBUG', 'Audio', f'Loading {os.path.basename(audio_path)} with Essentia MonoLoader')
-        
-        # For large files, try to load only a sample
-        if file_size_mb > 25:  # Files larger than 25MB
-            log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - loading sample only')
-            try:
-                # Try to load just the first 30 seconds
-                loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
-                audio = loader()
-                if audio is not None and len(audio) > 0:
-                    # Take only first 30 seconds
-                    max_samples = 30 * sample_rate
-                    if len(audio) > max_samples:
-                        audio = audio[:max_samples]
-                        log_universal('INFO', 'Audio', f'Loaded sample: {len(audio)} samples (30s) from {os.path.basename(audio_path)}')
-                    else:
-                        log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)}: {len(audio)} samples at {sample_rate}Hz')
-                    return audio, sample_rate
-            except Exception as sample_e:
-                log_universal('WARNING', 'Audio', f'Sample loading failed for {os.path.basename(audio_path)}: {sample_e}')
-                # Fall through to normal loading
-        else:
-            # Normal loading for smaller files
-            loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
-            audio = loader()
+            # Much more aggressive limits for parallel processing
+            max_file_size_mb = 200  # Reduced from 500MB
+            warning_threshold_mb = 50  # Reduced from 100MB
             
-            if audio is not None and len(audio) > 0:
-                log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)}: {len(audio)} samples at {sample_rate}Hz')
-                return audio, sample_rate
-            else:
-                log_universal('WARNING', 'Audio', f'Essentia returned empty audio for {os.path.basename(audio_path)}')
+            # Skip large files to prevent RAM saturation
+            if file_size_mb > max_file_size_mb:
+                log_universal('WARNING', 'Audio', f'File too large ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - skipping to prevent RAM saturation')
                 return None, None
                 
-    except Exception as e:
-        log_universal('ERROR', 'Audio', f'Essentia audio loading failed for {os.path.basename(audio_path)}: {e}')
-        log_universal('DEBUG', 'Audio', f'Full error details: {type(e).__name__}: {str(e)}')
-        
-        # Try librosa as fallback (with memory management)
-        if LIBROSA_AVAILABLE:
-            try:
-                log_universal('DEBUG', 'Audio', f'Trying librosa fallback for {os.path.basename(audio_path)}')
-                import librosa
+            # Warn for large files
+            if file_size_mb > warning_threshold_mb:
+                log_universal('WARNING', 'Audio', f'Large file detected ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - may cause memory issues')
                 
-                # For large files, use offset and duration to load only a portion
-                if file_size_mb > 25:
-                    log_universal('INFO', 'Audio', f'Loading 30-second sample with librosa for {os.path.basename(audio_path)}')
-                    audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True, duration=30)
-                else:
-                    audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
-                    
-                if audio is not None and len(audio) > 0:
-                    log_universal('DEBUG', 'Audio', f'Librosa fallback successful: {len(audio)} samples at {sr}Hz')
-                    return audio, sr
-                else:
-                    log_universal('WARNING', 'Audio', f'Librosa fallback returned empty audio for {os.path.basename(audio_path)}')
-            except Exception as librosa_e:
-                log_universal('ERROR', 'Audio', f'Librosa fallback also failed for {os.path.basename(audio_path)}: {librosa_e}')
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Cannot check file size for {os.path.basename(audio_path)}: {e}')
         
+        # Force garbage collection before loading
+        try:
+            import gc
+            gc.collect()
+        except Exception:
+            pass
+        
+        try:
+            import essentia.standard as es
+            log_universal('DEBUG', 'Audio', f'Loading {os.path.basename(audio_path)} with Essentia MonoLoader')
+            
+            # For large files, try to load only a sample
+            if file_size_mb > 25:  # Files larger than 25MB
+                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - loading sample only')
+                try:
+                    # Try to load just the first 30 seconds
+                    loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
+                    audio = loader()
+                    if audio is not None and len(audio) > 0:
+                        # Take only first 30 seconds
+                        max_samples = 30 * sample_rate
+                        if len(audio) > max_samples:
+                            audio = audio[:max_samples]
+                            log_universal('INFO', 'Audio', f'Loaded sample: {len(audio)} samples (30s) from {os.path.basename(audio_path)}')
+                        else:
+                            log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)}: {len(audio)} samples at {sample_rate}Hz')
+                        return audio, sample_rate
+                except Exception as sample_e:
+                    log_universal('WARNING', 'Audio', f'Sample loading failed for {os.path.basename(audio_path)}: {sample_e}')
+                    # Fall through to normal loading
+            else:
+                # Normal loading for smaller files
+                loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
+                audio = loader()
+                
+                if audio is not None and len(audio) > 0:
+                    log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)}: {len(audio)} samples at {sample_rate}Hz')
+                    return audio, sample_rate
+                else:
+                    log_universal('WARNING', 'Audio', f'Essentia returned empty audio for {os.path.basename(audio_path)}')
+                    return None, None
+                    
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Essentia audio loading failed for {os.path.basename(audio_path)}: {e}')
+            log_universal('DEBUG', 'Audio', f'Full error details: {type(e).__name__}: {str(e)}')
+            
+            # Try librosa as fallback (with memory management)
+            if LIBROSA_AVAILABLE:
+                try:
+                    log_universal('DEBUG', 'Audio', f'Trying librosa fallback for {os.path.basename(audio_path)}')
+                    import librosa
+                    
+                    # For large files, use offset and duration to load only a portion
+                    if file_size_mb > 25:
+                        log_universal('INFO', 'Audio', f'Loading 30-second sample with librosa for {os.path.basename(audio_path)}')
+                        audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True, duration=30)
+                    else:
+                        audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
+                        
+                    if audio is not None and len(audio) > 0:
+                        log_universal('DEBUG', 'Audio', f'Librosa fallback successful: {len(audio)} samples at {sr}Hz')
+                        return audio, sr
+                    else:
+                        log_universal('WARNING', 'Audio', f'Librosa fallback returned empty audio for {os.path.basename(audio_path)}')
+                except Exception as librosa_e:
+                    log_universal('ERROR', 'Audio', f'Librosa fallback also failed for {os.path.basename(audio_path)}: {librosa_e}')
+            
+            return None, None
+    except Exception as e:
+        log_universal('ERROR', 'Audio', f'Unexpected error in safe_essentia_load for {os.path.basename(audio_path)}: {e}')
         return None, None
 
 
