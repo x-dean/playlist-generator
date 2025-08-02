@@ -3,7 +3,7 @@ Pydantic models for Playlist Generator API.
 Request and response models with validation.
 """
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -31,8 +31,7 @@ class AnalyzeTrackRequest(BaseModel):
     file_path: str = Field(..., description="Path to audio file")
     force_reanalysis: bool = Field(False, description="Force reanalysis if already analyzed")
     
-    @field_validator('file_path')
-    @classmethod
+    @validator('file_path')
     def validate_file_path(cls, v):
         if not v or not v.strip():
             raise ValueError("File path cannot be empty")
@@ -56,8 +55,7 @@ class GeneratePlaylistRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Playlist name")
     parameters: Optional[Dict[str, Any]] = Field(None, description="Method-specific parameters")
     
-    @field_validator('name')
-    @classmethod
+    @validator('name')
     def validate_name(cls, v):
         if not v or not v.strip():
             raise ValueError("Playlist name cannot be empty")
@@ -97,7 +95,8 @@ class AnalysisResultResponse(BaseModel):
 
 class TrackResponse(BaseModel):
     """Response model for tracks."""
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
     
     id: str
     path: str
@@ -109,7 +108,8 @@ class TrackResponse(BaseModel):
 
 class PlaylistResponse(BaseModel):
     """Response model for playlists."""
-    model_config = ConfigDict(from_attributes=True)
+    class Config:
+        from_attributes = True
     
     id: str
     name: str

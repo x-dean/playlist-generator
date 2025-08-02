@@ -15,7 +15,7 @@ This application follows **Clean Architecture** principles with clear separation
 
 ### Prerequisites
 
-- Python 3.7+
+- Python 3.7 (latest supported version)
 - Docker & Docker Compose
 - FFmpeg (for audio processing)
 
@@ -26,7 +26,7 @@ This application follows **Clean Architecture** principles with clear separation
 git clone <repository-url>
 cd playlist-generator-simple
 
-# Install dependencies
+# Install dependencies (Python 3.7 compatible)
 pip install -r requirements.txt
 
 # Start the application
