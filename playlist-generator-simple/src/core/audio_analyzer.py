@@ -1196,7 +1196,7 @@ class AudioAnalyzer:
                     else:
                         audio_22050 = audio
                     
-                    # Prepare input for MusiCNN (expects [batch, time, 96, 1] log-mel spectrogram)
+                    # Prepare input for MusiCNN (expects [batch, time, 96] log-mel spectrogram)
                     mel_spec = self._compute_mel_spectrogram(audio_22050, 22050)
                     
                     # Run inference
@@ -1235,11 +1235,21 @@ class AudioAnalyzer:
                     else:
                         features['tags'] = {}
                     
-                    log_universal('DEBUG', 'Audio', f'Extracted MusiCNN features: embedding size {len(features["embedding"])}')
+                    # Log MusiCNN results
+                    log_universal('INFO', 'Audio', f'MusiCNN analysis completed: embedding size {len(features["embedding"])}')
+                    
+                    # Log top tags with confidence scores
+                    if features['tags']:
+                        sorted_tags = sorted(features['tags'].items(), key=lambda x: x[1], reverse=True)
+                        top_tags = sorted_tags[:5]  # Top 5 tags
+                        tag_summary = ', '.join([f"{tag}: {conf:.2f}" for tag, conf in top_tags])
+                        log_universal('INFO', 'Audio', f'Top MusiCNN tags: {tag_summary}')
+                    else:
+                        log_universal('WARNING', 'Audio', 'No MusiCNN tags extracted')
                 else:
                     features['embedding'] = []
                     features['tags'] = {}
-                    log_universal('DEBUG', 'Audio', 'MusiCNN model not available - skipping features')
+                    log_universal('WARNING', 'Audio', 'MusiCNN model not available - skipping features')
             else:
                 features['embedding'] = []
                 features['tags'] = {}
@@ -1900,7 +1910,7 @@ class AudioAnalyzer:
             sample_rate: Sample rate of the audio
             
         Returns:
-            Mel-spectrogram as numpy array with shape [time, 96, 1] for MusiCNN input
+            Mel-spectrogram as numpy array with shape [time, 96] for MusiCNN input
         """
         try:
             if LIBROSA_AVAILABLE:
@@ -1910,11 +1920,13 @@ class AudioAnalyzer:
                 # - Window size: 512 with 50% hop (hop_length = 256)
                 # - Mel bands: 96 bands from 0 to 11025 Hz
                 # - Sampling rate: 22050 Hz
+                # - Fixed time dimension: 187 frames (3 seconds at 22050 Hz)
                 n_fft = 512
                 hop_length = 256  # 50% of window size
                 n_mels = 96
                 fmin = 0
                 fmax = 11025  # Half of 22050 Hz (Nyquist frequency)
+                target_frames = 187  # Fixed time dimension for MusiCNN
                 
                 # Compute mel-spectrogram
                 mel_spec = librosa.feature.melspectrogram(
@@ -1933,17 +1945,26 @@ class AudioAnalyzer:
                 # Transpose to get [time, 96] shape
                 mel_spec_transposed = mel_spec_db.T
                 
-                # Add channel dimension to get [time, 96, 1] shape for MusiCNN
-                mel_spec_final = mel_spec_transposed[..., np.newaxis]
+                # Pad or truncate to exactly 187 frames
+                if mel_spec_transposed.shape[0] > target_frames:
+                    # Truncate to 187 frames
+                    mel_spec_final = mel_spec_transposed[:target_frames, :]
+                elif mel_spec_transposed.shape[0] < target_frames:
+                    # Pad with zeros to 187 frames
+                    padding = np.zeros((target_frames - mel_spec_transposed.shape[0], n_mels))
+                    mel_spec_final = np.vstack([mel_spec_transposed, padding])
+                else:
+                    mel_spec_final = mel_spec_transposed
                 
+                log_universal('DEBUG', 'Audio', f'Mel-spectrogram shape: {mel_spec_final.shape}')
                 return mel_spec_final
             else:
                 log_universal('WARNING', 'Audio', 'Librosa not available for mel-spectrogram computation')
-                return np.zeros((100, 96, 1))  # Default size for MusiCNN
+                return np.zeros((187, 96))  # Fixed size for MusiCNN
                 
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Error computing mel-spectrogram: {e}')
-            return np.zeros((100, 96, 1))  # Default size for MusiCNN
+            return np.zeros((187, 96))  # Fixed size for MusiCNN
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':
