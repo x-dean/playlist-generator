@@ -427,6 +427,28 @@ class AudioAnalyzer:
         try:
             log_universal('DEBUG', 'Audio', f'Extracting metadata from: {os.path.basename(file_path)}')
             
+            # Check file size before attempting metadata extraction
+            try:
+                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                if file_size_mb > 200:  # Files larger than 200MB
+                    log_universal('WARNING', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - metadata extraction may fail')
+            except Exception:
+                pass
+            
+            # Force garbage collection before metadata extraction
+            import gc
+            gc.collect()
+            
+            # Check available memory before proceeding
+            try:
+                import psutil
+                available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
+                if available_memory_mb < 100:  # Less than 100MB available
+                    log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping metadata extraction')
+                    return None
+            except Exception:
+                pass  # Continue if memory check fails
+            
             audio_file = File(file_path)
             if audio_file is None:
                 log_universal('WARNING', 'Audio', f'Could not open file for metadata: {os.path.basename(file_path)}')
@@ -434,47 +456,86 @@ class AudioAnalyzer:
             
             metadata = {}
             
-            # Extract tags using enhanced tag mapper
+            # Extract tags using enhanced tag mapper with memory protection
             if hasattr(audio_file, 'tags') and audio_file.tags:
-                from .tag_mapping import get_tag_mapper
-                tag_mapper = get_tag_mapper()
-                
-                # Convert mutagen tags to dictionary format
-                tags_dict = {}
-                for key, value in audio_file.tags.items():
-                    tags_dict[key] = value
-                
-                # Map tags using the enhanced mapper
-                mapped_metadata = tag_mapper.map_tags(tags_dict)
-                metadata.update(mapped_metadata)
-                
-                # Add filename for enrichment
-                metadata['filename'] = os.path.basename(file_path)
-                
-                log_universal('DEBUG', 'Audio', f'Extracted {len(mapped_metadata)} metadata fields')
+                try:
+                    from .tag_mapping import get_tag_mapper
+                    tag_mapper = get_tag_mapper()
+                    
+                    # Convert mutagen tags to dictionary format with memory protection
+                    tags_dict = {}
+                    tag_count = 0
+                    max_tags = 100  # Limit number of tags to prevent memory issues
+                    
+                    for key, value in audio_file.tags.items():
+                        if tag_count >= max_tags:
+                            log_universal('WARNING', 'Audio', f'Too many tags ({tag_count}) - truncating to prevent memory issues')
+                            break
+                        
+                        # Limit tag value size to prevent memory issues
+                        if isinstance(value, str) and len(value) > 1000:
+                            value = value[:1000] + "..."
+                        elif isinstance(value, list):
+                            # Limit list size and individual item size
+                            value = [str(item)[:500] for item in value[:10]]
+                        
+                        tags_dict[key] = value
+                        tag_count += 1
+                    
+                    # Map tags using the enhanced mapper
+                    mapped_metadata = tag_mapper.map_tags(tags_dict)
+                    metadata.update(mapped_metadata)
+                    
+                    # Add filename for enrichment
+                    metadata['filename'] = os.path.basename(file_path)
+                    
+                    log_universal('DEBUG', 'Audio', f'Extracted {len(mapped_metadata)} metadata fields')
+                    
+                except MemoryError as me:
+                    log_universal('ERROR', 'Audio', f'Memory error during tag mapping for {os.path.basename(file_path)}: {me}')
+                    # Fall back to basic metadata
+                    metadata['filename'] = os.path.basename(file_path)
+                except Exception as e:
+                    log_universal('ERROR', 'Audio', f'Tag mapping failed for {os.path.basename(file_path)}: {e}')
+                    # Fall back to basic metadata
+                    metadata['filename'] = os.path.basename(file_path)
             else:
                 log_universal('DEBUG', 'Audio', 'No tags found in file')
                 metadata['filename'] = os.path.basename(file_path)
             
-            # Extract audio properties
-            if hasattr(audio_file, 'info'):
-                info = audio_file.info
-                metadata['duration'] = getattr(info, 'length', None)
-                metadata['bitrate'] = getattr(info, 'bitrate', None)
-                metadata['sample_rate'] = getattr(info, 'sample_rate', None)
-                metadata['channels'] = getattr(info, 'channels', None)
+            # Extract audio properties with memory protection
+            try:
+                if hasattr(audio_file, 'info'):
+                    info = audio_file.info
+                    metadata['duration'] = getattr(info, 'length', None)
+                    metadata['bitrate'] = getattr(info, 'bitrate', None)
+                    metadata['sample_rate'] = getattr(info, 'sample_rate', None)
+                    metadata['channels'] = getattr(info, 'channels', None)
+            except MemoryError as me:
+                log_universal('ERROR', 'Audio', f'Memory error during audio property extraction for {os.path.basename(file_path)}: {me}')
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f'Failed to extract audio properties for {os.path.basename(file_path)}: {e}')
             
             # Extract BPM from metadata if available
-            bpm_from_metadata = self._extract_bpm_from_metadata(metadata)
-            if bpm_from_metadata:
-                metadata['bpm_from_metadata'] = bpm_from_metadata
+            try:
+                bpm_from_metadata = self._extract_bpm_from_metadata(metadata)
+                if bpm_from_metadata:
+                    metadata['bpm_from_metadata'] = bpm_from_metadata
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f'Failed to extract BPM from metadata for {os.path.basename(file_path)}: {e}')
             
             # Cache metadata
-            self.db_manager.save_cache(cache_key, metadata, expires_hours=self.cache_expiry_hours)
+            try:
+                self.db_manager.save_cache(cache_key, metadata, expires_hours=self.cache_expiry_hours)
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f'Failed to cache metadata for {os.path.basename(file_path)}: {e}')
             
             log_universal('DEBUG', 'Audio', f'Extracted metadata: {len(metadata)} fields from {os.path.basename(file_path)}')
             return metadata
             
+        except MemoryError as me:
+            log_universal('ERROR', 'Audio', f'Memory error during metadata extraction for {os.path.basename(file_path)}: {me}')
+            return None
         except Exception as e:
             log_universal('ERROR', 'Audio', f'Metadata extraction failed for {os.path.basename(file_path)}: {e}')
             return None

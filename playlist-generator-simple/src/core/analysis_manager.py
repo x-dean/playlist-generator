@@ -15,6 +15,7 @@ from pathlib import Path
 from .database import DatabaseManager
 from .logging_setup import get_logger, log_function_call, log_universal
 from .file_discovery import FileDiscovery
+from .queue_manager import QueueManager, get_queue_manager
 
 logger = get_logger('playlista.analysis_manager')
 
@@ -475,16 +476,56 @@ class AnalysisManager:
             results['failed_count'] += big_results['failed_count']
             results['big_files_processed'] = len(big_files)
         
-        # Process small files in parallel
+        # Process small files using queue manager
         if small_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(small_files)} small files in parallel")
-            log_universal('INFO', 'Analysis', f"Parallel processing selected for files < {self.big_file_size_mb}MB")
-            small_results = self.parallel_analyzer.process_files(
-                small_files, force_reextract, max_workers
+            log_universal('INFO', 'Analysis', f"Processing {len(small_files)} small files using queue manager")
+            log_universal('INFO', 'Analysis', f"Queue-based parallel processing selected for files < {self.big_file_size_mb}MB")
+            
+            # Get queue manager instance
+            queue_manager = get_queue_manager()
+            
+            # Add tasks to queue
+            task_ids = queue_manager.add_tasks(
+                small_files, 
+                priority=0, 
+                force_reextract=force_reextract,
+                analysis_config=self._get_analysis_config(small_files[0]) if small_files else None
             )
-            results['success_count'] += small_results['success_count']
-            results['failed_count'] += small_results['failed_count']
-            results['small_files_processed'] = len(small_files)
+            
+            # Start processing with progress callback
+            def progress_callback(stats):
+                if stats['total_tasks'] > 0:
+                    progress = (stats['completed_tasks'] + stats['failed_tasks']) / stats['total_tasks'] * 100
+                    log_universal('INFO', 'Analysis', f"Queue progress: {progress:.1f}% ({stats['completed_tasks']}/{stats['total_tasks']})")
+            
+            success = queue_manager.start_processing(progress_callback)
+            if not success:
+                log_universal('ERROR', 'Analysis', "Failed to start queue processing")
+                # Fall back to direct parallel processing
+                small_results = self.parallel_analyzer.process_files(
+                    small_files, force_reextract, max_workers
+                )
+                results['success_count'] += small_results['success_count']
+                results['failed_count'] += small_results['failed_count']
+                results['small_files_processed'] = len(small_files)
+            else:
+                # Wait for all tasks to complete
+                while True:
+                    stats = queue_manager.get_statistics()
+                    if stats['pending_tasks'] == 0 and stats['processing_tasks'] == 0:
+                        break
+                    time.sleep(1)
+                
+                # Get final results
+                final_stats = queue_manager.get_statistics()
+                results['success_count'] += final_stats['completed_tasks']
+                results['failed_count'] += final_stats['failed_tasks']
+                results['small_files_processed'] = len(small_files)
+                
+                # Stop processing
+                queue_manager.stop_processing()
+                
+                log_universal('INFO', 'Analysis', f"Queue processing completed: {final_stats['completed_tasks']} successful, {final_stats['failed_tasks']} failed")
         
         total_time = time.time() - start_time
         results['total_time'] = total_time
@@ -526,6 +567,74 @@ class AnalysisManager:
                 big_files.append(file_path)
         
         return big_files, small_files
+
+    def _get_analysis_config(self, file_path: str) -> Dict[str, Any]:
+        """
+        Get analysis configuration for a file.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            Analysis configuration dictionary
+        """
+        try:
+            # Get file size for analysis type determination
+            file_size_bytes = os.path.getsize(file_path)
+            file_size_mb = file_size_bytes / (1024 * 1024)
+            
+            # Simple analysis type determination based on file size
+            if file_size_mb > 50:  # Large files
+                analysis_type = 'basic'
+                use_full_analysis = False
+            else:  # Smaller files
+                analysis_type = 'basic'
+                use_full_analysis = False
+            
+            # Enable MusiCNN for parallel processing (smaller files)
+            enable_musicnn = True
+            
+            analysis_config = {
+                'analysis_type': analysis_type,
+                'use_full_analysis': use_full_analysis,
+                'EXTRACT_RHYTHM': True,
+                'EXTRACT_SPECTRAL': True,
+                'EXTRACT_LOUDNESS': True,
+                'EXTRACT_KEY': True,
+                'EXTRACT_MFCC': True,
+                'EXTRACT_MUSICNN': enable_musicnn,
+                'EXTRACT_METADATA': True,
+                'EXTRACT_DANCEABILITY': True,
+                'EXTRACT_ONSET_RATE': True,
+                'EXTRACT_ZCR': True,
+                'EXTRACT_SPECTRAL_CONTRAST': True,
+                'EXTRACT_CHROMA': True
+            }
+            
+            log_universal('DEBUG', 'Analysis', f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
+            log_universal('DEBUG', 'Analysis', f"MusiCNN enabled: {enable_musicnn}")
+            
+            return analysis_config
+            
+        except Exception as e:
+            log_universal('WARNING', 'Analysis', f"Error getting analysis config for {file_path}: {e}")
+            # Return basic analysis config as fallback
+            return {
+                'analysis_type': 'basic',
+                'use_full_analysis': False,
+                'EXTRACT_RHYTHM': True,
+                'EXTRACT_SPECTRAL': True,
+                'EXTRACT_LOUDNESS': True,
+                'EXTRACT_KEY': True,
+                'EXTRACT_MFCC': True,
+                'EXTRACT_MUSICNN': True,  # Enabled in fallback for parallel
+                'EXTRACT_METADATA': True,
+                'EXTRACT_DANCEABILITY': True,
+                'EXTRACT_ONSET_RATE': True,
+                'EXTRACT_ZCR': True,
+                'EXTRACT_SPECTRAL_CONTRAST': True,
+                'EXTRACT_CHROMA': True
+            }
 
     @log_function_call
     def get_analysis_statistics(self) -> Dict[str, Any]:

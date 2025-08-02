@@ -325,17 +325,17 @@ class ParallelAnalyzer:
         
         # Calculate batch size based on available memory and workers (more conservative for memory issues)
         # Ensure batch size is never too large to prevent memory issues
-        max_batch_size = min(len(files), max_workers * 2)  # 2 files per worker
-        batch_size = max(1, min(max_batch_size, 10))  # Cap at 10 files per batch for safety
+        max_batch_size = min(len(files), max_workers)  # 1 file per worker (reduced from 2)
+        batch_size = max(1, min(max_batch_size, 5))  # Cap at 5 files per batch (reduced from 10)
         
         # Additional safety: If very few workers, reduce batch size further
         if max_workers <= 2:
-            batch_size = max(1, min(batch_size, 5))  # Cap at 5 files for low worker counts
+            batch_size = max(1, min(batch_size, 3))  # Cap at 3 files for low worker counts (reduced from 5)
             
         total_batches = (len(files) + batch_size - 1) // batch_size
         
         log_universal('INFO', 'Parallel', f"Starting parallel processing of {len(files)} files")
-        log_universal('INFO', 'Parallel', f"  Workers: {max_workers} (2 files per worker per batch)")
+        log_universal('INFO', 'Parallel', f"  Workers: {max_workers} (1 file per worker per batch)")
         log_universal('INFO', 'Parallel', f"  Batch size: {batch_size} files")
         log_universal('INFO', 'Parallel', f"  Total batches: {total_batches}")
         log_universal('DEBUG', 'Parallel', f"  Force re-extract: {force_reextract}")
@@ -358,6 +358,15 @@ class ParallelAnalyzer:
                 total_batches = (len(files) + batch_size - 1) // batch_size
                 
                 log_universal('INFO', 'Parallel', f"Processing batch {batch_num}/{total_batches} ({len(batch_files)} files)")
+                
+                # Check memory before starting batch
+                try:
+                    import psutil
+                    memory_percent = psutil.virtual_memory().percent
+                    if memory_percent > 85:
+                        log_universal('WARNING', 'Parallel', f'High memory usage ({memory_percent:.1f}%) - processing batch carefully')
+                except Exception:
+                    pass
                 
                 try:
                     with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context('spawn')) as executor:
@@ -442,7 +451,11 @@ class ParallelAnalyzer:
                                 'error': f"Batch processing failed: {str(e)}",
                                 'timestamp': datetime.now().isoformat()
                             })
-                            
+                
+                # Force garbage collection between batches
+                import gc
+                gc.collect()
+                
         except Exception as e:
             log_universal('ERROR', 'Parallel', f"Error creating process pool: {e}")
             # Fall back to sequential processing with better error handling
