@@ -478,38 +478,73 @@ class ResourceManager:
                     else:
                         memory_limit_gb = value
             
-            # Get current memory usage
+            # Get current process memory usage (RSS)
+            process = psutil.Process()
+            current_rss_gb = process.memory_info().rss / (1024**3)
+            
+            # Get total system memory from psutil
             memory = psutil.virtual_memory()
-            available_gb = memory.available / (1024**3)
+            total_memory_gb = memory.total / (1024**3)
+            system_memory_percent = memory.percent
+            
+            # Calculate available memory for workers based on RSS
+            # Reserve 2GB for system and other processes, but ensure we don't go negative
+            reserved_memory_gb = min(2.0, total_memory_gb * 0.1)  # 10% of total memory or 2GB, whichever is smaller
+            available_for_workers_gb = max(0.5, total_memory_gb - reserved_memory_gb - current_rss_gb)  # Minimum 0.5GB available
             
             # Estimate memory per worker (conservative estimate)
-            memory_per_worker_gb = 0.5  # 500MB per worker
+            memory_per_worker_gb = 2.0  # 2GB per worker
             
-            # Calculate optimal workers based on available memory
-            memory_based_workers = max(1, int(available_gb / memory_per_worker_gb))
+            # Calculate optimal workers based on available memory for workers
+            memory_based_workers = max(1, int(available_for_workers_gb / memory_per_worker_gb))
             
             # Get CPU count
             import multiprocessing as mp
             cpu_count = mp.cpu_count()
             
-            # Use the minimum of memory-based and CPU-based workers
+            # Use the minimum of memory-based and CPU-based workers to avoid over-subscription
             optimal_workers = min(memory_based_workers, cpu_count)
+            
+            # Failsafe: If system memory usage is >80%, reduce workers
+            if system_memory_percent > 80:
+                optimal_workers = max(1, optimal_workers // 2)  # Reduce by half
+                log_universal('WARNING', 'Resource', f"System memory usage {system_memory_percent:.1f}% > 80%, reducing workers to {optimal_workers}")
+            
+            # Additional failsafe: If available memory is very low, use only 1 worker
+            if available_for_workers_gb < 1.0:
+                optimal_workers = 1
+                log_universal('WARNING', 'Resource', f"Available memory {available_for_workers_gb:.2f}GB < 1GB, using only 1 worker")
             
             # Apply max_workers limit
             if max_workers:
                 optimal_workers = min(optimal_workers, max_workers)
             
             log_universal('INFO', 'Resource', f"Optimal worker count: {optimal_workers}")
-            log_universal('INFO', 'Resource', f"  Available memory: {available_gb:.2f}GB")
+            log_universal('INFO', 'Resource', f"  Total memory: {total_memory_gb:.2f}GB")
+            log_universal('INFO', 'Resource', f"  Current RSS: {current_rss_gb:.2f}GB")
+            log_universal('INFO', 'Resource', f"  Available for workers: {available_for_workers_gb:.2f}GB")
             log_universal('INFO', 'Resource', f"  CPU count: {cpu_count}")
             log_universal('INFO', 'Resource', f"  Memory-based workers: {memory_based_workers}")
             log_universal('INFO', 'Resource', f"  Memory per worker: {memory_per_worker_gb:.1f}GB")
+            log_universal('INFO', 'Resource', f"  System memory usage: {system_memory_percent:.1f}%")
             
             return optimal_workers
             
         except Exception as e:
             log_universal('WARNING', 'Resource', f"Could not determine optimal worker count: {e}")
-            return max(1, min(max_workers or mp.cpu_count(), mp.cpu_count()))
+            # Fallback to safe defaults
+            try:
+                import multiprocessing as mp
+                cpu_count = mp.cpu_count()
+                # Use minimum of 1 worker, maximum of 2 workers for safety
+                safe_workers = min(2, cpu_count)
+                if max_workers:
+                    safe_workers = min(safe_workers, max_workers)
+                log_universal('INFO', 'Resource', f"Using fallback worker count: {safe_workers}")
+                return safe_workers
+            except Exception as fallback_error:
+                log_universal('ERROR', 'Resource', f"Fallback worker count also failed: {fallback_error}")
+                return 1  # Ultimate fallback: single worker
 
     def is_memory_critical(self) -> bool:
         """

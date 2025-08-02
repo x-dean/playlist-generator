@@ -56,7 +56,7 @@ DEFAULT_TIMEOUT_SECONDS = 600
 def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
     Safely load audio file using Essentia with fallback to librosa.
-    Skips extremely large files to prevent RAM saturation.
+    Implements aggressive memory management for parallel processing.
     
     Args:
         audio_path: Path to audio file
@@ -69,7 +69,17 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
         log_universal('ERROR', 'Audio', f'File not found: {audio_path}')
         return None, None
     
-    # Check file size and skip extremely large files
+    # Check available memory before loading
+    try:
+        import psutil
+        available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
+        if available_memory_mb < 500:  # Less than 500MB available
+            log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(audio_path)}')
+            return None, None
+    except Exception:
+        pass  # Continue if memory check fails
+    
+    # Check file size and implement aggressive limits for parallel processing
     try:
         file_size = os.path.getsize(audio_path)
         file_size_mb = file_size / (1024 * 1024)
@@ -78,11 +88,11 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
             log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
             return None, None
         
-        # Get configuration values
-        max_file_size_mb = 500  # Default if not in config
-        warning_threshold_mb = 100  # Default if not in config
+        # Much more aggressive limits for parallel processing
+        max_file_size_mb = 200  # Reduced from 500MB
+        warning_threshold_mb = 50  # Reduced from 100MB
         
-        # Skip extremely large files to prevent RAM saturation
+        # Skip large files to prevent RAM saturation
         if file_size_mb > max_file_size_mb:
             log_universal('WARNING', 'Audio', f'File too large ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - skipping to prevent RAM saturation')
             return None, None
@@ -94,28 +104,65 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
     except Exception as e:
         log_universal('WARNING', 'Audio', f'Cannot check file size for {os.path.basename(audio_path)}: {e}')
     
+    # Force garbage collection before loading
+    try:
+        import gc
+        gc.collect()
+    except Exception:
+        pass
+    
     try:
         import essentia.standard as es
         log_universal('DEBUG', 'Audio', f'Loading {os.path.basename(audio_path)} with Essentia MonoLoader')
-        loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
-        audio = loader()
         
-        if audio is not None and len(audio) > 0:
-            log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)}: {len(audio)} samples at {sample_rate}Hz')
-            return audio, sample_rate
+        # For large files, try to load only a sample
+        if file_size_mb > 25:  # Files larger than 25MB
+            log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - loading sample only')
+            try:
+                # Try to load just the first 30 seconds
+                loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
+                audio = loader()
+                if audio is not None and len(audio) > 0:
+                    # Take only first 30 seconds
+                    max_samples = 30 * sample_rate
+                    if len(audio) > max_samples:
+                        audio = audio[:max_samples]
+                        log_universal('INFO', 'Audio', f'Loaded sample: {len(audio)} samples (30s) from {os.path.basename(audio_path)}')
+                    else:
+                        log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)}: {len(audio)} samples at {sample_rate}Hz')
+                    return audio, sample_rate
+            except Exception as sample_e:
+                log_universal('WARNING', 'Audio', f'Sample loading failed for {os.path.basename(audio_path)}: {sample_e}')
+                # Fall through to normal loading
         else:
-            log_universal('WARNING', 'Audio', f'Essentia returned empty audio for {os.path.basename(audio_path)}')
-            return None, None
+            # Normal loading for smaller files
+            loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
+            audio = loader()
+            
+            if audio is not None and len(audio) > 0:
+                log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)}: {len(audio)} samples at {sample_rate}Hz')
+                return audio, sample_rate
+            else:
+                log_universal('WARNING', 'Audio', f'Essentia returned empty audio for {os.path.basename(audio_path)}')
+                return None, None
+                
     except Exception as e:
         log_universal('ERROR', 'Audio', f'Essentia audio loading failed for {os.path.basename(audio_path)}: {e}')
         log_universal('DEBUG', 'Audio', f'Full error details: {type(e).__name__}: {str(e)}')
         
-        # Try librosa as fallback
+        # Try librosa as fallback (with memory management)
         if LIBROSA_AVAILABLE:
             try:
                 log_universal('DEBUG', 'Audio', f'Trying librosa fallback for {os.path.basename(audio_path)}')
                 import librosa
-                audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
+                
+                # For large files, use offset and duration to load only a portion
+                if file_size_mb > 25:
+                    log_universal('INFO', 'Audio', f'Loading 30-second sample with librosa for {os.path.basename(audio_path)}')
+                    audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True, duration=30)
+                else:
+                    audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
+                    
                 if audio is not None and len(audio) > 0:
                     log_universal('DEBUG', 'Audio', f'Librosa fallback successful: {len(audio)} samples at {sr}Hz')
                     return audio, sr

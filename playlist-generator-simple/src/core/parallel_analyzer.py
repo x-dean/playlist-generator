@@ -118,11 +118,20 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
         # Set memory limit for this process
         try:
             import resource
-            # Set memory limit to 1GB per process
-            resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, -1))
+            # Set memory limit to 512MB per process (reduced from 1GB)
+            resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, -1))
         except (ImportError, OSError):
             # Windows doesn't support resource module, skip memory limit
             pass
+        
+        # Check available memory before analysis
+        try:
+            available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
+            if available_memory_mb < 200:  # Less than 200MB available
+                log_universal('WARNING', 'Parallel', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(file_path)}')
+                return False
+        except Exception:
+            pass  # Continue if memory check fails
         
         # Extract features using the correct method
         try:
@@ -314,12 +323,19 @@ class ParallelAnalyzer:
             max_workers = min(max_workers, optimal_workers)
             log_universal('INFO', 'Parallel', f"Manual worker count: {max_workers} (capped by optimal: {optimal_workers})")
         
-        # Calculate batch size based on available memory and workers
-        batch_size = max(1, min(len(files), max_workers * 5))  # Process 5x workers per batch
+        # Calculate batch size based on available memory and workers (more conservative for memory issues)
+        # Ensure batch size is never too large to prevent memory issues
+        max_batch_size = min(len(files), max_workers * 2)  # 2 files per worker
+        batch_size = max(1, min(max_batch_size, 10))  # Cap at 10 files per batch for safety
+        
+        # Additional safety: If very few workers, reduce batch size further
+        if max_workers <= 2:
+            batch_size = max(1, min(batch_size, 5))  # Cap at 5 files for low worker counts
+            
         total_batches = (len(files) + batch_size - 1) // batch_size
         
         log_universal('INFO', 'Parallel', f"Starting parallel processing of {len(files)} files")
-        log_universal('INFO', 'Parallel', f"  Workers: {max_workers} (5 files per worker per batch)")
+        log_universal('INFO', 'Parallel', f"  Workers: {max_workers} (2 files per worker per batch)")
         log_universal('INFO', 'Parallel', f"  Batch size: {batch_size} files")
         log_universal('INFO', 'Parallel', f"  Total batches: {total_batches}")
         log_universal('DEBUG', 'Parallel', f"  Force re-extract: {force_reextract}")
