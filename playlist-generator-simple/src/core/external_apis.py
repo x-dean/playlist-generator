@@ -263,7 +263,7 @@ class MusicBrainzClient(BaseAPIClient):
             if not recordings:
                 self._log_api_call('search', f"'{title}' by '{artist or 'Unknown'}'", 
                                  success=False, details='No recordings found', 
-                                 duration=duration, failure_type='no_data')
+                                 duration=duration, failure_type='no_recordings')
                 # Cache negative results for shorter time
                 self.db_manager.save_cache(cache_key, None, expires_hours=1)
                 return None

@@ -134,7 +134,7 @@ def setup_logging(
     if console_logging:
         console_handler = logging.StreamHandler()
         console_handler.setLevel(getattr(logging, log_level, logging.INFO))
-        console_formatter = ColoredFormatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S')
+        console_formatter = ColoredFormatter('%(asctime)s - %(levelname)s - %(name)s: %(message)s', '%H:%M:%S')
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
     
@@ -148,7 +148,7 @@ def setup_logging(
             encoding='utf-8'
         )
         file_handler.setLevel(getattr(logging, log_level, logging.INFO))
-        file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%Y-%m-%d %H:%M:%S')
+        file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s: %(message)s', '%Y-%m-%d %H:%M:%S')
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
     
@@ -212,7 +212,7 @@ def log_api_call(api_name: str, operation: str, target: str, success: bool = Tru
     else:
         # Determine log level based on failure type
         if failure_type in ['no_data', 'not_found', 'no_recordings']:
-            level = 'WARNING'  # API responded but no data found
+            level = 'INFO'  # API responded but no data found - not a warning
         else:
             level = 'ERROR'    # Network issues, timeouts, etc.
     
