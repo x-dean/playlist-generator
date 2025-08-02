@@ -473,14 +473,25 @@ class LastFMClient(BaseAPIClient):
                 sources=['lastfm']
             )
             
-            self._log_api_call('get_track_info', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
-                             success=True, details=f"found {len(track_metadata.tags)} tags", 
-                             duration=duration)
-            
-            # Cache successful results for 24 hours
-            self.db_manager.save_cache(cache_key, track_metadata.to_dict(), expires_hours=24)
-            
-            return track_metadata
+            # Check if we actually found useful data
+            if len(track_metadata.tags) == 0 and not track_metadata.play_count and not track_metadata.listeners:
+                # No useful data found
+                self._log_api_call('get_track_info', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
+                                 success=False, details='No useful data found', 
+                                 duration=duration, failure_type='no_data')
+                # Cache negative results for shorter time
+                self.db_manager.save_cache(cache_key, None, expires_hours=1)
+                return None
+            else:
+                # Found useful data
+                self._log_api_call('get_track_info', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
+                                 success=True, details=f"found {len(track_metadata.tags)} tags", 
+                                 duration=duration)
+                
+                # Cache successful results for 24 hours
+                self.db_manager.save_cache(cache_key, track_metadata.to_dict(), expires_hours=24)
+                
+                return track_metadata
             
         except Exception as e:
             # Calculate duration if not already calculated
