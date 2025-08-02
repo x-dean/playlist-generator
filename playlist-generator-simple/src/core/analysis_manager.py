@@ -20,7 +20,7 @@ from .file_discovery import FileDiscovery
 logger = get_logger('playlista.analysis_manager')
 
 # Constants
-BIG_FILE_SIZE_MB = 50  # Files larger than this use sequential processing
+BIG_FILE_SIZE_MB = 2000  # Files larger than this use sequential processing (increased from 50MB to 2GB)
 DEFAULT_TIMEOUT_SECONDS = 300  # 5 minutes timeout for analysis
 DEFAULT_MEMORY_THRESHOLD_PERCENT = 85
 
@@ -313,7 +313,7 @@ class AnalysisManager:
 
     def _determine_deterministic_analysis_type(self, file_path: str, file_size_mb: float) -> Dict[str, Any]:
         """Determine analysis type based on file size only (deterministic)."""
-        max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 100)
+        max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 2000)  # Increased from 100MB to 2GB
         use_full_analysis = file_size_mb <= max_full_analysis_size_mb
         
         features_config = {
@@ -372,8 +372,8 @@ class AnalysisManager:
             )
             return self._create_basic_analysis_config(file_size_mb, reason)
         
-        # Check file size constraints
-        max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 100)
+        # Check file size constraints - much higher threshold for sequential processing
+        max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 2000)  # Increased from 100MB to 2GB
         if file_size_mb > max_full_analysis_size_mb:
             reason = f"File too large: {file_size_mb:.1f}MB > {max_full_analysis_size_mb}MB"
             log_universal(
@@ -550,15 +550,16 @@ class AnalysisManager:
             file_size_bytes = os.path.getsize(file_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
             
-            # Simple analysis type determination based on file size
-            if file_size_mb > 50:  # Large files
+            # Enhanced analysis type determination based on file size - much higher thresholds for sequential processing
+            max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 2000)  # Increased from 50MB to 2GB
+            if file_size_mb > max_full_analysis_size_mb:  # Very large files
                 analysis_type = 'basic'
                 use_full_analysis = False
-            else:  # Smaller files
-                analysis_type = 'basic'
-                use_full_analysis = False
+            else:  # Files up to 2GB - use full analysis
+                analysis_type = 'full'
+                use_full_analysis = True
             
-            # Enable MusiCNN for parallel processing (smaller files)
+            # Enable MusiCNN for all files (including large ones for sequential processing)
             enable_musicnn = True
             
             analysis_config = {
