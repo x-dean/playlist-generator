@@ -1100,7 +1100,24 @@ class AudioAnalyzer:
                             log_universal('DEBUG', 'Audio', f'Model file size: {file_size} bytes')
                             
                             if model_path.endswith('.pb'):
-                                self._musicnn_model = tf.saved_model.load(model_path)
+                                # Load protobuf graph definition
+                                with tf.io.gfile.GFile(model_path, 'rb') as f:
+                                    graph_def = tf.compat.v1.GraphDef()
+                                    graph_def.ParseFromString(f.read())
+                                
+                                # Create a new graph and import the graph definition
+                                graph = tf.Graph()
+                                with graph.as_default():
+                                    tf.compat.v1.import_graph_def(graph_def, name='')
+                                
+                                # Create a session to run the model
+                                self._musicnn_session = tf.compat.v1.Session(graph=graph)
+                                self._musicnn_graph = graph
+                                
+                                # Get input and output tensors
+                                self._musicnn_input = graph.get_tensor_by_name('model/input_1:0')
+                                self._musicnn_output = graph.get_tensor_by_name('model/dense_1/BiasAdd:0')
+                                
                                 log_universal('DEBUG', 'Audio', 'Loaded MusiCNN protobuf model')
                             elif model_path.endswith('.h5'):
                                 self._musicnn_model = tf.keras.models.load_model(model_path)
@@ -1149,7 +1166,7 @@ class AudioAnalyzer:
                         log_universal('WARNING', 'Audio', f'Failed to load MusiCNN JSON config: {e}')
                 
                 # Extract features if model is available
-                if self._musicnn_model is not None:
+                if hasattr(self, '_musicnn_session') or self._musicnn_model is not None:
                     # Resample audio to 22050 Hz (MusiCNN specification)
                     if sample_rate != 22050:
                         import librosa
@@ -1161,7 +1178,13 @@ class AudioAnalyzer:
                     mel_spec = self._compute_mel_spectrogram(audio_22050, 22050)
                     
                     # Run inference
-                    if hasattr(self._musicnn_model, 'predict'):
+                    if hasattr(self, '_musicnn_session'):
+                        # Protobuf model with session
+                        predictions = self._musicnn_session.run(
+                            self._musicnn_output,
+                            feed_dict={self._musicnn_input: mel_spec[np.newaxis, ...]}
+                        )
+                    elif hasattr(self._musicnn_model, 'predict'):
                         # Keras model
                         predictions = self._musicnn_model.predict(mel_spec[np.newaxis, ...], verbose=0)
                     else:
