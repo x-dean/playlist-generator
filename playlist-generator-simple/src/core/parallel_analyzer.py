@@ -74,52 +74,17 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
     worker_id = f"worker_{threading.current_thread().ident}"
     start_time = time.time()
     
-            try:
-            # Force garbage collection before starting
-            gc.collect()
-            
-            # Set up signal handler for timeout (only on Unix systems)
-            try:
-                signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(timeout_seconds)
-            except (AttributeError, OSError):
-                # Windows doesn't support SIGALRM, skip timeout handling
-                pass
-    """
-    Standalone worker function that can be pickled for multiprocessing.
-    
-    Args:
-        file_path: Path to the file to process
-        force_reextract: If True, bypass cache
-        timeout_seconds: Timeout for analysis
-        db_path: Database path
-        analysis_config: Analysis configuration dictionary (uses default if None)
+    try:
+        # Force garbage collection before starting
+        gc.collect()
         
-    Returns:
-        True if successful, False otherwise
-    """
-    import os
-    import time
-    import signal
-    import psutil
-    import threading
-    
-    # Set up logging for worker process
-    try:
-        from .logging_setup import get_logger, log_universal
-        logger = get_logger('playlista.parallel_worker')
-    except ImportError:
-        import logging
-        logger = logging.getLogger('playlista.parallel_worker')
-        # Fallback to basic logging if universal logging not available
-    
-    worker_id = f"worker_{threading.current_thread().ident}"
-    start_time = time.time()
-    
-    try:
-        # Set up signal handler for timeout
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(timeout_seconds)
+        # Set up signal handler for timeout (only on Unix systems)
+        try:
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout_seconds)
+        except (AttributeError, OSError):
+            # Windows doesn't support SIGALRM, skip timeout handling
+            pass
         
         # Check if file exists
         if not os.path.exists(file_path):
@@ -461,25 +426,26 @@ class ParallelAnalyzer:
                                 'error': f"Batch processing failed: {str(e)}",
                                 'timestamp': datetime.now().isoformat()
                             })
-            except Exception as e:
-                log_universal('ERROR', 'Parallel', f"Error creating process pool: {e}")
-                # Fall back to sequential processing with better error handling
-                log_universal('INFO', 'Parallel', "Falling back to sequential processing due to multiprocessing error")
-                for file_path in files:
-                    try:
-                        # Get analysis config for each file
-                        analysis_config = self._get_analysis_config(file_path)
-                        success = _standalone_worker_process(file_path, force_reextract, 
-                                                          self.timeout_seconds, self.db_manager.db_path,
-                                                          analysis_config)
-                        if success:
-                            results['success_count'] += 1
-                        else:
-                            results['failed_count'] += 1
-                    except Exception as worker_error:
-                        log_universal('ERROR', 'Parallel', f"Sequential processing failed for {file_path}: {worker_error}")
+                            
+        except Exception as e:
+            log_universal('ERROR', 'Parallel', f"Error creating process pool: {e}")
+            # Fall back to sequential processing with better error handling
+            log_universal('INFO', 'Parallel', "Falling back to sequential processing due to multiprocessing error")
+            for file_path in files:
+                try:
+                    # Get analysis config for each file
+                    analysis_config = self._get_analysis_config(file_path)
+                    success = _standalone_worker_process(file_path, force_reextract, 
+                                                      self.timeout_seconds, self.db_manager.db_path,
+                                                      analysis_config)
+                    if success:
+                        results['success_count'] += 1
+                    else:
                         results['failed_count'] += 1
-                        
+                except Exception as worker_error:
+                    log_universal('ERROR', 'Parallel', f"Sequential processing failed for {file_path}: {worker_error}")
+                    results['failed_count'] += 1
+                    
         except Exception as e:
             log_universal('ERROR', 'Parallel', f"Error in parallel processing: {e}")
             # Count remaining files as failed
