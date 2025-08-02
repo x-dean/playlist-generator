@@ -5,6 +5,7 @@ Simple logging setup using standard Python logging.
 import os
 import logging
 from logging.handlers import RotatingFileHandler
+from typing import Dict, Any
 
 
 class ColoredFormatter(logging.Formatter):
@@ -231,6 +232,51 @@ def log_api_call(api_name: str, operation: str, target: str, success: bool = Tru
     message = " ".join(message_parts)
     
     log_universal(level, f"{api_name} API", message, **kwargs)
+
+
+def log_extracted_fields(api_name: str, track_title: str, artist_name: str, 
+                        extracted_fields: Dict[str, Any], **kwargs):
+    """
+    Log detailed information about fields extracted from external APIs.
+    
+    Args:
+        api_name: Name of the API (e.g., 'MusicBrainz', 'LastFM')
+        track_title: Title of the track
+        artist_name: Name of the artist
+        extracted_fields: Dictionary of extracted field names and their values
+        **kwargs: Additional keyword arguments
+    """
+    if not extracted_fields:
+        log_universal('DEBUG', f"{api_name} API", f"No fields extracted for '{track_title}' by '{artist_name}'")
+        return
+    
+    # Filter out None/empty values for cleaner logging
+    non_empty_fields = {k: v for k, v in extracted_fields.items() if v is not None and v != ''}
+    
+    if not non_empty_fields:
+        log_universal('DEBUG', f"{api_name} API", f"No non-empty fields extracted for '{track_title}' by '{artist_name}'")
+        return
+    
+    # Build field summary
+    field_summary = []
+    for field_name, value in non_empty_fields.items():
+        if isinstance(value, list):
+            if value:
+                field_summary.append(f"{field_name}: {len(value)} items")
+            else:
+                continue  # Skip empty lists
+        elif isinstance(value, (int, float)):
+            field_summary.append(f"{field_name}: {value}")
+        else:
+            # Truncate long string values
+            str_value = str(value)
+            if len(str_value) > 50:
+                str_value = str_value[:47] + "..."
+            field_summary.append(f"{field_name}: {str_value}")
+    
+    if field_summary:
+        message = f"Extracted fields for '{track_title}' by '{artist_name}': {', '.join(field_summary)}"
+        log_universal('DEBUG', f"{api_name} API", message, **kwargs)
 
 
 def log_session_header(session_name: str = None, **kwargs):

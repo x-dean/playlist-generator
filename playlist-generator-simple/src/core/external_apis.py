@@ -22,7 +22,7 @@ except ImportError:
     logging.warning("musicbrainzngs not available - MusicBrainz API disabled")
 
 # Import universal logging
-from .logging_setup import get_logger, log_universal, log_api_call
+from .logging_setup import get_logger, log_universal, log_api_call, log_extracted_fields
 from .database import get_db_manager
 
 logger = get_logger(__name__)
@@ -325,6 +325,22 @@ class MusicBrainzClient(BaseAPIClient):
                 sources=['musicbrainz']
             )
             
+            # Log extracted fields
+            extracted_fields = {
+                'title': track_metadata.title,
+                'artist': track_metadata.artist,
+                'album': track_metadata.album,
+                'release_date': track_metadata.release_date,
+                'track_number': track_metadata.track_number,
+                'disc_number': track_metadata.disc_number,
+                'duration_ms': track_metadata.duration_ms,
+                'musicbrainz_id': track_metadata.musicbrainz_id,
+                'musicbrainz_artist_id': track_metadata.musicbrainz_artist_id,
+                'musicbrainz_album_id': track_metadata.musicbrainz_album_id,
+                'tags': track_metadata.tags
+            }
+            log_extracted_fields('MusicBrainz', track_metadata.title, track_metadata.artist, extracted_fields)
+            
             self._log_api_call('search', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
                              success=True, details=f"found {len(track_metadata.tags)} tags", 
                              duration=duration)
@@ -472,6 +488,18 @@ class LastFMClient(BaseAPIClient):
                 url=url,
                 sources=['lastfm']
             )
+            
+            # Log extracted fields
+            extracted_fields = {
+                'title': track_metadata.title,
+                'artist': track_metadata.artist,
+                'play_count': track_metadata.play_count,
+                'listeners': track_metadata.listeners,
+                'tags': track_metadata.tags,
+                'rating': track_metadata.rating,
+                'url': track_metadata.url
+            }
+            log_extracted_fields('LastFM', track_metadata.title, track_metadata.artist, extracted_fields)
             
             # Check if we actually found useful data
             if len(track_metadata.tags) == 0 and not track_metadata.play_count and not track_metadata.listeners:
@@ -636,6 +664,19 @@ class DiscogsClient(BaseAPIClient):
                 image_url=image_url,
                 sources=['discogs']
             )
+            
+            # Log extracted fields
+            extracted_fields = {
+                'title': track_metadata.title,
+                'artist': track_metadata.artist,
+                'album': track_metadata.album,
+                'release_date': track_metadata.release_date,
+                'discogs_id': track_metadata.discogs_id,
+                'tags': track_metadata.tags,
+                'genres': track_metadata.genres,
+                'image_url': track_metadata.image_url
+            }
+            log_extracted_fields('Discogs', track_metadata.title, track_metadata.artist, extracted_fields)
             
             self._log_api_call('search', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
                              success=True, details=f"found {len(track_metadata.tags)} tags", 
@@ -818,6 +859,20 @@ class SpotifyClient(BaseAPIClient):
                 image_url=image_url,
                 sources=['spotify']
             )
+            
+            # Log extracted fields
+            extracted_fields = {
+                'title': track_metadata.title,
+                'artist': track_metadata.artist,
+                'album': track_metadata.album,
+                'release_date': track_metadata.release_date,
+                'duration_ms': track_metadata.duration_ms,
+                'spotify_id': track_metadata.spotify_id,
+                'genres': track_metadata.genres,
+                'popularity': track_metadata.popularity,
+                'image_url': track_metadata.image_url
+            }
+            log_extracted_fields('Spotify', track_metadata.title, track_metadata.artist, extracted_fields)
             
             self._log_api_call('search', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
                              success=True, details=f"found {len(track_metadata.genres)} genres", 
@@ -1022,6 +1077,32 @@ class EnhancedMetadataEnrichmentService:
             
             # Add source tracking
             enriched_metadata['enrichment_sources'] = merged_result.sources
+            
+            # Log merged extracted fields
+            merged_fields = {
+                'title': merged_result.title,
+                'artist': merged_result.artist,
+                'album': merged_result.album,
+                'release_date': merged_result.release_date,
+                'track_number': merged_result.track_number,
+                'disc_number': merged_result.disc_number,
+                'duration_ms': merged_result.duration_ms,
+                'musicbrainz_id': merged_result.musicbrainz_id,
+                'musicbrainz_artist_id': merged_result.musicbrainz_artist_id,
+                'musicbrainz_album_id': merged_result.musicbrainz_album_id,
+                'discogs_id': merged_result.discogs_id,
+                'spotify_id': merged_result.spotify_id,
+                'tags': merged_result.tags,
+                'genres': merged_result.genres,
+                'play_count': merged_result.play_count,
+                'listeners': merged_result.listeners,
+                'rating': merged_result.rating,
+                'popularity': merged_result.popularity,
+                'url': merged_result.url,
+                'image_url': merged_result.image_url,
+                'sources': merged_result.sources
+            }
+            log_extracted_fields('Enrichment', merged_result.title, merged_result.artist, merged_fields)
             
             log_universal('INFO', 'Enrichment', f'Complete - {", ".join(enrichment_results)}')
         else:

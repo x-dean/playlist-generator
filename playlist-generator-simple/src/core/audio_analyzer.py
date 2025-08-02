@@ -980,16 +980,54 @@ class AudioAnalyzer:
         return features
     
     def _extract_chroma_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Extract chroma features."""
+        """Extract chroma features using frame-by-frame processing."""
         features = {}
         
         try:
             if ESSENTIA_AVAILABLE:
-                # Chroma
-                chroma = es.Chromagram()
-                chroma_result = chroma(audio)
-                features['chroma_mean'] = np.mean(chroma_result, axis=1).tolist()
-                features['chroma_std'] = np.std(chroma_result, axis=1).tolist()
+                # Use frame-by-frame approach like the old working version
+                frame_size = 2048
+                hop_size = 1024
+                
+                # Initialize algorithms
+                window = es.Windowing(type='blackmanharris62')
+                spectrum = es.Spectrum()
+                spectral_peaks = es.SpectralPeaks()
+                hpcp = es.HPCP()
+                
+                # Process audio in frames
+                chroma_values = []
+                frame_count = 0
+                
+                for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
+                    frame_count += 1
+                    
+                    try:
+                        windowed = window(frame)
+                        spec = spectrum(windowed)
+                        frequencies, magnitudes = spectral_peaks(spec)
+                        
+                        # Check if we have valid spectral peaks
+                        if len(frequencies) > 0 and len(magnitudes) > 0:
+                            freq_array = np.array(frequencies)
+                            mag_array = np.array(magnitudes)
+                            
+                            # Check for valid frequency and magnitude ranges
+                            if len(freq_array) > 0 and len(mag_array) > 0 and np.any(mag_array > 0):
+                                hpcp_value = hpcp(freq_array, mag_array)
+                                if hpcp_value is not None and len(hpcp_value) == 12:
+                                    chroma_values.append(hpcp_value)
+                    except Exception as frame_error:
+                        continue
+                
+                # Calculate global average
+                if chroma_values:
+                    chroma_avg = np.mean(chroma_values, axis=0).tolist()
+                    features['chroma_mean'] = chroma_avg
+                    features['chroma_std'] = np.std(chroma_values, axis=0).tolist()
+                else:
+                    features['chroma_mean'] = [0.0] * 12
+                    features['chroma_std'] = [0.0] * 12
                 
             elif LIBROSA_AVAILABLE:
                 # Use librosa as fallback
@@ -1002,8 +1040,8 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Chroma feature extraction failed: {e}')
             features.update({
-                'chroma_mean': [],
-                'chroma_std': []
+                'chroma_mean': [0.0] * 12,
+                'chroma_std': [0.0] * 12
             })
         
         return features
