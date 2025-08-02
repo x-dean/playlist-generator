@@ -1,33 +1,61 @@
-# Use Python 3.11 slim image
-FROM python:3.11-slim
+# --- Build stage ---
+FROM python:3.7-slim-bullseye AS builder
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    libffi-dev \
+    libssl-dev \
+    libasound2-dev \
+    portaudio19-dev \
+    python3-dev \
+    libfftw3-dev \
+    libtag1-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies in a virtualenv (for clean copy)
+WORKDIR /install
+COPY requirements.txt .
+RUN pip install --prefix=/install/deps --no-cache-dir -r requirements.txt
+
+# --- Final stage ---
+FROM python:3.7-slim-bullseye
+
+# Install runtime dependencies only
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libavcodec-extra \
+    libfftw3-3 \
+    libtag1v5 \
+    sqlite3 \
+    libmagic1 \
+    gosu \
+    curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy only the installed Python packages from builder
+COPY --from=builder /install/deps /usr/local
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    ffmpeg \
-    libsndfile1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
 # Copy application code
-COPY src/ ./src/
-COPY tests/ ./tests/
+COPY src /app/src
+COPY tests /app/tests
 
-# Create necessary directories
-RUN mkdir -p /app/logs /app/cache /app/music /app/test-music
+# Create directories with proper permissions
+RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/music /app/test-music
 
 # Set environment variables
-ENV PYTHONPATH=/app
-ENV LOG_LEVEL=INFO
-ENV PROMETHEUS_MULTIPROC_DIR=/tmp
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    CACHE_DIR=/app/cache \
+    MODEL_DIR=/app/feature_extraction/models \
+    LOG_LEVEL=INFO \
+    PROMETHEUS_MULTIPROC_DIR=/tmp
 
 # Expose port
 EXPOSE 8000
@@ -36,5 +64,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application
+# Default command
 CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"] 
