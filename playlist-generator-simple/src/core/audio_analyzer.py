@@ -1079,8 +1079,26 @@ class AudioAnalyzer:
                 
                 # Load model if not already loaded
                 if not hasattr(self, '_musicnn_model'):
-                    if os.path.exists(model_path):
+                    log_universal('DEBUG', 'Audio', f'Checking MusiCNN model at: {model_path}')
+                    
+                    # Check if model directory exists
+                    model_dir = os.path.dirname(model_path)
+                    if os.path.exists(model_dir):
+                        log_universal('DEBUG', 'Audio', f'Model directory exists: {model_dir}')
                         try:
+                            files = os.listdir(model_dir)
+                            log_universal('DEBUG', 'Audio', f'Files in model directory: {files}')
+                        except Exception as e:
+                            log_universal('WARNING', 'Audio', f'Cannot list model directory: {e}')
+                    else:
+                        log_universal('WARNING', 'Audio', f'Model directory does not exist: {model_dir}')
+                    
+                    if os.path.exists(model_path):
+                        log_universal('DEBUG', 'Audio', f'Model file exists: {model_path}')
+                        try:
+                            file_size = os.path.getsize(model_path)
+                            log_universal('DEBUG', 'Audio', f'Model file size: {file_size} bytes')
+                            
                             if model_path.endswith('.pb'):
                                 self._musicnn_model = tf.saved_model.load(model_path)
                                 log_universal('DEBUG', 'Audio', 'Loaded MusiCNN protobuf model')
@@ -1092,9 +1110,31 @@ class AudioAnalyzer:
                                 self._musicnn_model = None
                         except Exception as e:
                             log_universal('WARNING', 'Audio', f'Failed to load MusiCNN model: {e}')
+                            log_universal('DEBUG', 'Audio', f'Model path: {model_path}')
+                            log_universal('DEBUG', 'Audio', f'Model exists: {os.path.exists(model_path)}')
                             self._musicnn_model = None
                     else:
                         log_universal('WARNING', 'Audio', f'MusiCNN model not found: {model_path}')
+                        
+                        # Check if it's a placeholder file
+                        try:
+                            with open(model_path, 'r') as f:
+                                content = f.read()
+                                if 'placeholder' in content.lower():
+                                    log_universal('INFO', 'Audio', 'Found MusiCNN placeholder file. MusiCNN features will be disabled.')
+                                    log_universal('INFO', 'Audio', 'To enable MusiCNN:')
+                                    log_universal('INFO', 'Audio', '1. Download the model from https://github.com/jordipons/musicnn')
+                                    log_universal('INFO', 'Audio', '2. Replace the placeholder file with the actual model')
+                                    log_universal('INFO', 'Audio', '3. Or set EXTRACT_MUSICNN=false to disable MusiCNN features')
+                                else:
+                                    log_universal('INFO', 'Audio', 'To enable MusiCNN features, download the model files:')
+                                    log_universal('INFO', 'Audio', '1. Run: python download_musicnn_models.py')
+                                    log_universal('INFO', 'Audio', '2. Or set EXTRACT_MUSICNN=false to disable MusiCNN features')
+                        except:
+                            log_universal('INFO', 'Audio', 'To enable MusiCNN features, download the model files:')
+                            log_universal('INFO', 'Audio', '1. Run: python download_musicnn_models.py')
+                            log_universal('INFO', 'Audio', '2. Or set EXTRACT_MUSICNN=false to disable MusiCNN features')
+                        
                         self._musicnn_model = None
                 
                 # Load JSON configuration if available
