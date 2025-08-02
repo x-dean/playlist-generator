@@ -10,7 +10,7 @@ from .database import DatabaseManager
 from .external_apis import (
     MusicBrainzClient,
     LastFMClient,
-    MetadataEnrichmentService,
+    EnhancedMetadataEnrichmentService,
     get_metadata_enrichment_service
 )
 from .file_discovery import FileDiscovery
@@ -37,7 +37,7 @@ __all__ = [
     'DatabaseManager',
     'MusicBrainzClient',
     'LastFMClient', 
-    'MetadataEnrichmentService',
+    'EnhancedMetadataEnrichmentService',
     'get_metadata_enrichment_service',
     'FileDiscovery',
     'get_logger',
