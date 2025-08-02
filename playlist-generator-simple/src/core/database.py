@@ -414,7 +414,7 @@ class DatabaseManager:
                         embedding, tags,
                         analysis_type, analyzed, long_audio_category, discovery_date, discovery_source,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     file_path, file_hash, filename, file_size_bytes, datetime.now(),
                     title, artist, album, track_number, genre, year, duration,
