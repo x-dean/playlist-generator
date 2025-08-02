@@ -99,8 +99,8 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
                 max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
                 warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500) if config else 500
             
-            # Skip large files to prevent RAM saturation
-            if file_size_mb > max_file_size_mb:
+            # Skip large files to prevent RAM saturation (only for parallel processing)
+            if processing_mode == 'parallel' and file_size_mb > max_file_size_mb:
                 log_universal('WARNING', 'Audio', f'File too large ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - skipping to prevent RAM saturation')
                 return None, None
                 
