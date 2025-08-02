@@ -1270,6 +1270,49 @@ class DatabaseManager:
             log_universal('ERROR', 'Database', f"Failed to cleanup old data: {e}")
             return {}
 
+    @log_function_call
+    def get_analyzed_tracks(self) -> List[Dict[str, Any]]:
+        """Get all analyzed tracks for playlist generation."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, file_path, filename, title, artist, album, genre, year, duration,
+                           bpm, key, mode, loudness, danceability, energy, analysis_date
+                    FROM tracks 
+                    WHERE analyzed = 1 AND analysis_type = 'full'
+                    ORDER BY analysis_date DESC
+                """)
+                
+                results = []
+                for row in cursor.fetchall():
+                    track = {
+                        'id': row[0],
+                        'filepath': row[1],  # Use filepath for compatibility with playlist generator
+                        'filename': row[2],
+                        'title': row[3],
+                        'artist': row[4],
+                        'album': row[5],
+                        'genre': row[6],
+                        'year': row[7],
+                        'duration': row[8],
+                        'bpm': row[9],
+                        'key': row[10],
+                        'mode': row[11],
+                        'loudness': row[12],
+                        'danceability': row[13],
+                        'energy': row[14],
+                        'analysis_date': row[15]
+                    }
+                    results.append(track)
+                
+                log_universal('DEBUG', 'Database', f"Retrieved {len(results)} analyzed tracks for playlist generation")
+                return results
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to get analyzed tracks: {e}")
+            return []
+
 
 def get_db_manager() -> 'DatabaseManager':
     """Get database manager instance."""
