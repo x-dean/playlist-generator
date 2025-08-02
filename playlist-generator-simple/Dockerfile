@@ -44,14 +44,15 @@ WORKDIR /app
 # Copy application code and files
 COPY src /app/src
 COPY playlista /app/playlista
+COPY entrypoint.sh /app/entrypoint.sh
 COPY database_schema.sql /app/src/database_schema.sql
 COPY playlista.conf /app/playlista.conf
 
 # Create directories with proper permissions
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/music
 
-# Make playlista executable
-RUN chmod +x /app/playlista
+# Make scripts executable
+RUN chmod +x /app/playlista /app/entrypoint.sh
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -69,5 +70,5 @@ EXPOSE 8500
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8500/api/v1/health || exit 1
 
-# Default command
-CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8500"] 
+# Default command (API mode)
+CMD ["/app/entrypoint.sh"] 

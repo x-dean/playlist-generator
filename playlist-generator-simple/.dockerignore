@@ -59,7 +59,6 @@ docs/
 # Scripts
 *.bat
 *.ps1
-*.sh
 
 # Temporary files
 *.tmp
