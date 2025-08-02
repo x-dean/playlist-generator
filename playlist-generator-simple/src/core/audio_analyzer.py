@@ -698,8 +698,11 @@ class AudioAnalyzer:
         long_audio_simplified = self.config.get('LONG_AUDIO_SIMPLIFIED_FEATURES', True)
         long_audio_skip_detailed = self.config.get('LONG_AUDIO_SKIP_DETAILED_ANALYSIS', True)
         
-        # Use simplified analysis for long audio tracks if configured
-        if is_long_audio and long_audio_simplified and long_audio_skip_detailed:
+        # For sequential processing, always use full analysis regardless of long audio detection
+        if self.processing_mode == 'sequential':
+            log_universal('INFO', 'Audio', 'Sequential processing: using full analysis regardless of long audio detection')
+        # Use simplified analysis for long audio tracks if configured (only for parallel processing)
+        elif is_long_audio and long_audio_simplified and long_audio_skip_detailed:
             log_universal('INFO', 'Audio', 'Using simplified analysis for long audio track')
             return self._extract_simplified_features(audio, sample_rate, metadata)
         
