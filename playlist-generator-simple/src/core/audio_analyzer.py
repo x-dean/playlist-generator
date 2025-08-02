@@ -698,9 +698,10 @@ class AudioAnalyzer:
         long_audio_simplified = self.config.get('LONG_AUDIO_SIMPLIFIED_FEATURES', True)
         long_audio_skip_detailed = self.config.get('LONG_AUDIO_SKIP_DETAILED_ANALYSIS', True)
         
-        # For sequential processing, always use full analysis regardless of long audio detection
-        if self.processing_mode == 'sequential':
-            log_universal('INFO', 'Audio', 'Sequential processing: using full analysis regardless of long audio detection')
+        # For sequential processing of long audio tracks, use optimized analysis for categorization
+        if self.processing_mode == 'sequential' and is_long_audio:
+            log_universal('INFO', 'Audio', 'Sequential processing: using optimized analysis for long audio categorization')
+            return self._extract_optimized_features_for_categorization(audio, sample_rate, metadata)
         # Use simplified analysis for long audio tracks if configured (only for parallel processing)
         elif is_long_audio and long_audio_simplified and long_audio_skip_detailed:
             log_universal('INFO', 'Audio', 'Using simplified analysis for long audio track')
@@ -1855,6 +1856,82 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f"Error in audio feature categorization: {e}")
             return 'long_mix'  # Safe fallback instead of None
+
+    def _extract_optimized_features_for_categorization(self, audio: np.ndarray, sample_rate: int,
+                                                      metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Extract optimized features for long audio categorization.
+        Focuses on efficient sampling and categorization-relevant features.
+        
+        Args:
+            audio: Audio array
+            sample_rate: Sample rate
+            metadata: Optional metadata
+            
+        Returns:
+            Dictionary with optimized features for categorization
+        """
+        features = {}
+        
+        try:
+            # Sample middle 30 seconds for analysis (most representative for categorization)
+            sample_duration = 30  # seconds
+            sample_size = sample_duration * sample_rate
+            start_sample = max(0, (len(audio) - sample_size) // 2)  # Middle of file
+            audio_sample = audio[start_sample:start_sample + sample_size]
+            
+            log_universal('INFO', 'Audio', f'Using {sample_duration}s sample from middle of {len(audio)/sample_rate/60:.1f}min track for categorization')
+            
+            # Extract lightweight rhythm features (BPM, confidence)
+            if self.extract_rhythm:
+                rhythm_features = self._extract_rhythm_features(audio_sample, sample_rate)
+                features.update(rhythm_features)
+            
+            # Extract basic spectral features (centroid, flatness)
+            if self.extract_spectral:
+                spectral_features = self._extract_spectral_features(audio_sample, sample_rate)
+                features.update(spectral_features)
+            
+            # Extract loudness features (RMS)
+            if self.extract_loudness:
+                loudness_features = self._extract_loudness_features(audio_sample, sample_rate)
+                features.update(loudness_features)
+            
+            # Extract key features (for genre classification)
+            if self.extract_key:
+                key_features = self._extract_key_features(audio_sample, sample_rate)
+                features.update(key_features)
+            
+            # Extract lightweight MFCC (for genre classification)
+            if self.extract_mfcc:
+                mfcc_features = self._extract_mfcc_features(audio_sample, sample_rate)
+                features.update(mfcc_features)
+            
+            # Extract MusiCNN on sample (for genre classification)
+            if self.extract_musicnn and TENSORFLOW_AVAILABLE:
+                musicnn_features = self._extract_musicnn_features(audio_sample, sample_rate)
+                features.update(musicnn_features)
+            
+            # Extract chroma features (for genre classification)
+            if self.extract_chroma:
+                chroma_features = self._extract_chroma_features(audio_sample, sample_rate)
+                features.update(chroma_features)
+            
+            # Add categorization-specific flags
+            features['is_long_audio'] = True
+            features['analysis_type'] = 'categorization_optimized'
+            features['sample_duration_seconds'] = sample_duration
+            
+            # Add BPM from metadata if available
+            if metadata and 'bpm_from_metadata' in metadata:
+                features['external_bpm'] = metadata['bpm_from_metadata']
+            
+            log_universal('INFO', 'Audio', f'Optimized categorization analysis completed for long audio track')
+            return features
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Optimized categorization analysis failed: {e}')
+            return None
 
     def _extract_simplified_features(self, audio: np.ndarray, sample_rate: int,
                                    metadata: Dict[str, Any] = None) -> Dict[str, Any]:
