@@ -318,14 +318,10 @@ Examples:
         
         # Discover command
         discover_parser = subparsers.add_parser('discover', help='Discover audio files')
-        discover_parser.add_argument('--path', default='/music', 
-                                    help='Directory path to search')
         discover_parser.add_argument('--recursive', '-r', action='store_true', 
                                     help='Search recursively')
         discover_parser.add_argument('--extensions', '-e', 
                                     help='File extensions to include (comma-separated)')
-        discover_parser.add_argument('--exclude-dirs', 
-                                    help='Directories to exclude (comma-separated)')
         discover_parser.add_argument('--min-size', type=int, 
                                     help='Minimum file size in bytes')
         discover_parser.add_argument('--max-size', type=int, 
@@ -734,12 +730,56 @@ Examples:
     
     def _handle_discover(self, args) -> int:
         """Handle discover command."""
-        log_universal('INFO', 'FileDiscovery', f"Discovering audio files in: {args.path}")
+        log_universal('INFO', 'FileDiscovery', "Discovering audio files in /music (fixed Docker path)")
         
         try:
             # Use file discovery directly
             from core.file_discovery import FileDiscovery
             file_discovery = FileDiscovery()
+            
+            # Process CLI arguments and override configuration
+            config_overrides = {}
+            
+            # Process extensions argument
+            if args.extensions:
+                try:
+                    extensions = [ext.strip() for ext in args.extensions.split(',')]
+                    # Ensure extensions start with dot
+                    valid_extensions = []
+                    for ext in extensions:
+                        if not ext.startswith('.'):
+                            ext = '.' + ext
+                        valid_extensions.append(ext.lower())
+                    config_overrides['valid_extensions'] = valid_extensions
+                    log_universal('INFO', 'FileDiscovery', f"Using custom extensions: {', '.join(valid_extensions)}")
+                except Exception as e:
+                    log_universal('ERROR', 'FileDiscovery', f"Invalid extensions format: {e}")
+                    return 1
+            
+            # Process min size argument
+            if args.min_size:
+                if args.min_size < 0:
+                    log_universal('ERROR', 'FileDiscovery', "Min size must be positive")
+                    return 1
+                config_overrides['min_file_size_bytes'] = args.min_size
+                log_universal('INFO', 'FileDiscovery', f"Min file size: {args.min_size} bytes")
+            
+            # Process max size argument
+            if args.max_size:
+                if args.max_size < 0:
+                    log_universal('ERROR', 'FileDiscovery', "Max size must be positive")
+                    return 1
+                config_overrides['max_file_size_bytes'] = args.max_size
+                log_universal('INFO', 'FileDiscovery', f"Max file size: {args.max_size} bytes")
+            
+            # Process recursive argument
+            if hasattr(args, 'recursive'):
+                config_overrides['enable_recursive_scan'] = args.recursive
+                log_universal('INFO', 'FileDiscovery', f"Recursive scan: {args.recursive}")
+            
+            # Apply configuration overrides
+            if config_overrides:
+                file_discovery.override_config(**config_overrides)
             
             # Discover files
             files = file_discovery.discover_files()

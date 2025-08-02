@@ -372,6 +372,47 @@ class ConfigLoader:
         self._update_cache(cache_key, audio_config)
         return audio_config
     
+    def get_file_discovery_config(self) -> Dict[str, Any]:
+        """
+        Get file discovery specific configuration.
+        
+        Returns:
+            File discovery configuration dictionary
+        """
+        cache_key = self._get_cache_key('file_discovery')
+        
+        if self._is_cache_valid(cache_key):
+            return self._config_cache[cache_key]
+        
+        config = self.get_config()
+        
+        # Extract file discovery specific settings
+        # Note: Music, failed, and database paths are fixed Docker paths
+        # Note: Exclude directories are fixed and not configurable
+        file_discovery_config = {
+            'MIN_FILE_SIZE_BYTES': config.get('MIN_FILE_SIZE_BYTES', 10240),
+            'MAX_FILE_SIZE_BYTES': config.get('MAX_FILE_SIZE_BYTES', None),
+            'VALID_EXTENSIONS': config.get('VALID_EXTENSIONS', ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus']),
+            'HASH_ALGORITHM': config.get('HASH_ALGORITHM', 'md5'),
+            'MAX_RETRY_COUNT': config.get('MAX_RETRY_COUNT', 3),
+            'ENABLE_RECURSIVE_SCAN': config.get('ENABLE_RECURSIVE_SCAN', True),
+            'ENABLE_DETAILED_LOGGING': config.get('ENABLE_DETAILED_LOGGING', True)
+        }
+        
+        # Convert string extensions to list if needed
+        if isinstance(file_discovery_config['VALID_EXTENSIONS'], str):
+            extensions = [ext.strip() for ext in file_discovery_config['VALID_EXTENSIONS'].split(',')]
+            # Ensure extensions start with dot
+            valid_extensions = []
+            for ext in extensions:
+                if not ext.startswith('.'):
+                    ext = '.' + ext
+                valid_extensions.append(ext.lower())
+            file_discovery_config['VALID_EXTENSIONS'] = valid_extensions
+        
+        self._update_cache(cache_key, file_discovery_config)
+        return file_discovery_config
+    
     def get_database_config(self) -> Dict[str, Any]:
         """
         Get database specific configuration.

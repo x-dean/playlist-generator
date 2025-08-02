@@ -39,15 +39,16 @@ class FileDiscovery:
         """
         # Load configuration
         if config is None:
-            config = config_loader.get_config()
+            config = config_loader.get_file_discovery_config()
         
-        # Fixed paths for Docker environment
-        self.music_dir = '/music'  # Fixed Docker path
+        # Fixed paths for Docker environment (not configurable)
+        self.music_dir = '/music'  # Fixed Docker path - mapped from compose
         self.failed_dir = '/app/cache/failed_dir'  # Fixed Docker path
         self.db_path = '/app/cache/playlista.db'  # Fixed Docker path
         
         # Configuration settings
-        self.min_file_size_bytes = config.get('MIN_FILE_SIZE_BYTES', 1024)
+        self.min_file_size_bytes = config.get('MIN_FILE_SIZE_BYTES', 10240)
+        self.max_file_size_bytes = config.get('MAX_FILE_SIZE_BYTES', None)  # No limit by default
         self.valid_extensions = config.get('VALID_EXTENSIONS', 
                                          ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.opus'])
         self.hash_algorithm = config.get('HASH_ALGORITHM', 'md5')
@@ -56,18 +57,49 @@ class FileDiscovery:
         self.log_level = config.get('LOG_LEVEL', 'INFO')
         self.enable_detailed_logging = config.get('ENABLE_DETAILED_LOGGING', True)
         
+        # Fixed exclude directories (not configurable)
+        self.exclude_directories = [self.failed_dir]  # Always exclude failed directory
+        
         self.current_files = set()
         
         # Database manager is already initialized globally
         log_universal('INFO', 'FileDiscovery', 'Initialized with config:')
-        log_universal('INFO', 'FileDiscovery', f'  Music directory: {self.music_dir} (fixed)')
-        log_universal('INFO', 'FileDiscovery', f'  Failed directory: {self.failed_dir} (fixed)')
-        log_universal('INFO', 'FileDiscovery', f'  Database path: {self.db_path} (fixed)')
+        log_universal('INFO', 'FileDiscovery', f'  Music directory: {self.music_dir} (fixed Docker path)')
+        log_universal('INFO', 'FileDiscovery', f'  Failed directory: {self.failed_dir} (fixed Docker path)')
+        log_universal('INFO', 'FileDiscovery', f'  Database path: {self.db_path} (fixed Docker path)')
         log_universal('INFO', 'FileDiscovery', f'  Min file size: {self.min_file_size_bytes} bytes')
+        if self.max_file_size_bytes:
+            log_universal('INFO', 'FileDiscovery', f'  Max file size: {self.max_file_size_bytes} bytes')
         log_universal('INFO', 'FileDiscovery', f'  Valid extensions: {", ".join(self.valid_extensions)}')
         log_universal('INFO', 'FileDiscovery', f'  Hash algorithm: {self.hash_algorithm}')
         log_universal('INFO', 'FileDiscovery', f'  Max retry count: {self.max_retry_count}')
         log_universal('INFO', 'FileDiscovery', f'  Recursive scan: {self.enable_recursive_scan}')
+        log_universal('INFO', 'FileDiscovery', f'  Exclude directories: {", ".join(self.exclude_directories)} (fixed)')
+
+    def override_config(self, **kwargs):
+        """
+        Override configuration settings for CLI arguments.
+        
+        Args:
+            **kwargs: Configuration overrides
+        """
+        # Note: music_dir and exclude_directories are fixed and cannot be overridden
+        
+        if 'min_file_size_bytes' in kwargs:
+            self.min_file_size_bytes = kwargs['min_file_size_bytes']
+            log_universal('INFO', 'FileDiscovery', f'Min file size overridden: {self.min_file_size_bytes} bytes')
+        
+        if 'max_file_size_bytes' in kwargs:
+            self.max_file_size_bytes = kwargs['max_file_size_bytes']
+            log_universal('INFO', 'FileDiscovery', f'Max file size overridden: {self.max_file_size_bytes} bytes')
+        
+        if 'valid_extensions' in kwargs:
+            self.valid_extensions = kwargs['valid_extensions']
+            log_universal('INFO', 'FileDiscovery', f'Valid extensions overridden: {", ".join(self.valid_extensions)}')
+        
+        if 'enable_recursive_scan' in kwargs:
+            self.enable_recursive_scan = kwargs['enable_recursive_scan']
+            log_universal('INFO', 'FileDiscovery', f'Recursive scan overridden: {self.enable_recursive_scan}')
 
     @log_function_call
     def _get_file_hash(self, filepath: str) -> str:
@@ -132,12 +164,17 @@ class FileDiscovery:
                 log_universal('DEBUG', 'FileDiscovery', f"File too small: {file_size} bytes")
                 return False
             
+            # Check max file size if set
+            if self.max_file_size_bytes and file_size > self.max_file_size_bytes:
+                log_universal('DEBUG', 'FileDiscovery', f"File too large: {file_size} bytes")
+                return False
+            
             # Check if file is readable
             if not os.access(filepath, os.R_OK):
                 log_universal('DEBUG', 'FileDiscovery', f"File not readable: {filepath}")
                 return False
             
-            # Check if file is in failed directory
+            # Check if file is in excluded directory
             if self._is_in_excluded_directory(filepath):
                 log_universal('DEBUG', 'FileDiscovery', f"File in excluded directory: {filepath}")
                 return False
@@ -167,6 +204,12 @@ class FileDiscovery:
             # Check if file is in failed directory
             if filepath_abs.startswith(failed_dir_abs):
                 return True
+            
+            # Check configured exclude directories
+            for exclude_dir in self.exclude_directories:
+                exclude_dir_abs = os.path.abspath(exclude_dir)
+                if filepath_abs.startswith(exclude_dir_abs):
+                    return True
             
             # Check for other excluded patterns
             excluded_patterns = [
@@ -412,6 +455,7 @@ class FileDiscovery:
     def cleanup_removed_files_from_db(self) -> int:
         """
         Remove files from database that no longer exist on disk.
+        Cleans up from all database locations: analysis_cache, failed_analysis, etc.
         
         Returns:
             Number of files removed from database
@@ -423,29 +467,52 @@ class FileDiscovery:
             
             # Get all files from database
             db_files = self.get_db_files()
-            log_universal('DEBUG', 'FileDiscovery', f"Found {len(db_files)} files in database")
+            failed_files = self.get_failed_files()
+            all_db_files = db_files.union(failed_files)
+            log_universal('DEBUG', 'FileDiscovery', f"Found {len(all_db_files)} total files in database")
             
             # Find files that no longer exist on disk
             removed_files = []
-            for filepath in db_files:
+            for filepath in all_db_files:
                 if not os.path.exists(filepath):
                     removed_files.append(filepath)
             
             if removed_files:
                 log_universal('INFO', 'FileDiscovery', f"Removing {len(removed_files)} non-existent files from database")
                 
-                # Remove from analysis results and failed analysis
+                # Remove from all database locations
                 for filepath in removed_files:
                     try:
                         # Remove from analysis results
                         get_db_manager().delete_analysis_result(filepath)
+                        
                         # Remove from failed analysis
                         get_db_manager().delete_failed_analysis(filepath)
-                        log_universal('DEBUG', 'FileDiscovery', f"Removed from database: {filepath}")
+                        
+                        # Remove from analysis_cache table directly
+                        db_manager = get_db_manager()
+                        with db_manager._get_db_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                DELETE FROM analysis_cache WHERE file_path = ?
+                            """, (filepath,))
+                            
+                            # Also clean up any related metadata or statistics
+                            cursor.execute("""
+                                DELETE FROM file_metadata WHERE file_path = ?
+                            """, (filepath,))
+                            
+                            cursor.execute("""
+                                DELETE FROM analysis_statistics WHERE file_path = ?
+                            """, (filepath,))
+                            
+                            conn.commit()
+                        
+                        log_universal('DEBUG', 'FileDiscovery', f"Removed from all database locations: {filepath}")
                     except Exception as e:
                         log_universal('ERROR', 'FileDiscovery', f"Error removing file {filepath}: {e}")
                 
-                log_universal('INFO', 'FileDiscovery', f"Removed {len(removed_files)} files from database that no longer exist")
+                log_universal('INFO', 'FileDiscovery', f"Removed {len(removed_files)} files from all database locations")
                 return len(removed_files)
             else:
                 log_universal('INFO', 'FileDiscovery', "No files to remove - all database files still exist on disk")
