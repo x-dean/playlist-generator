@@ -276,6 +276,14 @@ class DatabaseManager:
                 embedding = json.dumps(analysis_data.get('embedding', []))
                 tags = json.dumps(analysis_data.get('tags', {}))
                 
+                # Debug logging for MusiCNN data
+                if analysis_data.get('embedding'):
+                    log_universal('DEBUG', 'Database', f'MusiCNN embedding length: {len(analysis_data.get("embedding", []))}')
+                if analysis_data.get('tags'):
+                    log_universal('DEBUG', 'Database', f'MusiCNN tags count: {len(analysis_data.get("tags", {}))}')
+                    top_tags = sorted(analysis_data.get('tags', {}).items(), key=lambda x: x[1], reverse=True)[:3]
+                    log_universal('DEBUG', 'Database', f'Top MusiCNN tags: {top_tags}')
+                
                 # Extract chroma features
                 chroma_mean = json.dumps(analysis_data.get('chroma_mean', []))
                 chroma_std = json.dumps(analysis_data.get('chroma_std', []))
@@ -397,19 +405,21 @@ class DatabaseManager:
                 analysis_type = analysis_data.get('analysis_type', 'full')
                 long_audio_category = analysis_data.get('long_audio_category')
                 
-                # Insert or update track
+                # Insert or update track with all MusiCNN fields
                 cursor.execute("""
                     INSERT OR REPLACE INTO tracks (
                         file_path, file_hash, filename, file_size_bytes, analysis_date,
                         title, artist, album, track_number, genre, year, duration,
                         bpm, key, mode, loudness, danceability, energy,
+                        embedding, tags,
                         analysis_type, analyzed, long_audio_category, discovery_date, discovery_source,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     file_path, file_hash, filename, file_size_bytes, datetime.now(),
                     title, artist, album, track_number, genre, year, duration,
                     bpm, key, mode, loudness, danceability, energy,
+                    embedding, tags,
                     analysis_type, True, long_audio_category, datetime.now(), discovery_source,
                     datetime.now(), datetime.now()
                 ))
