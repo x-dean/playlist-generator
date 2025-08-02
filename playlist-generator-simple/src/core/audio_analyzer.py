@@ -1251,8 +1251,31 @@ class AudioAnalyzer:
                         tags = None
                         log_universal('DEBUG', 'Audio', f'Single output with shape: {embeddings.shape if hasattr(embeddings, "shape") else "unknown"}')
                     
-                    # Convert to lists for JSON serialization
-                    features['embedding'] = embeddings.flatten().tolist() if hasattr(embeddings, 'flatten') else embeddings.tolist()
+                    # Convert embeddings to standard 200-dimensional format
+                    if hasattr(embeddings, 'flatten'):
+                        embedding_flat = embeddings.flatten()
+                        # Take first 200 dimensions or average if larger
+                        if len(embedding_flat) > 200:
+                            # For large embeddings, take first 200 or average chunks
+                            if len(embedding_flat) <= 10000:
+                                # Take first 200 dimensions
+                                features['embedding'] = embedding_flat[:200].tolist()
+                            else:
+                                # For very large embeddings, average chunks
+                                chunk_size = len(embedding_flat) // 200
+                                averaged = []
+                                for i in range(200):
+                                    start = i * chunk_size
+                                    end = start + chunk_size
+                                    chunk = embedding_flat[start:end]
+                                    averaged.append(float(np.mean(chunk)))
+                                features['embedding'] = averaged
+                        else:
+                            # Pad with zeros if smaller than 200
+                            embedding_list = embedding_flat.tolist()
+                            features['embedding'] = embedding_list + [0.0] * (200 - len(embedding_list))
+                    else:
+                        features['embedding'] = embeddings.tolist() if hasattr(embeddings, 'tolist') else embeddings
                     
                     if tags is not None:
                         # Map tag indices to tag names if available in config
@@ -1289,8 +1312,24 @@ class AudioAnalyzer:
                             tag_summary = ', '.join([f"{tag}: {conf:.2f}" for tag, conf in top_tags])
                             log_universal('INFO', 'Audio', f'Top MusiCNN tags: {tag_summary}')
                         elif isinstance(features['tags'], list):
-                            log_universal('INFO', 'Audio', f'MusiCNN tags returned as list with {len(features["tags"])} values')
-                            log_universal('DEBUG', 'Audio', f'First 5 tag values: {features["tags"][:5]}')
+                            # Convert raw tag probabilities to named tags
+                            tag_names = musicnn_config.get('tag_names', [])
+                            if tag_names and len(features['tags']) == len(tag_names):
+                                # Create dictionary with tag names
+                                named_tags = {}
+                                for i, prob in enumerate(features['tags']):
+                                    if i < len(tag_names):
+                                        named_tags[tag_names[i]] = float(prob)
+                                features['tags'] = named_tags
+                                
+                                # Log top tags
+                                sorted_tags = sorted(named_tags.items(), key=lambda x: x[1], reverse=True)
+                                top_tags = sorted_tags[:5]
+                                tag_summary = ', '.join([f"{tag}: {conf:.2f}" for tag, conf in top_tags])
+                                log_universal('INFO', 'Audio', f'Top MusiCNN tags: {tag_summary}')
+                            else:
+                                log_universal('INFO', 'Audio', f'MusiCNN tags returned as list with {len(features["tags"])} values')
+                                log_universal('DEBUG', 'Audio', f'First 5 tag values: {features["tags"][:5]}')
                         else:
                             log_universal('WARNING', 'Audio', f'Unexpected tags format: {type(features["tags"])}')
                     else:
