@@ -9,6 +9,7 @@ import hashlib
 import numpy as np
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
+import json
 
 # Import configuration and logging
 from .config_loader import config_loader
@@ -747,6 +748,35 @@ class AudioAnalyzer:
             # Add BPM from metadata if available
             if metadata and 'bpm_from_metadata' in metadata:
                 features['external_bpm'] = metadata['bpm_from_metadata']
+            
+            # Extract Spotify-style features for playlist generation
+            # These are derived from the extracted features above
+            try:
+                spotify_features = self._extract_spotify_style_features(
+                    audio, sample_rate,
+                    rhythm_features=features,
+                    spectral_features=features,
+                    loudness_features=features,
+                    key_features=features,
+                    mfcc_features=features,
+                    musicnn_features=features,
+                    chroma_features=features
+                )
+                features.update(spotify_features)
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f'Failed to extract Spotify-style features: {e}')
+                # Add default values
+                features.update({
+                    'danceability': 0.5,
+                    'energy': 0.5,
+                    'mode': 0.0,
+                    'acousticness': 0.5,
+                    'instrumentalness': 0.5,
+                    'speechiness': 0.5,
+                    'valence': 0.5,
+                    'liveness': 0.5,
+                    'popularity': 0.5
+                })
             
             return features
             
@@ -2553,6 +2583,295 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Error computing mel-spectrogram: {e}')
             return np.zeros((187, 96))  # Fixed size for MusiCNN
+
+    def _extract_spotify_style_features(self, audio: np.ndarray, sample_rate: int, 
+                                      rhythm_features: Dict[str, Any], 
+                                      spectral_features: Dict[str, Any],
+                                      loudness_features: Dict[str, Any],
+                                      key_features: Dict[str, Any],
+                                      mfcc_features: Dict[str, Any],
+                                      musicnn_features: Dict[str, Any],
+                                      chroma_features: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract Spotify-style features for playlist generation.
+        These are derived from existing features and MusiCNN tags.
+        """
+        try:
+            # Extract base features
+            bpm = rhythm_features.get('bpm', 0)
+            rhythm_confidence = rhythm_features.get('rhythm_confidence', 0)
+            spectral_centroid = spectral_features.get('spectral_centroid', 0)
+            spectral_flatness = spectral_features.get('spectral_flatness', 0)
+            loudness = loudness_features.get('loudness', 0)
+            dynamic_complexity = loudness_features.get('dynamic_complexity', 0)
+            key = key_features.get('key', '')
+            scale = key_features.get('scale', '')
+            key_strength = key_features.get('key_strength', 0)
+            
+            # Extract MusiCNN tags
+            tags = musicnn_features.get('tags', {})
+            if isinstance(tags, str):
+                try:
+                    tags = json.loads(tags)
+                except:
+                    tags = {}
+            
+            # Extract MFCC and chroma features
+            mfcc_coefficients = mfcc_features.get('mfcc_coefficients', [])
+            chroma_mean = chroma_features.get('chroma_mean', [])
+            
+            # Calculate Spotify-style features
+            
+            # 1. DANCEABILITY (0.0 to 1.0)
+            # Based on: BPM, rhythm confidence, spectral characteristics, MusiCNN dance tags
+            danceability = 0.0
+            
+            # BPM contribution (optimal range: 120-140 BPM)
+            if bpm > 0:
+                if 120 <= bpm <= 140:
+                    danceability += 0.4  # Optimal dance range
+                elif 100 <= bpm <= 160:
+                    danceability += 0.3  # Good dance range
+                elif 80 <= bpm <= 180:
+                    danceability += 0.2  # Acceptable range
+                else:
+                    danceability += 0.1  # Outside dance range
+            
+            # Rhythm confidence contribution
+            if rhythm_confidence > 0.7:
+                danceability += 0.3
+            elif rhythm_confidence > 0.5:
+                danceability += 0.2
+            elif rhythm_confidence > 0.3:
+                danceability += 0.1
+            
+            # Spectral characteristics (tonal content is more danceable)
+            if spectral_flatness < 0.3:
+                danceability += 0.2
+            elif spectral_flatness < 0.5:
+                danceability += 0.1
+            
+            # MusiCNN dance tags
+            if isinstance(tags, dict):
+                dance_tags = ['dance', 'pop', 'funk', 'catchy', 'party', 'electronic', 'house']
+                for tag, score in tags.items():
+                    if tag.lower() in dance_tags:
+                        danceability += min(score * 0.3, 0.3)  # Cap at 0.3
+            
+            # Cap danceability at 1.0
+            danceability = min(danceability, 1.0)
+            
+            # 2. ENERGY (0.0 to 1.0)
+            # Based on: loudness, dynamic complexity, spectral centroid, BPM
+            energy = 0.0
+            
+            # Loudness contribution
+            if loudness > 0.6:
+                energy += 0.4
+            elif loudness > 0.4:
+                energy += 0.3
+            elif loudness > 0.2:
+                energy += 0.2
+            else:
+                energy += 0.1
+            
+            # Dynamic complexity (higher = more energy)
+            if dynamic_complexity > 0.7:
+                energy += 0.3
+            elif dynamic_complexity > 0.5:
+                energy += 0.2
+            elif dynamic_complexity > 0.3:
+                energy += 0.1
+            
+            # Spectral centroid (higher = more energy)
+            if spectral_centroid > 3000:
+                energy += 0.2
+            elif spectral_centroid > 2000:
+                energy += 0.1
+            
+            # BPM contribution
+            if bpm > 140:
+                energy += 0.2
+            elif bpm > 120:
+                energy += 0.1
+            
+            # Cap energy at 1.0
+            energy = min(energy, 1.0)
+            
+            # 3. MODE (0 = minor, 1 = major)
+            # Based on: key scale
+            mode = 0.0
+            if scale.lower() == 'major':
+                mode = 1.0
+            elif scale.lower() == 'minor':
+                mode = 0.0
+            else:
+                # Default to minor for unknown scales
+                mode = 0.0
+            
+            # 4. ACOUSTICNESS (0.0 to 1.0)
+            # Based on: MusiCNN acoustic tags, spectral characteristics
+            acousticness = 0.0
+            
+            # MusiCNN acoustic tags
+            if isinstance(tags, dict):
+                acoustic_tags = ['acoustic', 'folk', 'country', 'jazz', 'blues', 'mellow', 'easy listening']
+                for tag, score in tags.items():
+                    if tag.lower() in acoustic_tags:
+                        acousticness += min(score * 0.4, 0.4)  # Cap at 0.4
+            
+            # Spectral characteristics (lower centroid = more acoustic)
+            if spectral_centroid < 2000:
+                acousticness += 0.3
+            elif spectral_centroid < 3000:
+                acousticness += 0.2
+            elif spectral_centroid < 4000:
+                acousticness += 0.1
+            
+            # Lower loudness = more acoustic
+            if loudness < 0.3:
+                acousticness += 0.2
+            elif loudness < 0.5:
+                acousticness += 0.1
+            
+            # Cap acousticness at 1.0
+            acousticness = min(acousticness, 1.0)
+            
+            # 5. INSTRUMENTALNESS (0.0 to 1.0)
+            # Based on: MusiCNN instrumental tags, speechiness inverse
+            instrumentalness = 0.0
+            
+            # MusiCNN instrumental tags
+            if isinstance(tags, dict):
+                if 'instrumental' in tags:
+                    instrumentalness += min(tags['instrumental'] * 0.5, 0.5)
+                
+                # Electronic music is often instrumental
+                electronic_tags = ['electronic', 'electronica', 'electro', 'house', 'techno']
+                for tag, score in tags.items():
+                    if tag.lower() in electronic_tags:
+                        instrumentalness += min(score * 0.3, 0.3)
+            
+            # Inverse relationship with speechiness
+            speechiness = 0.0
+            if isinstance(tags, dict):
+                speech_tags = ['female vocalists', 'male vocalists', 'female vocalist', 'male vocalist']
+                for tag, score in tags.items():
+                    if tag.lower() in speech_tags:
+                        speechiness += min(score * 0.4, 0.4)
+            
+            # If high speechiness, reduce instrumentalness
+            if speechiness > 0.5:
+                instrumentalness = max(0.0, instrumentalness - speechiness * 0.5)
+            
+            # Cap instrumentalness at 1.0
+            instrumentalness = min(instrumentalness, 1.0)
+            
+            # 6. SPEECHINESS (0.0 to 1.0)
+            # Already calculated above, but ensure it's capped
+            speechiness = min(speechiness, 1.0)
+            
+            # 7. VALENCE (0.0 to 1.0) - Positivity/happiness
+            # Based on: key (major = happier), BPM, MusiCNN mood tags
+            valence = 0.5  # Default neutral
+            
+            # Major key = happier
+            if scale.lower() == 'major':
+                valence += 0.2
+            elif scale.lower() == 'minor':
+                valence -= 0.1
+            
+            # BPM contribution (faster = happier)
+            if bpm > 120:
+                valence += 0.1
+            elif bpm < 80:
+                valence -= 0.1
+            
+            # MusiCNN mood tags
+            if isinstance(tags, dict):
+                positive_tags = ['happy', 'upbeat', 'catchy', 'fun', 'energetic']
+                negative_tags = ['sad', 'melancholy', 'dark', 'moody']
+                
+                for tag, score in tags.items():
+                    if tag.lower() in positive_tags:
+                        valence += min(score * 0.2, 0.2)
+                    elif tag.lower() in negative_tags:
+                        valence -= min(score * 0.2, 0.2)
+            
+            # Cap valence at 0.0 to 1.0
+            valence = max(0.0, min(valence, 1.0))
+            
+            # 8. LIVENESS (0.0 to 1.0) - Presence of audience/performance
+            # Based on: dynamic complexity, spectral characteristics
+            liveness = 0.0
+            
+            # Higher dynamic complexity = more live
+            if dynamic_complexity > 0.7:
+                liveness += 0.4
+            elif dynamic_complexity > 0.5:
+                liveness += 0.3
+            elif dynamic_complexity > 0.3:
+                liveness += 0.2
+            
+            # Spectral characteristics (live music has more variation)
+            if spectral_flatness > 0.4:
+                liveness += 0.2
+            elif spectral_flatness > 0.2:
+                liveness += 0.1
+            
+            # MFCC variance (more variation = more live)
+            if mfcc_coefficients:
+                mfcc_variance = np.var(mfcc_coefficients)
+                if mfcc_variance > 0.2:
+                    liveness += 0.2
+                elif mfcc_variance > 0.1:
+                    liveness += 0.1
+            
+            # Cap liveness at 1.0
+            liveness = min(liveness, 1.0)
+            
+            # 9. POPULARITY (0.0 to 1.0) - Placeholder for now
+            # This would typically come from external APIs (Spotify, LastFM, etc.)
+            popularity = 0.5  # Default neutral
+            
+            # Could be enhanced with:
+            # - External API data
+            # - Play count from user library
+            # - Social media mentions
+            # - Chart positions
+            
+            log_universal('DEBUG', 'Audio', f'Spotify-style features calculated: '
+                          f'danceability={danceability:.2f}, energy={energy:.2f}, mode={mode:.2f}, '
+                          f'acousticness={acousticness:.2f}, instrumentalness={instrumentalness:.2f}, '
+                          f'speechiness={speechiness:.2f}, valence={valence:.2f}, '
+                          f'liveness={liveness:.2f}, popularity={popularity:.2f}')
+            
+            return {
+                'danceability': danceability,
+                'energy': energy,
+                'mode': mode,
+                'acousticness': acousticness,
+                'instrumentalness': instrumentalness,
+                'speechiness': speechiness,
+                'valence': valence,
+                'liveness': liveness,
+                'popularity': popularity
+            }
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to extract Spotify-style features: {e}')
+            # Return default values
+            return {
+                'danceability': 0.5,
+                'energy': 0.5,
+                'mode': 0.0,
+                'acousticness': 0.5,
+                'instrumentalness': 0.5,
+                'speechiness': 0.5,
+                'valence': 0.5,
+                'liveness': 0.5,
+                'popularity': 0.5
+            }
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':

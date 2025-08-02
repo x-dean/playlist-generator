@@ -97,21 +97,27 @@ class DatabaseManager:
                     log_universal('INFO', 'Database', "Database schema already exists")
                     return
                 
-                # Read and execute schema
-                schema_path = os.path.join(os.path.dirname(self.db_path), 'database_schema.sql')
-                if not os.path.exists(schema_path):
-                    # Try relative path
-                    schema_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'database_schema.sql')
+                # Read and execute schema - try multiple possible paths
+                schema_paths = [
+                    os.path.join(os.path.dirname(self.db_path), 'database_schema.sql'),
+                    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'database_schema.sql'),
+                    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database_schema.sql'),
+                ]
                 
-                if os.path.exists(schema_path):
-                    with open(schema_path, 'r') as f:
-                        schema_sql = f.read()
-                    
+                schema_sql = None
+                for schema_path in schema_paths:
+                    if os.path.exists(schema_path):
+                        with open(schema_path, 'r') as f:
+                            schema_sql = f.read()
+                        log_universal('INFO', 'Database', f"Found schema file: {schema_path}")
+                        break
+                
+                if schema_sql:
                     cursor.executescript(schema_sql)
                     log_universal('INFO', 'Database', "Database schema created successfully")
                 else:
-                    log_universal('ERROR', 'Database', f"Schema file not found: {schema_path}")
-                    raise FileNotFoundError(f"Schema file not found: {schema_path}")
+                    log_universal('ERROR', 'Database', f"Schema file not found in any of these paths: {schema_paths}")
+                    raise FileNotFoundError(f"Schema file not found in any of these paths: {schema_paths}")
                 
         except Exception as e:
             log_universal('ERROR', 'Database', f"Failed to initialize database: {e}")
@@ -149,9 +155,9 @@ class DatabaseManager:
                 
                 cursor.execute("""
                     INSERT OR REPLACE INTO discovery_cache 
-                    (directory_path, file_count, last_scan_date, scan_duration, status, error_message)
+                    (directory_path, file_count, scan_duration, status, error_message, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
-                """, (directory_path, file_count, datetime.now(), scan_duration, status, error_message))
+                """, (directory_path, file_count, scan_duration, status, error_message, datetime.now()))
                 
                 conn.commit()
                 log_universal('INFO', 'Database', f"Discovery result saved for: {directory_path}")
@@ -405,22 +411,42 @@ class DatabaseManager:
                 analysis_type = analysis_data.get('analysis_type', 'full')
                 long_audio_category = analysis_data.get('long_audio_category')
                 
-                # Insert or update track with all MusiCNN fields
+                # Insert or update track with all features including Spotify-style features
                 cursor.execute("""
                     INSERT OR REPLACE INTO tracks (
-                        file_path, file_hash, filename, file_size_bytes, analysis_date,
+                        file_path, file_hash, filename, file_size_bytes, analysis_date, discovery_date,
+                        status, analysis_status, modified_time, retry_count, last_retry_date, error_message,
                         title, artist, album, track_number, genre, year, duration,
-                        bpm, key, mode, loudness, danceability, energy,
+                        bitrate, sample_rate, channels,
+                        bpm, rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm,
+                        key, scale, key_strength, key_confidence,
+                        spectral_centroid, spectral_flatness, spectral_rolloff, spectral_bandwidth, spectral_contrast_mean, spectral_contrast_std,
+                        loudness, dynamic_complexity, loudness_range, dynamic_range,
+                        danceability, energy, mode,
+                        acousticness, instrumentalness, speechiness, valence, liveness, popularity,
+                        mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2,
                         embedding, tags,
-                        analysis_type, analyzed, long_audio_category, discovery_date, discovery_source,
+                        chroma_mean, chroma_std,
+                        composer, lyricist, band, conductor, remixer, subtitle, grouping, publisher, copyright, encoded_by, language, mood, style, quality, original_artist, original_album, original_year, original_filename, content_group, encoder, file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain, replaygain_album_gain, replaygain_track_peak, replaygain_album_peak,
+                        analysis_type, analyzed, long_audio_category, discovery_source,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    file_path, file_hash, filename, file_size_bytes, datetime.now(),
+                    file_path, file_hash, filename, file_size_bytes, datetime.now(), datetime.now(),
+                    'analyzed', 'completed', metadata.get('modified_time') if metadata else None, 0, None, None,
                     title, artist, album, track_number, genre, year, duration,
-                    bpm, key, mode, loudness, danceability, energy,
+                    bitrate, sample_rate, channels,
+                    bpm, rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm,
+                    key, scale, key_strength, key_confidence,
+                    spectral_centroid, spectral_flatness, spectral_rolloff, spectral_bandwidth, spectral_contrast_mean, spectral_contrast_std,
+                    loudness, dynamic_complexity, loudness_range, dynamic_range,
+                    danceability, energy, mode,
+                    acousticness, instrumentalness, speechiness, valence, liveness, popularity,
+                    mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2,
                     embedding, tags,
-                    analysis_type, True, long_audio_category, datetime.now(), discovery_source,
+                    chroma_mean, chroma_std,
+                    composer, lyricist, band, conductor, remixer, subtitle, grouping, publisher, copyright, encoded_by, language, mood, style, quality, original_artist, original_album, original_year, original_filename, content_group, encoder, file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain, replaygain_album_gain, replaygain_track_peak, replaygain_album_peak,
+                    analysis_type, True, long_audio_category, discovery_source,
                     datetime.now(), datetime.now()
                 ))
                 
