@@ -15,7 +15,7 @@ from pathlib import Path
 from .database import DatabaseManager
 from .logging_setup import get_logger, log_function_call, log_universal
 from .file_discovery import FileDiscovery
-from .queue_manager import QueueManager, get_queue_manager
+
 
 logger = get_logger('playlista.analysis_manager')
 
@@ -478,54 +478,18 @@ class AnalysisManager:
         
         # Process small files using queue manager
         if small_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(small_files)} small files using queue manager")
-            log_universal('INFO', 'Analysis', f"Queue-based parallel processing selected for files < {self.big_file_size_mb}MB")
+            log_universal('INFO', 'Analysis', f"Processing {len(small_files)} small files using parallel analyzer")
+            log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files < {self.big_file_size_mb}MB")
             
-            # Get queue manager instance
-            queue_manager = get_queue_manager()
-            
-            # Add tasks to queue
-            task_ids = queue_manager.add_tasks(
-                small_files, 
-                priority=0, 
-                force_reextract=force_reextract,
-                analysis_config=self._get_analysis_config(small_files[0]) if small_files else None
+            # Use direct parallel processing (proven approach)
+            small_results = self.parallel_analyzer.process_files(
+                small_files, force_reextract, max_workers
             )
+            results['success_count'] += small_results['success_count']
+            results['failed_count'] += small_results['failed_count']
+            results['small_files_processed'] = len(small_files)
             
-            # Start processing with progress callback
-            def progress_callback(stats):
-                if stats['total_tasks'] > 0:
-                    progress = (stats['completed_tasks'] + stats['failed_tasks']) / stats['total_tasks'] * 100
-                    log_universal('INFO', 'Analysis', f"Queue progress: {progress:.1f}% ({stats['completed_tasks']}/{stats['total_tasks']})")
-            
-            success = queue_manager.start_processing(progress_callback)
-            if not success:
-                log_universal('ERROR', 'Analysis', "Failed to start queue processing")
-                # Fall back to direct parallel processing
-                small_results = self.parallel_analyzer.process_files(
-                    small_files, force_reextract, max_workers
-                )
-                results['success_count'] += small_results['success_count']
-                results['failed_count'] += small_results['failed_count']
-                results['small_files_processed'] = len(small_files)
-            else:
-                # Wait for all tasks to complete
-                while True:
-                    stats = queue_manager.get_statistics()
-                    if stats['pending_tasks'] == 0 and stats['processing_tasks'] == 0:
-                        break
-                    time.sleep(1)
-                
-                # Get final results
-                final_stats = queue_manager.get_statistics()
-                results['success_count'] += final_stats['completed_tasks']
-                results['failed_count'] += final_stats['failed_tasks']
-                results['small_files_processed'] = len(small_files)
-                
-                # Stop processing
-                queue_manager.stop_processing()
-                
-                log_universal('INFO', 'Analysis', f"Queue processing completed: {final_stats['completed_tasks']} successful, {final_stats['failed_tasks']} failed")
+            log_universal('INFO', 'Analysis', f"Parallel processing completed: {small_results['success_count']} successful, {small_results['failed_count']} failed")
         
         total_time = time.time() - start_time
         results['total_time'] = total_time

@@ -492,8 +492,8 @@ class ResourceManager:
             reserved_memory_gb = min(2.0, total_memory_gb * 0.1)  # 10% of total memory or 2GB, whichever is smaller
             available_for_workers_gb = max(0.5, total_memory_gb - reserved_memory_gb - current_rss_gb)  # Minimum 0.5GB available
             
-            # Estimate memory per worker (conservative for memory stability)
-            memory_per_worker_gb = 0.5  # Reduced from 1GB to 0.5GB per worker for better memory stability
+            # Estimate memory per worker
+            memory_per_worker_gb = 1.0  # 1GB per worker
             
             # Calculate optimal workers based on available memory for workers
             memory_based_workers = max(1, int(available_for_workers_gb / memory_per_worker_gb))
@@ -505,15 +505,15 @@ class ResourceManager:
             # Use the minimum of memory-based and CPU-based workers to avoid over-subscription
             optimal_workers = min(memory_based_workers, cpu_count)
             
-            # Failsafe: If system memory usage is >75%, reduce workers (more conservative)
-            if system_memory_percent > 75:
+            # Failsafe: If system memory usage is >80%, reduce workers
+            if system_memory_percent > 80:
                 optimal_workers = max(1, optimal_workers // 2)  # Reduce by half
-                log_universal('WARNING', 'Resource', f"System memory usage {system_memory_percent:.1f}% > 75%, reducing workers to {optimal_workers}")
+                log_universal('WARNING', 'Resource', f"System memory usage {system_memory_percent:.1f}% > 80%, reducing workers to {optimal_workers}")
             
             # Additional failsafe: If available memory is very low, use only 1 worker
-            if available_for_workers_gb < 0.5:  # Reduced from 1GB to 0.5GB
+            if available_for_workers_gb < 1.0:  # 1GB minimum
                 optimal_workers = 1
-                log_universal('WARNING', 'Resource', f"Available memory {available_for_workers_gb:.2f}GB < 0.5GB, using only 1 worker")
+                log_universal('WARNING', 'Resource', f"Available memory {available_for_workers_gb:.2f}GB < 1GB, using only 1 worker")
             
             # Apply max_workers limit
             if max_workers:

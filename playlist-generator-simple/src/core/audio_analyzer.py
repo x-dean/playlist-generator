@@ -91,8 +91,8 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
                 return None, None
             
             # Much more aggressive limits for parallel processing
-            max_file_size_mb = 200  # Reduced from 500MB
-            warning_threshold_mb = 50  # Reduced from 100MB
+            max_file_size_mb = 500  # 500MB limit
+            warning_threshold_mb = 100  # 100MB warning threshold
             
             # Skip large files to prevent RAM saturation
             if file_size_mb > max_file_size_mb:
@@ -118,7 +118,7 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
             log_universal('DEBUG', 'Audio', f'Loading {os.path.basename(audio_path)} with Essentia MonoLoader')
             
             # For large files, try to load only a sample
-            if file_size_mb > 25:  # Files larger than 25MB
+            if file_size_mb > 50:  # Files larger than 50MB
                 log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - loading sample only')
                 try:
                     # Try to load just the first 30 seconds
@@ -159,7 +159,7 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
                     import librosa
                     
                     # For large files, use offset and duration to load only a portion
-                    if file_size_mb > 25:
+                    if file_size_mb > 50:
                         log_universal('INFO', 'Audio', f'Loading 30-second sample with librosa for {os.path.basename(audio_path)}')
                         audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True, duration=30)
                     else:
@@ -435,7 +435,7 @@ class AudioAnalyzer:
             # Check file size before attempting metadata extraction
             try:
                 file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                if file_size_mb > 200:  # Files larger than 200MB
+                if file_size_mb > 500:  # Files larger than 500MB
                     log_universal('WARNING', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - metadata extraction may fail')
             except Exception:
                 pass
@@ -1231,7 +1231,7 @@ class AudioAnalyzer:
             file_size_mb = file_size / (1024 * 1024)
             
             # Get configuration values
-            streaming_threshold_mb = self.config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 50)
+            streaming_threshold_mb = self.config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 100)
             skip_large_files = self.config.get('SKIP_LARGE_FILES', True)
             
             # Skip files larger than streaming threshold to prevent RAM saturation
