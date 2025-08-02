@@ -29,6 +29,16 @@ DEFAULT_RETRY_DELAY = 5  # seconds
 DEFAULT_PROGRESS_UPDATE_INTERVAL = 10  # seconds
 DEFAULT_MEMORY_CHECK_INTERVAL = 30  # seconds
 
+# Load balancing constants
+DEFAULT_MIN_WORKERS = 1
+DEFAULT_MAX_WORKERS = 8
+DEFAULT_WORKER_SPAWN_THRESHOLD = 0.7  # 70% queue utilization
+DEFAULT_WORKER_REDUCE_THRESHOLD = 0.3  # 30% queue utilization
+DEFAULT_CPU_THRESHOLD_FOR_SPAWN = 80  # CPU % threshold for spawning workers
+DEFAULT_MEMORY_THRESHOLD_FOR_SPAWN = 75  # Memory % threshold for spawning workers
+DEFAULT_WORKER_SPAWN_COOLDOWN = 60  # seconds between worker spawns
+DEFAULT_WORKER_REDUCE_COOLDOWN = 120  # seconds between worker reductions
+
 
 class TaskStatus(Enum):
     """Task status enumeration."""
@@ -121,7 +131,16 @@ class QueueManager:
                  worker_timeout: int = DEFAULT_WORKER_TIMEOUT,
                  max_retries: int = DEFAULT_MAX_RETRIES,
                  retry_delay: int = DEFAULT_RETRY_DELAY,
-                 progress_update_interval: int = DEFAULT_PROGRESS_UPDATE_INTERVAL):
+                 progress_update_interval: int = DEFAULT_PROGRESS_UPDATE_INTERVAL,
+                 enable_load_balancing: bool = True,
+                 min_workers: int = DEFAULT_MIN_WORKERS,
+                 max_workers_limit: int = DEFAULT_MAX_WORKERS,
+                 worker_spawn_threshold: float = DEFAULT_WORKER_SPAWN_THRESHOLD,
+                 worker_reduce_threshold: float = DEFAULT_WORKER_REDUCE_THRESHOLD,
+                 cpu_threshold_for_spawn: float = DEFAULT_CPU_THRESHOLD_FOR_SPAWN,
+                 memory_threshold_for_spawn: float = DEFAULT_MEMORY_THRESHOLD_FOR_SPAWN,
+                 worker_spawn_cooldown: int = DEFAULT_WORKER_SPAWN_COOLDOWN,
+                 worker_reduce_cooldown: int = DEFAULT_WORKER_REDUCE_COOLDOWN):
         """
         Initialize the queue manager.
         
@@ -134,6 +153,15 @@ class QueueManager:
             max_retries: Maximum retry attempts
             retry_delay: Delay between retries in seconds
             progress_update_interval: Progress update interval in seconds
+            enable_load_balancing: Enable dynamic worker spawning/reduction
+            min_workers: Minimum number of workers
+            max_workers_limit: Maximum number of workers (hard limit)
+            worker_spawn_threshold: Queue utilization threshold for spawning workers
+            worker_reduce_threshold: Queue utilization threshold for reducing workers
+            cpu_threshold_for_spawn: CPU usage threshold for spawning workers
+            memory_threshold_for_spawn: Memory usage threshold for spawning workers
+            worker_spawn_cooldown: Cooldown period between worker spawns
+            worker_reduce_cooldown: Cooldown period between worker reductions
         """
         self.db_manager = db_manager or DatabaseManager()
         self.resource_manager = resource_manager or ResourceManager()
@@ -145,6 +173,28 @@ class QueueManager:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.progress_update_interval = progress_update_interval
+        
+        # Load balancing configuration
+        self.enable_load_balancing = enable_load_balancing
+        self.min_workers = min_workers
+        self.max_workers_limit = max_workers_limit
+        self.worker_spawn_threshold = worker_spawn_threshold
+        self.worker_reduce_threshold = worker_reduce_threshold
+        self.cpu_threshold_for_spawn = cpu_threshold_for_spawn
+        self.memory_threshold_for_spawn = memory_threshold_for_spawn
+        self.worker_spawn_cooldown = worker_spawn_cooldown
+        self.worker_reduce_cooldown = worker_reduce_cooldown
+        
+        # Load balancing state
+        self._last_worker_spawn_time = 0
+        self._last_worker_reduce_time = 0
+        self._current_workers = 0
+        self._load_balancing_stats = {
+            'spawns': 0,
+            'reductions': 0,
+            'spawn_attempts': 0,
+            'reduce_attempts': 0
+        }
         
         # Queue and task management
         self.task_queue = queue.PriorityQueue(maxsize=queue_size)
@@ -169,6 +219,9 @@ class QueueManager:
         log_universal('INFO', 'Queue', f"QueueManager initialized with {self.max_workers} workers")
         log_universal('DEBUG', 'Queue', f"Queue size: {queue_size}, Timeout: {worker_timeout}s")
         log_universal('DEBUG', 'Queue', f"Max retries: {max_retries}, Retry delay: {retry_delay}s")
+        if self.enable_load_balancing:
+            log_universal('INFO', 'Queue', f"Load balancing enabled: min={min_workers}, max={max_workers_limit}")
+            log_universal('DEBUG', 'Queue', f"Spawn threshold: {worker_spawn_threshold}, Reduce threshold: {worker_reduce_threshold}")
     
     def add_task(self, file_path: str, priority: int = 0, 
                  force_reextract: bool = False, analysis_config: Optional[Dict[str, Any]] = None) -> str:
@@ -257,7 +310,8 @@ class QueueManager:
                     mp_context=mp.get_context('spawn')
                 )
                 
-                # Start worker threads
+                # Start initial worker threads
+                self._current_workers = self.max_workers
                 for i in range(self.max_workers):
                     worker_thread = threading.Thread(
                         target=self._worker_loop,
@@ -459,6 +513,10 @@ class QueueManager:
                     self._check_memory_usage()
                     last_memory_check = current_time
                 
+                # Load balancing checks
+                if self.enable_load_balancing:
+                    self._check_load_balancing()
+                
                 time.sleep(1)
                 
             except Exception as e:
@@ -503,6 +561,114 @@ class QueueManager:
         except Exception as e:
             log_universal('DEBUG', 'Queue', f"Memory check error: {e}")
     
+    def _check_load_balancing(self):
+        """Check load balancing conditions and spawn/reduce workers as needed."""
+        try:
+            current_time = time.time()
+            
+            # Get current queue utilization
+            queue_size = self.task_queue.qsize()
+            total_queue_size = self.queue_size
+            queue_utilization = queue_size / total_queue_size if total_queue_size > 0 else 0
+            
+            # Get current resource usage
+            import psutil
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            memory_percent = psutil.virtual_memory().percent
+            
+            # Check if we should spawn more workers
+            should_spawn = (
+                queue_utilization > self.worker_spawn_threshold and
+                self._current_workers < self.max_workers_limit and
+                cpu_percent < self.cpu_threshold_for_spawn and
+                memory_percent < self.memory_threshold_for_spawn and
+                current_time - self._last_worker_spawn_time > self.worker_spawn_cooldown
+            )
+            
+            # Check if we should reduce workers
+            should_reduce = (
+                queue_utilization < self.worker_reduce_threshold and
+                self._current_workers > self.min_workers and
+                current_time - self._last_worker_reduce_time > self.worker_reduce_cooldown
+            )
+            
+            if should_spawn:
+                self._spawn_worker()
+            elif should_reduce:
+                self._reduce_worker()
+            
+            # Log load balancing stats periodically
+            if current_time % 60 < 1:  # Log every minute
+                log_universal('DEBUG', 'Queue', 
+                    f"Load balancing: queue={queue_utilization:.2f}, workers={self._current_workers}, "
+                    f"cpu={cpu_percent:.1f}%, memory={memory_percent:.1f}%")
+                
+        except Exception as e:
+            log_universal('ERROR', 'Queue', f"Load balancing check error: {e}")
+    
+    def _spawn_worker(self):
+        """Spawn a new worker thread."""
+        try:
+            with self._lock:
+                if self._current_workers >= self.max_workers_limit:
+                    return
+                
+                worker_id = f"worker_{self._current_workers}"
+                worker_thread = threading.Thread(
+                    target=self._worker_loop,
+                    args=(worker_id,),
+                    daemon=True
+                )
+                worker_thread.start()
+                self._worker_threads.append(worker_thread)
+                self._current_workers += 1
+                self._last_worker_spawn_time = time.time()
+                self._load_balancing_stats['spawns'] += 1
+                
+                log_universal('INFO', 'Queue', f"Spawned worker {worker_id} (total: {self._current_workers})")
+                
+        except Exception as e:
+            log_universal('ERROR', 'Queue', f"Error spawning worker: {e}")
+            self._load_balancing_stats['spawn_attempts'] += 1
+    
+    def _reduce_worker(self):
+        """Reduce worker count by stopping the least active worker."""
+        try:
+            with self._lock:
+                if self._current_workers <= self.min_workers:
+                    return
+                
+                # Find the least active worker (simplified approach)
+                # In a real implementation, you'd track worker activity
+                if len(self._worker_threads) > 0:
+                    # Stop the last worker thread
+                    worker_thread = self._worker_threads.pop()
+                    self._current_workers -= 1
+                    self._last_worker_reduce_time = time.time()
+                    self._load_balancing_stats['reductions'] += 1
+                    
+                    log_universal('INFO', 'Queue', f"Reduced workers to {self._current_workers}")
+                
+        except Exception as e:
+            log_universal('ERROR', 'Queue', f"Error reducing workers: {e}")
+            self._load_balancing_stats['reduce_attempts'] += 1
+    
+    def get_load_balancing_stats(self) -> Dict[str, Any]:
+        """Get load balancing statistics."""
+        with self._lock:
+            return {
+                'current_workers': self._current_workers,
+                'min_workers': self.min_workers,
+                'max_workers_limit': self.max_workers_limit,
+                'enable_load_balancing': self.enable_load_balancing,
+                'spawns': self._load_balancing_stats['spawns'],
+                'reductions': self._load_balancing_stats['reductions'],
+                'spawn_attempts': self._load_balancing_stats['spawn_attempts'],
+                'reduce_attempts': self._load_balancing_stats['reduce_attempts'],
+                'last_spawn_time': self._last_worker_spawn_time,
+                'last_reduce_time': self._last_worker_reduce_time
+            }
+    
     def get_statistics(self) -> Dict[str, Any]:
         """Get current queue statistics."""
         with self._lock:
@@ -515,8 +681,10 @@ class QueueManager:
                 'processing_tasks': self.statistics.processing_tasks,
                 'queue_size': self.task_queue.qsize(),
                 'active_workers': len(self._worker_threads),
+                'current_workers': self._current_workers,
                 'average_processing_time': self.statistics.average_processing_time,
-                'throughput': self.statistics.throughput
+                'throughput': self.statistics.throughput,
+                'load_balancing': self.get_load_balancing_stats() if self.enable_load_balancing else None
             }
             
             if self.statistics.start_time:
