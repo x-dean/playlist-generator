@@ -1114,9 +1114,31 @@ class AudioAnalyzer:
                                 self._musicnn_session = tf.compat.v1.Session(graph=graph)
                                 self._musicnn_graph = graph
                                 
-                                # Get input and output tensors
-                                self._musicnn_input = graph.get_tensor_by_name('model/input_1:0')
-                                self._musicnn_output = graph.get_tensor_by_name('model/dense_1/BiasAdd:0')
+                                # Find input and output tensors by examining the graph
+                                input_tensors = []
+                                output_tensors = []
+                                
+                                for op in graph.get_operations():
+                                    if op.type == 'Placeholder':
+                                        input_tensors.append(op.name)
+                                    elif 'dense' in op.name.lower() or 'output' in op.name.lower():
+                                        output_tensors.append(op.name)
+                                
+                                log_universal('DEBUG', 'Audio', f'Found input tensors: {input_tensors}')
+                                log_universal('DEBUG', 'Audio', f'Found output tensors: {output_tensors}')
+                                
+                                # Use the first input and output tensors found
+                                if input_tensors:
+                                    self._musicnn_input = graph.get_tensor_by_name(f'{input_tensors[0]}:0')
+                                else:
+                                    log_universal('WARNING', 'Audio', 'No input tensors found in MusiCNN model')
+                                    self._musicnn_input = None
+                                    
+                                if output_tensors:
+                                    self._musicnn_output = graph.get_tensor_by_name(f'{output_tensors[0]}:0')
+                                else:
+                                    log_universal('WARNING', 'Audio', 'No output tensors found in MusiCNN model')
+                                    self._musicnn_output = None
                                 
                                 log_universal('DEBUG', 'Audio', 'Loaded MusiCNN protobuf model')
                             elif model_path.endswith('.h5'):
@@ -1178,7 +1200,7 @@ class AudioAnalyzer:
                     mel_spec = self._compute_mel_spectrogram(audio_22050, 22050)
                     
                     # Run inference
-                    if hasattr(self, '_musicnn_session'):
+                    if hasattr(self, '_musicnn_session') and self._musicnn_input is not None and self._musicnn_output is not None:
                         # Protobuf model with session
                         predictions = self._musicnn_session.run(
                             self._musicnn_output,
