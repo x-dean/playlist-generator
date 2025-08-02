@@ -532,6 +532,18 @@ class DatabaseManager:
         except Exception:
             return False
 
+    # 🗑️ Delete failed analysis entry
+    @log_function_call
+    def delete_failed_analysis(self, file_path: str) -> bool:
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM analysis_cache WHERE file_path = ?", (file_path,))
+                conn.commit()
+                return True
+        except Exception:
+            return False
+
     # 🧮 Database statistics snapshot
     @log_function_call
     def get_database_statistics(self) -> Dict[str, Any]:
@@ -639,3 +651,20 @@ class DatabaseManager:
             }
         except Exception:
             return {'size_bytes': 0, 'size_mb': 0, 'exists': False}
+
+
+# Global database manager instance
+_db_manager = None
+
+
+def get_db_manager() -> DatabaseManager:
+    """
+    Get the global database manager instance.
+    
+    Returns:
+        DatabaseManager: The global database manager instance
+    """
+    global _db_manager
+    if _db_manager is None:
+        _db_manager = DatabaseManager()
+    return _db_manager
