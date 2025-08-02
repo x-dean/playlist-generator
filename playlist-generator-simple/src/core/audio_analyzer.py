@@ -1206,12 +1206,22 @@ class AudioAnalyzer:
                 
                 # Extract features if model is available
                 if hasattr(self, '_musicnn_session') or self._musicnn_model is not None:
+                    # For very large files, use a sample to reduce processing time
+                    max_samples = 22050 * 30  # 30 seconds at 22050Hz
+                    if len(audio) > max_samples:
+                        log_universal('INFO', 'Audio', f'Large file detected ({len(audio)} samples), using 30-second sample for MusiCNN')
+                        # Take middle section for better representation
+                        start_sample = len(audio) // 2 - max_samples // 2
+                        audio_sample = audio[start_sample:start_sample + max_samples]
+                    else:
+                        audio_sample = audio
+                    
                     # Resample audio to 22050 Hz (MusiCNN specification)
                     if sample_rate != 22050:
                         import librosa
-                        audio_22050 = librosa.resample(audio, orig_sr=sample_rate, target_sr=22050)
+                        audio_22050 = librosa.resample(audio_sample, orig_sr=sample_rate, target_sr=22050)
                     else:
-                        audio_22050 = audio
+                        audio_22050 = audio_sample
                     
                     # Prepare input for MusiCNN (expects [batch, time, 96] log-mel spectrogram)
                     mel_spec = self._compute_mel_spectrogram(audio_22050, 22050)
