@@ -2172,7 +2172,21 @@ class AudioAnalyzer:
                 
                 for i, sample in enumerate(audio_samples):
                     log_universal('DEBUG', 'Audio', f'Analyzing MusiCNN sample {i+1}/4')
-                    sample_features = self._extract_musicnn_features(sample, sample_rate)
+                    
+                    # Use shorter samples for MusiCNN (3 seconds each) to avoid memory issues
+                    musicnn_sample_duration = 3  # seconds - MusiCNN expects ~3 seconds
+                    musicnn_sample_size = musicnn_sample_duration * sample_rate
+                    
+                    # Take a 3-second segment from the middle of the 30-second sample
+                    if len(sample) > musicnn_sample_size:
+                        start_idx = (len(sample) - musicnn_sample_size) // 2
+                        musicnn_sample = sample[start_idx:start_idx + musicnn_sample_size]
+                        log_universal('DEBUG', 'Audio', f'Using 3s segment from 30s sample {i+1} (position {start_idx/sample_rate:.1f}s)')
+                    else:
+                        musicnn_sample = sample
+                        log_universal('DEBUG', 'Audio', f'Using full sample {i+1} (shorter than 3s)')
+                    
+                    sample_features = self._extract_musicnn_features(musicnn_sample, sample_rate)
                     if sample_features:
                         all_musicnn_features.append(sample_features)
                         if 'tags' in sample_features:
