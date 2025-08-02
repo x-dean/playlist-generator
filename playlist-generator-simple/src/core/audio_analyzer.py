@@ -1073,11 +1073,88 @@ class AudioAnalyzer:
         
         try:
             if TENSORFLOW_AVAILABLE:
-                # This would require the MusiCNN model
-                # For now, we'll skip this as it requires additional setup
-                features['embedding'] = []
-                features['tags'] = {}
-                log_universal('DEBUG', 'Audio', 'MusiCNN features not implemented (requires model setup)')
+                # Get model paths from configuration
+                model_path = self.config.get('MUSICNN_MODEL_PATH', '/app/models/msd-musicnn-1.pb')
+                json_path = self.config.get('MUSICNN_JSON_PATH', '/app/models/msd-musicnn-1.json')
+                
+                # Load model if not already loaded
+                if not hasattr(self, '_musicnn_model'):
+                    if os.path.exists(model_path):
+                        try:
+                            if model_path.endswith('.pb'):
+                                self._musicnn_model = tf.saved_model.load(model_path)
+                                log_universal('DEBUG', 'Audio', 'Loaded MusiCNN protobuf model')
+                            elif model_path.endswith('.h5'):
+                                self._musicnn_model = tf.keras.models.load_model(model_path)
+                                log_universal('DEBUG', 'Audio', 'Loaded MusiCNN Keras model')
+                            else:
+                                log_universal('WARNING', 'Audio', f'Unsupported MusiCNN model format: {model_path}')
+                                self._musicnn_model = None
+                        except Exception as e:
+                            log_universal('WARNING', 'Audio', f'Failed to load MusiCNN model: {e}')
+                            self._musicnn_model = None
+                    else:
+                        log_universal('WARNING', 'Audio', f'MusiCNN model not found: {model_path}')
+                        self._musicnn_model = None
+                
+                # Load JSON configuration if available
+                musicnn_config = {}
+                if os.path.exists(json_path):
+                    try:
+                        import json
+                        with open(json_path, 'r') as f:
+                            musicnn_config = json.load(f)
+                        log_universal('DEBUG', 'Audio', 'Loaded MusiCNN JSON configuration')
+                    except Exception as e:
+                        log_universal('WARNING', 'Audio', f'Failed to load MusiCNN JSON config: {e}')
+                
+                # Extract features if model is available
+                if self._musicnn_model is not None:
+                    # Resample audio to 16kHz if needed (MusiCNN expects 16kHz)
+                    if sample_rate != 16000:
+                        import librosa
+                        audio_16k = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+                    else:
+                        audio_16k = audio
+                    
+                    # Prepare input for MusiCNN (expects mel-spectrogram)
+                    mel_spec = self._compute_mel_spectrogram(audio_16k, 16000)
+                    
+                    # Run inference
+                    if hasattr(self._musicnn_model, 'predict'):
+                        # Keras model
+                        predictions = self._musicnn_model.predict(mel_spec[np.newaxis, ...], verbose=0)
+                    else:
+                        # SavedModel
+                        predictions = self._musicnn_model(mel_spec[np.newaxis, ...])
+                    
+                    # Extract embeddings and tags
+                    if isinstance(predictions, (list, tuple)):
+                        embeddings = predictions[0] if len(predictions) > 0 else predictions
+                        tags = predictions[1] if len(predictions) > 1 else None
+                    else:
+                        embeddings = predictions
+                        tags = None
+                    
+                    # Convert to lists for JSON serialization
+                    features['embedding'] = embeddings.flatten().tolist() if hasattr(embeddings, 'flatten') else embeddings.tolist()
+                    
+                    if tags is not None:
+                        # Map tag indices to tag names if available in config
+                        tag_names = musicnn_config.get('tag_names', [])
+                        if tag_names and hasattr(tags, 'flatten'):
+                            tag_probs = tags.flatten()
+                            features['tags'] = {tag_names[i]: float(tag_probs[i]) for i in range(min(len(tag_names), len(tag_probs)))}
+                        else:
+                            features['tags'] = tags.tolist() if hasattr(tags, 'tolist') else tags
+                    else:
+                        features['tags'] = {}
+                    
+                    log_universal('DEBUG', 'Audio', f'Extracted MusiCNN features: embedding size {len(features["embedding"])}')
+                else:
+                    features['embedding'] = []
+                    features['tags'] = {}
+                    log_universal('DEBUG', 'Audio', 'MusiCNN model not available - skipping features')
             else:
                 features['embedding'] = []
                 features['tags'] = {}
@@ -1728,6 +1805,54 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('ERROR', 'Audio', f'Error in audio sample loading: {e}')
             return None, None
+
+    def _compute_mel_spectrogram(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        """
+        Compute mel-spectrogram for MusiCNN input.
+        
+        Args:
+            audio: Audio signal
+            sample_rate: Sample rate of the audio
+            
+        Returns:
+            Mel-spectrogram as numpy array
+        """
+        try:
+            if LIBROSA_AVAILABLE:
+                import librosa
+                
+                # MusiCNN expects specific parameters
+                n_fft = 2048
+                hop_length = 512
+                n_mels = 96
+                fmin = 0
+                fmax = 8000
+                
+                # Compute mel-spectrogram
+                mel_spec = librosa.feature.melspectrogram(
+                    y=audio,
+                    sr=sample_rate,
+                    n_fft=n_fft,
+                    hop_length=hop_length,
+                    n_mels=n_mels,
+                    fmin=fmin,
+                    fmax=fmax
+                )
+                
+                # Convert to log scale
+                mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+                
+                # Normalize to [0, 1] range
+                mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min() + 1e-8)
+                
+                return mel_spec_norm
+            else:
+                log_universal('WARNING', 'Audio', 'Librosa not available for mel-spectrogram computation')
+                return np.zeros((96, 100))  # Default size for MusiCNN
+                
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Error computing mel-spectrogram: {e}')
+            return np.zeros((96, 100))  # Default size for MusiCNN
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':

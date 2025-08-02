@@ -183,6 +183,9 @@ class ConfigLoader:
             'EXTRACT_KEY': 'EXTRACT_KEY',
             'EXTRACT_MFCC': 'EXTRACT_MFCC',
             'EXTRACT_MUSICNN': 'EXTRACT_MUSICNN',
+            'MUSICNN_MODEL_PATH': 'MUSICNN_MODEL_PATH',
+            'MUSICNN_JSON_PATH': 'MUSICNN_JSON_PATH',
+            'MUSICNN_TIMEOUT_SECONDS': 'MUSICNN_TIMEOUT_SECONDS',
             'EXTRACT_CHROMA': 'EXTRACT_CHROMA',
             'FORCE_REANALYSIS': 'FORCE_REANALYSIS',
             'DB_CACHE_DEFAULT_EXPIRY_HOURS': 'DB_CACHE_DEFAULT_EXPIRY_HOURS',
@@ -252,6 +255,9 @@ class ConfigLoader:
             'EXTRACT_KEY': True,
             'EXTRACT_MFCC': True,
             'EXTRACT_MUSICNN': True,
+            'MUSICNN_MODEL_PATH': '/app/models/msd-musicnn-1.pb',
+            'MUSICNN_JSON_PATH': '/app/models/msd-musicnn-1.json',
+            'MUSICNN_TIMEOUT_SECONDS': 60,
             'EXTRACT_CHROMA': True,
             'FORCE_REANALYSIS': False,
             
@@ -352,6 +358,9 @@ class ConfigLoader:
             'EXTRACT_KEY': config.get('EXTRACT_KEY', True),
             'EXTRACT_MFCC': config.get('EXTRACT_MFCC', True),
             'EXTRACT_MUSICNN': config.get('EXTRACT_MUSICNN', True),
+            'MUSICNN_MODEL_PATH': config.get('MUSICNN_MODEL_PATH', '/app/models/msd-musicnn-1.pb'),
+            'MUSICNN_JSON_PATH': config.get('MUSICNN_JSON_PATH', '/app/models/msd-musicnn-1.json'),
+            'MUSICNN_TIMEOUT_SECONDS': config.get('MUSICNN_TIMEOUT_SECONDS', 60),
             'EXTRACT_CHROMA': config.get('EXTRACT_CHROMA', True),
             'FORCE_REANALYSIS': config.get('FORCE_REANALYSIS', False),
             'CACHE_ENABLED': config.get('CACHE_ENABLED', True),
@@ -366,7 +375,10 @@ class ConfigLoader:
             # Large file handling
             'MAX_AUDIO_FILE_SIZE_MB': config.get('MAX_AUDIO_FILE_SIZE_MB', 500),
             'LARGE_FILE_WARNING_THRESHOLD_MB': config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 100),
-            'SKIP_LARGE_FILES': config.get('SKIP_LARGE_FILES', True)
+            'SKIP_LARGE_FILES': config.get('SKIP_LARGE_FILES', True),
+            # Parallel processing options
+            'USE_THREADED_PROCESSING': config.get('USE_THREADED_PROCESSING', False),
+            'THREADED_WORKERS_DEFAULT': config.get('THREADED_WORKERS_DEFAULT', 4)
         }
         
         self._update_cache(cache_key, audio_config)
