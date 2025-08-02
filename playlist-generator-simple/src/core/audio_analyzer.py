@@ -1110,15 +1110,15 @@ class AudioAnalyzer:
                 
                 # Extract features if model is available
                 if self._musicnn_model is not None:
-                    # Resample audio to 16kHz if needed (MusiCNN expects 16kHz)
-                    if sample_rate != 16000:
+                    # Resample audio to 22050 Hz (MusiCNN specification)
+                    if sample_rate != 22050:
                         import librosa
-                        audio_16k = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+                        audio_22050 = librosa.resample(audio, orig_sr=sample_rate, target_sr=22050)
                     else:
-                        audio_16k = audio
+                        audio_22050 = audio
                     
-                    # Prepare input for MusiCNN (expects mel-spectrogram)
-                    mel_spec = self._compute_mel_spectrogram(audio_16k, 16000)
+                    # Prepare input for MusiCNN (expects [batch, time, 96, 1] log-mel spectrogram)
+                    mel_spec = self._compute_mel_spectrogram(audio_22050, 22050)
                     
                     # Run inference
                     if hasattr(self._musicnn_model, 'predict'):
@@ -1815,18 +1815,21 @@ class AudioAnalyzer:
             sample_rate: Sample rate of the audio
             
         Returns:
-            Mel-spectrogram as numpy array
+            Mel-spectrogram as numpy array with shape [time, 96, 1] for MusiCNN input
         """
         try:
             if LIBROSA_AVAILABLE:
                 import librosa
                 
-                # MusiCNN expects specific parameters
-                n_fft = 2048
-                hop_length = 512
+                # MusiCNN specifications:
+                # - Window size: 512 with 50% hop (hop_length = 256)
+                # - Mel bands: 96 bands from 0 to 11025 Hz
+                # - Sampling rate: 22050 Hz
+                n_fft = 512
+                hop_length = 256  # 50% of window size
                 n_mels = 96
                 fmin = 0
-                fmax = 8000
+                fmax = 11025  # Half of 22050 Hz (Nyquist frequency)
                 
                 # Compute mel-spectrogram
                 mel_spec = librosa.feature.melspectrogram(
@@ -1839,20 +1842,23 @@ class AudioAnalyzer:
                     fmax=fmax
                 )
                 
-                # Convert to log scale
+                # Convert to log power scale (required for MusiCNN)
                 mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
                 
-                # Normalize to [0, 1] range
-                mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min() + 1e-8)
+                # Transpose to get [time, 96] shape
+                mel_spec_transposed = mel_spec_db.T
                 
-                return mel_spec_norm
+                # Add channel dimension to get [time, 96, 1] shape for MusiCNN
+                mel_spec_final = mel_spec_transposed[..., np.newaxis]
+                
+                return mel_spec_final
             else:
                 log_universal('WARNING', 'Audio', 'Librosa not available for mel-spectrogram computation')
-                return np.zeros((96, 100))  # Default size for MusiCNN
+                return np.zeros((100, 96, 1))  # Default size for MusiCNN
                 
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Error computing mel-spectrogram: {e}')
-            return np.zeros((96, 100))  # Default size for MusiCNN
+            return np.zeros((100, 96, 1))  # Default size for MusiCNN
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':
