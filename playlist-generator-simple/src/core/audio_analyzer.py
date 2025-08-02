@@ -1121,24 +1121,32 @@ class AudioAnalyzer:
                                 for op in graph.get_operations():
                                     if op.type == 'Placeholder':
                                         input_tensors.append(op.name)
-                                    elif 'dense' in op.name.lower() or 'output' in op.name.lower():
+                                    elif 'dense' in op.name.lower() or 'output' in op.name.lower() or 'biasadd' in op.name.lower():
                                         output_tensors.append(op.name)
                                 
                                 log_universal('DEBUG', 'Audio', f'Found input tensors: {input_tensors}')
                                 log_universal('DEBUG', 'Audio', f'Found output tensors: {output_tensors}')
                                 
-                                # Use the first input and output tensors found
+                                # Use the first input tensor found
                                 if input_tensors:
                                     self._musicnn_input = graph.get_tensor_by_name(f'{input_tensors[0]}:0')
                                 else:
                                     log_universal('WARNING', 'Audio', 'No input tensors found in MusiCNN model')
                                     self._musicnn_input = None
-                                    
-                                if output_tensors:
-                                    self._musicnn_output = graph.get_tensor_by_name(f'{output_tensors[0]}:0')
-                                else:
+                                
+                                # Try to find both embeddings and tags outputs
+                                self._musicnn_outputs = []
+                                for output_name in output_tensors:
+                                    try:
+                                        tensor = graph.get_tensor_by_name(f'{output_name}:0')
+                                        self._musicnn_outputs.append(tensor)
+                                        log_universal('DEBUG', 'Audio', f'Added output tensor: {output_name}:0 with shape {tensor.shape}')
+                                    except Exception as e:
+                                        log_universal('WARNING', 'Audio', f'Failed to get tensor {output_name}:0: {e}')
+                                
+                                if not self._musicnn_outputs:
                                     log_universal('WARNING', 'Audio', 'No output tensors found in MusiCNN model')
-                                    self._musicnn_output = None
+                                    self._musicnn_outputs = None
                                 
                                 log_universal('DEBUG', 'Audio', 'Loaded MusiCNN protobuf model')
                             elif model_path.endswith('.h5'):
@@ -1200,12 +1208,13 @@ class AudioAnalyzer:
                     mel_spec = self._compute_mel_spectrogram(audio_22050, 22050)
                     
                     # Run inference
-                    if hasattr(self, '_musicnn_session') and self._musicnn_input is not None and self._musicnn_output is not None:
-                        # Protobuf model with session
+                    if hasattr(self, '_musicnn_session') and self._musicnn_input is not None and self._musicnn_outputs is not None:
+                        # Protobuf model with session - run all outputs
                         predictions = self._musicnn_session.run(
-                            self._musicnn_output,
+                            self._musicnn_outputs,
                             feed_dict={self._musicnn_input: mel_spec[np.newaxis, ...]}
                         )
+                        log_universal('DEBUG', 'Audio', f'MusiCNN predictions shape: {[p.shape for p in predictions] if isinstance(predictions, (list, tuple)) else predictions.shape}')
                     elif hasattr(self._musicnn_model, 'predict'):
                         # Keras model
                         predictions = self._musicnn_model.predict(mel_spec[np.newaxis, ...], verbose=0)
@@ -1215,11 +1224,32 @@ class AudioAnalyzer:
                     
                     # Extract embeddings and tags
                     if isinstance(predictions, (list, tuple)):
-                        embeddings = predictions[0] if len(predictions) > 0 else predictions
-                        tags = predictions[1] if len(predictions) > 1 else None
+                        log_universal('DEBUG', 'Audio', f'MusiCNN returned {len(predictions)} outputs')
+                        # Try to identify embeddings vs tags based on shape
+                        embeddings = None
+                        tags = None
+                        
+                        for i, pred in enumerate(predictions):
+                            shape = pred.shape if hasattr(pred, 'shape') else 'unknown'
+                            log_universal('DEBUG', 'Audio', f'Output {i}: shape {shape}')
+                            
+                            # Large output (200+ dimensions) is likely embeddings
+                            if hasattr(pred, 'flatten') and pred.flatten().shape[0] > 200:
+                                embeddings = pred
+                                log_universal('DEBUG', 'Audio', f'Identified embeddings in output {i}')
+                            # Smaller output (50-100 dimensions) is likely tags
+                            elif hasattr(pred, 'flatten') and 50 <= pred.flatten().shape[0] <= 100:
+                                tags = pred
+                                log_universal('DEBUG', 'Audio', f'Identified tags in output {i}')
+                        
+                        # Fallback: use first output as embeddings if none identified
+                        if embeddings is None and len(predictions) > 0:
+                            embeddings = predictions[0]
+                            log_universal('DEBUG', 'Audio', 'Using first output as embeddings (fallback)')
                     else:
                         embeddings = predictions
                         tags = None
+                        log_universal('DEBUG', 'Audio', f'Single output with shape: {embeddings.shape if hasattr(embeddings, "shape") else "unknown"}')
                     
                     # Convert to lists for JSON serialization
                     features['embedding'] = embeddings.flatten().tolist() if hasattr(embeddings, 'flatten') else embeddings.tolist()
