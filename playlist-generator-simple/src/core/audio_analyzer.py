@@ -1382,8 +1382,8 @@ class AudioAnalyzer:
             estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
             estimated_duration_minutes = estimated_duration_seconds / 60
             
-            # Consider it long if estimated duration > 20 minutes
-            is_long = estimated_duration_minutes > 20
+            # Consider it long if estimated duration > 60 minutes (increased from 20)
+            is_long = estimated_duration_minutes > 60
             
             log_universal('DEBUG', 'Audio', f'File {os.path.basename(file_path)}: {estimated_duration_minutes:.1f} minutes estimated, long_audio: {is_long}')
             
@@ -1405,8 +1405,8 @@ class AudioAnalyzer:
             True if extremely large, False otherwise
         """
         try:
-            # Original logic: skip for files > 500M samples
-            is_extremely_large = len(audio) > 500000000
+            # Increased threshold: skip for files > 1B samples (was 500M)
+            is_extremely_large = len(audio) > 1000000000
             
             if is_extremely_large:
                 log_universal('WARNING', 'Audio', f'Extremely large file detected: {len(audio)} samples ({len(audio)/44100/60:.1f} minutes)')
@@ -1433,7 +1433,7 @@ class AudioAnalyzer:
             file_size_mb = file_size / (1024 * 1024)
             
             # Get configuration values
-            streaming_threshold_mb = self.config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 100)
+            streaming_threshold_mb = self.config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 500)  # Increased from 100MB
             skip_large_files = self.config.get('SKIP_LARGE_FILES', True)
             
             # Skip files larger than streaming threshold to prevent RAM saturation
