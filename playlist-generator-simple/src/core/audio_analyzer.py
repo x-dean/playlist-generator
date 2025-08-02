@@ -688,72 +688,40 @@ class AudioAnalyzer:
             return self._extract_simplified_features(audio, sample_rate, metadata)
         
         try:
-            # Extract rhythm features (skip for extremely large files)
+            # Extract rhythm features (always extract for sequential processing)
             if self.extract_rhythm:
-                if is_extremely_large_for_processing:
-                    log_universal('WARNING', 'Audio', 'Skipping rhythm extraction for extremely large file')
-                    features['bpm'] = -1.0  # Special marker for failed BPM extraction
-                    features['rhythm_confidence'] = 0.0
-                else:
-                    rhythm_features = self._extract_rhythm_features(audio, sample_rate)
-                    features.update(rhythm_features)
+                rhythm_features = self._extract_rhythm_features(audio, sample_rate)
+                features.update(rhythm_features)
             
-            # Extract spectral features (skip for extremely large files)
+            # Extract spectral features (always extract for sequential processing)
             if self.extract_spectral:
-                if is_extremely_large_for_processing:
-                    log_universal('WARNING', 'Audio', 'Skipping spectral extraction for extremely large file')
-                    features['spectral_centroid'] = 0.0
-                    features['spectral_rolloff'] = 0.0
-                    features['spectral_bandwidth'] = 0.0
-                else:
-                    spectral_features = self._extract_spectral_features(audio, sample_rate)
-                    features.update(spectral_features)
+                spectral_features = self._extract_spectral_features(audio, sample_rate)
+                features.update(spectral_features)
             
-            # Extract loudness features (skip for extremely large files)
+            # Extract loudness features (always extract for sequential processing)
             if self.extract_loudness:
-                if is_extremely_large_for_processing:
-                    log_universal('WARNING', 'Audio', 'Skipping loudness extraction for extremely large file')
-                    features['loudness'] = 0.0
-                    features['dynamic_complexity'] = 0.0
-                else:
-                    loudness_features = self._extract_loudness_features(audio, sample_rate)
-                    features.update(loudness_features)
+                loudness_features = self._extract_loudness_features(audio, sample_rate)
+                features.update(loudness_features)
             
             # Extract key and mode (always extract - not memory intensive)
             if self.extract_key:
                 key_features = self._extract_key_features(audio, sample_rate)
                 features.update(key_features)
             
-            # Extract MFCC features (skip for extremely large files)
+            # Extract MFCC features (always extract for sequential processing)
             if self.extract_mfcc:
-                if is_extremely_large_for_processing:
-                    log_universal('WARNING', 'Audio', 'Skipping MFCC extraction for extremely large file to avoid memory issues')
-                    features['mfcc_coefficients'] = []
-                    features['mfcc_bands'] = []
-                    features['mfcc_std'] = []
-                else:
-                    mfcc_features = self._extract_mfcc_features(audio, sample_rate)
-                    features.update(mfcc_features)
+                mfcc_features = self._extract_mfcc_features(audio, sample_rate)
+                features.update(mfcc_features)
             
-            # Extract MusiCNN features (skip for extremely large files)
+            # Extract MusiCNN features (always extract for sequential processing)
             if self.extract_musicnn and TENSORFLOW_AVAILABLE:
-                if is_extremely_large_for_processing:
-                    log_universal('WARNING', 'Audio', 'Skipping MusiCNN extraction for extremely large file')
-                    features['embedding'] = []
-                    features['tags'] = {}
-                else:
-                    musicnn_features = self._extract_musicnn_features(audio, sample_rate)
-                    features.update(musicnn_features)
+                musicnn_features = self._extract_musicnn_features(audio, sample_rate)
+                features.update(musicnn_features)
             
-            # Extract chroma features (skip for extremely large files)
+            # Extract chroma features (always extract for sequential processing)
             if self.extract_chroma:
-                if is_extremely_large_for_processing:
-                    log_universal('WARNING', 'Audio', 'Skipping chroma, spectral contrast, flatness, and rolloff for extremely large file')
-                    features['chroma_mean'] = []
-                    features['chroma_std'] = []
-                else:
-                    chroma_features = self._extract_chroma_features(audio, sample_rate)
-                    features.update(chroma_features)
+                chroma_features = self._extract_chroma_features(audio, sample_rate)
+                features.update(chroma_features)
             
             # Add BPM from metadata if available
             if metadata and 'bpm_from_metadata' in metadata:
@@ -1456,8 +1424,8 @@ class AudioAnalyzer:
             estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
             estimated_duration_minutes = estimated_duration_seconds / 60
             
-            # Consider it long if estimated duration > 60 minutes (increased from 20)
-            is_long = estimated_duration_minutes > 60
+            # Much higher threshold for sequential processing: consider it long if estimated duration > 120 minutes (increased from 60)
+            is_long = estimated_duration_minutes > 120
             
             log_universal('DEBUG', 'Audio', f'File {os.path.basename(file_path)}: {estimated_duration_minutes:.1f} minutes estimated, long_audio: {is_long}')
             
@@ -1479,8 +1447,8 @@ class AudioAnalyzer:
             True if extremely large, False otherwise
         """
         try:
-            # Increased threshold: skip for files > 1B samples (was 500M)
-            is_extremely_large = len(audio) > 1000000000
+            # Much higher threshold for sequential processing: skip for files > 5B samples (was 1B)
+            is_extremely_large = len(audio) > 5000000000
             
             if is_extremely_large:
                 log_universal('WARNING', 'Audio', f'Extremely large file detected: {len(audio)} samples ({len(audio)/44100/60:.1f} minutes)')
@@ -1506,8 +1474,8 @@ class AudioAnalyzer:
             file_size = os.path.getsize(file_path)
             file_size_mb = file_size / (1024 * 1024)
             
-            # Get configuration values
-            streaming_threshold_mb = self.config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 500)  # Increased from 100MB
+            # Get configuration values - much higher thresholds for sequential processing
+            streaming_threshold_mb = self.config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 2000)  # Increased from 500MB to 2GB
             skip_large_files = self.config.get('SKIP_LARGE_FILES', True)
             
             # Skip files larger than streaming threshold to prevent RAM saturation
@@ -1543,12 +1511,12 @@ class AudioAnalyzer:
                 estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
                 duration_minutes = estimated_duration_seconds / 60
             
-            # Determine type based on duration
-            if duration_minutes > 60:  # Over 1 hour
+            # Determine type based on duration - expanded for sequential processing
+            if duration_minutes > 120:  # Over 2 hours
                 return 'radio'
-            elif duration_minutes > 30:  # 30-60 minutes
+            elif duration_minutes > 60:  # 1-2 hours
                 return 'long_mix'
-            elif duration_minutes > 20:  # 20-30 minutes
+            elif duration_minutes > 30:  # 30-60 minutes
                 return 'mix'
             else:
                 return 'normal'
@@ -1592,45 +1560,65 @@ class AudioAnalyzer:
                 album = str(metadata.get('album', '')).lower()
 
                 # Strong metadata indicators (explicit keywords)
-                if any(word in title for word in ['podcast', 'episode', 'show', 'talk']):
+                # Enhanced metadata detection with more keywords
+                if any(word in title for word in ['podcast', 'episode', 'show', 'talk', 'interview', 'conversation', 'discussion']):
                     log_universal('INFO', 'Audio', f"Category determined by metadata (title): podcast")
                     return 'podcast'
-                if any(word in artist for word in ['podcast', 'radio', 'station']):
+                if any(word in artist for word in ['podcast', 'radio', 'station', 'show', 'network']):
                     log_universal('INFO', 'Audio', f"Category determined by metadata (artist): podcast")
                     return 'podcast'
 
-                if any(word in title for word in ['radio', 'broadcast', 'live']):
+                if any(word in title for word in ['radio', 'broadcast', 'live', 'fm', 'am', 'station']):
                     log_universal('INFO', 'Audio', f"Category determined by metadata (title): radio")
                     return 'radio'
-                if any(word in artist for word in ['radio', 'station', 'broadcast']):
+                if any(word in artist for word in ['radio', 'station', 'broadcast', 'fm', 'am']):
                     log_universal('INFO', 'Audio', f"Category determined by metadata (artist): radio")
                     return 'radio'
 
-                if any(word in title for word in ['mix', 'dj', 'set', 'session']):
+                if any(word in title for word in ['mix', 'dj', 'set', 'session', 'live set', 'concert', 'performance']):
                     log_universal('INFO', 'Audio', f"Category determined by metadata (title): long_mix")
                     return 'long_mix'
-                if any(word in artist for word in ['dj', 'mix', 'session']):
+                if any(word in artist for word in ['dj', 'mix', 'session', 'live', 'concert']):
                     log_universal('INFO', 'Audio', f"Category determined by metadata (artist): long_mix")
                     return 'long_mix'
 
-                if any(word in title for word in ['compilation', 'collection', 'various']):
+                if any(word in title for word in ['compilation', 'collection', 'various', 'best of', 'greatest hits', 'anthology']):
                     log_universal('INFO', 'Audio', f"Category determined by metadata (title): compilation")
                     return 'compilation'
-                if any(word in album for word in ['compilation', 'collection', 'various']):
+                if any(word in album for word in ['compilation', 'collection', 'various', 'best of', 'greatest hits', 'anthology']):
                     log_universal('INFO', 'Audio', f"Category determined by metadata (album): compilation")
                     return 'compilation'
+
+                # New categories for better classification
+                if any(word in title for word in ['classical', 'orchestra', 'symphony', 'concerto', 'sonata']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (title): classical")
+                    return 'classical'
+                if any(word in artist for word in ['orchestra', 'symphony', 'philharmonic', 'quartet']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): classical")
+                    return 'classical'
+
+                if any(word in title for word in ['jazz', 'swing', 'bebop', 'fusion']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (title): jazz")
+                    return 'jazz'
+                if any(word in artist for word in ['jazz', 'swing', 'bebop', 'fusion']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): jazz")
+                    return 'jazz'
 
             # Priority 3: Check filename for patterns
             filename = os.path.basename(audio_path).lower()
 
-            if any(word in filename for word in ['podcast', 'episode', 'show']):
+            if any(word in filename for word in ['podcast', 'episode', 'show', 'talk', 'interview']):
                 return 'podcast'
-            if any(word in filename for word in ['radio', 'broadcast', 'live']):
+            if any(word in filename for word in ['radio', 'broadcast', 'live', 'fm', 'am']):
                 return 'radio'
-            if any(word in filename for word in ['mix', 'dj', 'set']):
+            if any(word in filename for word in ['mix', 'dj', 'set', 'concert', 'performance']):
                 return 'long_mix'
-            if any(word in filename for word in ['compilation', 'collection', 'various']):
+            if any(word in filename for word in ['compilation', 'collection', 'various', 'best', 'hits']):
                 return 'compilation'
+            if any(word in filename for word in ['classical', 'orchestra', 'symphony']):
+                return 'classical'
+            if any(word in filename for word in ['jazz', 'swing', 'bebop']):
+                return 'jazz'
 
             # Default fallback
             return 'long_mix'
@@ -1641,7 +1629,8 @@ class AudioAnalyzer:
 
     def _categorize_by_audio_features(self, features: Dict[str, Any]) -> Optional[str]:
         """
-        Categorize long audio track based on audio features with improved accuracy.
+        Categorize long audio track based on comprehensive audio features including MusiCNN tags.
+        Enhanced for big files with full feature extraction.
 
         Args:
             features: Dictionary of audio features
@@ -1650,13 +1639,18 @@ class AudioAnalyzer:
             Category string or None if cannot determine
         """
         try:
-            # Extract key features with None handling
+            # Extract basic features with None handling
             bpm = features.get('bpm')
-            confidence = features.get('confidence')
+            confidence = features.get('rhythm_confidence', features.get('confidence', 0.0))
             spectral_centroid = features.get('spectral_centroid')
             spectral_flatness = features.get('spectral_flatness')
             loudness = features.get('loudness')
             dynamic_complexity = features.get('dynamic_complexity')
+            
+            # Extract advanced features
+            mfcc_coefficients = features.get('mfcc_coefficients', [])
+            chroma_mean = features.get('chroma_mean', [])
+            tags = features.get('tags', {})
             
             # Use external BPM if available and main BPM is None
             if bpm is None and 'external_bpm' in features:
@@ -1665,8 +1659,6 @@ class AudioAnalyzer:
             # Set default values for None features
             if bpm is None:
                 bpm = -1
-            if confidence is None:
-                confidence = 0.0
             if spectral_centroid is None:
                 spectral_centroid = 0
             if spectral_flatness is None:
@@ -1676,55 +1668,101 @@ class AudioAnalyzer:
             if dynamic_complexity is None:
                 dynamic_complexity = 0.5
 
-            log_universal('DEBUG', 'Audio', f'Categorizing with features: BPM={bpm}, Confidence={confidence:.2f}, '
-                          f'Spectral_Centroid={spectral_centroid:.0f}, Spectral_Flatness={spectral_flatness:.2f}, '
-                          f'Loudness={loudness:.2f}, Dynamic_Complexity={dynamic_complexity:.2f}')
+            # Calculate derived features
+            mfcc_variance = np.var(mfcc_coefficients) if mfcc_coefficients else 0
+            chroma_variance = np.var(chroma_mean) if chroma_mean else 0
+            
+            # Extract MusiCNN tag scores
+            speechiness = tags.get('speechiness', 0) if isinstance(tags, dict) else 0
+            instrumentalness = tags.get('instrumentalness', 0) if isinstance(tags, dict) else 0
+            acousticness = tags.get('acousticness', 0) if isinstance(tags, dict) else 0
+            electronic_score = tags.get('electronic', 0) if isinstance(tags, dict) else 0
+            dance_score = tags.get('dance', 0) if isinstance(tags, dict) else 0
+            rock_score = tags.get('rock', 0) if isinstance(tags, dict) else 0
 
-            # Enhanced categorization logic with better thresholds and fallbacks
+            log_universal('DEBUG', 'Audio', f'Enhanced categorization with: BPM={bpm}, Confidence={confidence:.2f}, '
+                          f'Spectral_Centroid={spectral_centroid:.0f}, Spectral_Flatness={spectral_flatness:.2f}, '
+                          f'Loudness={loudness:.2f}, Dynamic_Complexity={dynamic_complexity:.2f}, '
+                          f'MFCC_Variance={mfcc_variance:.2f}, Chroma_Variance={chroma_variance:.2f}, '
+                          f'Speechiness={speechiness:.2f}, Electronic={electronic_score:.2f}')
+
+            # Enhanced categorization logic using comprehensive features including MusiCNN tags
 
             # 1. Podcast detection (speech-like characteristics)
-            # - Low BPM (speech tempo)
-            # - Low confidence (speech is less rhythmic)
+            # - High speechiness from MusiCNN
+            # - Low BPM and confidence
             # - Low spectral centroid (speech frequencies)
             # - High spectral flatness (noise-like)
-            if (bpm > 0 and bpm < 100 and confidence < 0.7 and
-                spectral_centroid < 3000 and spectral_flatness > 0.25):
+            # - Low MFCC variance (consistent speech patterns)
+            if (speechiness > 0.6 or 
+                (bpm > 0 and bpm < 100 and confidence < 0.7 and
+                 spectral_centroid < 3000 and spectral_flatness > 0.25 and
+                 mfcc_variance < 0.1)):
                 log_universal('INFO', 'Audio', 'Detected as podcast based on speech-like characteristics')
                 return 'podcast'
 
-            # 2. Radio detection (mixed content, variable characteristics)
-            # - Medium BPM range (mixed music)
-            # - Variable confidence (mixed content)
-            # - Medium spectral characteristics
-            if (bpm > 0 and 70 <= bpm <= 150 and 0.3 <= confidence <= 0.8 and
-                spectral_centroid > 1500 and spectral_flatness < 0.5):
-                log_universal('INFO', 'Audio', 'Detected as radio based on mixed content characteristics')
-                return 'radio'
-
-            # 3. Long mix detection (consistent music, high energy)
+            # 2. Electronic/Dance Mix detection (high energy, consistent electronic music)
+            # - High electronic score from MusiCNN
             # - High BPM (dance/electronic music)
             # - High confidence (consistent rhythm)
             # - High spectral centroid (rich harmonics)
             # - Low spectral flatness (tonal content)
             # - High loudness (energy)
-            if (bpm > 0 and bpm > 110 and confidence > 0.6 and
-                spectral_centroid > 2500 and spectral_flatness < 0.4 and
-                loudness > 0.4):
-                log_universal('INFO', 'Audio', 'Detected as long mix based on consistent music characteristics')
+            # - Low chroma variance (consistent key)
+            if (electronic_score > 0.7 or dance_score > 0.8 or
+                (bpm > 0 and bpm > 120 and confidence > 0.6 and
+                 spectral_centroid > 2500 and spectral_flatness < 0.4 and
+                 loudness > 0.4 and chroma_variance < 0.2)):
+                log_universal('INFO', 'Audio', 'Detected as long mix based on electronic/dance characteristics')
                 return 'long_mix'
 
-            # 4. Compilation detection (variable characteristics)
+            # 3. Rock/Alternative Mix detection
+            # - High rock score from MusiCNN
+            # - Medium-high BPM
+            # - High dynamic complexity
+            # - Medium spectral characteristics
+            if (rock_score > 0.7 or
+                (bpm > 0 and 100 <= bpm <= 140 and dynamic_complexity > 0.6 and
+                 spectral_centroid > 2000 and spectral_flatness < 0.5)):
+                log_universal('INFO', 'Audio', 'Detected as long mix based on rock/alternative characteristics')
+                return 'long_mix'
+
+            # 4. Acoustic/Classical Mix detection
+            # - High acousticness from MusiCNN
+            # - Low electronic score
+            # - Medium BPM
+            # - Lower spectral centroid (acoustic frequencies)
+            if (acousticness > 0.7 and electronic_score < 0.3 or
+                (bpm > 0 and 60 <= bpm <= 120 and spectral_centroid < 2500 and
+                 spectral_flatness < 0.4 and acousticness > 0.5)):
+                log_universal('INFO', 'Audio', 'Detected as long mix based on acoustic/classical characteristics')
+                return 'long_mix'
+
+            # 5. Radio detection (mixed content, variable characteristics)
+            # - Medium BPM range (mixed music)
+            # - Variable confidence (mixed content)
+            # - Medium spectral characteristics
+            # - High MFCC variance (variable content)
+            # - High chroma variance (key changes)
+            if (bpm > 0 and 70 <= bpm <= 150 and 0.3 <= confidence <= 0.8 and
+                spectral_centroid > 1500 and spectral_flatness < 0.5 and
+                mfcc_variance > 0.15 and chroma_variance > 0.1):
+                log_universal('INFO', 'Audio', 'Detected as radio based on mixed content characteristics')
+                return 'radio'
+
+            # 6. Compilation detection (variable characteristics)
             # - Variable BPM (different songs)
             # - Lower confidence (inconsistent rhythm)
             # - Higher spectral flatness (variable content)
             # - Higher dynamic complexity (varied sections)
-            # But exclude high-BPM electronic music which can have high flatness
+            # - High MFCC and chroma variance (different songs)
             if (bpm > 0 and bpm < 120 and confidence < 0.7 and
-                spectral_flatness > 0.3 and dynamic_complexity > 0.5):
+                spectral_flatness > 0.3 and dynamic_complexity > 0.5 and
+                mfcc_variance > 0.2 and chroma_variance > 0.15):
                 log_universal('INFO', 'Audio', 'Detected as compilation based on variable characteristics')
                 return 'compilation'
 
-            # 5. Fallback categorization based on strongest indicators
+            # 7. Fallback categorization based on strongest indicators
             if bpm > 0:
                 if bpm > 120 and confidence > 0.5:
                     log_universal('INFO', 'Audio', 'Fallback: Detected as long mix based on high BPM and confidence')
@@ -1732,22 +1770,28 @@ class AudioAnalyzer:
                 elif bpm < 90 and confidence < 0.6:
                     log_universal('INFO', 'Audio', 'Fallback: Detected as podcast based on low BPM and confidence')
                     return 'podcast'
-                elif spectral_flatness > 0.4:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as compilation based on high spectral flatness')
+                elif spectral_flatness > 0.4 and mfcc_variance > 0.2:
+                    log_universal('INFO', 'Audio', 'Fallback: Detected as compilation based on high spectral flatness and MFCC variance')
                     return 'compilation'
                 else:
                     log_universal('INFO', 'Audio', 'Fallback: Detected as radio based on medium characteristics')
                     return 'radio'
             
-            # 6. Handle failed rhythm extraction (BPM = -1)
+            # 8. Handle failed rhythm extraction (BPM = -1)
             if bpm == -1:
-                log_universal('INFO', 'Audio', 'Rhythm extraction failed, using spectral features for categorization')
-                # Use spectral features when BPM extraction fails
-                if spectral_centroid > 2500 and spectral_flatness < 0.3:
+                log_universal('INFO', 'Audio', 'Rhythm extraction failed, using advanced features for categorization')
+                # Use comprehensive features when BPM extraction fails
+                if electronic_score > 0.6 or dance_score > 0.7:
+                    log_universal('INFO', 'Audio', 'Fallback: Detected as long mix based on electronic/dance tags')
+                    return 'long_mix'
+                elif speechiness > 0.5:
+                    log_universal('INFO', 'Audio', 'Fallback: Detected as podcast based on speechiness')
+                    return 'podcast'
+                elif spectral_centroid > 2500 and spectral_flatness < 0.3 and mfcc_variance < 0.15:
                     log_universal('INFO', 'Audio', 'Fallback: Detected as long mix based on spectral characteristics')
                     return 'long_mix'
-                elif spectral_flatness > 0.4:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as compilation based on spectral flatness')
+                elif spectral_flatness > 0.4 and mfcc_variance > 0.2:
+                    log_universal('INFO', 'Audio', 'Fallback: Detected as compilation based on spectral flatness and MFCC variance')
                     return 'compilation'
                 elif spectral_centroid < 2000:
                     log_universal('INFO', 'Audio', 'Fallback: Detected as podcast based on low spectral centroid')
@@ -1756,12 +1800,18 @@ class AudioAnalyzer:
                     log_universal('INFO', 'Audio', 'Fallback: Detected as radio based on spectral characteristics')
                     return 'radio'
             
-            # 6. Final fallback based on spectral characteristics
-            if spectral_centroid < 2000:
+            # 9. Final fallback based on comprehensive characteristics
+            if speechiness > 0.4:
+                log_universal('INFO', 'Audio', 'Final fallback: Detected as podcast based on speechiness')
+                return 'podcast'
+            elif electronic_score > 0.5 or dance_score > 0.6:
+                log_universal('INFO', 'Audio', 'Final fallback: Detected as long mix based on electronic/dance tags')
+                return 'long_mix'
+            elif spectral_centroid < 2000:
                 log_universal('INFO', 'Audio', 'Final fallback: Detected as podcast based on low spectral centroid')
                 return 'podcast'
-            elif spectral_flatness > 0.4 and spectral_centroid < 2500:
-                log_universal('INFO', 'Audio', 'Final fallback: Detected as compilation based on high spectral flatness and low centroid')
+            elif spectral_flatness > 0.4 and mfcc_variance > 0.2:
+                log_universal('INFO', 'Audio', 'Final fallback: Detected as compilation based on high spectral flatness and MFCC variance')
                 return 'compilation'
             else:
                 log_universal('INFO', 'Audio', 'Final fallback: Detected as long mix based on tonal characteristics')
