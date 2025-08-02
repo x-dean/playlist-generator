@@ -1476,7 +1476,11 @@ class AudioAnalyzer:
             
             # Get configuration values - much higher thresholds for sequential processing
             streaming_threshold_mb = self.config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 2000)  # Increased from 500MB to 2GB
-            skip_large_files = self.config.get('SKIP_LARGE_FILES', True)
+            skip_large_files = self.config.get('SKIP_LARGE_FILES', False)  # Changed default to False for sequential processing
+            
+            # Convert string config to boolean if needed
+            if isinstance(skip_large_files, str):
+                skip_large_files = skip_large_files.lower() in ('true', '1', 'yes', 'on')
             
             # Skip files larger than streaming threshold to prevent RAM saturation
             if skip_large_files and file_size_mb > streaming_threshold_mb:
@@ -1561,8 +1565,20 @@ class AudioAnalyzer:
 
                 # Strong metadata indicators (explicit keywords)
                 # Enhanced metadata detection with more keywords
-                if any(word in title for word in ['podcast', 'episode', 'show', 'talk', 'interview', 'conversation', 'discussion']):
+                # Check for radio shows first (they often have "episode" but are not podcasts)
+                if any(word in title for word in ['radio', 'broadcast', 'live', 'fm', 'am', 'station', 'trance', 'state of trance']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (title): radio")
+                    return 'radio'
+                if any(word in artist for word in ['radio', 'station', 'broadcast', 'fm', 'am']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): radio")
+                    return 'radio'
+                
+                # Then check for actual podcasts (speech-based content)
+                if any(word in title for word in ['podcast', 'talk', 'interview', 'conversation', 'discussion']):
                     log_universal('INFO', 'Audio', f"Category determined by metadata (title): podcast")
+                    return 'podcast'
+                if any(word in artist for word in ['podcast', 'show', 'network']):
+                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): podcast")
                     return 'podcast'
                 if any(word in artist for word in ['podcast', 'radio', 'station', 'show', 'network']):
                     log_universal('INFO', 'Audio', f"Category determined by metadata (artist): podcast")
