@@ -60,6 +60,49 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
     import signal
     import psutil
     import threading
+    import gc
+    
+    # Set up logging for worker process
+    try:
+        from .logging_setup import get_logger, log_universal
+        logger = get_logger('playlista.parallel_worker')
+    except ImportError:
+        import logging
+        logger = logging.getLogger('playlista.parallel_worker')
+        # Fallback to basic logging if universal logging not available
+    
+    worker_id = f"worker_{threading.current_thread().ident}"
+    start_time = time.time()
+    
+            try:
+            # Force garbage collection before starting
+            gc.collect()
+            
+            # Set up signal handler for timeout (only on Unix systems)
+            try:
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(timeout_seconds)
+            except (AttributeError, OSError):
+                # Windows doesn't support SIGALRM, skip timeout handling
+                pass
+    """
+    Standalone worker function that can be pickled for multiprocessing.
+    
+    Args:
+        file_path: Path to the file to process
+        force_reextract: If True, bypass cache
+        timeout_seconds: Timeout for analysis
+        db_path: Database path
+        analysis_config: Analysis configuration dictionary (uses default if None)
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    import os
+    import time
+    import signal
+    import psutil
+    import threading
     
     # Set up logging for worker process
     try:
@@ -89,18 +132,39 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
         initial_cpu = process.cpu_percent()
         
         # Import audio analyzer here to avoid memory issues
-        from .audio_analyzer import AudioAnalyzer
+        try:
+            from .audio_analyzer import AudioAnalyzer
+        except ImportError as e:
+            log_universal('ERROR', 'Parallel', f'Failed to import AudioAnalyzer: {e}')
+            return False
         
         # Create analyzer instance with configuration
-        if analysis_config is None:
-            # Use default configuration
-            analyzer = AudioAnalyzer()
-        else:
-            # Apply the analysis configuration to the analyzer
-            analyzer = AudioAnalyzer(config=analysis_config)
+        try:
+            if analysis_config is None:
+                # Use default configuration
+                analyzer = AudioAnalyzer()
+            else:
+                # Apply the analysis configuration to the analyzer
+                analyzer = AudioAnalyzer(config=analysis_config)
+        except Exception as e:
+            log_universal('ERROR', 'Parallel', f'Failed to create AudioAnalyzer: {e}')
+            return False
+        
+        # Set memory limit for this process
+        try:
+            import resource
+            # Set memory limit to 1GB per process
+            resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, -1))
+        except (ImportError, OSError):
+            # Windows doesn't support resource module, skip memory limit
+            pass
         
         # Extract features using the correct method
-        analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
+        try:
+            analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
+        except Exception as e:
+            log_universal('ERROR', 'Parallel', f'Analysis failed for {file_path}: {e}')
+            return False
         
         # Get final resource usage
         final_memory = process.memory_info().rss / (1024 * 1024)  # MB
@@ -109,6 +173,9 @@ def _standalone_worker_process(file_path: str, force_reextract: bool = False,
         cpu_usage = (initial_cpu + final_cpu) / 2  # Average
         
         duration = time.time() - start_time
+        
+        # Force garbage collection after analysis
+        gc.collect()
         
         if analysis_result:
             # Save to database using standalone database manager
@@ -273,13 +340,24 @@ class ParallelAnalyzer:
             log_universal('WARNING', 'Parallel', "No files provided for parallel processing")
             return {'success_count': 0, 'failed_count': 0, 'total_time': 0}
         
-        # Determine optimal worker count
+        # Determine optimal worker count dynamically
         if max_workers is None:
-            max_workers = self.max_workers or self.resource_manager.get_optimal_worker_count()
+            optimal_workers = self.resource_manager.get_optimal_worker_count()
+            max_workers = optimal_workers
+            log_universal('INFO', 'Parallel', f"Dynamic worker count: {max_workers} (based on available memory and CPU)")
+        else:
+            max_workers = min(max_workers, optimal_workers)
+            log_universal('INFO', 'Parallel', f"Manual worker count: {max_workers} (capped by optimal: {optimal_workers})")
+        
+        # Calculate batch size based on available memory and workers
+        batch_size = max(1, min(len(files), max_workers * 5))  # Process 5x workers per batch
+        total_batches = (len(files) + batch_size - 1) // batch_size
         
         log_universal('INFO', 'Parallel', f"Starting parallel processing of {len(files)} files")
+        log_universal('INFO', 'Parallel', f"  Workers: {max_workers} (5 files per worker per batch)")
+        log_universal('INFO', 'Parallel', f"  Batch size: {batch_size} files")
+        log_universal('INFO', 'Parallel', f"  Total batches: {total_batches}")
         log_universal('DEBUG', 'Parallel', f"  Force re-extract: {force_reextract}")
-        log_universal('DEBUG', 'Parallel', f"  Max workers: {max_workers}")
         
         start_time = time.time()
         results = {
@@ -287,79 +365,105 @@ class ParallelAnalyzer:
             'failed_count': 0,
             'total_time': 0,
             'processed_files': [],
-            'worker_count': max_workers
+            'worker_count': max_workers,
+            'batches_processed': 0
         }
         
         try:
-            # Process files in parallel
-            try:
-                with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                    # Submit all tasks using standalone worker function
-                    future_to_file = {}
-                    for file_path in files:
-                        try:
-                            # Get analysis config for each file
-                            analysis_config = self._get_analysis_config(file_path)
-                            future = executor.submit(_standalone_worker_process, file_path, force_reextract, 
-                                                  self.timeout_seconds, self.db_manager.db_path,
-                                                  analysis_config)
-                            future_to_file[future] = file_path
-                        except Exception as e:
-                            log_universal('ERROR', 'Parallel', f"Failed to submit task for {file_path}: {e}")
-                            results['failed_count'] += 1
-                            results['processed_files'].append({
-                                'file_path': file_path,
-                                'status': 'error',
-                                'error': f"Task submission failed: {str(e)}",
-                                'timestamp': datetime.now().isoformat()
-                            })
-                    
-                    # Collect results as they complete
-                    completed_count = 0
-                    for future in as_completed(future_to_file, timeout=self.timeout_seconds * len(files)):
-                        file_path = future_to_file[future]
-                        filename = os.path.basename(file_path)
-                        completed_count += 1
-                        
-                        try:
-                            success = future.result(timeout=30)  # 30s timeout per result
-                            
-                            if success:
-                                results['success_count'] += 1
-                                results['processed_files'].append({
-                                    'file_path': file_path,
-                                    'status': 'success',
-                                    'timestamp': datetime.now().isoformat()
-                                })
-                                log_universal('DEBUG', 'Parallel', f"Completed: {filename}")
-                            else:
+            # Process files in batches
+            for i in range(0, len(files), batch_size):
+                batch_files = files[i:i + batch_size]
+                batch_num = (i // batch_size) + 1
+                total_batches = (len(files) + batch_size - 1) // batch_size
+                
+                log_universal('INFO', 'Parallel', f"Processing batch {batch_num}/{total_batches} ({len(batch_files)} files)")
+                
+                try:
+                    with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context('spawn')) as executor:
+                        # Submit batch tasks
+                        future_to_file = {}
+                        for file_path in batch_files:
+                            try:
+                                analysis_config = self._get_analysis_config(file_path)
+                                future = executor.submit(_standalone_worker_process, file_path, force_reextract, 
+                                                      self.timeout_seconds, self.db_manager.db_path,
+                                                      analysis_config)
+                                future_to_file[future] = file_path
+                            except Exception as e:
+                                log_universal('ERROR', 'Parallel', f"Failed to submit task for {file_path}: {e}")
                                 results['failed_count'] += 1
                                 results['processed_files'].append({
                                     'file_path': file_path,
-                                    'status': 'failed',
+                                    'status': 'error',
+                                    'error': f"Task submission failed: {str(e)}",
                                     'timestamp': datetime.now().isoformat()
                                 })
-                                log_universal('DEBUG', 'Parallel', f"Failed: {filename}")
+                        
+                        # Collect batch results
+                        completed_count = 0
+                        for future in as_completed(future_to_file, timeout=self.timeout_seconds * len(batch_files)):
+                            file_path = future_to_file[future]
+                            filename = os.path.basename(file_path)
+                            completed_count += 1
                             
-                            log_universal('INFO', 'Parallel', f"Completed {completed_count}/{len(files)}: {filename}")
+                            try:
+                                success = future.result(timeout=60)
                                 
-                        except Exception as e:
-                            log_universal('ERROR', 'Parallel', f"Error processing {filename}: {e}")
+                                if success:
+                                    results['success_count'] += 1
+                                    results['processed_files'].append({
+                                        'file_path': file_path,
+                                        'status': 'success',
+                                        'timestamp': datetime.now().isoformat()
+                                    })
+                                    log_universal('DEBUG', 'Parallel', f"Completed: {filename}")
+                                else:
+                                    results['failed_count'] += 1
+                                    results['processed_files'].append({
+                                        'file_path': file_path,
+                                        'status': 'failed',
+                                        'timestamp': datetime.now().isoformat()
+                                    })
+                                    log_universal('DEBUG', 'Parallel', f"Failed: {filename}")
+                                
+                                log_universal('INFO', 'Parallel', f"Batch {batch_num}: Completed {completed_count}/{len(batch_files)}: {filename}")
+                                    
+                            except Exception as e:
+                                log_universal('ERROR', 'Parallel', f"Error processing {filename}: {e}")
+                                results['failed_count'] += 1
+                                results['processed_files'].append({
+                                    'file_path': file_path,
+                                    'status': 'error',
+                                    'error': str(e),
+                                    'timestamp': datetime.now().isoformat()
+                                })
+                        
+                        # Cancel any remaining futures in this batch
+                        for future in future_to_file:
+                            if not future.done():
+                                future.cancel()
+                        
+                        results['batches_processed'] += 1
+                        
+                        # Force garbage collection between batches
+                        import gc
+                        gc.collect()
+                        
+                except Exception as e:
+                    log_universal('ERROR', 'Parallel', f"Error processing batch {batch_num}: {e}")
+                    # Mark remaining files in batch as failed
+                    for file_path in batch_files:
+                        if file_path not in [p['file_path'] for p in results['processed_files']]:
                             results['failed_count'] += 1
                             results['processed_files'].append({
                                 'file_path': file_path,
                                 'status': 'error',
-                                'error': str(e),
+                                'error': f"Batch processing failed: {str(e)}",
                                 'timestamp': datetime.now().isoformat()
                             })
-                    
-                    # Cancel any remaining futures
-                    for future in future_to_file:
-                        if not future.done():
-                            future.cancel()
             except Exception as e:
                 log_universal('ERROR', 'Parallel', f"Error creating process pool: {e}")
-                # Fall back to sequential processing
+                # Fall back to sequential processing with better error handling
                 log_universal('INFO', 'Parallel', "Falling back to sequential processing due to multiprocessing error")
                 for file_path in files:
                     try:

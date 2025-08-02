@@ -478,6 +478,7 @@ class AnalysisManager:
         # Process small files in parallel
         if small_files:
             log_universal('INFO', 'Analysis', f"Processing {len(small_files)} small files in parallel")
+            log_universal('INFO', 'Analysis', f"Parallel processing selected for files < {self.big_file_size_mb}MB")
             small_results = self.parallel_analyzer.process_files(
                 small_files, force_reextract, max_workers
             )

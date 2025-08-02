@@ -500,9 +500,10 @@ class ResourceManager:
                 optimal_workers = min(optimal_workers, max_workers)
             
             log_universal('INFO', 'Resource', f"Optimal worker count: {optimal_workers}")
-            log_universal('DEBUG', 'Resource', f"  Available memory: {available_gb:.2f}GB")
-            log_universal('DEBUG', 'Resource', f"  CPU count: {cpu_count}")
-            log_universal('DEBUG', 'Resource', f"  Memory-based workers: {memory_based_workers}")
+            log_universal('INFO', 'Resource', f"  Available memory: {available_gb:.2f}GB")
+            log_universal('INFO', 'Resource', f"  CPU count: {cpu_count}")
+            log_universal('INFO', 'Resource', f"  Memory-based workers: {memory_based_workers}")
+            log_universal('INFO', 'Resource', f"  Memory per worker: {memory_per_worker_gb:.1f}GB")
             
             return optimal_workers
             
