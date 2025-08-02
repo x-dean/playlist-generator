@@ -43,10 +43,9 @@ WORKDIR /app
 
 # Copy application code
 COPY src /app/src
-COPY tests /app/tests
 
 # Create directories with proper permissions
-RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/music /app/test-music
+RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/music
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \

@@ -15,7 +15,7 @@ This application follows **Clean Architecture** principles with clear separation
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.7+
 - Docker & Docker Compose
 - FFmpeg (for audio processing)
 
@@ -27,10 +27,7 @@ git clone <repository-url>
 cd playlist-generator-simple
 
 # Install dependencies
-make install
-
-# Run tests
-make test
+pip install -r requirements.txt
 
 # Start the application
 python -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
@@ -40,54 +37,18 @@ python -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 ```bash
 # Build and run with Docker Compose
-make docker-build
-make docker-run
+docker-compose up --build
 
-# Run tests in Docker
-make docker-test
-
-# Start monitoring stack
-make monitoring
+# Or build and run manually
+docker build -t playlist-generator .
+docker run -p 8000:8000 playlist-generator
 ```
-
-## 🧪 Testing
-
-### Test Types
-
-- **Unit Tests**: Domain entities, use cases, and infrastructure components
-- **Integration Tests**: End-to-end workflows and data persistence
-- **Monitoring Tests**: Logging, metrics, and performance monitoring
-
-### Running Tests
-
-```bash
-# All tests
-make test
-
-# Specific test types
-make test-unit
-make test-integration
-make test-monitoring
-
-# With coverage
-make coverage
-
-# Full test suite with reports
-make test-full
-```
-
-### Test Results
-
-- **46/46 tests passing** ✅
-- **Coverage**: Comprehensive test coverage across all layers
-- **Reports**: HTML coverage reports and detailed test reports
 
 ## 📊 Monitoring & Observability
 
 ### Metrics Collection
 
 - **Prometheus**: Application and system metrics
-- **Grafana**: Beautiful dashboards for visualization
 - **Custom Metrics**: Track analysis, repository operations, and use case executions
 
 ### Logging
@@ -107,28 +68,18 @@ make test-full
 ### Services
 
 - **playlist-generator**: Main application (port 8000)
-- **test-runner**: Dedicated testing service
-- **prometheus**: Metrics collection (port 9090)
-- **grafana**: Metrics visualization (port 3000)
-- **redis**: Caching layer (port 6379)
 
 ### Commands
 
 ```bash
 # Build all services
-docker-compose -f docker-compose.test.yml build
+docker-compose build
 
 # Run application
-docker-compose -f docker-compose.test.yml up playlist-generator
-
-# Run tests
-docker-compose -f docker-compose.test.yml up test-runner
-
-# Start monitoring stack
-docker-compose -f docker-compose.test.yml up prometheus grafana
+docker-compose up
 
 # View logs
-docker-compose -f docker-compose.test.yml logs -f
+docker-compose logs -f
 ```
 
 ## 📚 API Documentation
@@ -153,19 +104,6 @@ GET  /api/v1/stats/analysis    - Get analysis statistics
 
 ## 🔧 Development
 
-### Code Quality
-
-```bash
-# Format code
-make format
-
-# Run linting
-make lint
-
-# Security checks
-make security
-```
-
 ### Project Structure
 
 ```
@@ -175,14 +113,10 @@ playlist-generator-simple/
 │   ├── application/      # Use cases, commands, queries
 │   ├── infrastructure/   # Repositories, services, config
 │   └── api/             # FastAPI routes and models
-├── tests/               # Comprehensive test suite
-├── monitoring/          # Prometheus and Grafana configs
-├── scripts/            # Test runner and utilities
-├── docker-compose.test.yml
+├── docker-compose.yml
 ├── Dockerfile
-├── Dockerfile.test
 ├── requirements.txt
-└── Makefile
+└── README.md
 ```
 
 ## 🎯 Features
@@ -197,11 +131,9 @@ playlist-generator-simple/
 
 ### Quality & Monitoring
 
-- ✅ **Comprehensive Testing**: 46 tests with 100% pass rate
 - ✅ **Structured Logging**: Colored console and file logging
 - ✅ **Metrics Collection**: Prometheus integration
 - ✅ **Health Monitoring**: Application and system health checks
-- ✅ **Code Quality**: Linting, formatting, and security checks
 
 ### Architecture
 
@@ -233,7 +165,6 @@ playlist-generator-simple/
 ### Security Features
 
 - **Input Validation**: Pydantic model validation
-- **Security Scanning**: Safety and Bandit integration
 - **Error Handling**: Secure error responses
 - **CORS Configuration**: Cross-origin request handling
 
@@ -253,16 +184,14 @@ playlist-generator-simple/
 PYTHONPATH=/app
 LOG_LEVEL=INFO
 PROMETHEUS_MULTIPROC_DIR=/tmp
-TEST_MODE=false
 ```
 
 ## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Run tests: `make test`
-4. Ensure code quality: `make lint`
-5. Submit a pull request
+3. Ensure code quality
+4. Submit a pull request
 
 ## 📄 License
 
@@ -272,7 +201,6 @@ This project is licensed under the MIT License.
 
 - **Issues**: Report bugs and feature requests
 - **Documentation**: API docs and architecture guides
-- **Monitoring**: Grafana dashboards for system health
 - **Logs**: Structured logging for debugging
 
 ---
