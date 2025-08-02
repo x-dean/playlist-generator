@@ -26,14 +26,14 @@ requests
 musicbrainzngs
 
 # API and web framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-pydantic-settings==2.1.0
+fastapi
+uvicorn
+pydantic
+pydantic-settings
 
 # Monitoring and metrics
-prometheus-client==0.19.0
+prometheus-client
 
 # Additional utilities
-click==8.1.7
-python-multipart==0.0.6 
+click
+python-multipart
