@@ -1697,9 +1697,16 @@ class AudioAnalyzer:
             # Use external BPM if available and main BPM is None
             if bpm is None and 'external_bpm' in features:
                 bpm = features.get('external_bpm')
+                log_universal('INFO', 'Audio', f'Using metadata BPM as fallback: {bpm:.1f}')
+            elif bpm == -1 and 'external_bpm' in features:
+                # Rhythm extraction failed, but we have metadata BPM
+                bpm = features.get('external_bpm')
+                log_universal('INFO', 'Audio', f'Rhythm extraction failed, using metadata BPM: {bpm:.1f}')
+            elif bpm == -1:
+                log_universal('WARNING', 'Audio', 'Rhythm extraction failed and no metadata BPM available')
             
             # Set default values for None features
-            if bpm is None:
+            if bpm is None or bpm == -1:
                 bpm = -1
             if spectral_centroid is None:
                 spectral_centroid = 0
@@ -1714,17 +1721,55 @@ class AudioAnalyzer:
             mfcc_variance = np.var(mfcc_coefficients) if mfcc_coefficients else 0
             chroma_variance = np.var(chroma_mean) if chroma_mean else 0
             
-            # Extract MusiCNN tag scores
-            speechiness = tags.get('speechiness', 0) if isinstance(tags, dict) else 0
-            instrumentalness = tags.get('instrumentalness', 0) if isinstance(tags, dict) else 0
-            acousticness = tags.get('acousticness', 0) if isinstance(tags, dict) else 0
-            electronic_score = tags.get('electronic', 0) if isinstance(tags, dict) else 0
-            dance_score = tags.get('dance', 0) if isinstance(tags, dict) else 0
-            rock_score = tags.get('rock', 0) if isinstance(tags, dict) else 0
+            # Extract MusiCNN tag scores (using actual MusiCNN tag names)
+            # Map common MusiCNN tags to categorization features
+            electronic_score = 0
+            dance_score = 0
+            rock_score = 0
+            speechiness = 0
+            acousticness = 0
+            
+            if isinstance(tags, dict):
+                # Map actual MusiCNN tags to categorization features
+                for tag, score in tags.items():
+                    tag_lower = tag.lower()
+                    
+                    # Electronic/Dance/Trance music (actual MusiCNN tags)
+                    if tag_lower in ['electronic', 'dance', 'electronica', 'electro', 'house', 'party']:
+                        electronic_score = max(electronic_score, score)
+                    # Pop/Dance music
+                    elif tag_lower in ['pop', 'dance', 'funk', 'catchy']:
+                        dance_score = max(dance_score, score)
+                    # Rock/Metal music
+                    elif tag_lower in ['rock', 'metal', 'punk', 'alternative', 'alternative rock', 'classic rock', 'hard rock', 'heavy metal', 'progressive rock']:
+                        rock_score = max(rock_score, score)
+                    # Vocal content
+                    elif tag_lower in ['female vocalists', 'male vocalists', 'female vocalist']:
+                        speechiness = max(speechiness, score)
+                    # Acoustic/Folk music
+                    elif tag_lower in ['acoustic', 'folk', 'country', 'jazz', 'blues', 'mellow', 'easy listening']:
+                        acousticness = max(acousticness, score)
+                    # Chill/Ambient (could be electronic)
+                    elif tag_lower in ['chill', 'chillout', 'ambient']:
+                        electronic_score = max(electronic_score, score * 0.7)
+                    # Instrumental (could be electronic)
+                    elif tag_lower == 'instrumental':
+                        electronic_score = max(electronic_score, score * 0.6)
+                    # Experimental (could be electronic)
+                    elif tag_lower == 'experimental':
+                        electronic_score = max(electronic_score, score * 0.5)
+                    # Non-electronic genres (ignore for electronic detection)
+                    elif tag_lower in ['rnb', 'soul', 'hip-hop', 'indie', 'indie rock', 'indie pop', 'oldies', '60s', '70s', '80s', '90s', '00s']:
+                        pass
+                    # Special handling for potentially misleading tags in electronic music
+                    elif tag_lower in ['mellow', 'beautiful', 'sexy', 'sad', 'happy']:
+                        # These are mood tags that could apply to any genre
+                        # Don't count them strongly for any category
+                        pass
             
             # Debug logging for MusiCNN tags
             log_universal('DEBUG', 'Audio', f'MusiCNN tags available: {list(tags.keys()) if isinstance(tags, dict) else "No tags"}')
-            log_universal('DEBUG', 'Audio', f'MusiCNN scores: speechiness={speechiness:.2f}, electronic={electronic_score:.2f}, dance={dance_score:.2f}, rock={rock_score:.2f}')
+            log_universal('DEBUG', 'Audio', f'Mapped MusiCNN scores: electronic={electronic_score:.2f}, dance={dance_score:.2f}, rock={rock_score:.2f}, speechiness={speechiness:.2f}, acousticness={acousticness:.2f}')
 
             log_universal('DEBUG', 'Audio', f'Enhanced categorization with: BPM={bpm}, Confidence={confidence:.2f}, '
                           f'Spectral_Centroid={spectral_centroid:.0f}, Spectral_Flatness={spectral_flatness:.2f}, '
@@ -1744,8 +1789,20 @@ class AudioAnalyzer:
                 (bpm > 0 and bpm < 100 and confidence < 0.7 and
                  spectral_centroid < 3000 and spectral_flatness > 0.25 and
                  mfcc_variance < 0.1)):
-                log_universal('INFO', 'Audio', 'Detected as podcast based on speech-like characteristics')
+                log_universal('INFO', 'Audio', f'Detected as podcast based on speech-like characteristics (speechiness={speechiness:.2f})')
                 return 'podcast'
+
+            # 1.5. Radio Show detection (mixed electronic content with consistent BPM)
+            # - Medium electronic score from MusiCNN OR consistent BPM characteristics
+            # - Consistent BPM (120-140 typical for trance)
+            # - High confidence (consistent rhythm)
+            # - High spectral centroid (rich harmonics)
+            # - Low spectral flatness (tonal content)
+            if ((electronic_score > 0.2 or  # MusiCNN electronic score
+                 (bpm > 0 and 110 <= bpm <= 150 and confidence > 0.5 and  # OR consistent BPM
+                  spectral_centroid > 2000 and spectral_flatness < 0.5))):  # AND spectral characteristics
+                log_universal('INFO', 'Audio', f'Detected as radio show based on characteristics (electronic={electronic_score:.2f}, BPM={bpm:.1f}, confidence={confidence:.2f})')
+                return 'radio'
 
             # 2. Electronic/Dance Mix detection (high energy, consistent electronic music)
             # - High electronic score from MusiCNN
@@ -1755,12 +1812,12 @@ class AudioAnalyzer:
             # - Low spectral flatness (tonal content)
             # - High loudness (energy)
             # - Low chroma variance (consistent key)
-            if (electronic_score > 0.7 or dance_score > 0.8 or
+            if ((electronic_score > 0.3 or dance_score > 0.4 or  # Lowered thresholds for MusiCNN scores
                 (bpm > 0 and bpm > 120 and confidence > 0.6 and
                  spectral_centroid > 2500 and spectral_flatness < 0.4 and
-                 loudness > 0.4 and chroma_variance < 0.2)):
-                log_universal('INFO', 'Audio', 'Detected as long mix based on electronic/dance characteristics')
-                return 'long_mix'
+                 loudness > 0.4 and chroma_variance < 0.2))):
+                log_universal('INFO', 'Audio', f'Detected as electronic mix based on electronic/dance characteristics (electronic={electronic_score:.2f}, dance={dance_score:.2f})')
+                return 'electronic_mix'
 
             # 3. Rock/Alternative Mix detection
             # - High rock score from MusiCNN
@@ -1770,8 +1827,8 @@ class AudioAnalyzer:
             if (rock_score > 0.7 or
                 (bpm > 0 and 100 <= bpm <= 140 and dynamic_complexity > 0.6 and
                  spectral_centroid > 2000 and spectral_flatness < 0.5)):
-                log_universal('INFO', 'Audio', 'Detected as long mix based on rock/alternative characteristics')
-                return 'long_mix'
+                log_universal('INFO', 'Audio', 'Detected as rock mix based on rock/alternative characteristics')
+                return 'rock_mix'
 
             # 4. Acoustic/Classical Mix detection
             # - High acousticness from MusiCNN
@@ -1781,8 +1838,8 @@ class AudioAnalyzer:
             if (acousticness > 0.7 and electronic_score < 0.3 or
                 (bpm > 0 and 60 <= bpm <= 120 and spectral_centroid < 2500 and
                  spectral_flatness < 0.4 and acousticness > 0.5)):
-                log_universal('INFO', 'Audio', 'Detected as long mix based on acoustic/classical characteristics')
-                return 'long_mix'
+                log_universal('INFO', 'Audio', 'Detected as acoustic mix based on acoustic/classical characteristics')
+                return 'acoustic_mix'
 
             # 5. Radio detection (mixed content, variable characteristics)
             # - Medium BPM range (mixed music)
@@ -1793,7 +1850,7 @@ class AudioAnalyzer:
             if (bpm > 0 and 70 <= bpm <= 150 and 0.3 <= confidence <= 0.8 and
                 spectral_centroid > 1500 and spectral_flatness < 0.5 and
                 mfcc_variance > 0.15 and chroma_variance > 0.1):
-                log_universal('INFO', 'Audio', 'Detected as radio based on mixed content characteristics')
+                log_universal('INFO', 'Audio', f'Detected as radio based on mixed content characteristics (BPM={bpm:.1f}, confidence={confidence:.2f})')
                 return 'radio'
 
             # 6. Compilation detection (variable characteristics)
@@ -1808,51 +1865,194 @@ class AudioAnalyzer:
                 log_universal('INFO', 'Audio', 'Detected as compilation based on variable characteristics')
                 return 'compilation'
 
-            # 7. Fallback categorization based on strongest indicators
+            # 7. Enhanced fallback categorization using comprehensive feature analysis
             if bpm > 0:
-                if bpm > 120 and confidence > 0.5:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as long mix based on high BPM and confidence')
-                    return 'long_mix'
-                elif bpm < 90 and confidence < 0.6:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as podcast based on low BPM and confidence')
-                    return 'podcast'
-                elif spectral_flatness > 0.4 and mfcc_variance > 0.2:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as compilation based on high spectral flatness and MFCC variance')
-                    return 'compilation'
+                # Calculate feature scores for better decision making
+                electronic_indicators = 0
+                dance_indicators = 0
+                rock_indicators = 0
+                acoustic_indicators = 0
+                speech_indicators = 0
+                
+                # Score based on BPM
+                if 120 <= bpm <= 140:  # Typical electronic/dance range
+                    electronic_indicators += 2
+                    dance_indicators += 2
+                elif 140 < bpm <= 160:  # High energy dance
+                    dance_indicators += 3
+                elif 80 <= bpm <= 120:  # Rock/pop range
+                    rock_indicators += 1
+                elif bpm < 80:  # Slow/ambient
+                    acoustic_indicators += 1
+                
+                # Score based on confidence
+                if confidence > 0.7:  # Strong rhythm
+                    dance_indicators += 1
+                    electronic_indicators += 1
+                elif confidence < 0.4:  # Weak rhythm
+                    speech_indicators += 1
+                
+                # Score based on spectral characteristics
+                if spectral_centroid > 2500:  # Rich harmonics (electronic)
+                    electronic_indicators += 1
+                elif spectral_centroid < 1500:  # Low frequencies (speech/acoustic)
+                    speech_indicators += 1
+                    acoustic_indicators += 1
+                
+                if spectral_flatness < 0.3:  # Tonal content (music)
+                    electronic_indicators += 1
+                    dance_indicators += 1
+                elif spectral_flatness > 0.5:  # Noise-like (speech/ambient)
+                    speech_indicators += 1
+                
+                # Score based on loudness
+                if loudness > 0.6:  # High energy
+                    dance_indicators += 1
+                elif loudness < 0.3:  # Low energy
+                    acoustic_indicators += 1
+                
+                # Score based on MFCC variance
+                if mfcc_variance > 0.2:  # Variable content
+                    speech_indicators += 1
+                elif mfcc_variance < 0.1:  # Consistent content
+                    electronic_indicators += 1
+                
+                # Score based on chroma variance
+                if chroma_variance > 0.15:  # Key changes
+                    speech_indicators += 1
+                elif chroma_variance < 0.1:  # Consistent key
+                    electronic_indicators += 1
+                
+                # Add MusiCNN scores (weighted)
+                electronic_indicators += electronic_score * 2
+                dance_indicators += dance_score * 2
+                rock_indicators += rock_score * 2
+                speech_indicators += speechiness * 2
+                acoustic_indicators += acousticness * 2
+                
+                # Determine category based on highest score
+                scores = {
+                    'electronic': electronic_indicators,
+                    'dance': dance_indicators,
+                    'rock': rock_indicators,
+                    'acoustic': acoustic_indicators,
+                    'speech': speech_indicators
+                }
+                
+                best_category = max(scores, key=scores.get)
+                best_score = scores[best_category]
+                
+                log_universal('INFO', 'Audio', f'Enhanced fallback analysis - Scores: {scores}')
+                
+                if best_score >= 3:  # Strong indication
+                    if best_category in ['electronic', 'dance']:
+                        log_universal('INFO', 'Audio', f'Fallback: Detected as electronic mix based on {best_category} characteristics (score={best_score:.1f})')
+                        return 'electronic_mix'
+                    elif best_category == 'speech':
+                        log_universal('INFO', 'Audio', f'Fallback: Detected as podcast based on speech characteristics (score={best_score:.1f})')
+                        return 'podcast'
+                    elif best_category == 'rock':
+                        log_universal('INFO', 'Audio', f'Fallback: Detected as rock mix based on rock characteristics (score={best_score:.1f})')
+                        return 'rock_mix'
+                    elif best_category == 'acoustic':
+                        log_universal('INFO', 'Audio', f'Fallback: Detected as acoustic mix based on acoustic characteristics (score={best_score:.1f})')
+                        return 'acoustic_mix'
                 else:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as radio based on medium characteristics')
-                    return 'radio'
+                    # Weak indicators - use BPM-based fallback
+                    if bpm > 120 and confidence > 0.5:
+                        log_universal('INFO', 'Audio', f'Fallback: Detected as electronic mix based on high BPM ({bpm:.1f}) and confidence ({confidence:.2f})')
+                        return 'electronic_mix'
+                    elif bpm < 90 and confidence < 0.6:
+                        log_universal('INFO', 'Audio', f'Fallback: Detected as podcast based on low BPM ({bpm:.1f}) and confidence ({confidence:.2f})')
+                        return 'podcast'
+                    else:
+                        log_universal('INFO', 'Audio', f'Fallback: Detected as radio based on medium characteristics (BPM={bpm:.1f}, confidence={confidence:.2f})')
+                        return 'radio'
             
-            # 8. Handle failed rhythm extraction (BPM = -1)
+            # 8. Handle failed rhythm extraction (BPM = -1) with enhanced analysis
             if bpm == -1:
-                log_universal('INFO', 'Audio', 'Rhythm extraction failed, using advanced features for categorization')
-                # Use comprehensive features when BPM extraction fails
-                if electronic_score > 0.6 or dance_score > 0.7:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as long mix based on electronic/dance tags')
-                    return 'long_mix'
-                elif speechiness > 0.5:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as podcast based on speechiness')
-                    return 'podcast'
-                elif spectral_centroid > 2500 and spectral_flatness < 0.3 and mfcc_variance < 0.15:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as long mix based on spectral characteristics')
-                    return 'long_mix'
-                elif spectral_flatness > 0.4 and mfcc_variance > 0.2:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as compilation based on spectral flatness and MFCC variance')
-                    return 'compilation'
-                elif spectral_centroid < 2000:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as podcast based on low spectral centroid')
-                    return 'podcast'
+                log_universal('INFO', 'Audio', 'Rhythm extraction failed, using comprehensive features for categorization')
+                
+                # Calculate feature scores without BPM
+                electronic_indicators = electronic_score * 3  # Weight MusiCNN more heavily
+                dance_indicators = dance_score * 3
+                rock_indicators = rock_score * 3
+                acoustic_indicators = acousticness * 3
+                speech_indicators = speechiness * 3
+                
+                # Score based on spectral characteristics
+                if spectral_centroid > 2500:  # Rich harmonics (electronic)
+                    electronic_indicators += 2
+                elif spectral_centroid < 1500:  # Low frequencies (speech/acoustic)
+                    speech_indicators += 2
+                    acoustic_indicators += 1
+                
+                if spectral_flatness < 0.3:  # Tonal content (music)
+                    electronic_indicators += 1
+                    dance_indicators += 1
+                elif spectral_flatness > 0.5:  # Noise-like (speech/ambient)
+                    speech_indicators += 2
+                
+                # Score based on loudness
+                if loudness > 0.6:  # High energy
+                    dance_indicators += 1
+                elif loudness < 0.3:  # Low energy
+                    acoustic_indicators += 1
+                
+                # Score based on MFCC and chroma variance
+                if mfcc_variance > 0.2:  # Variable content
+                    speech_indicators += 1
+                elif mfcc_variance < 0.1:  # Consistent content
+                    electronic_indicators += 1
+                
+                if chroma_variance > 0.15:  # Key changes
+                    speech_indicators += 1
+                elif chroma_variance < 0.1:  # Consistent key
+                    electronic_indicators += 1
+                
+                # Determine category based on highest score
+                scores = {
+                    'electronic': electronic_indicators,
+                    'dance': dance_indicators,
+                    'rock': rock_indicators,
+                    'acoustic': acoustic_indicators,
+                    'speech': speech_indicators
+                }
+                
+                best_category = max(scores, key=scores.get)
+                best_score = scores[best_category]
+                
+                log_universal('INFO', 'Audio', f'No-BPM analysis - Scores: {scores}')
+                
+                if best_score >= 2:  # Strong indication
+                    if best_category in ['electronic', 'dance']:
+                        log_universal('INFO', 'Audio', f'No-BPM fallback: Detected as electronic mix based on {best_category} characteristics (score={best_score:.1f})')
+                        return 'electronic_mix'
+                    elif best_category == 'speech':
+                        log_universal('INFO', 'Audio', f'No-BPM fallback: Detected as podcast based on speech characteristics (score={best_score:.1f})')
+                        return 'podcast'
+                    elif best_category in ['rock', 'acoustic']:
+                        log_universal('INFO', 'Audio', f'No-BPM fallback: Detected as {best_category} mix based on {best_category} characteristics (score={best_score:.1f})')
+                        return f'{best_category}_mix'
                 else:
-                    log_universal('INFO', 'Audio', 'Fallback: Detected as radio based on spectral characteristics')
-                    return 'radio'
+                    # Weak indicators - use spectral characteristics
+                    if spectral_centroid > 2500 and spectral_flatness < 0.3:
+                        log_universal('INFO', 'Audio', 'No-BPM fallback: Detected as electronic mix based on spectral characteristics')
+                        return 'electronic_mix'
+                    elif spectral_centroid < 2000:
+                        log_universal('INFO', 'Audio', 'No-BPM fallback: Detected as podcast based on low spectral centroid')
+                        return 'podcast'
+                    else:
+                        log_universal('INFO', 'Audio', 'No-BPM fallback: Detected as radio based on spectral characteristics')
+                        return 'radio'
             
             # 9. Final fallback based on comprehensive characteristics
             if speechiness > 0.4:
                 log_universal('INFO', 'Audio', 'Final fallback: Detected as podcast based on speechiness')
                 return 'podcast'
             elif electronic_score > 0.5 or dance_score > 0.6:
-                log_universal('INFO', 'Audio', 'Final fallback: Detected as long mix based on electronic/dance tags')
-                return 'long_mix'
+                log_universal('INFO', 'Audio', 'Final fallback: Detected as electronic mix based on electronic/dance tags')
+                return 'electronic_mix'
             elif spectral_centroid < 2000:
                 log_universal('INFO', 'Audio', 'Final fallback: Detected as podcast based on low spectral centroid')
                 return 'podcast'
@@ -1860,12 +2060,12 @@ class AudioAnalyzer:
                 log_universal('INFO', 'Audio', 'Final fallback: Detected as compilation based on high spectral flatness and MFCC variance')
                 return 'compilation'
             else:
-                log_universal('INFO', 'Audio', 'Final fallback: Detected as long mix based on tonal characteristics')
-                return 'long_mix'
+                log_universal('INFO', 'Audio', 'Final fallback: Detected as electronic mix based on tonal characteristics')
+                return 'electronic_mix'
 
         except Exception as e:
             log_universal('WARNING', 'Audio', f"Error in audio feature categorization: {e}")
-            return 'long_mix'  # Safe fallback instead of None
+            return 'electronic_mix'  # Safe fallback instead of None
 
     def _extract_optimized_features_for_categorization(self, audio: np.ndarray, sample_rate: int,
                                                       metadata: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -1885,23 +2085,60 @@ class AudioAnalyzer:
         features = {}
         
         try:
-            # Sample middle 30 seconds for analysis (most representative for categorization)
+            # Sample 4 different 30-second segments for better representation
             sample_duration = 30  # seconds
             sample_size = sample_duration * sample_rate
-            start_sample = max(0, (len(audio) - sample_size) // 2)  # Middle of file
-            audio_sample = audio[start_sample:start_sample + sample_size]
+            total_duration = len(audio) / sample_rate
             
-            log_universal('INFO', 'Audio', f'Using {sample_duration}s sample from middle of {len(audio)/sample_rate/60:.1f}min track for categorization')
+            # Calculate 4 sample positions: 10%, 30%, 60%, 80% of track
+            positions = [0.1, 0.3, 0.6, 0.8]
+            audio_samples = []
             
-            # Extract lightweight rhythm features (BPM, confidence)
+            for i, pos in enumerate(positions):
+                start_sample = int(pos * len(audio))
+                end_sample = min(start_sample + sample_size, len(audio))
+                sample = audio[start_sample:end_sample]
+                audio_samples.append(sample)
+                log_universal('DEBUG', 'Audio', f'Sample {i+1}: {pos*100:.0f}% of track ({start_sample/sample_rate/60:.1f}min)')
+            
+            # Use the first sample for initial analysis, then combine results
+            audio_sample = audio_samples[0]
+            
+            log_universal('INFO', 'Audio', f'Using 4x{sample_duration}s samples from {len(audio)/sample_rate/60:.1f}min track for categorization')
+            
+            # Extract rhythm features from all 4 samples for better BPM detection
             if self.extract_rhythm:
-                log_universal('INFO', 'Audio', 'Starting rhythm analysis for categorization')
-                rhythm_features = self._extract_rhythm_features(audio_sample, sample_rate)
-                if rhythm_features:
-                    features.update(rhythm_features)
-                    log_universal('INFO', 'Audio', f'Rhythm features added: {list(rhythm_features.keys())}')
+                log_universal('INFO', 'Audio', 'Starting rhythm analysis for categorization (4 samples)')
+                
+                all_rhythm_features = []
+                all_bpms = []
+                
+                for i, sample in enumerate(audio_samples):
+                    log_universal('DEBUG', 'Audio', f'Analyzing rhythm sample {i+1}/4')
+                    sample_rhythm = self._extract_rhythm_features(sample, sample_rate)
+                    if sample_rhythm and 'bpm' in sample_rhythm:
+                        all_rhythm_features.append(sample_rhythm)
+                        all_bpms.append(sample_rhythm['bpm'])
+                
+                # Combine rhythm features from all samples
+                if all_rhythm_features:
+                    # Use median BPM (more robust than average)
+                    if all_bpms:
+                        median_bpm = np.median(all_bpms)
+                        features['bpm'] = float(median_bpm)
+                        features['bpm_estimates'] = all_bpms
+                        log_universal('INFO', 'Audio', f'Combined BPM from {len(all_bpms)} samples: median={median_bpm:.1f}, range={min(all_bpms):.1f}-{max(all_bpms):.1f}')
+                    
+                    # Use highest confidence from all samples
+                    confidences = [f.get('rhythm_confidence', 0) for f in all_rhythm_features]
+                    if confidences:
+                        max_confidence = max(confidences)
+                        features['rhythm_confidence'] = max_confidence
+                        log_universal('INFO', 'Audio', f'Best rhythm confidence: {max_confidence:.2f}')
+                    
+                    log_universal('INFO', 'Audio', f'Rhythm features combined from {len(all_rhythm_features)} samples')
                 else:
-                    log_universal('WARNING', 'Audio', 'Rhythm features extraction returned None')
+                    log_universal('WARNING', 'Audio', 'Rhythm features extraction returned None for all samples')
             else:
                 log_universal('INFO', 'Audio', f'Rhythm extraction disabled: extract_rhythm={self.extract_rhythm}')
             
@@ -1925,15 +2162,61 @@ class AudioAnalyzer:
                 mfcc_features = self._extract_mfcc_features(audio_sample, sample_rate)
                 features.update(mfcc_features)
             
-            # Extract MusiCNN on sample (for genre classification)
+            # Extract MusiCNN on all 4 samples for better genre classification
             if self.extract_musicnn and TENSORFLOW_AVAILABLE:
-                log_universal('INFO', 'Audio', 'Starting MusiCNN analysis for categorization')
-                musicnn_features = self._extract_musicnn_features(audio_sample, sample_rate)
-                if musicnn_features:
-                    features.update(musicnn_features)
-                    log_universal('INFO', 'Audio', f'MusiCNN features added: {list(musicnn_features.keys())}')
+                log_universal('INFO', 'Audio', 'Starting MusiCNN analysis for categorization (4 samples)')
+                
+                # Analyze all 4 samples and combine results
+                all_musicnn_features = []
+                all_tags = []
+                
+                for i, sample in enumerate(audio_samples):
+                    log_universal('DEBUG', 'Audio', f'Analyzing MusiCNN sample {i+1}/4')
+                    sample_features = self._extract_musicnn_features(sample, sample_rate)
+                    if sample_features:
+                        all_musicnn_features.append(sample_features)
+                        if 'tags' in sample_features:
+                            all_tags.append(sample_features['tags'])
+                
+                # Combine results from all samples
+                if all_musicnn_features:
+                    # Average embeddings from all samples
+                    embeddings = [f.get('embedding', []) for f in all_musicnn_features if 'embedding' in f]
+                    if embeddings:
+                        avg_embedding = np.mean(embeddings, axis=0).tolist()
+                        features['embedding'] = avg_embedding
+                        log_universal('INFO', 'Audio', f'Combined MusiCNN embedding from {len(embeddings)} samples')
+                    
+                    # Combine tags from all samples (average scores)
+                    if all_tags:
+                        combined_tags = {}
+                        tag_count = {}
+                        
+                        for tags in all_tags:
+                            if isinstance(tags, dict):
+                                for tag, score in tags.items():
+                                    if tag in combined_tags:
+                                        combined_tags[tag] += score
+                                        tag_count[tag] += 1
+                                    else:
+                                        combined_tags[tag] = score
+                                        tag_count[tag] = 1
+                        
+                        # Average the scores
+                        for tag in combined_tags:
+                            combined_tags[tag] /= tag_count[tag]
+                        
+                        features['tags'] = combined_tags
+                        log_universal('INFO', 'Audio', f'Combined MusiCNN tags from {len(all_tags)} samples')
+                        
+                        # Log top tags from combined analysis
+                        top_tags = sorted(combined_tags.items(), key=lambda x: x[1], reverse=True)[:5]
+                        top_tags_str = ', '.join([f'{tag}: {score:.2f}' for tag, score in top_tags])
+                        log_universal('INFO', 'Audio', f'Combined top MusiCNN tags: {top_tags_str}')
+                    
+                    log_universal('INFO', 'Audio', f'MusiCNN features combined from {len(all_musicnn_features)} samples')
                 else:
-                    log_universal('WARNING', 'Audio', 'MusiCNN features extraction returned None')
+                    log_universal('WARNING', 'Audio', 'MusiCNN features extraction returned None for all samples')
             else:
                 log_universal('INFO', 'Audio', f'MusiCNN extraction disabled: extract_musicnn={self.extract_musicnn}, TENSORFLOW_AVAILABLE={TENSORFLOW_AVAILABLE}')
             

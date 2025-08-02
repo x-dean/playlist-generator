@@ -145,7 +145,7 @@ class ParallelAnalyzer:
                 
                 # Create analyzer instance with configuration
                 analysis_config = self._get_analysis_config(files[0]) if files else {}
-                analyzer = AudioAnalyzer(config=analysis_config)
+                analyzer = AudioAnalyzer(config=analysis_config, processing_mode='parallel')
                 
                 log_universal('DEBUG', 'Parallel', f"Thread {threading.current_thread().ident} initialized")
             except Exception as e:
@@ -160,7 +160,7 @@ class ParallelAnalyzer:
                 analysis_config = self._get_analysis_config(file_path)
                 
                 # Create analyzer instance for this thread
-                analyzer = AudioAnalyzer(config=analysis_config)
+                analyzer = AudioAnalyzer(config=analysis_config, processing_mode='parallel')
                 
                 # Analyze the file
                 result = analyzer.analyze_audio_file(file_path, force_reextract)
@@ -455,7 +455,7 @@ class ParallelAnalyzer:
                 analysis_type = 'basic'
                 use_full_analysis = False
             
-            # Enable MusiCNN for parallel processing (smaller files)
+            # Enable MusiCNN for parallel processing (all files, with optimized sampling for long tracks)
             enable_musicnn = True
             
             analysis_config = {
