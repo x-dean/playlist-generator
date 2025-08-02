@@ -1192,8 +1192,17 @@ class AudioAnalyzer:
                         with open(json_path, 'r') as f:
                             musicnn_config = json.load(f)
                         log_universal('DEBUG', 'Audio', 'Loaded MusiCNN JSON configuration')
+                        log_universal('DEBUG', 'Audio', f'JSON config keys: {list(musicnn_config.keys())}')
+                        # Use 'classes' key like the old working setup
+                        tag_names = musicnn_config.get('classes', [])
+                        if tag_names:
+                            log_universal('DEBUG', 'Audio', f'Tag names in config: {len(tag_names)}')
+                        else:
+                            log_universal('WARNING', 'Audio', 'No classes found in JSON config')
                     except Exception as e:
                         log_universal('WARNING', 'Audio', f'Failed to load MusiCNN JSON config: {e}')
+                else:
+                    log_universal('WARNING', 'Audio', f'MusiCNN JSON config not found: {json_path}')
                 
                 # Extract features if model is available
                 if hasattr(self, '_musicnn_session') or self._musicnn_model is not None:
@@ -1279,24 +1288,20 @@ class AudioAnalyzer:
                     
                     if tags is not None:
                         # Map tag indices to tag names if available in config
-                        tag_names = musicnn_config.get('tag_names', [])
-                        if tag_names and hasattr(tags, 'flatten'):
+                        tag_names = musicnn_config.get('classes', [])  # Use 'classes' like old working setup
+                        if hasattr(tags, 'flatten'):
                             tag_probs = tags.flatten()
-                            # Create dictionary mapping tag names to probabilities
-                            features['tags'] = {tag_names[i]: float(tag_probs[i]) for i in range(min(len(tag_names), len(tag_probs)))}
-                        else:
-                            # Handle case where tags is a raw array/list
-                            if hasattr(tags, 'flatten'):
-                                tag_probs = tags.flatten()
-                                if tag_names:
-                                    # Map to tag names if available
-                                    features['tags'] = {tag_names[i]: float(tag_probs[i]) for i in range(min(len(tag_names), len(tag_probs)))}
-                                else:
-                                    # Return as list if no tag names available
-                                    features['tags'] = tag_probs.tolist()
+                            if tag_names and len(tag_probs) == len(tag_names):
+                                # Create dictionary mapping tag names to probabilities (like old working setup)
+                                features['tags'] = dict(zip(tag_names, [float(prob) for prob in tag_probs]))
+                                log_universal('DEBUG', 'Audio', f'Mapped {len(tag_probs)} tag probabilities to {len(tag_names)} tag names')
                             else:
-                                # Fallback to list format
-                                features['tags'] = tags.tolist() if hasattr(tags, 'tolist') else tags
+                                # Return as list if no tag names available or count mismatch
+                                features['tags'] = tag_probs.tolist()
+                                log_universal('DEBUG', 'Audio', f'Tag names count: {len(tag_names)}, tag probs count: {len(tag_probs)}')
+                        else:
+                            # Fallback to list format
+                            features['tags'] = tags.tolist() if hasattr(tags, 'tolist') else tags
                     else:
                         features['tags'] = {}
                     
@@ -1313,13 +1318,13 @@ class AudioAnalyzer:
                             log_universal('INFO', 'Audio', f'Top MusiCNN tags: {tag_summary}')
                         elif isinstance(features['tags'], list):
                             # Convert raw tag probabilities to named tags
-                            tag_names = musicnn_config.get('tag_names', [])
+                            tag_names = musicnn_config.get('classes', [])  # Use 'classes' like old working setup
+                            log_universal('DEBUG', 'Audio', f'Tag names available: {len(tag_names) if tag_names else 0}')
+                            log_universal('DEBUG', 'Audio', f'Tag values count: {len(features["tags"])}')
+                            
                             if tag_names and len(features['tags']) == len(tag_names):
-                                # Create dictionary with tag names
-                                named_tags = {}
-                                for i, prob in enumerate(features['tags']):
-                                    if i < len(tag_names):
-                                        named_tags[tag_names[i]] = float(prob)
+                                # Create dictionary with tag names (like old working setup)
+                                named_tags = dict(zip(tag_names, [float(prob) for prob in features['tags']]))
                                 features['tags'] = named_tags
                                 
                                 # Log top tags
@@ -1330,6 +1335,7 @@ class AudioAnalyzer:
                             else:
                                 log_universal('INFO', 'Audio', f'MusiCNN tags returned as list with {len(features["tags"])} values')
                                 log_universal('DEBUG', 'Audio', f'First 5 tag values: {features["tags"][:5]}')
+                                log_universal('DEBUG', 'Audio', f'Tag names count: {len(tag_names) if tag_names else 0}')
                         else:
                             log_universal('WARNING', 'Audio', f'Unexpected tags format: {type(features["tags"])}')
                     else:
