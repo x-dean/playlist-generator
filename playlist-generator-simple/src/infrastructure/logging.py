@@ -170,6 +170,26 @@ def setup_logging(config: Dict[str, Any] = None):
         file_path=config.get('file_path', 'logs/playlista.log'),
         level=config.get('level', 'INFO')
     )
+    
+    # Configure TensorFlow logging to suppress warnings
+    try:
+        import os
+        import tensorflow as tf
+        
+        # Set TensorFlow environment variables to suppress warnings
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Hide INFO and WARNING, show only ERROR
+        os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimization messages
+        
+        # Configure TensorFlow logger
+        tf_logger = tf.get_logger()
+        tf_logger.setLevel(logging.ERROR)  # Only show ERROR level
+        
+        # Suppress TensorFlow warnings about network creation
+        tf.autograph.set_verbosity(0)
+        
+    except ImportError:
+        # TensorFlow not available, skip configuration
+        pass
 
 
 def log_universal(message: str, level: str = "info", **kwargs):

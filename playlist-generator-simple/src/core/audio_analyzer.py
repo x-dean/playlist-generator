@@ -1259,9 +1259,21 @@ class AudioAnalyzer:
                         tag_names = musicnn_config.get('tag_names', [])
                         if tag_names and hasattr(tags, 'flatten'):
                             tag_probs = tags.flatten()
+                            # Create dictionary mapping tag names to probabilities
                             features['tags'] = {tag_names[i]: float(tag_probs[i]) for i in range(min(len(tag_names), len(tag_probs)))}
                         else:
-                            features['tags'] = tags.tolist() if hasattr(tags, 'tolist') else tags
+                            # Handle case where tags is a raw array/list
+                            if hasattr(tags, 'flatten'):
+                                tag_probs = tags.flatten()
+                                if tag_names:
+                                    # Map to tag names if available
+                                    features['tags'] = {tag_names[i]: float(tag_probs[i]) for i in range(min(len(tag_names), len(tag_probs)))}
+                                else:
+                                    # Return as list if no tag names available
+                                    features['tags'] = tag_probs.tolist()
+                            else:
+                                # Fallback to list format
+                                features['tags'] = tags.tolist() if hasattr(tags, 'tolist') else tags
                     else:
                         features['tags'] = {}
                     
@@ -1270,10 +1282,17 @@ class AudioAnalyzer:
                     
                     # Log top tags with confidence scores
                     if features['tags']:
-                        sorted_tags = sorted(features['tags'].items(), key=lambda x: x[1], reverse=True)
-                        top_tags = sorted_tags[:5]  # Top 5 tags
-                        tag_summary = ', '.join([f"{tag}: {conf:.2f}" for tag, conf in top_tags])
-                        log_universal('INFO', 'Audio', f'Top MusiCNN tags: {tag_summary}')
+                        # Handle both dict and list formats
+                        if isinstance(features['tags'], dict):
+                            sorted_tags = sorted(features['tags'].items(), key=lambda x: x[1], reverse=True)
+                            top_tags = sorted_tags[:5]  # Top 5 tags
+                            tag_summary = ', '.join([f"{tag}: {conf:.2f}" for tag, conf in top_tags])
+                            log_universal('INFO', 'Audio', f'Top MusiCNN tags: {tag_summary}')
+                        elif isinstance(features['tags'], list):
+                            log_universal('INFO', 'Audio', f'MusiCNN tags returned as list with {len(features["tags"])} values')
+                            log_universal('DEBUG', 'Audio', f'First 5 tag values: {features["tags"][:5]}')
+                        else:
+                            log_universal('WARNING', 'Audio', f'Unexpected tags format: {type(features["tags"])}')
                     else:
                         log_universal('WARNING', 'Audio', 'No MusiCNN tags extracted')
                 else:
