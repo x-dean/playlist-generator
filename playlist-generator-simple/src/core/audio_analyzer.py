@@ -1677,6 +1677,9 @@ class AudioAnalyzer:
         Returns:
             Category string or None if cannot determine
         """
+        log_universal('DEBUG', 'Audio', f'Starting audio feature categorization with {len(features)} features')
+        log_universal('DEBUG', 'Audio', f'Available features: {list(features.keys())}')
+        
         try:
             # Extract basic features with None handling
             bpm = features.get('bpm')
@@ -1878,6 +1881,7 @@ class AudioAnalyzer:
         Returns:
             Dictionary with optimized features for categorization
         """
+        log_universal('INFO', 'Audio', f'Starting optimized categorization analysis: audio_length={len(audio)}, sample_rate={sample_rate}')
         features = {}
         
         try:
