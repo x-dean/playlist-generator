@@ -53,7 +53,7 @@ DEFAULT_FRAME_SIZE = 2048
 DEFAULT_TIMEOUT_SECONDS = 600
 
 
-def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[str, Any] = None) -> Tuple[Optional[np.ndarray], Optional[int]]:
+def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[str, Any] = None, processing_mode: str = 'parallel') -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
     Safely load audio file using Essentia with fallback to librosa.
     Implements aggressive memory management for parallel processing.
@@ -91,9 +91,13 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
                 log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
                 return None, None
             
-            # Configurable limits for parallel processing
-            max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
-            warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500) if config else 500
+            # Configurable limits based on processing mode
+            if processing_mode == 'sequential':
+                max_file_size_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 2000) if config else 2000
+                warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500) if config else 500
+            else:  # parallel
+                max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
+                warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500) if config else 500
             
             # Skip large files to prevent RAM saturation
             if file_size_mb > max_file_size_mb:
@@ -119,7 +123,10 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
             log_universal('DEBUG', 'Audio', f'Loading {os.path.basename(audio_path)} with Essentia MonoLoader')
             
             # For large files, try to load only a sample
-            sample_threshold_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
+            if processing_mode == 'sequential':
+                sample_threshold_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 2000) if config else 2000
+            else:  # parallel
+                sample_threshold_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
             if file_size_mb > sample_threshold_mb:  # Files larger than threshold
                 log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - loading sample only')
                 try:
@@ -161,7 +168,10 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
                     import librosa
                     
                     # For large files, use offset and duration to load only a portion
-                    sample_threshold_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
+                    if processing_mode == 'sequential':
+                        sample_threshold_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 2000) if config else 2000
+                    else:  # parallel
+                        sample_threshold_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
                     if file_size_mb > sample_threshold_mb:
                         log_universal('INFO', 'Audio', f'Loading 30-second sample with librosa for {os.path.basename(audio_path)}')
                         audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True, duration=30)
@@ -194,7 +204,7 @@ class AudioAnalyzer:
     - Fallback mechanisms for missing libraries
     """
     
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Dict[str, Any] = None, processing_mode: str = 'parallel'):
         """
         Initialize audio analyzer.
         
@@ -205,6 +215,7 @@ class AudioAnalyzer:
             config = config_loader.get_audio_analysis_config()
         
         self.config = config
+        self.processing_mode = processing_mode
         self.db_manager = get_db_manager()
         
         # Analysis settings
@@ -297,7 +308,7 @@ class AudioAnalyzer:
             return self._create_basic_analysis_for_large_file(file_path, file_size, file_hash, metadata)
         
         # Load audio data
-        audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config)
+        audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
         if audio is None:
             log_universal('ERROR', 'Audio', f'Failed to load audio: {os.path.basename(file_path)}')
             return None

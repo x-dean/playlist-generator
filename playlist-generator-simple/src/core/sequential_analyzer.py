@@ -232,8 +232,8 @@ class SequentialAnalyzer:
             # Get analysis configuration
             analysis_config = self._get_analysis_config(file_path)
             
-            # Create analyzer instance with configuration
-            analyzer = AudioAnalyzer(config=analysis_config)
+            # Create analyzer instance with configuration for sequential processing
+            analyzer = AudioAnalyzer(config=analysis_config, processing_mode='sequential')
             
             # Extract features
             analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
