@@ -74,13 +74,14 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
         try:
             import psutil
             available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
-            if available_memory_mb < 500:  # Less than 500MB available
+            min_memory_mb = self.config.get('MIN_MEMORY_FOR_FULL_ANALYSIS_GB', 2.0) * 1024  # Convert GB to MB
+            if available_memory_mb < min_memory_mb:
                 log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(audio_path)}')
                 return None, None
         except Exception:
             pass  # Continue if memory check fails
         
-        # Check file size and implement aggressive limits for parallel processing
+        # Check file size and implement configurable limits
         file_size_mb = 0  # Initialize to avoid NameError
         try:
             file_size = os.path.getsize(audio_path)
@@ -90,9 +91,9 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
                 log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
                 return None, None
             
-            # Much more aggressive limits for parallel processing
-            max_file_size_mb = 500  # 500MB limit
-            warning_threshold_mb = 100  # 100MB warning threshold
+            # Configurable limits for parallel processing
+            max_file_size_mb = self.config.get('PARALLEL_MAX_FILE_SIZE_MB', 100)
+            warning_threshold_mb = self.config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500)
             
             # Skip large files to prevent RAM saturation
             if file_size_mb > max_file_size_mb:
@@ -118,7 +119,8 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
             log_universal('DEBUG', 'Audio', f'Loading {os.path.basename(audio_path)} with Essentia MonoLoader')
             
             # For large files, try to load only a sample
-            if file_size_mb > 50:  # Files larger than 50MB
+            sample_threshold_mb = self.config.get('PARALLEL_MAX_FILE_SIZE_MB', 100)
+            if file_size_mb > sample_threshold_mb:  # Files larger than threshold
                 log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - loading sample only')
                 try:
                     # Try to load just the first 30 seconds
@@ -159,7 +161,8 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100) -> Tuple[Optio
                     import librosa
                     
                     # For large files, use offset and duration to load only a portion
-                    if file_size_mb > 50:
+                    sample_threshold_mb = self.config.get('PARALLEL_MAX_FILE_SIZE_MB', 100)
+                    if file_size_mb > sample_threshold_mb:
                         log_universal('INFO', 'Audio', f'Loading 30-second sample with librosa for {os.path.basename(audio_path)}')
                         audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True, duration=30)
                     else:
@@ -435,7 +438,8 @@ class AudioAnalyzer:
             # Check file size before attempting metadata extraction
             try:
                 file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                if file_size_mb > 500:  # Files larger than 500MB
+                metadata_warning_threshold = self.config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500)
+                if file_size_mb > metadata_warning_threshold:  # Files larger than threshold
                     log_universal('WARNING', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - metadata extraction may fail')
             except Exception:
                 pass
@@ -448,7 +452,8 @@ class AudioAnalyzer:
             try:
                 import psutil
                 available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
-                if available_memory_mb < 100:  # Less than 100MB available
+                min_memory_mb = self.config.get('MIN_MEMORY_FOR_FULL_ANALYSIS_GB', 2.0) * 1024  # Convert GB to MB
+                if available_memory_mb < min_memory_mb:
                     log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping metadata extraction')
                     return None
             except Exception:

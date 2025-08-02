@@ -86,20 +86,20 @@ class AnalysisManager:
         
         # Smart analysis thresholds
         self.min_full_analysis_size_mb = config.get('MIN_FULL_ANALYSIS_SIZE_MB', 1)
-        self.min_memory_for_full_analysis_gb = config.get('MIN_MEMORY_FOR_FULL_ANALYSIS_GB', 4.0)
+        self.min_memory_for_full_analysis_gb = config.get('MIN_MEMORY_FOR_FULL_ANALYSIS_GB', 2.0)
         self.memory_buffer_gb = config.get('MEMORY_BUFFER_GB', 1.0)
         self.max_cpu_for_full_analysis_percent = config.get('MAX_CPU_FOR_FULL_ANALYSIS_PERCENT', 80)
-        self.cpu_check_interval_seconds = config.get('CPU_CHECK_INTERVAL_SECONDS', 1)
+        self.cpu_check_interval_seconds = config.get('CPU_CHECK_INTERVAL_SECONDS', 5)
         
         # Parallel processing thresholds
-        self.parallel_max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 50)
-        self.parallel_min_memory_gb = config.get('PARALLEL_MIN_MEMORY_GB', 2.0)
-        self.parallel_max_cpu_percent = config.get('PARALLEL_MAX_CPU_PERCENT', 70)
+        self.parallel_max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100)
+        self.parallel_min_memory_gb = config.get('PARALLEL_MIN_MEMORY_GB', 4.0)
+        self.parallel_max_cpu_percent = config.get('PARALLEL_MAX_CPU_PERCENT', 90)
         
         # Sequential processing thresholds
-        self.sequential_max_file_size_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 200)
-        self.sequential_min_memory_gb = config.get('SEQUENTIAL_MIN_MEMORY_GB', 3.0)
-        self.sequential_max_cpu_percent = config.get('SEQUENTIAL_MAX_CPU_PERCENT', 85)
+        self.sequential_max_file_size_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 2000)
+        self.sequential_min_memory_gb = config.get('SEQUENTIAL_MIN_MEMORY_GB', 2.0)
+        self.sequential_max_cpu_percent = config.get('SEQUENTIAL_MAX_CPU_PERCENT', 70)
         
         log_universal('INFO', 'Analysis', f"Initializing AnalysisManager")
         log_universal('DEBUG', 'Analysis', f"Analysis configuration: {config}")
