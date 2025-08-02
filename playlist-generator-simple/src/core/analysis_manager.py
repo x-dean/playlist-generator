@@ -481,17 +481,12 @@ class AnalysisManager:
             log_universal('INFO', 'Analysis', f"Processing {len(small_files)} small files using parallel analyzer")
             log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files < {self.big_file_size_mb}MB")
             
-            # Check if threaded processing is enabled
-            use_threading = self.config.get('USE_THREADED_PROCESSING', False)
-            if use_threading:
-                log_universal('INFO', 'Analysis', f"Using threaded processing for small files")
-                # Use threaded workers default if max_workers not specified
-                if max_workers is None:
-                    max_workers = self.config.get('THREADED_WORKERS_DEFAULT', 4)
+            # Use threaded processing (now the default)
+            log_universal('INFO', 'Analysis', f"Using threaded processing for small files")
             
             # Use direct parallel processing (proven approach)
             small_results = self.parallel_analyzer.process_files(
-                small_files, force_reextract, max_workers, use_threading
+                small_files, force_reextract, max_workers
             )
             results['success_count'] += small_results['success_count']
             results['failed_count'] += small_results['failed_count']

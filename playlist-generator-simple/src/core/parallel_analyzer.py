@@ -7,14 +7,9 @@ import os
 import time
 import threading
 import signal
-import multiprocessing as mp
 from typing import List, Dict, Any, Optional, Tuple, Iterator
 from datetime import datetime
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-
-# Set multiprocessing start method to avoid pickling issues
-if mp.get_start_method(allow_none=True) != 'spawn':
-    mp.set_start_method('spawn', force=True)
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import local modules
 from .database import DatabaseManager
@@ -45,222 +40,7 @@ def timeout_handler(signum, frame):
     raise TimeoutException("Analysis timed out")
 
 
-def _standalone_worker_process(file_path: str, force_reextract: bool = False, 
-                             timeout_seconds: int = 300, db_path: str = None,
-                             analysis_config: Dict[str, Any] = None) -> bool:
-    """
-    Standalone worker function that can be pickled for multiprocessing.
-    
-    Args:
-        file_path: Path to the file to process
-        force_reextract: If True, bypass cache
-        timeout_seconds: Timeout for analysis
-        db_path: Database path
-        analysis_config: Analysis configuration dictionary (uses default if None)
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    import os
-    import time
-    import signal
-    import psutil
-    import threading
-    import gc
-    
-    # Set up logging for worker process
-    try:
-        from .logging_setup import get_logger, log_universal
-        logger = get_logger('playlista.parallel_worker')
-    except ImportError:
-        import logging
-        logger = logging.getLogger('playlista.parallel_worker')
-        # Fallback to basic logging if universal logging not available
-    
-    worker_id = f"worker_{threading.current_thread().ident}"
-    start_time = time.time()
-    
-    try:
-        # Force garbage collection before starting
-        gc.collect()
-        
-        # Set up signal handler for timeout (only on Unix systems)
-        try:
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(timeout_seconds)
-        except (AttributeError, OSError):
-            # Windows doesn't support SIGALRM, skip timeout handling
-            pass
-        
-        # Check if file exists
-        if not os.path.exists(file_path):
-            log_universal('WARNING', 'Parallel', f'File not found: {file_path}')
-            return False
-        
-        # Get initial resource usage
-        process = psutil.Process()
-        initial_memory = process.memory_info().rss / (1024 * 1024)  # MB
-        initial_cpu = process.cpu_percent()
-        
-        # Import audio analyzer here to avoid memory issues
-        try:
-            from .audio_analyzer import AudioAnalyzer
-        except ImportError as e:
-            log_universal('ERROR', 'Parallel', f'Failed to import AudioAnalyzer: {e}')
-            return False
-        
-        # Create analyzer instance with configuration
-        try:
-            if analysis_config is None:
-                # Use default configuration
-                analyzer = AudioAnalyzer()
-            else:
-                # Apply the analysis configuration to the analyzer
-                analyzer = AudioAnalyzer(config=analysis_config)
-        except Exception as e:
-            log_universal('ERROR', 'Parallel', f'Failed to create AudioAnalyzer: {e}')
-            return False
-        
-        # Set memory limit for this process
-        try:
-            import resource
-            # Set memory limit to 1GB per process
-            resource.setrlimit(resource.RLIMIT_AS, (1024 * 1024 * 1024, -1))
-        except (ImportError, OSError):
-            # Windows doesn't support resource module, skip memory limit
-            pass
-        
-        # Check available memory before analysis
-        try:
-            available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
-            if available_memory_mb < 100:  # Less than 100MB available
-                log_universal('WARNING', 'Parallel', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(file_path)}')
-                return False
-        except Exception:
-            pass  # Continue if memory check fails
-        
-        # Extract features using the correct method
-        try:
-            analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
-        except Exception as e:
-            log_universal('ERROR', 'Parallel', f'Analysis failed for {file_path}: {e}')
-            return False
-        
-        # Get final resource usage
-        final_memory = process.memory_info().rss / (1024 * 1024)  # MB
-        final_cpu = process.cpu_percent()
-        memory_usage = final_memory - initial_memory
-        cpu_usage = (initial_cpu + final_cpu) / 2  # Average
-        
-        duration = time.time() - start_time
-        
-        # Force garbage collection after analysis
-        gc.collect()
-        
-        if analysis_result:
-            # Save to database using standalone database manager
-            if db_path:
-                from .database import DatabaseManager
-                db_manager = DatabaseManager(db_path=db_path)
-                
-                filename = os.path.basename(file_path)
-                file_size_bytes = os.path.getsize(file_path)
-                
-                # Calculate hash (consistent with file discovery)
-                import hashlib
-                stat = os.stat(file_path)
-                filename = os.path.basename(file_path)
-                content = f"{filename}:{stat.st_mtime}:{stat.st_size}"
-                file_hash = hashlib.md5(content.encode()).hexdigest()
-                
-                # Prepare analysis data with status
-                analysis_data = analysis_result.get('features', {})
-                analysis_data['status'] = 'analyzed'
-                analysis_data['analysis_type'] = 'full'
-                
-                # Extract metadata
-                metadata = analysis_result.get('metadata', {})
-                
-                # Determine long audio category
-                long_audio_category = None
-                if 'long_audio_category' in analysis_data:
-                    long_audio_category = analysis_data['long_audio_category']
-                
-                success = db_manager.save_analysis_result(
-                    file_path=file_path,
-                    filename=filename,
-                    file_size_bytes=file_size_bytes,
-                    file_hash=file_hash,
-                    analysis_data=analysis_data,
-                    metadata=metadata,
-                    discovery_source='file_system'
-                )
-                
-                log_universal('INFO', 'Parallel', f'{worker_id} completed: {filename} in {duration:.2f}s')
-                return success
-            else:
-                log_universal('INFO', 'Parallel', f'{worker_id} completed: {os.path.basename(file_path)} in {duration:.2f}s')
-                return True
-        else:
-            # Mark as failed
-            if db_path:
-                from .database import DatabaseManager
-                db_manager = DatabaseManager(db_path=db_path)
-                filename = os.path.basename(file_path)
-                
-                # Use analysis_cache table for failed analysis
-                with db_manager._get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO analysis_cache 
-                        (file_path, filename, error_message, status, retry_count, last_retry_date)
-                        VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                    """, (file_path, filename, "Analysis failed"))
-                    conn.commit()
-            
-            log_universal('DEBUG', 'Parallel', f"Worker {worker_id} failed: {os.path.basename(file_path)}")
-            return False
-            
-    except TimeoutException:
-        duration = time.time() - start_time
-        log_universal('ERROR', 'Parallel', f"⏰ Analysis timed out for {os.path.basename(file_path)}")
-        
-        if db_path:
-            from .database import DatabaseManager
-            db_manager = DatabaseManager(db_path=db_path)
-            filename = os.path.basename(file_path)
-            
-            # Use analysis_cache table for failed analysis
-            with db_manager._get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count, last_retry_date)
-                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                """, (file_path, filename, "Analysis timed out"))
-                conn.commit()
-        
-        return False
-    except Exception as e:
-        duration = time.time() - start_time
-        log_universal('ERROR', 'Parallel', f"Worker {worker_id} error processing {os.path.basename(file_path)}: {e}")
-        
-        if db_path:
-            from .database import DatabaseManager
-            db_manager = DatabaseManager(db_path=db_path)
-            filename = os.path.basename(file_path)
-            
-            # Use analysis_cache table for failed analysis
-            with db_manager._get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count, last_retry_date)
-                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                """, (file_path, filename, f"Worker error: {str(e)}"))
-                conn.commit()
-        
-        return False
+
 
 
 class ParallelAnalyzer:
@@ -474,15 +254,14 @@ class ParallelAnalyzer:
 
     @log_function_call
     def process_files(self, files: List[str], force_reextract: bool = False,
-                     max_workers: int = None, use_threading: bool = False) -> Dict[str, Any]:
+                     max_workers: int = None) -> Dict[str, Any]:
         """
-        Process files in parallel.
+        Process files using threaded parallel processing.
         
         Args:
             files: List of file paths to process
             force_reextract: If True, bypass cache for all files
             max_workers: Maximum number of workers (uses auto-determination if None)
-            use_threading: If True, use threaded processing instead of multiprocessing
             
         Returns:
             Dictionary with processing results and statistics
@@ -490,12 +269,6 @@ class ParallelAnalyzer:
         if not files:
             log_universal('WARNING', 'Parallel', "No files provided for parallel processing")
             return {'success_count': 0, 'failed_count': 0, 'total_time': 0}
-        
-        # Use threaded processing if requested
-        if use_threading:
-            if max_workers is None:
-                max_workers = min(4, len(files))  # Default to 4 threads or file count
-            return self._process_files_threaded(files, force_reextract, max_workers)
         
         # Determine optimal worker count dynamically
         optimal_workers = self.resource_manager.get_optimal_worker_count()
@@ -506,192 +279,12 @@ class ParallelAnalyzer:
             max_workers = min(max_workers, optimal_workers)
             log_universal('INFO', 'Parallel', f"Manual worker count: {max_workers} (capped by optimal: {optimal_workers})")
         
-        # Calculate batch size based on available memory and workers
-        max_batch_size = min(len(files), max_workers * 2)  # 2 files per worker
-        batch_size = max(1, min(max_batch_size, 10))  # Cap at 10 files per batch
-        
-        # Additional safety: If very few workers, reduce batch size further
-        if max_workers <= 2:
-            batch_size = max(1, min(batch_size, 5))  # Cap at 5 files for low worker counts
-            
-        total_batches = (len(files) + batch_size - 1) // batch_size
-        
-        log_universal('INFO', 'Parallel', f"Starting parallel processing of {len(files)} files")
-        log_universal('INFO', 'Parallel', f"  Workers: {max_workers} (2 files per worker per batch)")
-        log_universal('INFO', 'Parallel', f"  Batch size: {batch_size} files")
-        log_universal('INFO', 'Parallel', f"  Total batches: {total_batches}")
+        log_universal('INFO', 'Parallel', f"Starting threaded processing of {len(files)} files")
+        log_universal('INFO', 'Parallel', f"  Workers: {max_workers}")
         log_universal('DEBUG', 'Parallel', f"  Force re-extract: {force_reextract}")
         
-        start_time = time.time()
-        results = {
-            'success_count': 0,
-            'failed_count': 0,
-            'total_time': 0,
-            'processed_files': [],
-            'worker_count': max_workers,
-            'batches_processed': 0
-        }
-        
-        try:
-            # Process files in batches
-            for i in range(0, len(files), batch_size):
-                batch_files = files[i:i + batch_size]
-                batch_num = (i // batch_size) + 1
-                total_batches = (len(files) + batch_size - 1) // batch_size
-                
-                log_universal('INFO', 'Parallel', f"Processing batch {batch_num}/{total_batches} ({len(batch_files)} files)")
-                
-                # Check memory before starting batch
-                try:
-                    import psutil
-                    memory_percent = psutil.virtual_memory().percent
-                    if memory_percent > 85:
-                        log_universal('WARNING', 'Parallel', f'High memory usage ({memory_percent:.1f}%) - processing batch carefully')
-                except Exception:
-                    pass
-                
-                try:
-                    with ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context('spawn')) as executor:
-                        # Submit batch tasks
-                        future_to_file = {}
-                        for file_path in batch_files:
-                            try:
-                                analysis_config = self._get_analysis_config(file_path)
-                                future = executor.submit(_standalone_worker_process, file_path, force_reextract, 
-                                                      self.timeout_seconds, self.db_manager.db_path,
-                                                      analysis_config)
-                                future_to_file[future] = file_path
-                            except Exception as e:
-                                log_universal('ERROR', 'Parallel', f"Failed to submit task for {file_path}: {e}")
-                                results['failed_count'] += 1
-                                results['processed_files'].append({
-                                    'file_path': file_path,
-                                    'status': 'error',
-                                    'error': f"Task submission failed: {str(e)}",
-                                    'timestamp': datetime.now().isoformat()
-                                })
-                        
-                        # Collect batch results
-                        completed_count = 0
-                        for future in as_completed(future_to_file, timeout=self.timeout_seconds * len(batch_files)):
-                            file_path = future_to_file[future]
-                            filename = os.path.basename(file_path)
-                            completed_count += 1
-                            
-                            try:
-                                success = future.result(timeout=60)
-                                
-                                if success:
-                                    results['success_count'] += 1
-                                    results['processed_files'].append({
-                                        'file_path': file_path,
-                                        'status': 'success',
-                                        'timestamp': datetime.now().isoformat()
-                                    })
-                                    log_universal('DEBUG', 'Parallel', f"Completed: {filename}")
-                                else:
-                                    results['failed_count'] += 1
-                                    results['processed_files'].append({
-                                        'file_path': file_path,
-                                        'status': 'failed',
-                                        'timestamp': datetime.now().isoformat()
-                                    })
-                                    log_universal('DEBUG', 'Parallel', f"Failed: {filename}")
-                                
-                                log_universal('INFO', 'Parallel', f"Batch {batch_num}: Completed {completed_count}/{len(batch_files)}: {filename}")
-                                    
-                            except Exception as e:
-                                log_universal('ERROR', 'Parallel', f"Error processing {filename}: {e}")
-                                results['failed_count'] += 1
-                                results['processed_files'].append({
-                                    'file_path': file_path,
-                                    'status': 'error',
-                                    'error': str(e),
-                                    'timestamp': datetime.now().isoformat()
-                                })
-                        
-                        # Cancel any remaining futures in this batch
-                        for future in future_to_file:
-                            if not future.done():
-                                future.cancel()
-                        
-                        results['batches_processed'] += 1
-                        
-                        # Force garbage collection between batches
-                        import gc
-                        gc.collect()
-                        
-                except Exception as e:
-                    log_universal('ERROR', 'Parallel', f"Error processing batch {batch_num}: {e}")
-                    # Mark remaining files in batch as failed
-                    for file_path in batch_files:
-                        if file_path not in [p['file_path'] for p in results['processed_files']]:
-                            results['failed_count'] += 1
-                            results['processed_files'].append({
-                                'file_path': file_path,
-                                'status': 'error',
-                                'error': f"Batch processing failed: {str(e)}",
-                                'timestamp': datetime.now().isoformat()
-                            })
-                
-                # Force garbage collection between batches
-                import gc
-                gc.collect()
-                
-        except Exception as e:
-            log_universal('ERROR', 'Parallel', f"Error creating process pool: {e}")
-            # Fall back to sequential processing with better error handling
-            log_universal('INFO', 'Parallel', "Falling back to sequential processing due to multiprocessing error")
-            for file_path in files:
-                try:
-                    # Get analysis config for each file
-                    analysis_config = self._get_analysis_config(file_path)
-                    success = _standalone_worker_process(file_path, force_reextract, 
-                                                      self.timeout_seconds, self.db_manager.db_path,
-                                                      analysis_config)
-                    if success:
-                        results['success_count'] += 1
-                    else:
-                        results['failed_count'] += 1
-                except Exception as worker_error:
-                    log_universal('ERROR', 'Parallel', f"Sequential processing failed for {file_path}: {worker_error}")
-                    results['failed_count'] += 1
-                    
-        except Exception as e:
-            log_universal('ERROR', 'Parallel', f"Error in parallel processing: {e}")
-            # Count remaining files as failed
-            remaining_files = [f for f in files if f not in [p['file_path'] for p in results['processed_files']]]
-            results['failed_count'] += len(remaining_files)
-        
-        total_time = time.time() - start_time
-        results['total_time'] = total_time
-        
-        # Calculate batch processing statistics
-        success_rate = (results['success_count'] / len(files) * 100) if files else 0
-        avg_duration = total_time / len(files) if files else 0
-        throughput = len(files) / total_time if total_time > 0 else 0
-        
-        # Get resource usage statistics (approximate)
-        import psutil
-        process = psutil.Process()
-        memory_usage_mb = process.memory_info().rss / (1024 * 1024)
-        cpu_usage_percent = process.cpu_percent()
-        
-        log_universal('INFO', 'Parallel', f"Parallel processing completed in {total_time:.2f}s")
-        log_universal('INFO', 'Parallel', f"Results: {results['success_count']} successful, {results['failed_count']} failed")
-        log_universal('INFO', 'Parallel', f"Success rate: {success_rate:.1f}%, Throughput: {throughput:.2f} files/s")
-        
-        # Log detailed batch processing statistics
-        log_universal('INFO', 'Parallel', f"Parallel file processing completed in {total_time:.2f}s")
-        log_universal('INFO', 'Parallel', f"Results: {results['success_count']} successful, {results['failed_count']} failed")
-        log_universal('INFO', 'Parallel', f"Success rate: {success_rate:.1f}%, Throughput: {throughput:.2f} files/s")
-        
-        # Log performance
-        log_universal('INFO', 'Parallel', f"Parallel file processing completed in {total_time:.2f}s")
-        log_universal('INFO', 'Parallel', f"Results: {results['success_count']} successful, {results['failed_count']} failed")
-        log_universal('INFO', 'Parallel', f"Success rate: {success_rate:.1f}%, Throughput: {throughput:.2f} files/s")
-        
-        return results
+        # Use threaded processing
+        return self._process_files_threaded(files, force_reextract, max_workers)
 
     # DEPRECATED: This method has pickling issues. Use _standalone_worker_process instead.
     def _process_single_file_worker(self, file_path: str, force_reextract: bool = False) -> bool:
