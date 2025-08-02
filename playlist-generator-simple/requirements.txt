@@ -24,6 +24,8 @@ tensorflow==2.11.*
 # External APIs for metadata enrichment
 requests
 musicbrainzngs
+# Additional API clients (optional)
+# spotipy  # Uncomment if using Spotify API
 
 # API and web framework (Python 3.7 compatible versions)
 fastapi==0.95.2

@@ -314,6 +314,85 @@ class DatabaseManager:
                 replaygain_track_peak = metadata.get('replaygain_track_peak') if metadata else None
                 replaygain_album_peak = metadata.get('replaygain_album_peak') if metadata else None
                 
+                # Extract missing audio analysis fields
+                # Rhythm & Tempo Analysis
+                tempo_confidence = analysis_data.get('tempo_confidence')
+                tempo_strength = analysis_data.get('tempo_strength')
+                rhythm_pattern = analysis_data.get('rhythm_pattern')
+                beat_positions = json.dumps(analysis_data.get('beat_positions', []))
+                onset_times = json.dumps(analysis_data.get('onset_times', []))
+                rhythm_complexity = analysis_data.get('rhythm_complexity')
+                
+                # Harmonic Analysis
+                harmonic_complexity = analysis_data.get('harmonic_complexity')
+                chord_progression = json.dumps(analysis_data.get('chord_progression', []))
+                harmonic_centroid = analysis_data.get('harmonic_centroid')
+                harmonic_contrast = analysis_data.get('harmonic_contrast')
+                chord_changes = analysis_data.get('chord_changes')
+                
+                # Extended Spectral Analysis
+                spectral_flux = analysis_data.get('spectral_flux')
+                spectral_crest = analysis_data.get('spectral_crest')
+                spectral_decrease = analysis_data.get('spectral_decrease')
+                spectral_entropy = analysis_data.get('spectral_entropy')
+                spectral_kurtosis = analysis_data.get('spectral_kurtosis')
+                spectral_skewness = analysis_data.get('spectral_skewness')
+                spectral_slope = analysis_data.get('spectral_slope')
+                spectral_rolloff_85 = analysis_data.get('spectral_rolloff_85')
+                spectral_rolloff_95 = analysis_data.get('spectral_rolloff_95')
+                
+                # Timbre Analysis
+                timbre_brightness = analysis_data.get('timbre_brightness')
+                timbre_warmth = analysis_data.get('timbre_warmth')
+                timbre_hardness = analysis_data.get('timbre_hardness')
+                timbre_depth = analysis_data.get('timbre_depth')
+                mfcc_delta = json.dumps(analysis_data.get('mfcc_delta', []))
+                mfcc_delta2 = json.dumps(analysis_data.get('mfcc_delta2', []))
+                
+                # Perceptual Features
+                acousticness = analysis_data.get('acousticness')
+                instrumentalness = analysis_data.get('instrumentalness')
+                speechiness = analysis_data.get('speechiness')
+                valence = analysis_data.get('valence')
+                liveness = analysis_data.get('liveness')
+                popularity = analysis_data.get('popularity')
+                
+                # Advanced Audio Features
+                zero_crossing_rate = analysis_data.get('zero_crossing_rate')
+                root_mean_square = analysis_data.get('root_mean_square')
+                peak_amplitude = analysis_data.get('peak_amplitude')
+                crest_factor = analysis_data.get('crest_factor')
+                signal_to_noise_ratio = analysis_data.get('signal_to_noise_ratio')
+                
+                # Musical Structure Analysis
+                intro_duration = analysis_data.get('intro_duration')
+                verse_duration = analysis_data.get('verse_duration')
+                chorus_duration = analysis_data.get('chorus_duration')
+                bridge_duration = analysis_data.get('bridge_duration')
+                outro_duration = analysis_data.get('outro_duration')
+                section_boundaries = json.dumps(analysis_data.get('section_boundaries', []))
+                repetition_rate = analysis_data.get('repetition_rate')
+                
+                # Advanced Key Analysis
+                key_scale_notes = json.dumps(analysis_data.get('key_scale_notes', []))
+                key_chord_progression = json.dumps(analysis_data.get('key_chord_progression', []))
+                modulation_points = json.dumps(analysis_data.get('modulation_points', []))
+                tonal_centroid = analysis_data.get('tonal_centroid')
+                
+                # Audio Quality Metrics
+                bitrate_quality = analysis_data.get('bitrate_quality')
+                sample_rate_quality = analysis_data.get('sample_rate_quality')
+                encoding_quality = analysis_data.get('encoding_quality')
+                compression_artifacts = analysis_data.get('compression_artifacts')
+                clipping_detection = analysis_data.get('clipping_detection')
+                
+                # Genre-Specific Features
+                electronic_elements = analysis_data.get('electronic_elements')
+                classical_period = analysis_data.get('classical_period')
+                jazz_style = analysis_data.get('jazz_style')
+                rock_subgenre = analysis_data.get('rock_subgenre')
+                folk_style = analysis_data.get('folk_style')
+                
                 # Determine analysis type and category
                 analysis_type = analysis_data.get('analysis_type', 'full')
                 long_audio_category = analysis_data.get('long_audio_category')
@@ -971,6 +1050,181 @@ class DatabaseManager:
         except Exception as e:
             log_universal('ERROR', 'Database', f"Failed to delete analysis result: {e}")
             return False
+
+    # =============================================================================
+    # DATABASE MANAGEMENT METHODS
+    # =============================================================================
+
+    @log_function_call
+    def initialize_schema(self) -> bool:
+        """Initialize database schema."""
+        try:
+            self._init_database()
+            log_universal('INFO', 'Database', "Database schema initialized successfully")
+            return True
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to initialize schema: {e}")
+            return False
+
+    @log_function_call
+    def migrate_database(self) -> bool:
+        """Migrate existing database to new schema."""
+        try:
+            # Import migration script functionality
+            import os
+            import sys
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            
+            from migrate_database import migrate_database as migrate_db
+            
+            success = migrate_db(self.db_path)
+            if success:
+                log_universal('INFO', 'Database', "Database migration completed successfully")
+            else:
+                log_universal('ERROR', 'Database', "Database migration failed")
+            return success
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to migrate database: {e}")
+            return False
+
+    @log_function_call
+    def create_backup(self) -> str:
+        """Create database backup."""
+        try:
+            import shutil
+            from datetime import datetime
+            
+            backup_path = f"{self.db_path}.backup.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            shutil.copy2(self.db_path, backup_path)
+            
+            log_universal('INFO', 'Database', f"Database backup created: {backup_path}")
+            return backup_path
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to create backup: {e}")
+            raise
+
+    @log_function_call
+    def restore_from_backup(self, backup_path: str) -> bool:
+        """Restore database from backup."""
+        try:
+            import shutil
+            
+            if not os.path.exists(backup_path):
+                log_universal('ERROR', 'Database', f"Backup file not found: {backup_path}")
+                return False
+            
+            # Create backup of current database
+            current_backup = f"{self.db_path}.before_restore.{int(time.time())}"
+            shutil.copy2(self.db_path, current_backup)
+            
+            # Restore from backup
+            shutil.copy2(backup_path, self.db_path)
+            
+            log_universal('INFO', 'Database', f"Database restored from: {backup_path}")
+            log_universal('INFO', 'Database', f"Previous version backed up to: {current_backup}")
+            return True
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to restore from backup: {e}")
+            return False
+
+    @log_function_call
+    def check_integrity(self) -> bool:
+        """Check database integrity."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA integrity_check")
+                result = cursor.fetchone()
+                
+                if result and result[0] == 'ok':
+                    log_universal('INFO', 'Database', "Database integrity check passed")
+                    return True
+                else:
+                    log_universal('ERROR', 'Database', f"Database integrity check failed: {result}")
+                    return False
+                    
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to check integrity: {e}")
+            return False
+
+    @log_function_call
+    def vacuum_database(self) -> bool:
+        """Vacuum database to reclaim space."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("VACUUM")
+                
+                log_universal('INFO', 'Database', "Database vacuumed successfully")
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to vacuum database: {e}")
+            return False
+
+    @log_function_call
+    def get_database_size(self) -> Dict[str, Any]:
+        """Get database size information."""
+        try:
+            if not os.path.exists(self.db_path):
+                return {'size_bytes': 0, 'size_mb': 0, 'exists': False}
+            
+            size_bytes = os.path.getsize(self.db_path)
+            size_mb = size_bytes / (1024 * 1024)
+            
+            return {
+                'size_bytes': size_bytes,
+                'size_mb': size_mb,
+                'exists': True
+            }
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to get database size: {e}")
+            return {'size_bytes': 0, 'size_mb': 0, 'exists': False}
+
+    @log_function_call
+    def cleanup_old_data(self, days_to_keep: int = 30) -> Dict[str, int]:
+        """Clean up old data from database."""
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                cleanup_stats = {}
+                
+                # Clean up old cache entries
+                cursor.execute("""
+                    DELETE FROM cache 
+                    WHERE expires_at IS NOT NULL 
+                    AND expires_at < datetime('now', '-{} days')
+                """.format(days_to_keep))
+                cleanup_stats['cache_entries'] = cursor.rowcount
+                
+                # Clean up old failed analysis entries
+                cursor.execute("""
+                    DELETE FROM analysis_cache 
+                    WHERE last_retry_date IS NOT NULL 
+                    AND last_retry_date < datetime('now', '-{} days')
+                """.format(days_to_keep))
+                cleanup_stats['failed_analysis'] = cursor.rowcount
+                
+                # Clean up old statistics
+                cursor.execute("""
+                    DELETE FROM statistics 
+                    WHERE date_recorded < datetime('now', '-{} days')
+                """.format(days_to_keep))
+                cleanup_stats['statistics'] = cursor.rowcount
+                
+                conn.commit()
+                
+                log_universal('INFO', 'Database', f"Cleanup completed: {cleanup_stats}")
+                return cleanup_stats
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to cleanup old data: {e}")
+            return {}
 
 
 def get_db_manager() -> 'DatabaseManager':

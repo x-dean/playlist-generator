@@ -1,7 +1,8 @@
--- Optimized Playlist Generator Database Schema
--- Designed for web UI performance with comprehensive data storage
+-- Complete Database Schema for Playlist Generator Simple
+-- Includes all original fields plus comprehensive audio analysis fields
+-- This is a complete, unified schema that can be used for new installations
 
--- Main tracks table with all essential data
+-- Main tracks table with comprehensive audio analysis data
 CREATE TABLE tracks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_path TEXT UNIQUE NOT NULL,
@@ -19,7 +20,7 @@ CREATE TABLE tracks (
     year INTEGER,
     duration REAL,
     
-    -- Audio features for playlist generation (indexed)
+    -- Basic audio features for playlist generation (indexed)
     bpm REAL,
     key TEXT,
     mode TEXT,
@@ -41,47 +42,140 @@ CREATE TABLE tracks (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
     -- =============================================================================
-    -- EXTENDED AUDIO FEATURES
+    -- RHYTHM & TEMPO ANALYSIS
+    -- =============================================================================
+    tempo_confidence REAL, -- Confidence level of tempo detection
+    tempo_strength REAL, -- Strength of tempo signal
+    rhythm_pattern TEXT, -- Rhythmic pattern classification
+    beat_positions TEXT, -- JSON array of beat timestamps
+    onset_times TEXT, -- JSON array of onset detection times
+    rhythm_complexity REAL, -- Complexity score of rhythm
+    
+    -- =============================================================================
+    -- HARMONIC ANALYSIS
+    -- =============================================================================
+    harmonic_complexity REAL, -- Complexity of harmonic progression
+    chord_progression TEXT, -- JSON array of detected chords
+    harmonic_centroid REAL, -- Centroid of harmonic spectrum
+    harmonic_contrast REAL, -- Contrast in harmonic content
+    chord_changes INTEGER, -- Number of chord changes per minute
+    
+    -- =============================================================================
+    -- EXTENDED AUDIO FEATURES (Original + Extended)
     -- =============================================================================
     
-    -- Rhythm features
+    -- Rhythm features (original)
     rhythm_confidence REAL,
     bpm_estimates TEXT, -- JSON array of BPM estimates
     bpm_intervals TEXT, -- JSON array of BPM intervals
     external_bpm REAL, -- BPM from metadata
     
-    -- Spectral features
+    -- Spectral features (original + extended)
     spectral_centroid REAL,
     spectral_flatness REAL,
     spectral_rolloff REAL,
     spectral_bandwidth REAL,
     spectral_contrast_mean REAL,
     spectral_contrast_std REAL,
+    spectral_flux REAL, -- Rate of spectral change over time
+    spectral_crest REAL, -- Crest factor of spectrum
+    spectral_decrease REAL, -- Spectral decrease rate
+    spectral_entropy REAL, -- Entropy of spectral distribution
+    spectral_kurtosis REAL, -- Kurtosis of spectral distribution
+    spectral_skewness REAL, -- Skewness of spectral distribution
+    spectral_slope REAL, -- Spectral slope
+    spectral_rolloff_85 REAL, -- 85th percentile rolloff
+    spectral_rolloff_95 REAL, -- 95th percentile rolloff
     
-    -- Loudness features
+    -- Loudness features (original)
     dynamic_complexity REAL,
     loudness_range REAL,
     dynamic_range REAL,
     
-    -- Key features
+    -- Key features (original + extended)
     scale TEXT, -- 'major', 'minor', etc.
     key_strength REAL,
     key_confidence REAL,
+    key_scale_notes TEXT, -- JSON array of scale notes
+    key_chord_progression TEXT, -- JSON array of key chords
+    modulation_points TEXT, -- JSON array of key modulation points
+    tonal_centroid REAL, -- Tonal centroid
+    harmonic_centroid REAL, -- Harmonic centroid
     
-    -- MFCC features (stored as JSON for arrays)
+    -- MFCC features (original + extended)
     mfcc_coefficients TEXT, -- JSON array of MFCC coefficients
     mfcc_bands TEXT, -- JSON array of MFCC bands
     mfcc_std TEXT, -- JSON array of MFCC standard deviations
+    mfcc_delta TEXT, -- JSON array of MFCC delta coefficients
+    mfcc_delta2 TEXT, -- JSON array of MFCC delta-delta coefficients
     
-    -- MusiCNN features (stored as JSON)
+    -- MusiCNN features (original)
     embedding TEXT, -- JSON array of MusiCNN embedding
     tags TEXT, -- JSON object of MusiCNN tags
     
-    -- Chroma features (stored as JSON)
+    -- Chroma features (original)
     chroma_mean TEXT, -- JSON array of chroma means
     chroma_std TEXT, -- JSON array of chroma standard deviations
     
-    -- Additional metadata fields
+    -- =============================================================================
+    -- TIMBRE ANALYSIS
+    -- =============================================================================
+    timbre_brightness REAL, -- Brightness of timbre
+    timbre_warmth REAL, -- Warmth of timbre
+    timbre_hardness REAL, -- Hardness of timbre
+    timbre_depth REAL, -- Depth of timbre
+    
+    -- =============================================================================
+    -- PERCEPTUAL FEATURES (Spotify-style)
+    -- =============================================================================
+    acousticness REAL, -- Acoustic vs electronic nature
+    instrumentalness REAL, -- Instrumental vs vocal content
+    speechiness REAL, -- Presence of speech
+    valence REAL, -- Positivity/negativity
+    liveness REAL, -- Presence of live audience
+    popularity REAL, -- Popularity score
+    
+    -- =============================================================================
+    -- ADVANCED AUDIO FEATURES
+    -- =============================================================================
+    zero_crossing_rate REAL, -- Zero crossing rate
+    root_mean_square REAL, -- RMS energy
+    peak_amplitude REAL, -- Peak amplitude
+    crest_factor REAL, -- Crest factor
+    signal_to_noise_ratio REAL, -- SNR
+    
+    -- =============================================================================
+    -- MUSICAL STRUCTURE ANALYSIS
+    -- =============================================================================
+    intro_duration REAL, -- Duration of intro section
+    verse_duration REAL, -- Duration of verse sections
+    chorus_duration REAL, -- Duration of chorus sections
+    bridge_duration REAL, -- Duration of bridge sections
+    outro_duration REAL, -- Duration of outro section
+    section_boundaries TEXT, -- JSON array of section timestamps
+    repetition_rate REAL, -- Rate of musical repetition
+    
+    -- =============================================================================
+    -- AUDIO QUALITY METRICS
+    -- =============================================================================
+    bitrate_quality REAL, -- Quality based on bitrate
+    sample_rate_quality REAL, -- Quality based on sample rate
+    encoding_quality REAL, -- Encoding quality score
+    compression_artifacts REAL, -- Presence of compression artifacts
+    clipping_detection REAL, -- Detection of audio clipping
+    
+    -- =============================================================================
+    -- GENRE-SPECIFIC FEATURES
+    -- =============================================================================
+    electronic_elements REAL, -- Electronic music elements
+    classical_period TEXT, -- Classical period classification
+    jazz_style TEXT, -- Jazz style classification
+    rock_subgenre TEXT, -- Rock subgenre classification
+    folk_style TEXT, -- Folk style classification
+    
+    -- =============================================================================
+    -- ADDITIONAL METADATA FIELDS (Original)
+    -- =============================================================================
     bitrate INTEGER,
     sample_rate INTEGER,
     channels INTEGER,
@@ -224,7 +318,7 @@ CREATE INDEX idx_tracks_discovery_date ON tracks(discovery_date);
 CREATE INDEX idx_tracks_file_path ON tracks(file_path);
 CREATE INDEX idx_tracks_file_hash ON tracks(file_hash);
 
--- Audio feature indexes for playlist generation
+-- Basic audio feature indexes for playlist generation
 CREATE INDEX idx_tracks_bpm ON tracks(bpm);
 CREATE INDEX idx_tracks_key ON tracks(key);
 CREATE INDEX idx_tracks_loudness ON tracks(loudness);
@@ -232,11 +326,28 @@ CREATE INDEX idx_tracks_danceability ON tracks(danceability);
 CREATE INDEX idx_tracks_energy ON tracks(energy);
 CREATE INDEX idx_tracks_duration ON tracks(duration);
 
--- Composite indexes for common web UI queries
+-- Advanced audio feature indexes
+CREATE INDEX idx_tracks_tempo_confidence ON tracks(tempo_confidence);
+CREATE INDEX idx_tracks_rhythm_complexity ON tracks(rhythm_complexity);
+CREATE INDEX idx_tracks_harmonic_complexity ON tracks(harmonic_complexity);
+CREATE INDEX idx_tracks_acousticness ON tracks(acousticness);
+CREATE INDEX idx_tracks_instrumentalness ON tracks(instrumentalness);
+CREATE INDEX idx_tracks_valence ON tracks(valence);
+CREATE INDEX idx_tracks_liveness ON tracks(liveness);
+CREATE INDEX idx_tracks_zero_crossing_rate ON tracks(zero_crossing_rate);
+CREATE INDEX idx_tracks_spectral_flux ON tracks(spectral_flux);
+CREATE INDEX idx_tracks_timbre_brightness ON tracks(timbre_brightness);
+CREATE INDEX idx_tracks_timbre_warmth ON tracks(timbre_warmth);
+
+-- Composite indexes for common queries
 CREATE INDEX idx_tracks_artist_album ON tracks(artist, album);
 CREATE INDEX idx_tracks_genre_year ON tracks(genre, year);
 CREATE INDEX idx_tracks_bpm_energy ON tracks(bpm, energy);
 CREATE INDEX idx_tracks_key_mode ON tracks(key, mode);
+CREATE INDEX idx_tracks_acousticness_instrumentalness ON tracks(acousticness, instrumentalness);
+CREATE INDEX idx_tracks_valence_energy ON tracks(valence, energy);
+CREATE INDEX idx_tracks_tempo_rhythm_complexity ON tracks(bpm, rhythm_complexity);
+CREATE INDEX idx_tracks_key_harmonic_complexity ON tracks(key, harmonic_complexity);
 
 -- Tags indexes
 CREATE INDEX idx_tags_track_id ON tags(track_id);
@@ -265,7 +376,7 @@ CREATE INDEX idx_statistics_category_date ON statistics(category, date_recorded)
 -- VIEWS FOR WEB UI PERFORMANCE
 -- =============================================================================
 
--- Complete track view with tags for web UI
+-- Complete track view with all audio analysis data
 CREATE VIEW track_complete AS
 SELECT 
     t.*,
@@ -275,13 +386,67 @@ FROM tracks t
 LEFT JOIN tags tag ON t.id = tag.track_id
 GROUP BY t.id;
 
--- Track summary for web UI lists
+-- Track summary for web UI lists (basic features)
 CREATE VIEW track_summary AS
 SELECT 
     id, file_path, filename, title, artist, album, genre, year,
     duration, bpm, key, mode, loudness, danceability, energy,
     analysis_date, discovery_date, long_audio_category
 FROM tracks;
+
+-- Advanced track view with comprehensive audio features
+CREATE VIEW audio_analysis_complete AS
+SELECT 
+    id, file_path, filename, title, artist, album, genre, year, duration,
+    -- Basic audio features
+    bpm, key, mode, loudness, danceability, energy,
+    -- Rhythm analysis
+    tempo_confidence, tempo_strength, rhythm_pattern, rhythm_complexity,
+    beat_positions, onset_times,
+    -- Harmonic analysis
+    harmonic_complexity, chord_progression, harmonic_centroid, harmonic_contrast,
+    chord_changes, key_scale_notes, key_chord_progression, modulation_points,
+    tonal_centroid,
+    -- Spectral analysis
+    spectral_centroid, spectral_flatness, spectral_rolloff, spectral_bandwidth,
+    spectral_contrast_mean, spectral_contrast_std, spectral_flux, spectral_crest,
+    spectral_decrease, spectral_entropy, spectral_kurtosis, spectral_skewness,
+    spectral_slope, spectral_rolloff_85, spectral_rolloff_95,
+    -- Timbre analysis
+    timbre_brightness, timbre_warmth, timbre_hardness, timbre_depth,
+    mfcc_coefficients, mfcc_delta, mfcc_delta2,
+    -- Perceptual features
+    acousticness, instrumentalness, speechiness, valence, liveness, popularity,
+    -- Advanced audio features
+    zero_crossing_rate, root_mean_square, peak_amplitude, crest_factor,
+    signal_to_noise_ratio, dynamic_complexity, loudness_range, dynamic_range,
+    -- Musical structure
+    intro_duration, verse_duration, chorus_duration, bridge_duration, outro_duration,
+    section_boundaries, repetition_rate,
+    -- Audio quality
+    bitrate_quality, sample_rate_quality, encoding_quality, compression_artifacts,
+    clipping_detection,
+    -- Genre-specific
+    electronic_elements, classical_period, jazz_style, rock_subgenre, folk_style,
+    -- Analysis metadata
+    analysis_type, analyzed, long_audio_category, analysis_date
+FROM tracks;
+
+-- Playlist generation features view
+CREATE VIEW playlist_features AS
+SELECT 
+    id, file_path, title, artist, album, genre, year, duration,
+    -- Core features for playlist generation
+    bpm, key, mode, loudness, danceability, energy,
+    -- Advanced features for sophisticated playlists
+    valence, acousticness, instrumentalness, liveness,
+    tempo_confidence, rhythm_complexity, harmonic_complexity,
+    timbre_brightness, timbre_warmth,
+    spectral_flux, spectral_entropy,
+    -- Quality indicators
+    encoding_quality, compression_artifacts
+FROM tracks
+WHERE analyzed = TRUE;
 
 -- Playlist summary with track count
 CREATE VIEW playlist_summary AS
@@ -293,6 +458,26 @@ FROM playlists p
 LEFT JOIN playlist_tracks pt ON p.id = pt.playlist_id
 LEFT JOIN tracks t ON pt.track_id = t.id
 GROUP BY p.id;
+
+-- Genre analysis view
+CREATE VIEW genre_analysis AS
+SELECT 
+    genre,
+    COUNT(*) as track_count,
+    AVG(bpm) as avg_bpm,
+    AVG(energy) as avg_energy,
+    AVG(danceability) as avg_danceability,
+    AVG(loudness) as avg_loudness,
+    AVG(valence) as avg_valence,
+    AVG(acousticness) as avg_acousticness,
+    AVG(instrumentalness) as avg_instrumentalness,
+    AVG(harmonic_complexity) as avg_harmonic_complexity,
+    AVG(rhythm_complexity) as avg_rhythm_complexity,
+    AVG(timbre_brightness) as avg_timbre_brightness,
+    AVG(spectral_flux) as avg_spectral_flux
+FROM tracks
+WHERE genre IS NOT NULL AND analyzed = TRUE
+GROUP BY genre;
 
 -- Statistics summary for web UI dashboard
 CREATE VIEW statistics_summary AS

@@ -473,10 +473,18 @@ class ConfigLoader:
         api_config = {
             'MUSICBRAINZ_ENABLED': config.get('MUSICBRAINZ_ENABLED', True),
             'LASTFM_ENABLED': config.get('LASTFM_ENABLED', True),
+            'DISCOGS_ENABLED': config.get('DISCOGS_ENABLED', False),
+            'SPOTIFY_ENABLED': config.get('SPOTIFY_ENABLED', False),
             'LASTFM_API_KEY': config.get('LASTFM_API_KEY', ''),
+            'DISCOGS_API_KEY': config.get('DISCOGS_API_KEY', ''),
+            'DISCOGS_USER_TOKEN': config.get('DISCOGS_USER_TOKEN', ''),
+            'SPOTIFY_CLIENT_ID': config.get('SPOTIFY_CLIENT_ID', ''),
+            'SPOTIFY_CLIENT_SECRET': config.get('SPOTIFY_CLIENT_SECRET', ''),
             'MUSICBRAINZ_USER_AGENT': config.get('MUSICBRAINZ_USER_AGENT', 'Playlista/1.0'),
             'MUSICBRAINZ_RATE_LIMIT': config.get('MUSICBRAINZ_RATE_LIMIT', 1.0),
-            'LASTFM_RATE_LIMIT': config.get('LASTFM_RATE_LIMIT', 2.0)
+            'LASTFM_RATE_LIMIT': config.get('LASTFM_RATE_LIMIT', 2.0),
+            'DISCOGS_RATE_LIMIT': config.get('DISCOGS_RATE_LIMIT', 1.0),
+            'SPOTIFY_RATE_LIMIT': config.get('SPOTIFY_RATE_LIMIT', 1.0)
         }
         
         self._update_cache(cache_key, api_config)

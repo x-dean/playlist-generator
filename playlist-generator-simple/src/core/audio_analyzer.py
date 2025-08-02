@@ -356,7 +356,7 @@ class AudioAnalyzer:
     
     def _extract_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
-        Extract metadata from audio file tags.
+        Extract metadata from audio file tags using enhanced tag mapper.
         
         Args:
             file_path: Path to audio file
@@ -387,78 +387,35 @@ class AudioAnalyzer:
             
             metadata = {}
             
-            # Extract common tags
+            # Extract tags using enhanced tag mapper
             if hasattr(audio_file, 'tags') and audio_file.tags:
-                tags = audio_file.tags
+                from .tag_mapping import get_tag_mapper
+                tag_mapper = get_tag_mapper()
                 
-                # Basic metadata
-                metadata['title'] = self._get_tag_value(tags, ['title', 'TIT2', 'TITLE'])
-                metadata['artist'] = self._get_tag_value(tags, ['artist', 'TPE1', 'ARTIST'])
-                metadata['year'] = self._get_tag_value(tags, ['year', 'TYER', 'YEAR', 'date'])
-                metadata['track_number'] = self._get_tag_value(tags, ['tracknumber', 'TRCK', 'TRACK'])
-                metadata['disc_number'] = self._get_tag_value(tags, ['discnumber', 'TPOS', 'DISC'])
+                # Convert mutagen tags to dictionary format
+                tags_dict = {}
+                for key, value in audio_file.tags.items():
+                    tags_dict[key] = value
                 
-                # Extended metadata
-                metadata['composer'] = self._get_tag_value(tags, ['composer', 'TCOM', 'COMPOSER'])
-                metadata['lyricist'] = self._get_tag_value(tags, ['lyricist', 'TEXT', 'LYRICIST'])
-                metadata['band'] = self._get_tag_value(tags, ['band', 'TPE2', 'BAND'])
-                metadata['conductor'] = self._get_tag_value(tags, ['conductor', 'TPE3', 'CONDUCTOR'])
-                metadata['remixer'] = self._get_tag_value(tags, ['remixer', 'TPE4', 'REMIXER'])
-                metadata['subtitle'] = self._get_tag_value(tags, ['subtitle', 'TIT3', 'SUBTITLE'])
-                metadata['grouping'] = self._get_tag_value(tags, ['grouping', 'TIT1', 'GROUPING'])
-                metadata['publisher'] = self._get_tag_value(tags, ['publisher', 'TPUB', 'PUBLISHER'])
-                metadata['copyright'] = self._get_tag_value(tags, ['copyright', 'TCOP', 'COPYRIGHT'])
-                metadata['encoded_by'] = self._get_tag_value(tags, ['encodedby', 'TENC', 'ENCODEDBY'])
-                metadata['language'] = self._get_tag_value(tags, ['language', 'TLAN', 'LANGUAGE'])
-                metadata['mood'] = self._get_tag_value(tags, ['mood', 'TMOO', 'MOOD'])
-                metadata['style'] = self._get_tag_value(tags, ['style', 'TSTY', 'STYLE'])
-                metadata['quality'] = self._get_tag_value(tags, ['quality', 'TQUA', 'QUALITY'])
+                # Map tags using the enhanced mapper
+                mapped_metadata = tag_mapper.map_tags(tags_dict)
+                metadata.update(mapped_metadata)
                 
-                # Original metadata
-                metadata['original_artist'] = self._get_tag_value(tags, ['originalartist', 'TOPE', 'ORIGINALARTIST'])
-                metadata['original_album'] = self._get_tag_value(tags, ['originalalbum', 'TOAL', 'ORIGINALALBUM'])
-                metadata['original_year'] = self._get_tag_value(tags, ['originalyear', 'TOYE', 'ORIGINALYEAR'])
-                metadata['original_filename'] = self._get_tag_value(tags, ['originalfilename', 'TOFN', 'ORIGINALFILENAME'])
+                # Add filename for enrichment
+                metadata['filename'] = os.path.basename(file_path)
                 
-                # Content grouping
-                metadata['content_group'] = self._get_tag_value(tags, ['contentgroup', 'TIT1', 'CONTENTGROUP'])
-                
-                # Technical metadata
-                metadata['encoder'] = self._get_tag_value(tags, ['encoder', 'TENC', 'ENCODER'])
-                metadata['file_type'] = self._get_tag_value(tags, ['filetype', 'TFLT', 'FILETYPE'])
-                metadata['playlist_delay'] = self._get_tag_value(tags, ['playlistdelay', 'TDLY', 'PLAYLISTDELAY'])
-                metadata['recording_time'] = self._get_tag_value(tags, ['recordingtime', 'TDRC', 'RECORDINGTIME'])
-                metadata['tempo'] = self._get_tag_value(tags, ['tempo', 'TBPM', 'TEMPO'])
-                metadata['length'] = self._get_tag_value(tags, ['length', 'TLEN', 'LENGTH'])
-                
-                # ReplayGain metadata
-                metadata['replaygain_track_gain'] = self._get_tag_value(tags, ['replaygain_track_gain', 'RGAD', 'REPLAYGAIN_TRACK_GAIN'])
-                metadata['replaygain_album_gain'] = self._get_tag_value(tags, ['replaygain_album_gain', 'RGAD', 'REPLAYGAIN_ALBUM_GAIN'])
-                metadata['replaygain_track_peak'] = self._get_tag_value(tags, ['replaygain_track_peak', 'RGAD', 'REPLAYGAIN_TRACK_PEAK'])
-                metadata['replaygain_album_peak'] = self._get_tag_value(tags, ['replaygain_album_peak', 'RGAD', 'REPLAYGAIN_ALBUM_PEAK'])
-                
-                # MusicBrainz IDs
-                metadata['musicbrainz_track_id'] = self._get_tag_value(tags, ['musicbrainz_trackid', 'TXXX', 'MUSICBRAINZ_TRACKID'])
-                metadata['musicbrainz_artist_id'] = self._get_tag_value(tags, ['musicbrainz_artistid', 'TXXX', 'MUSICBRAINZ_ARTISTID'])
-                metadata['musicbrainz_album_id'] = self._get_tag_value(tags, ['musicbrainz_albumid', 'TXXX', 'MUSICBRAINZ_ALBUMID'])
-                metadata['musicbrainz_album_artist_id'] = self._get_tag_value(tags, ['musicbrainz_albumartistid', 'TXXX', 'MUSICBRAINZ_ALBUMARTISTID'])
-                metadata['musicbrainz_release_group_id'] = self._get_tag_value(tags, ['musicbrainz_releasegroupid', 'TXXX', 'MUSICBRAINZ_RELEASEGROUPID'])
-                metadata['musicbrainz_recording_id'] = self._get_tag_value(tags, ['musicbrainz_recordingid', 'TXXX', 'MUSICBRAINZ_RECORDINGID'])
-                metadata['musicbrainz_work_id'] = self._get_tag_value(tags, ['musicbrainz_workid', 'TXXX', 'MUSICBRAINZ_WORKID'])
-                
-                # Custom tags
-                metadata['custom_tags'] = {}
-                for key, value in tags.items():
-                    if key.startswith('TXXX') or key.startswith('custom'):
-                        metadata['custom_tags'][key] = value
+                log_universal('DEBUG', 'Audio', f'Extracted {len(mapped_metadata)} metadata fields')
+            else:
+                log_universal('DEBUG', 'Audio', 'No tags found in file')
+                metadata['filename'] = os.path.basename(file_path)
             
-                            # Extract audio properties
-                if hasattr(audio_file, 'info'):
-                    info = audio_file.info
-                    metadata['duration'] = getattr(info, 'length', None)
-                    metadata['bitrate'] = getattr(info, 'bitrate', None)
-                    metadata['sample_rate'] = getattr(info, 'sample_rate', None)
-                    metadata['channels'] = getattr(info, 'channels', None)
+            # Extract audio properties
+            if hasattr(audio_file, 'info'):
+                info = audio_file.info
+                metadata['duration'] = getattr(info, 'length', None)
+                metadata['bitrate'] = getattr(info, 'bitrate', None)
+                metadata['sample_rate'] = getattr(info, 'sample_rate', None)
+                metadata['channels'] = getattr(info, 'channels', None)
             
             # Extract BPM from metadata if available
             bpm_from_metadata = self._extract_bpm_from_metadata(metadata)
@@ -565,7 +522,7 @@ class AudioAnalyzer:
     
     def _enrich_metadata_with_external_apis(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Enrich metadata using external APIs.
+        Enrich metadata using enhanced external APIs service.
         
         Args:
             metadata: Original metadata dictionary
@@ -574,11 +531,11 @@ class AudioAnalyzer:
             Enriched metadata dictionary
         """
         try:
-            from .external_apis import get_metadata_enrichment_service
+            from .external_apis import get_enhanced_metadata_enrichment_service
             
-            enrichment_service = get_metadata_enrichment_service()
+            enrichment_service = get_enhanced_metadata_enrichment_service()
             if enrichment_service.is_available():
-                log_universal('DEBUG', 'Audio', 'Enriching metadata with external APIs')
+                log_universal('DEBUG', 'Audio', 'Enriching metadata with enhanced external APIs')
                 return enrichment_service.enrich_metadata(metadata)
             else:
                 log_universal('DEBUG', 'Audio', 'No external APIs available for enrichment')

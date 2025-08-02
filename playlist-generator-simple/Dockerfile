@@ -45,7 +45,7 @@ WORKDIR /app
 COPY src /app/src
 COPY playlista /app/playlista
 COPY entrypoint.sh /app/entrypoint.sh
-COPY database_schema.sql /app/src/database_schema.sql
+COPY database_schema_complete.sql /app/src/database_schema.sql
 COPY playlista.conf /app/playlista.conf
 
 # Create directories with proper permissions

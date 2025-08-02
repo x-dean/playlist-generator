@@ -1,6 +1,6 @@
 """
-External APIs for Playlist Generator Simple.
-This module provides clients for MusicBrainz and Last.fm APIs
+Enhanced External APIs for Playlist Generator Simple.
+This module provides clients for multiple music metadata APIs with unified logging.
 """
 
 import os
@@ -8,8 +8,10 @@ import time
 import logging
 import requests
 import hashlib
-from typing import Dict, Any, Optional, List
+import json
+from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 
 # Import musicbrainzngs for official MusicBrainz API
 try:
@@ -27,86 +29,171 @@ logger = get_logger(__name__)
 
 
 @dataclass
-class MusicBrainzTrack:
-    """MusicBrainz track information."""
-    id: str
+class TrackMetadata:
+    """Unified track metadata structure for all APIs."""
+    # Basic info
     title: str
     artist: str
-    artist_id: str
-    album: str
-    album_id: str
+    album: Optional[str] = None
     release_date: Optional[str] = None
     track_number: Optional[int] = None
     disc_number: Optional[int] = None
     duration_ms: Optional[int] = None
+    
+    # IDs
+    musicbrainz_id: Optional[str] = None
+    musicbrainz_artist_id: Optional[str] = None
+    musicbrainz_album_id: Optional[str] = None
+    discogs_id: Optional[str] = None
+    spotify_id: Optional[str] = None
+    
+    # Tags and genres
     tags: List[str] = None
+    genres: List[str] = None
+    
+    # Statistics
+    play_count: Optional[int] = None
+    listeners: Optional[int] = None
+    rating: Optional[float] = None
+    popularity: Optional[float] = None
+    
+    # URLs
+    url: Optional[str] = None
+    image_url: Optional[str] = None
+    
+    # Source tracking
+    sources: List[str] = None
 
     def __post_init__(self):
         if self.tags is None:
             self.tags = []
+        if self.genres is None:
+            self.genres = []
+        if self.sources is None:
+            self.sources = []
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
-            'id': self.id,
             'title': self.title,
             'artist': self.artist,
-            'artist_id': self.artist_id,
             'album': self.album,
-            'album_id': self.album_id,
             'release_date': self.release_date,
             'track_number': self.track_number,
             'disc_number': self.disc_number,
             'duration_ms': self.duration_ms,
-            'tags': self.tags
-        }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'MusicBrainzTrack':
-        """Create from dictionary."""
-        return cls(**data)
-
-
-@dataclass
-class LastFMTrack:
-    """Last.fm track information."""
-    name: str
-    artist: str
-    play_count: Optional[int] = None
-    listeners: Optional[int] = None
-    tags: List[str] = None
-    rating: Optional[float] = None
-    url: Optional[str] = None
-
-    def __post_init__(self):
-        if self.tags is None:
-            self.tags = []
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            'name': self.name,
-            'artist': self.artist,
+            'musicbrainz_id': self.musicbrainz_id,
+            'musicbrainz_artist_id': self.musicbrainz_artist_id,
+            'musicbrainz_album_id': self.musicbrainz_album_id,
+            'discogs_id': self.discogs_id,
+            'spotify_id': self.spotify_id,
+            'tags': self.tags,
+            'genres': self.genres,
             'play_count': self.play_count,
             'listeners': self.listeners,
-            'tags': self.tags,
             'rating': self.rating,
-            'url': self.url
+            'popularity': self.popularity,
+            'url': self.url,
+            'image_url': self.image_url,
+            'sources': self.sources
         }
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'LastFMTrack':
+    def from_dict(cls, data: Dict[str, Any]) -> 'TrackMetadata':
         """Create from dictionary."""
         return cls(**data)
+    
+    def merge(self, other: 'TrackMetadata') -> 'TrackMetadata':
+        """Merge with another TrackMetadata object."""
+        # Merge tags and genres (remove duplicates)
+        all_tags = list(set(self.tags + other.tags))
+        all_genres = list(set(self.genres + other.genres))
+        all_sources = list(set(self.sources + other.sources))
+        
+        # Use the most complete data
+        return TrackMetadata(
+            title=other.title if other.title else self.title,
+            artist=other.artist if other.artist else self.artist,
+            album=other.album if other.album else self.album,
+            release_date=other.release_date if other.release_date else self.release_date,
+            track_number=other.track_number if other.track_number else self.track_number,
+            disc_number=other.disc_number if other.disc_number else self.disc_number,
+            duration_ms=other.duration_ms if other.duration_ms else self.duration_ms,
+            musicbrainz_id=other.musicbrainz_id if other.musicbrainz_id else self.musicbrainz_id,
+            musicbrainz_artist_id=other.musicbrainz_artist_id if other.musicbrainz_artist_id else self.musicbrainz_artist_id,
+            musicbrainz_album_id=other.musicbrainz_album_id if other.musicbrainz_album_id else self.musicbrainz_album_id,
+            discogs_id=other.discogs_id if other.discogs_id else self.discogs_id,
+            spotify_id=other.spotify_id if other.spotify_id else self.spotify_id,
+            tags=all_tags,
+            genres=all_genres,
+            play_count=other.play_count if other.play_count else self.play_count,
+            listeners=other.listeners if other.listeners else self.listeners,
+            rating=other.rating if other.rating else self.rating,
+            popularity=other.popularity if other.popularity else self.popularity,
+            url=other.url if other.url else self.url,
+            image_url=other.image_url if other.image_url else self.image_url,
+            sources=all_sources
+        )
 
 
-class MusicBrainzClient:
+class BaseAPIClient(ABC):
+    """Base class for all API clients with unified logging."""
+    
+    def __init__(self, api_name: str, rate_limit: float = 1.0):
+        """
+        Initialize base API client.
+        
+        Args:
+            api_name: Name of the API for logging
+            rate_limit: Requests per second
+        """
+        self.api_name = api_name
+        self.rate_limit = rate_limit
+        self.last_request_time = 0
+        self.db_manager = get_db_manager()
+        
+        log_universal('INFO', f'{api_name} API', f'Client initialized (rate limit: {rate_limit}/s)')
+    
+    def _rate_limit(self):
+        """Apply rate limiting."""
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        if time_since_last < (1.0 / self.rate_limit):
+            sleep_time = (1.0 / self.rate_limit) - time_since_last
+            time.sleep(sleep_time)
+        self.last_request_time = time.time()
+    
+    def _get_cache_key(self, title: str, artist: str) -> str:
+        """Generate cache key for API responses."""
+        normalized_title = title.lower().strip()
+        normalized_artist = artist.lower().strip() if artist else ""
+        search_string = f"{self.api_name.lower()}:{normalized_title}:{normalized_artist}"
+        return hashlib.md5(search_string.encode()).hexdigest()
+    
+    def _log_api_call(self, method: str, query: str, success: bool, details: str = "", 
+                      duration: float = 0, failure_type: str = None):
+        """Unified API call logging."""
+        log_api_call(
+            self.api_name, method, query, 
+            success=success, details=details, 
+            duration=duration, failure_type=failure_type
+        )
+    
+    @abstractmethod
+    def search_track(self, title: str, artist: str = None) -> Optional[TrackMetadata]:
+        """Search for track metadata."""
+        pass
+
+
+class MusicBrainzClient(BaseAPIClient):
     """Client for interacting with the MusicBrainz API."""
     
-    def __init__(self, user_agent: str = None):
+    def __init__(self, user_agent: str = None, rate_limit: float = 1.0):
         """Initialize MusicBrainz client."""
+        super().__init__("MusicBrainz", rate_limit)
+        
         if not MUSICBRAINZ_AVAILABLE:
-            log_universal('WARNING', 'MB API', 'MusicBrainz library not available')
+            log_universal('WARNING', 'MusicBrainz API', 'MusicBrainz library not available')
             return
             
         # Configure MusicBrainz
@@ -119,17 +206,9 @@ class MusicBrainzClient:
         # Set rate limiting
         musicbrainzngs.set_rate_limit(limit_or_interval=1.0, new_requests=1)
         
-        log_universal('INFO', 'MB API', 'Client initialized')
+        log_universal('INFO', 'MusicBrainz API', 'Client configured successfully')
     
-    def _get_cache_key(self, title: str, artist: str) -> str:
-        """Generate cache key for API responses."""
-        # Normalize and hash the search parameters
-        normalized_title = title.lower().strip()
-        normalized_artist = artist.lower().strip() if artist else ""
-        search_string = f"mb:{normalized_title}:{normalized_artist}"
-        return hashlib.md5(search_string.encode()).hexdigest()
-    
-    def search_track(self, title: str, artist: str = None) -> Optional[MusicBrainzTrack]:
+    def search_track(self, title: str, artist: str = None) -> Optional[TrackMetadata]:
         """
         Search for a track by title and artist using MusicBrainz API.
         
@@ -138,25 +217,24 @@ class MusicBrainzClient:
             artist: Artist name (optional)
             
         Returns:
-            MusicBrainzTrack object or None if not found
+            TrackMetadata object or None if not found
         """
         if not MUSICBRAINZ_AVAILABLE:
             return None
-            
+        
         # Check cache first
-        db_manager = get_db_manager()
         cache_key = self._get_cache_key(title, artist)
-        cached_result = db_manager.get_cache(cache_key)
+        cached_result = self.db_manager.get_cache(cache_key)
         
         if cached_result:
-            log_universal('DEBUG', 'MB API', f'Using cached result for: {title} by {artist}')
+            log_universal('DEBUG', 'MusicBrainz API', f'Using cached result for: {title} by {artist}')
             if cached_result is not None:
-                return MusicBrainzTrack.from_dict(cached_result)
+                return TrackMetadata.from_dict(cached_result)
             return None
         
         try:
             start_time = time.time()
-            duration = None  # Initialize duration
+            duration = None
             
             # Build search query
             query_parts = [f'title:"{title}"']
@@ -174,18 +252,20 @@ class MusicBrainzClient:
             duration = time.time() - start_time
             
             if not result or 'recording-list' not in result:
-                log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist or 'Unknown'}'", 
-                           success=False, details='No data returned', duration=duration, failure_type='no_data')
+                self._log_api_call('search', f"'{title}' by '{artist or 'Unknown'}'", 
+                                 success=False, details='No data returned', 
+                                 duration=duration, failure_type='no_data')
                 # Cache negative results for shorter time
-                db_manager.save_cache(cache_key, None, expires_hours=1)
+                self.db_manager.save_cache(cache_key, None, expires_hours=1)
                 return None
             
             recordings = result['recording-list']
             if not recordings:
-                log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist or 'Unknown'}'", 
-                           success=False, details='No recordings found', duration=duration, failure_type='no_data')
+                self._log_api_call('search', f"'{title}' by '{artist or 'Unknown'}'", 
+                                 success=False, details='No recordings found', 
+                                 duration=duration, failure_type='no_data')
                 # Cache negative results for shorter time
-                db_manager.save_cache(cache_key, None, expires_hours=1)
+                self.db_manager.save_cache(cache_key, None, expires_hours=1)
                 return None
             
             recording = recordings[0]
@@ -230,74 +310,64 @@ class MusicBrainzClient:
             if 'tag-list' in recording:
                 tags = [tag['name'] for tag in recording['tag-list']]
             
-            mb_track = MusicBrainzTrack(
-                id=track_id,
+            track_metadata = TrackMetadata(
                 title=track_title,
                 artist=artist_name,
-                artist_id=artist_id,
                 album=album_name,
-                album_id=album_id,
                 release_date=release_date,
                 track_number=track_number,
                 disc_number=disc_number,
                 duration_ms=duration_ms,
-                tags=tags
+                musicbrainz_id=track_id,
+                musicbrainz_artist_id=artist_id,
+                musicbrainz_album_id=album_id,
+                tags=tags,
+                sources=['musicbrainz']
             )
             
-            log_api_call('MusicBrainz', 'search', f"'{mb_track.artist}' - '{mb_track.title}'", 
-                        success=True, details=f"found {len(mb_track.tags)} tags", duration=duration)
+            self._log_api_call('search', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
+                             success=True, details=f"found {len(track_metadata.tags)} tags", 
+                             duration=duration)
             
             # Cache successful results for 24 hours
-            db_manager.save_cache(cache_key, mb_track.to_dict(), expires_hours=24)
+            self.db_manager.save_cache(cache_key, track_metadata.to_dict(), expires_hours=24)
             
-            return mb_track
+            return track_metadata
             
         except Exception as e:
             # Calculate duration if not already calculated
             if duration is None:
                 duration = time.time() - start_time
-            log_api_call('MusicBrainz', 'search', f"'{title}' by '{artist}'", success=False, details=f"Error: {e}", duration=duration, failure_type='network')
+            self._log_api_call('search', f"'{title}' by '{artist}'", 
+                             success=False, details=f"Error: {e}", 
+                             duration=duration, failure_type='network')
             # Cache errors for shorter time
-            db_manager.save_cache(cache_key, None, expires_hours=1)
+            self.db_manager.save_cache(cache_key, None, expires_hours=1)
             return None
 
 
-class LastFMClient:
+class LastFMClient(BaseAPIClient):
     """Client for interacting with the Last.fm API."""
     
     BASE_URL = "https://ws.audioscrobbler.com/2.0"
     
-    def __init__(self, api_key: str = None, rate_limit: int = None):
+    def __init__(self, api_key: str = None, rate_limit: float = 2.0):
         """Initialize Last.fm client."""
+        super().__init__("LastFM", rate_limit)
+        
         self.api_key = api_key or os.getenv('LASTFM_API_KEY')
         if not self.api_key:
-            log_universal('WARNING', 'LF API', 'No Last.fm API key provided')
+            log_universal('WARNING', 'LastFM API', 'No Last.fm API key provided')
             return
         
-        self.rate_limit = rate_limit or 2.0  # requests per second
-        self.last_request_time = 0
-        
-        log_universal('INFO', 'LF API', 'Client initialized')
-    
-    def _get_cache_key(self, track: str, artist: str) -> str:
-        """Generate cache key for API responses."""
-        # Normalize and hash the search parameters
-        normalized_track = track.lower().strip()
-        normalized_artist = artist.lower().strip()
-        search_string = f"lf:{normalized_track}:{normalized_artist}"
-        return hashlib.md5(search_string.encode()).hexdigest()
+        log_universal('INFO', 'LastFM API', 'Client configured successfully')
     
     def _make_request(self, method: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """Make a rate-limited request to Last.fm API."""
         if not self.api_key:
             return None
         
-        # Rate limiting
-        current_time = time.time()
-        time_since_last = current_time - self.last_request_time
-        if time_since_last < (1.0 / self.rate_limit):
-            sleep_time = (1.0 / self.rate_limit) - time_since_last
-            time.sleep(sleep_time)
+        self._rate_limit()
         
         # Prepare request
         if params is None:
@@ -311,41 +381,39 @@ class LastFMClient:
         
         try:
             response = requests.get(self.BASE_URL, params=params, timeout=10)
-            self.last_request_time = time.time()
             
             if response.status_code == 200:
                 return response.json()
             else:
-                log_universal('ERROR', 'LF API', f'HTTP {response.status_code}: {response.text}')
+                log_universal('ERROR', 'LastFM API', f'HTTP {response.status_code}: {response.text}')
                 return None
                 
         except Exception as e:
-            log_universal('ERROR', 'LF API', f'Request failed: {e}')
+            log_universal('ERROR', 'LastFM API', f'Request failed: {e}')
             return None
     
-    def get_track_info(self, track: str, artist: str) -> Optional[LastFMTrack]:
+    def search_track(self, title: str, artist: str = None) -> Optional[TrackMetadata]:
         """
         Get track information from Last.fm.
         
         Args:
-            track: Track name
+            title: Track name
             artist: Artist name
             
         Returns:
-            LastFMTrack object or None if not found
+            TrackMetadata object or None if not found
         """
         if not self.api_key:
             return None
         
         # Check cache first
-        db_manager = get_db_manager()
-        cache_key = self._get_cache_key(track, artist)
-        cached_result = db_manager.get_cache(cache_key)
+        cache_key = self._get_cache_key(title, artist)
+        cached_result = self.db_manager.get_cache(cache_key)
         
         if cached_result:
-            log_universal('DEBUG', 'LF API', f'Using cached result for: {track} by {artist}')
+            log_universal('DEBUG', 'LastFM API', f'Using cached result for: {title} by {artist}')
             if cached_result is not None:
-                return LastFMTrack.from_dict(cached_result)
+                return TrackMetadata.from_dict(cached_result)
             return None
         
         try:
@@ -353,23 +421,24 @@ class LastFMClient:
             duration = None
             
             result = self._make_request('track.getInfo', {
-                'track': track,
+                'track': title,
                 'artist': artist
             })
             
             duration = time.time() - start_time
             
             if not result or 'track' not in result:
-                log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'", 
-                           success=False, details='No data returned', duration=duration, failure_type='no_data')
+                self._log_api_call('get_track_info', f"'{title}' by '{artist}'", 
+                                 success=False, details='No data returned', 
+                                 duration=duration, failure_type='no_data')
                 # Cache negative results for shorter time
-                db_manager.save_cache(cache_key, None, expires_hours=1)
+                self.db_manager.save_cache(cache_key, None, expires_hours=1)
                 return None
             
             track_data = result['track']
             
             # Extract basic info
-            name = track_data.get('name', track)
+            name = track_data.get('name', title)
             artist_name = track_data.get('artist', {}).get('name', artist)
             
             # Extract statistics
@@ -393,84 +462,446 @@ class LastFMClient:
             # Extract URL
             url = track_data.get('url')
             
-            lastfm_track = LastFMTrack(
-                name=name,
+            track_metadata = TrackMetadata(
+                title=name,
                 artist=artist_name,
                 play_count=play_count,
                 listeners=listeners,
                 tags=tags,
                 rating=rating,
-                url=url
+                url=url,
+                sources=['lastfm']
             )
             
-            log_api_call('LastFM', 'get_track_info', f"'{lastfm_track.artist}' - '{lastfm_track.name}'", 
-                        success=True, details=f"found {len(lastfm_track.tags)} tags", duration=duration)
+            self._log_api_call('get_track_info', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
+                             success=True, details=f"found {len(track_metadata.tags)} tags", 
+                             duration=duration)
             
             # Cache successful results for 24 hours
-            db_manager.save_cache(cache_key, lastfm_track.to_dict(), expires_hours=24)
+            self.db_manager.save_cache(cache_key, track_metadata.to_dict(), expires_hours=24)
             
-            return lastfm_track
+            return track_metadata
             
         except Exception as e:
             # Calculate duration if not already calculated
             if duration is None:
                 duration = time.time() - start_time
-            log_api_call('LastFM', 'get_track_info', f"'{track}' by '{artist}'", success=False, details=f"Error: {e}", duration=duration, failure_type='network')
+            self._log_api_call('get_track_info', f"'{title}' by '{artist}'", 
+                             success=False, details=f"Error: {e}", 
+                             duration=duration, failure_type='network')
             # Cache errors for shorter time
-            db_manager.save_cache(cache_key, None, expires_hours=1)
+            self.db_manager.save_cache(cache_key, None, expires_hours=1)
+            return None
+
+
+class DiscogsClient(BaseAPIClient):
+    """Client for interacting with the Discogs API."""
+    
+    BASE_URL = "https://api.discogs.com"
+    
+    def __init__(self, api_key: str = None, rate_limit: float = 1.0):
+        """Initialize Discogs client."""
+        super().__init__("Discogs", rate_limit)
+        
+        self.api_key = api_key or os.getenv('DISCOGS_API_KEY')
+        self.user_token = os.getenv('DISCOGS_USER_TOKEN')
+        
+        if not self.api_key:
+            log_universal('WARNING', 'Discogs API', 'No Discogs API key provided')
+            return
+        
+        log_universal('INFO', 'Discogs API', 'Client configured successfully')
+    
+    def _make_request(self, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Make a rate-limited request to Discogs API."""
+        if not self.api_key:
+            return None
+        
+        self._rate_limit()
+        
+        # Prepare headers
+        headers = {
+            'User-Agent': 'Playlista/1.0',
+            'Authorization': f'Discogs token={self.user_token}' if self.user_token else None
+        }
+        
+        # Prepare request
+        if params is None:
+            params = {}
+        
+        params['key'] = self.api_key
+        params['secret'] = self.api_key  # Discogs uses the same key for both
+        
+        try:
+            response = requests.get(f"{self.BASE_URL}{endpoint}", 
+                                 params=params, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                log_universal('ERROR', 'Discogs API', f'HTTP {response.status_code}: {response.text}')
+                return None
+                
+        except Exception as e:
+            log_universal('ERROR', 'Discogs API', f'Request failed: {e}')
             return None
     
-    def get_track_tags(self, track: str, artist: str) -> List[str]:
+    def search_track(self, title: str, artist: str = None) -> Optional[TrackMetadata]:
         """
-        Get track tags from Last.fm.
+        Search for track information from Discogs.
         
         Args:
-            track: Track name
+            title: Track name
             artist: Artist name
             
         Returns:
-            List of tag names
+            TrackMetadata object or None if not found
         """
-        track_info = self.get_track_info(track, artist)
-        return track_info.tags if track_info else []
+        if not self.api_key:
+            return None
+        
+        # Check cache first
+        cache_key = self._get_cache_key(title, artist)
+        cached_result = self.db_manager.get_cache(cache_key)
+        
+        if cached_result:
+            log_universal('DEBUG', 'Discogs API', f'Using cached result for: {title} by {artist}')
+            if cached_result is not None:
+                return TrackMetadata.from_dict(cached_result)
+            return None
+        
+        try:
+            start_time = time.time()
+            duration = None
+            
+            # Build search query
+            query = f"{title}"
+            if artist:
+                query = f"{artist} {title}"
+            
+            result = self._make_request('/database/search', {
+                'q': query,
+                'type': 'release',
+                'per_page': 1
+            })
+            
+            duration = time.time() - start_time
+            
+            if not result or 'results' not in result or not result['results']:
+                self._log_api_call('search', f"'{title}' by '{artist}'", 
+                                 success=False, details='No data returned', 
+                                 duration=duration, failure_type='no_data')
+                # Cache negative results for shorter time
+                self.db_manager.save_cache(cache_key, None, expires_hours=1)
+                return None
+            
+            release = result['results'][0]
+            
+            # Extract basic info
+            track_title = title
+            artist_name = artist or 'Unknown Artist'
+            album_name = release.get('title', '')
+            release_date = release.get('year')
+            discogs_id = str(release.get('id', ''))
+            
+            # Extract genres and styles
+            genres = release.get('genre', [])
+            styles = release.get('style', [])
+            tags = genres + styles
+            
+            # Extract image URL
+            image_url = None
+            if 'cover_image' in release:
+                image_url = release['cover_image']
+            
+            track_metadata = TrackMetadata(
+                title=track_title,
+                artist=artist_name,
+                album=album_name,
+                release_date=str(release_date) if release_date else None,
+                discogs_id=discogs_id,
+                tags=tags,
+                genres=genres,
+                image_url=image_url,
+                sources=['discogs']
+            )
+            
+            self._log_api_call('search', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
+                             success=True, details=f"found {len(track_metadata.tags)} tags", 
+                             duration=duration)
+            
+            # Cache successful results for 24 hours
+            self.db_manager.save_cache(cache_key, track_metadata.to_dict(), expires_hours=24)
+            
+            return track_metadata
+            
+        except Exception as e:
+            # Calculate duration if not already calculated
+            if duration is None:
+                duration = time.time() - start_time
+            self._log_api_call('search', f"'{title}' by '{artist}'", 
+                             success=False, details=f"Error: {e}", 
+                             duration=duration, failure_type='network')
+            # Cache errors for shorter time
+            self.db_manager.save_cache(cache_key, None, expires_hours=1)
+            return None
 
 
-class MetadataEnrichmentService:
-    """
-    Service for enriching metadata using external APIs.
+class SpotifyClient(BaseAPIClient):
+    """Client for interacting with the Spotify API."""
     
-    Combines MusicBrainz and Last.fm data to provide
-    comprehensive metadata enrichment.
-    """
+    BASE_URL = "https://api.spotify.com/v1"
     
-    def __init__(self, musicbrainz_enabled: bool = None, lastfm_enabled: bool = None):
+    def __init__(self, client_id: str = None, client_secret: str = None, rate_limit: float = 1.0):
+        """Initialize Spotify client."""
+        super().__init__("Spotify", rate_limit)
+        
+        self.client_id = client_id or os.getenv('SPOTIFY_CLIENT_ID')
+        self.client_secret = client_secret or os.getenv('SPOTIFY_CLIENT_SECRET')
+        self.access_token = None
+        self.token_expires = 0
+        
+        if not self.client_id or not self.client_secret:
+            log_universal('WARNING', 'Spotify API', 'No Spotify API credentials provided')
+            return
+        
+        log_universal('INFO', 'Spotify API', 'Client configured successfully')
+    
+    def _get_access_token(self) -> bool:
+        """Get Spotify access token."""
+        if self.access_token and time.time() < self.token_expires:
+            return True
+        
+        try:
+            auth_url = "https://accounts.spotify.com/api/token"
+            auth_response = requests.post(auth_url, {
+                'grant_type': 'client_credentials',
+                'client_id': self.client_id,
+                'client_secret': self.client_secret,
+            })
+            
+            if auth_response.status_code == 200:
+                token_data = auth_response.json()
+                self.access_token = token_data['access_token']
+                self.token_expires = time.time() + token_data['expires_in'] - 60  # 1 minute buffer
+                return True
+            else:
+                log_universal('ERROR', 'Spotify API', f'Authentication failed: {auth_response.status_code}')
+                return False
+                
+        except Exception as e:
+            log_universal('ERROR', 'Spotify API', f'Authentication error: {e}')
+            return False
+    
+    def _make_request(self, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Make a rate-limited request to Spotify API."""
+        if not self._get_access_token():
+            return None
+        
+        self._rate_limit()
+        
+        # Prepare headers
+        headers = {
+            'Authorization': f'Bearer {self.access_token}'
+        }
+        
+        try:
+            response = requests.get(f"{self.BASE_URL}{endpoint}", 
+                                 params=params, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                log_universal('ERROR', 'Spotify API', f'HTTP {response.status_code}: {response.text}')
+                return None
+                
+        except Exception as e:
+            log_universal('ERROR', 'Spotify API', f'Request failed: {e}')
+            return None
+    
+    def search_track(self, title: str, artist: str = None) -> Optional[TrackMetadata]:
         """
-        Initialize the metadata enrichment service.
+        Search for track information from Spotify.
         
         Args:
-            musicbrainz_enabled: Enable MusicBrainz API (uses config if None)
-            lastfm_enabled: Enable Last.fm API (uses config if None)
+            title: Track name
+            artist: Artist name
+            
+        Returns:
+            TrackMetadata object or None if not found
         """
-        # Initialize clients based on configuration
-        self.musicbrainz_client = None
-        if musicbrainz_enabled:
-            try:
-                self.musicbrainz_client = MusicBrainzClient()
-                log_universal('INFO', 'MB API', 'Client initialized')
-            except Exception as e:
-                log_universal('WARNING', 'MB API', f'Failed to initialize - {e}')
+        if not self.client_id or not self.client_secret:
+            return None
         
-        self.lastfm_client = None
-        if lastfm_enabled:
+        # Check cache first
+        cache_key = self._get_cache_key(title, artist)
+        cached_result = self.db_manager.get_cache(cache_key)
+        
+        if cached_result:
+            log_universal('DEBUG', 'Spotify API', f'Using cached result for: {title} by {artist}')
+            if cached_result is not None:
+                return TrackMetadata.from_dict(cached_result)
+            return None
+        
+        try:
+            start_time = time.time()
+            duration = None
+            
+            # Build search query
+            query = f"{title}"
+            if artist:
+                query = f"{artist} {title}"
+            
+            result = self._make_request('/search', {
+                'q': query,
+                'type': 'track',
+                'limit': 1
+            })
+            
+            duration = time.time() - start_time
+            
+            if not result or 'tracks' not in result or not result['tracks']['items']:
+                self._log_api_call('search', f"'{title}' by '{artist}'", 
+                                 success=False, details='No data returned', 
+                                 duration=duration, failure_type='no_data')
+                # Cache negative results for shorter time
+                self.db_manager.save_cache(cache_key, None, expires_hours=1)
+                return None
+            
+            track_data = result['tracks']['items'][0]
+            
+            # Extract basic info
+            track_title = track_data.get('name', title)
+            artist_name = track_data.get('artists', [{}])[0].get('name', artist or 'Unknown Artist')
+            album_name = track_data.get('album', {}).get('name', '')
+            spotify_id = track_data.get('id', '')
+            duration_ms = track_data.get('duration_ms')
+            popularity = track_data.get('popularity')
+            
+            # Extract genres (from album)
+            genres = []
+            if 'album' in track_data and 'genres' in track_data['album']:
+                genres = track_data['album']['genres']
+            
+            # Extract image URL
+            image_url = None
+            if 'album' in track_data and 'images' in track_data['album']:
+                images = track_data['album']['images']
+                if images:
+                    image_url = images[0].get('url')
+            
+            # Extract release date
+            release_date = None
+            if 'album' in track_data:
+                release_date = track_data['album'].get('release_date')
+            
+            track_metadata = TrackMetadata(
+                title=track_title,
+                artist=artist_name,
+                album=album_name,
+                release_date=release_date,
+                duration_ms=duration_ms,
+                spotify_id=spotify_id,
+                genres=genres,
+                popularity=popularity,
+                image_url=image_url,
+                sources=['spotify']
+            )
+            
+            self._log_api_call('search', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
+                             success=True, details=f"found {len(track_metadata.genres)} genres", 
+                             duration=duration)
+            
+            # Cache successful results for 24 hours
+            self.db_manager.save_cache(cache_key, track_metadata.to_dict(), expires_hours=24)
+            
+            return track_metadata
+            
+        except Exception as e:
+            # Calculate duration if not already calculated
+            if duration is None:
+                duration = time.time() - start_time
+            self._log_api_call('search', f"'{title}' by '{artist}'", 
+                             success=False, details=f"Error: {e}", 
+                             duration=duration, failure_type='network')
+            # Cache errors for shorter time
+            self.db_manager.save_cache(cache_key, None, expires_hours=1)
+            return None
+
+
+class EnhancedMetadataEnrichmentService:
+    """
+    Enhanced service for enriching metadata using multiple external APIs.
+    
+    Combines MusicBrainz, Last.fm, Discogs, and Spotify data to provide
+    comprehensive metadata enrichment with unified logging.
+    """
+    
+    def __init__(self, config: Dict[str, Any] = None):
+        """
+        Initialize the enhanced metadata enrichment service.
+        
+        Args:
+            config: Configuration dictionary (uses global config if None)
+        """
+        if config is None:
+            from .config_loader import config_loader
+            config = config_loader.get_external_api_config()
+        
+        self.config = config
+        
+        # Initialize clients based on configuration
+        self.clients = {}
+        
+        # MusicBrainz
+        if config.get('MUSICBRAINZ_ENABLED', True):
             try:
-                self.lastfm_client = LastFMClient()
-                log_universal('INFO', 'LF API', 'Client initialized')
+                self.clients['musicbrainz'] = MusicBrainzClient(
+                    user_agent=config.get('MUSICBRAINZ_USER_AGENT', 'Playlista/1.0'),
+                    rate_limit=config.get('MUSICBRAINZ_RATE_LIMIT', 1.0)
+                )
+                log_universal('INFO', 'Enrichment', 'MusicBrainz client initialized')
             except Exception as e:
-                log_universal('WARNING', 'LF API', f'Failed to initialize - {e}')
+                log_universal('WARNING', 'Enrichment', f'MusicBrainz client failed: {e}')
+        
+        # Last.fm
+        if config.get('LASTFM_ENABLED', True):
+            try:
+                self.clients['lastfm'] = LastFMClient(
+                    api_key=config.get('LASTFM_API_KEY'),
+                    rate_limit=config.get('LASTFM_RATE_LIMIT', 2.0)
+                )
+                log_universal('INFO', 'Enrichment', 'Last.fm client initialized')
+            except Exception as e:
+                log_universal('WARNING', 'Enrichment', f'Last.fm client failed: {e}')
+        
+        # Discogs
+        if config.get('DISCOGS_ENABLED', False):
+            try:
+                self.clients['discogs'] = DiscogsClient(
+                    api_key=config.get('DISCOGS_API_KEY'),
+                    rate_limit=config.get('DISCOGS_RATE_LIMIT', 1.0)
+                )
+                log_universal('INFO', 'Enrichment', 'Discogs client initialized')
+            except Exception as e:
+                log_universal('WARNING', 'Enrichment', f'Discogs client failed: {e}')
+        
+        # Spotify
+        if config.get('SPOTIFY_ENABLED', False):
+            try:
+                self.clients['spotify'] = SpotifyClient(
+                    client_id=config.get('SPOTIFY_CLIENT_ID'),
+                    client_secret=config.get('SPOTIFY_CLIENT_SECRET'),
+                    rate_limit=config.get('SPOTIFY_RATE_LIMIT', 1.0)
+                )
+                log_universal('INFO', 'Enrichment', 'Spotify client initialized')
+            except Exception as e:
+                log_universal('WARNING', 'Enrichment', f'Spotify client failed: {e}')
+        
+        log_universal('INFO', 'Enrichment', f'Initialized {len(self.clients)} API clients')
     
     def _get_enrichment_cache_key(self, title: str, artist: str) -> str:
         """Generate cache key for enrichment results."""
-        # Normalize and hash the enrichment parameters
         normalized_title = title.lower().strip()
         normalized_artist = artist.lower().strip()
         enrichment_string = f"enrich:{normalized_title}:{normalized_artist}"
@@ -478,7 +909,7 @@ class MetadataEnrichmentService:
     
     def enrich_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Enrich metadata using external APIs (MusicBrainz first, then Last.fm).
+        Enrich metadata using multiple external APIs.
         
         Args:
             metadata: Original metadata dictionary
@@ -514,7 +945,6 @@ class MetadataEnrichmentService:
         
         # Try to extract from filename if still missing
         if not title or not artist:
-            # Get filename from metadata if available, otherwise we'll need to pass it
             filename = metadata.get('filename', '')
             if filename:
                 log_universal('DEBUG', 'Enrichment', f'Attempting to extract from filename: {filename}')
@@ -549,95 +979,39 @@ class MetadataEnrichmentService:
             log_universal('DEBUG', 'Enrichment', f'Using cached enrichment for: {title} by {artist}')
             return cached_enrichment
         
-        # Try MusicBrainz enrichment FIRST
-        if self.musicbrainz_client:
+        # Collect results from all available APIs
+        api_results = []
+        
+        for api_name, client in self.clients.items():
             try:
-                log_universal('INFO', 'Enrichment', 'Calling MusicBrainz API...')
-                mb_track = self.musicbrainz_client.search_track(title, artist)
+                log_universal('INFO', 'Enrichment', f'Calling {api_name} API...')
+                result = client.search_track(title, artist)
                 
-                if mb_track:
-                    # Add MusicBrainz data
-                    enriched_metadata['musicbrainz_id'] = mb_track.id
-                    enriched_metadata['musicbrainz_artist_id'] = mb_track.artist_id
-                    enriched_metadata['musicbrainz_album_id'] = mb_track.album_id
-                    enriched_metadata['musicbrainz_tags'] = mb_track.tags
-                    enrichment_results.append(f"MB tags: {len(mb_track.tags)}")
-                    
-                    # Add additional fields if not already present
-                    if not enriched_metadata.get('album') and mb_track.album:
-                        enriched_metadata['album'] = mb_track.album
-                        enrichment_results.append(f"album: {mb_track.album}")
-                    
-                    if not enriched_metadata.get('release_date') and mb_track.release_date:
-                        enriched_metadata['release_date'] = mb_track.release_date
-                        enrichment_results.append(f"release_date: {mb_track.release_date}")
-                    
-                    if not enriched_metadata.get('track_number') and mb_track.track_number:
-                        enriched_metadata['track_number'] = mb_track.track_number
-                        enrichment_results.append(f"track_number: {mb_track.track_number}")
-                    
-                    log_universal('INFO', 'Enrichment', f'MusicBrainz success - {", ".join(enrichment_results)}')
+                if result:
+                    api_results.append(result)
+                    enrichment_results.append(f"{api_name}: {len(result.tags)} tags")
+                    log_universal('INFO', 'Enrichment', f'{api_name} success')
                 else:
-                    log_universal('INFO', 'Enrichment', 'MusicBrainz no data')
+                    log_universal('INFO', 'Enrichment', f'{api_name} no data')
                     
             except Exception as e:
-                # Check if this is a programming error (like variable reference issues)
-                if 'referenced before assignment' in str(e) or 'UnboundLocalError' in str(type(e).__name__):
-                    log_universal('ERROR', 'Enrichment', f'MusicBrainz failed - Programming error: {e}')
-                else:
-                    log_universal('WARNING', 'Enrichment', f'MusicBrainz failed - {e}')
-        else:
-            log_universal('INFO', 'Enrichment', 'MusicBrainz not available')
+                log_universal('WARNING', 'Enrichment', f'{api_name} failed: {e}')
         
-        # Try Last.fm enrichment SECOND
-        if self.lastfm_client:
-            try:
-                log_universal('INFO', 'Enrichment', 'Calling Last.fm API...')
-                lfm_track = self.lastfm_client.get_track_info(title, artist)
-                
-                if lfm_track:
-                    # Add Last.fm data (only if not already present from MusicBrainz)
-                    if not enriched_metadata.get('lastfm_tags'):
-                        enriched_metadata['lastfm_tags'] = lfm_track.tags
-                        enrichment_results.append(f"LF tags: {len(lfm_track.tags)}")
-                    
-                    if not enriched_metadata.get('play_count') and lfm_track.play_count:
-                        enriched_metadata['play_count'] = lfm_track.play_count
-                        enrichment_results.append(f"play_count: {lfm_track.play_count}")
-                    
-                    if not enriched_metadata.get('listeners') and lfm_track.listeners:
-                        enriched_metadata['listeners'] = lfm_track.listeners
-                        enrichment_results.append(f"listeners: {lfm_track.listeners}")
-                    
-                    if not enriched_metadata.get('rating') and lfm_track.rating:
-                        enriched_metadata['rating'] = lfm_track.rating
-                        enrichment_results.append(f"rating: {lfm_track.rating}")
-                    
-                    log_universal('INFO', 'Enrichment', f'Last.fm success - {", ".join(enrichment_results)}')
-                else:
-                    log_universal('INFO', 'Enrichment', 'Last.fm no data')
-                    
-            except Exception as e:
-                # Check if this is a programming error (like variable reference issues)
-                if 'referenced before assignment' in str(e) or 'UnboundLocalError' in str(type(e).__name__):
-                    log_universal('ERROR', 'Enrichment', f'Last.fm failed - Programming error: {e}')
-                else:
-                    log_universal('WARNING', 'Enrichment', f'Last.fm failed - {e}')
-        else:
-            log_universal('INFO', 'Enrichment', 'Last.fm not available')
-        
-        # Combine all tags
-        all_tags = []
-        if enriched_metadata.get('musicbrainz_tags'):
-            all_tags.extend(enriched_metadata['musicbrainz_tags'])
-        if enriched_metadata.get('lastfm_tags'):
-            all_tags.extend(enriched_metadata['lastfm_tags'])
-        
-        if all_tags:
-            enriched_metadata['all_tags'] = list(set(all_tags))  # Remove duplicates
-            enrichment_results.append(f"total_tags: {len(enriched_metadata['all_tags'])}")
-        
-        if enrichment_results:
+        # Merge all results
+        if api_results:
+            # Start with the first result
+            merged_result = api_results[0]
+            
+            # Merge with remaining results
+            for result in api_results[1:]:
+                merged_result = merged_result.merge(result)
+            
+            # Add merged data to enriched metadata
+            enriched_metadata.update(merged_result.to_dict())
+            
+            # Add source tracking
+            enriched_metadata['enrichment_sources'] = merged_result.sources
+            
             log_universal('INFO', 'Enrichment', f'Complete - {", ".join(enrichment_results)}')
         else:
             log_universal('INFO', 'Enrichment', 'No data added')
@@ -649,19 +1023,23 @@ class MetadataEnrichmentService:
     
     def is_available(self) -> bool:
         """Check if any external API is available."""
-        return self.musicbrainz_client is not None or self.lastfm_client is not None
+        return len(self.clients) > 0
+    
+    def get_available_apis(self) -> List[str]:
+        """Get list of available API names."""
+        return list(self.clients.keys())
 
 
-def get_metadata_enrichment_service() -> 'MetadataEnrichmentService':
-    """Get a configured metadata enrichment service."""
+def get_enhanced_metadata_enrichment_service() -> 'EnhancedMetadataEnrichmentService':
+    """Get a configured enhanced metadata enrichment service."""
     from .config_loader import config_loader
     
     config = config_loader.get_external_api_config()
     
-    musicbrainz_enabled = config.get('MUSICBRAINZ_ENABLED', True)
-    lastfm_enabled = config.get('LASTFM_ENABLED', True)
-    
-    return MetadataEnrichmentService(
-        musicbrainz_enabled=musicbrainz_enabled,
-        lastfm_enabled=lastfm_enabled
-    ) 
+    return EnhancedMetadataEnrichmentService(config=config)
+
+
+# Backward compatibility
+def get_metadata_enrichment_service() -> 'EnhancedMetadataEnrichmentService':
+    """Get a configured metadata enrichment service (backward compatibility)."""
+    return get_enhanced_metadata_enrichment_service() 

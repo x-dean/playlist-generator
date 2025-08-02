@@ -1,208 +1,224 @@
-# 🎵 Playlist Generator
+# Playlist Generator Simple
 
-A modern, scalable playlist generation application built with Clean Architecture principles, featuring audio analysis, metadata enrichment, and comprehensive monitoring.
+A comprehensive music analysis and playlist generation system with advanced audio feature extraction and sophisticated playlist algorithms.
 
-## 🏗️ Architecture
+## Features
 
-This application follows **Clean Architecture** principles with clear separation of concerns:
+- **Advanced Audio Analysis**: 100+ audio features including Spotify-style perceptual features
+- **Sophisticated Playlist Generation**: Multiple algorithms for different music styles
+- **Web UI**: Interactive dashboard for music library management
+- **Performance Optimized**: Fast analysis and playlist generation
+- **Docker Ready**: Complete containerized environment
 
-- **Domain Layer**: Core business entities and interfaces
-- **Application Layer**: Use cases, commands, and queries
-- **Infrastructure Layer**: Repositories, services, and external integrations
-- **API Layer**: FastAPI REST endpoints with OpenAPI documentation
+## Quick Start
 
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Python 3.7 (latest supported version)
-- Docker & Docker Compose
-- FFmpeg (for audio processing)
-
-### Local Development
+### Using Docker (Recommended)
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd playlist-generator-simple
-
-# Install dependencies (Python 3.7 compatible)
-pip install -r requirements.txt
-
-# Start the application
-python -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### Docker Development
-
-```bash
-# Build and run with Docker Compose
+# Build and run the container
 docker-compose up --build
 
-# Or build and run manually
-docker build -t playlist-generator .
-docker run -p 8000:8000 playlist-generator
+# Or use the run script
+./run.sh
 ```
 
-## 📊 Monitoring & Observability
-
-### Metrics Collection
-
-- **Prometheus**: Application and system metrics
-- **Custom Metrics**: Track analysis, repository operations, and use case executions
-
-### Logging
-
-- **Structured Logging**: JSON-formatted logs with context
-- **Colored Console**: Easy-to-read development logs
-- **File Rotation**: Automatic log rotation and compression
-
-### Health Checks
-
-- **Application Health**: `/health` endpoint with system stats
-- **Docker Health**: Container health checks with curl
-- **Metrics Endpoint**: `/api/v1/metrics` for Prometheus scraping
-
-## 🐳 Docker Setup
-
-### Services
-
-- **playlist-generator**: Main application (port 8000)
-
-### Commands
+### Manual Setup
 
 ```bash
-# Build all services
-docker-compose build
+# Install dependencies
+pip install -r requirements.txt
 
-# Run application
-docker-compose up
+# Initialize database with complete schema
+python init_database.py cache/playlista.db
 
-# View logs
-docker-compose logs -f
+# Analyze your music library
+playlista analyze --music-path /path/to/music
+
+# Generate playlists
+playlista playlist --method all --num-playlists 5
 ```
 
-## 📚 API Documentation
+## Database Schema
 
-### Endpoints
+The system uses a **complete database schema** (`database_schema_complete.sql`) that includes:
 
-- **API Docs**: http://localhost:8000/docs (Swagger UI)
-- **ReDoc**: http://localhost:8000/redoc
-- **Health Check**: http://localhost:8000/health
-- **Metrics**: http://localhost:8000/api/v1/metrics
+- **100+ Audio Analysis Fields**: Comprehensive music analysis data
+- **Spotify-Style Features**: `valence`, `acousticness`, `instrumentalness`, etc.
+- **Advanced Analysis**: Rhythm, harmonic, timbre, and spectral analysis
+- **Performance Optimized**: Comprehensive indexing and views
+- **Web UI Ready**: Optimized views for dashboard performance
 
-### Key Endpoints
+### Key Features
 
+#### Perceptual Features (Spotify-style)
+- `valence` - Positivity/negativity
+- `acousticness` - Acoustic vs electronic nature
+- `instrumentalness` - Instrumental vs vocal content
+- `speechiness` - Presence of speech
+- `liveness` - Presence of live audience
+- `popularity` - Popularity score
+
+#### Advanced Audio Analysis
+- **Rhythm Analysis**: `tempo_confidence`, `rhythm_complexity`, `beat_positions`
+- **Harmonic Analysis**: `harmonic_complexity`, `chord_progression`, `chord_changes`
+- **Timbre Analysis**: `timbre_brightness`, `timbre_warmth`, `mfcc_delta`
+- **Spectral Analysis**: `spectral_flux`, `spectral_entropy`, `spectral_crest`
+- **Musical Structure**: `section_boundaries`, `repetition_rate`
+
+## Usage
+
+### Database Management
+
+```bash
+# Initialize database
+playlista db --init
+
+# Check integrity
+playlista db --integrity-check
+
+# Create backup
+playlista db --backup
+
+# Vacuum database
+playlista db --vacuum
 ```
-POST /api/v1/tracks/analyze     - Analyze audio track
-POST /api/v1/tracks/import      - Import tracks from directory
-POST /api/v1/playlists/generate - Generate playlist
-GET  /api/v1/tracks            - List all tracks
-GET  /api/v1/playlists         - List all playlists
-GET  /api/v1/stats/analysis    - Get analysis statistics
+
+### Analysis
+
+```bash
+# Analyze music files
+playlista analyze --music-path /music
+
+# Force re-analysis
+playlista analyze --force --music-path /music
+
+# Analyze with specific options
+playlista analyze --no-cache --music-path /music
 ```
 
-## 🔧 Development
+### Playlist Generation
 
-### Project Structure
+```bash
+# Generate playlists using all methods
+playlista playlist --method all --num-playlists 5
+
+# Generate specific playlist types
+playlista playlist --method kmeans --num-playlists 3
+playlista playlist --method tag_based --num-playlists 2
+playlista playlist --method time_based --num-playlists 1
+
+# Generate with advanced features
+playlista playlist --method all --num-playlists 5 --use-advanced-features
+```
+
+### Web UI
+
+```bash
+# Start web interface
+playlista web --port 8500
+
+# Access at http://localhost:8500
+```
+
+## Configuration
+
+Edit `playlista.conf` to customize:
+
+- Database settings
+- Analysis parameters
+- Playlist generation options
+- Web UI settings
+- Logging configuration
+
+## Project Structure
 
 ```
 playlist-generator-simple/
-├── src/
-│   ├── domain/           # Business entities and interfaces
-│   ├── application/      # Use cases, commands, queries
-│   ├── infrastructure/   # Repositories, services, config
-│   └── api/             # FastAPI routes and models
-├── docker-compose.yml
-├── Dockerfile
-├── requirements.txt
-└── README.md
+├── src/                    # Source code
+│   ├── core/              # Core functionality
+│   ├── api/               # Web API
+│   └── main.py            # Main entry point
+├── database_schema_complete.sql  # Complete database schema
+├── init_database.py       # Database initialization
+├── test_database.py       # Database testing
+├── Dockerfile             # Docker configuration
+├── docker-compose.yml     # Docker Compose setup
+└── README.md             # This file
 ```
 
-## 🎯 Features
+## Advanced Usage
 
-### Core Functionality
+### Query Examples
 
-- ✅ **Audio Analysis**: Essentia and Librosa integration
-- ✅ **Metadata Enrichment**: MusicBrainz API integration
-- ✅ **Playlist Generation**: Multiple algorithms (random, k-means, similarity)
-- ✅ **Data Persistence**: SQLite with repository pattern
-- ✅ **REST API**: FastAPI with automatic documentation
+#### Mood-Based Playlists
+```sql
+SELECT title, artist, valence, acousticness, energy
+FROM tracks 
+WHERE valence > 0.7 AND acousticness > 0.5
+ORDER BY valence DESC;
+```
 
-### Quality & Monitoring
+#### Rhythm-Based Playlists
+```sql
+SELECT title, artist, bpm, rhythm_complexity, tempo_confidence
+FROM tracks 
+WHERE rhythm_complexity > 0.6 AND tempo_confidence > 0.8
+ORDER BY bpm;
+```
 
-- ✅ **Structured Logging**: Colored console and file logging
-- ✅ **Metrics Collection**: Prometheus integration
-- ✅ **Health Monitoring**: Application and system health checks
+#### Advanced Audio Features
+```sql
+SELECT title, artist, valence, acousticness, instrumentalness, 
+       rhythm_complexity, harmonic_complexity, timbre_brightness
+FROM tracks 
+WHERE analyzed = TRUE 
+LIMIT 10;
+```
 
-### Architecture
+## Development
 
-- ✅ **Clean Architecture**: Clear separation of concerns
-- ✅ **Dependency Injection**: Container-based DI
-- ✅ **SOLID Principles**: Well-structured, maintainable code
-- ✅ **Error Handling**: Domain-specific exceptions
-- ✅ **Configuration Management**: Environment-based config
-
-## 📈 Performance
-
-### Metrics Tracked
-
-- **Track Analysis**: Duration, confidence, format
-- **Repository Operations**: CRUD operations timing
-- **Use Case Execution**: Business logic performance
-- **System Resources**: CPU, memory, disk usage
-- **Database Metrics**: Track, playlist, and analysis counts
-
-### Optimization
-
-- **Caching**: Redis integration for performance
-- **Async Operations**: Non-blocking API endpoints
-- **Resource Monitoring**: Real-time system metrics
-- **Performance Profiling**: Detailed timing analysis
-
-## 🔒 Security
-
-### Security Features
-
-- **Input Validation**: Pydantic model validation
-- **Error Handling**: Secure error responses
-- **CORS Configuration**: Cross-origin request handling
-
-## 🚀 Deployment
-
-### Production Ready
-
-- **Docker Containers**: Isolated, reproducible environments
-- **Health Checks**: Application and container health monitoring
-- **Logging**: Structured logs for production debugging
-- **Metrics**: Prometheus integration for monitoring
-- **Documentation**: Comprehensive API documentation
-
-### Environment Variables
+### Testing
 
 ```bash
-PYTHONPATH=/app
-LOG_LEVEL=INFO
-PROMETHEUS_MULTIPROC_DIR=/tmp
+# Run database tests
+python test_database.py
+
+# Run analysis tests
+python -m pytest tests/
 ```
 
-## 🤝 Contributing
+### Building
 
-1. Fork the repository
-2. Create a feature branch
-3. Ensure code quality
-4. Submit a pull request
+```bash
+# Build Docker image
+docker build -t playlist-generator .
 
-## 📄 License
+# Run with custom configuration
+docker run -v /music:/app/music -p 8500:8500 playlist-generator
+```
 
-This project is licensed under the MIT License.
+## Troubleshooting
 
-## 🆘 Support
+### Common Issues
 
-- **Issues**: Report bugs and feature requests
-- **Documentation**: API docs and architecture guides
-- **Logs**: Structured logging for debugging
+1. **Database not found**: Run `python init_database.py cache/playlista.db`
+2. **Analysis fails**: Check file permissions and audio format support
+3. **Web UI not accessible**: Verify port 8500 is available
+4. **Performance issues**: Check database indexes and WAL mode
 
----
+### Verification Commands
 
-**Built with ❤️ using Clean Architecture and modern Python practices** 
+```bash
+# Check database integrity
+sqlite3 cache/playlista.db "PRAGMA integrity_check;"
+
+# Count audio analysis fields
+sqlite3 cache/playlista.db "SELECT COUNT(*) FROM pragma_table_info('tracks');"
+
+# Check if advanced features exist
+sqlite3 cache/playlista.db "SELECT name FROM pragma_table_info('tracks') WHERE name IN ('valence', 'acousticness', 'rhythm_complexity');"
+```
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details. 

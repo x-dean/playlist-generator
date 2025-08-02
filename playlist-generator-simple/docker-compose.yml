@@ -33,6 +33,12 @@ services:
       - FORCE_COLOR=1
       - TERM=xterm-256color
       - PYTHONUNBUFFERED=1
+      # External API keys (set these in your .env file)
+      - LASTFM_API_KEY=${LASTFM_API_KEY}
+      - DISCOGS_API_KEY=${DISCOGS_API_KEY}
+      - DISCOGS_USER_TOKEN=${DISCOGS_USER_TOKEN}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
     command: ["/app/entrypoint.sh", "api"]
     restart: unless-stopped
     healthcheck:

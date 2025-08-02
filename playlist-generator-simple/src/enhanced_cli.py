@@ -159,6 +159,8 @@ class EnhancedCLI:
                 return self._handle_pipeline(parsed_args)
             elif parsed_args.command == 'config':
                 return self._handle_config(parsed_args)
+            elif parsed_args.command == 'db':
+                return self._handle_db(parsed_args)
             else:
                 log_universal('ERROR', 'CLI', f"Unknown command: {parsed_args.command}")
                 return 1
@@ -385,10 +387,27 @@ Examples:
         config_parser.add_argument('--reload', action='store_true', 
                                   help='Reload configuration')
         
+        # Database commands
+        db_parser = subparsers.add_parser('db', help='Database management')
+        db_parser.add_argument('--init', action='store_true',
+                              help='Initialize database schema')
+        db_parser.add_argument('--migrate', action='store_true',
+                              help='Migrate existing database')
+        db_parser.add_argument('--backup', action='store_true',
+                              help='Create database backup')
+        db_parser.add_argument('--restore', action='store_true',
+                              help='Restore database from backup')
+        db_parser.add_argument('--integrity-check', action='store_true',
+                              help='Check database integrity')
+        db_parser.add_argument('--vacuum', action='store_true',
+                              help='Vacuum database to reclaim space')
+        db_parser.add_argument('--db-path', default='/app/cache/playlista.db',
+                              help='Database file path')
+        
         # Global options
         for subparser in [analyze_parser, stats_parser, test_parser, monitor_parser, 
                          cleanup_parser, playlist_parser, methods_parser, discover_parser, 
-                         enrich_parser, export_parser, status_parser, pipeline_parser, config_parser]:
+                         enrich_parser, export_parser, status_parser, pipeline_parser, config_parser, db_parser]:
             subparser.add_argument('--log-level', 
                                   choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
                                   default='INFO', help='Set logging level')
@@ -960,6 +979,52 @@ Examples:
             
         except Exception as e:
             log_universal('ERROR', 'Config', f"Configuration error: {e}")
+            return 1
+    
+    def _handle_db(self, args) -> int:
+        """Handle database management commands."""
+        log_universal('INFO', 'CLI', 'Database Management Commands')
+        
+        try:
+            if args.init:
+                log_universal('INFO', 'CLI', 'Initializing database schema...')
+                self.db_manager.initialize_schema()
+                log_universal('INFO', 'CLI', 'Database schema initialized.')
+            elif args.migrate:
+                log_universal('INFO', 'CLI', 'Migrating existing database...')
+                self.db_manager.migrate_database()
+                log_universal('INFO', 'CLI', 'Database migrated.')
+            elif args.backup:
+                log_universal('INFO', 'CLI', 'Creating database backup...')
+                backup_path = self.db_manager.create_backup()
+                log_universal('INFO', 'CLI', f'Database backed up to: {backup_path}')
+            elif args.restore:
+                log_universal('INFO', 'CLI', 'Restoring database from backup...')
+                if args.db_path:
+                    self.db_manager.restore_from_backup(args.db_path)
+                    log_universal('INFO', 'CLI', f'Database restored from: {args.db_path}')
+                else:
+                    log_universal('ERROR', 'CLI', 'Please specify --db-path for restore.')
+                    return 1
+            elif args.integrity_check:
+                log_universal('INFO', 'CLI', 'Checking database integrity...')
+                is_ok = self.db_manager.check_integrity()
+                if is_ok:
+                    log_universal('INFO', 'CLI', 'Database integrity check passed.')
+                else:
+                    log_universal('ERROR', 'CLI', 'Database integrity check failed.')
+                    return 1
+            elif args.vacuum:
+                log_universal('INFO', 'CLI', 'Vacuuming database...')
+                self.db_manager.vacuum_database()
+                log_universal('INFO', 'CLI', 'Database vacuumed.')
+            else:
+                log_universal('INFO', 'CLI', 'No specific database command provided. Use --help for details.')
+            
+            return 0
+            
+        except Exception as e:
+            log_universal('ERROR', 'CLI', f"Database management failed: {e}")
             return 1
     
     def _build_analysis_config(self, args) -> Dict[str, Any]:
