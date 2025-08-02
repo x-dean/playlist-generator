@@ -819,21 +819,29 @@ class DatabaseManager:
             log_universal('ERROR', 'Database', f"Failed to get dashboard data: {e}")
             return {}
 
-    def _save_tags(self, cursor, track_id: int, tags: Dict[str, Any]):
+    def _save_tags(self, cursor, track_id: int, tags):
         """Save tags for a track."""
-        for source, tag_data in tags.items():
-            if isinstance(tag_data, dict):
-                for tag_name, tag_value in tag_data.items():
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO tags (track_id, source, tag_name, tag_value)
-                        VALUES (?, ?, ?, ?)
-                    """, (track_id, source, tag_name, str(tag_value)))
-            elif isinstance(tag_data, list):
-                for tag_name in tag_data:
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO tags (track_id, source, tag_name)
-                        VALUES (?, ?, ?)
-                    """, (track_id, source, tag_name))
+        if isinstance(tags, dict):
+            for source, tag_data in tags.items():
+                if isinstance(tag_data, dict):
+                    for tag_name, tag_value in tag_data.items():
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO tags (track_id, source, tag_name, tag_value)
+                            VALUES (?, ?, ?, ?)
+                        """, (track_id, source, tag_name, str(tag_value)))
+                elif isinstance(tag_data, list):
+                    for tag_name in tag_data:
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO tags (track_id, source, tag_name)
+                            VALUES (?, ?, ?)
+                        """, (track_id, source, tag_name))
+        elif isinstance(tags, list):
+            # Handle list of tags directly
+            for tag_name in tags:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO tags (track_id, source, tag_name)
+                    VALUES (?, ?, ?)
+                """, (track_id, 'user', tag_name))
 
     @log_function_call
     def get_database_statistics(self) -> Dict[str, Any]:
