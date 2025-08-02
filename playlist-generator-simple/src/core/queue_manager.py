@@ -305,6 +305,7 @@ class QueueManager:
             
             # Create process pool executor
             try:
+                # Create process pool with spawn context
                 self._executor = ProcessPoolExecutor(
                     max_workers=self.max_workers,
                     mp_context=mp.get_context('spawn')
@@ -419,7 +420,7 @@ class QueueManager:
         try:
             # Submit to process pool
             future = self._executor.submit(
-                self._standalone_worker_process,
+                standalone_worker_process,
                 task.file_path,
                 task.force_reextract,
                 self.worker_timeout,
@@ -771,179 +772,201 @@ class QueueManager:
             self.statistics.pending_tasks = 0
             log_universal('INFO', 'Queue', f"Cleared {count} pending tasks from queue")
             return count
+
+
+# Global queue manager instance
+_queue_manager_instance = None
+
+def get_queue_manager() -> 'QueueManager':
+    """Get the global queue manager instance, creating it if necessary."""
+    global _queue_manager_instance
+    if _queue_manager_instance is None:
+        _queue_manager_instance = QueueManager()
+    return _queue_manager_instance
+
+
+def standalone_worker_process(file_path: str, force_reextract: bool = False,
+                            timeout_seconds: int = 300, db_path: str = None,
+                            analysis_config: Dict[str, Any] = None) -> bool:
+    """
+    Standalone worker function for process pool execution.
+    This is a standalone function that can be pickled.
+    """
+    import os
+    import sys
+    import time
+    import signal
+    import psutil
+    import threading
+    import gc
     
-    def _standalone_worker_process(self, file_path: str, force_reextract: bool = False,
-                                 timeout_seconds: int = 300, db_path: str = None,
-                                 analysis_config: Dict[str, Any] = None) -> bool:
-        """
-        Standalone worker function for process pool execution.
-        This is a copy of the worker function from parallel_analyzer.py
-        """
-        import os
-        import time
-        import signal
-        import psutil
-        import threading
-        import gc
+    # Set up logging for worker process - define fallback first
+    def log_universal(level, component, message):
+        """Fallback logging function for worker processes."""
+        import logging
+        logger = logging.getLogger('playlista.queue_worker')
+        logger.log(getattr(logging, level.upper(), logging.INFO), f"[{component}] {message}")
+    
+    try:
+        from .logging_setup import get_logger, log_universal
+        logger = get_logger('playlista.queue_worker')
+    except ImportError:
+        import logging
+        logger = logging.getLogger('playlista.queue_worker')
+        # Use the fallback log_universal function defined above
+    
+    # Set up Python path for spawned processes
+    try:
+        # Add the project root to Python path
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
         
-        # Set up logging for worker process
+        # Add src directory to path
+        src_dir = os.path.join(project_root, 'src')
+        if src_dir not in sys.path:
+            sys.path.insert(0, src_dir)
+            
+        log_universal('DEBUG', 'Queue', f'Worker process Python path: {sys.path[:3]}...')
+    except Exception as e:
+        log_universal('WARNING', 'Queue', f'Failed to set up Python path: {e}')
+    
+    worker_id = f"queue_worker_{threading.current_thread().ident}"
+    start_time = time.time()
+    
+    try:
+        # Force garbage collection before starting
+        gc.collect()
+        
+        # Set up signal handler for timeout (only on Unix systems)
         try:
-            from .logging_setup import get_logger, log_universal
-            logger = get_logger('playlista.queue_worker')
-        except ImportError:
-            import logging
-            logger = logging.getLogger('playlista.queue_worker')
+            from .parallel_analyzer import timeout_handler
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout_seconds)
+        except (AttributeError, OSError):
+            # Windows doesn't support SIGALRM, skip timeout handling
+            pass
         
-        worker_id = f"queue_worker_{threading.current_thread().ident}"
-        start_time = time.time()
+        # Check if file exists
+        if not os.path.exists(file_path):
+            log_universal('WARNING', 'Queue', f'File not found: {file_path}')
+            return False
         
+        # Get initial resource usage
+        process = psutil.Process()
+        initial_memory = process.memory_info().rss / (1024 * 1024)  # MB
+        initial_cpu = process.cpu_percent()
+        
+        # Import audio analyzer here to avoid memory issues
         try:
-            # Force garbage collection before starting
-            gc.collect()
-            
-            # Set up signal handler for timeout (only on Unix systems)
-            try:
-                from .parallel_analyzer import timeout_handler
-                signal.signal(signal.SIGALRM, timeout_handler)
-                signal.alarm(timeout_seconds)
-            except (AttributeError, OSError):
-                # Windows doesn't support SIGALRM, skip timeout handling
-                pass
-            
-            # Check if file exists
-            if not os.path.exists(file_path):
-                log_universal('WARNING', 'Queue', f'File not found: {file_path}')
-                return False
-            
-            # Get initial resource usage
-            process = psutil.Process()
-            initial_memory = process.memory_info().rss / (1024 * 1024)  # MB
-            initial_cpu = process.cpu_percent()
-            
-            # Import audio analyzer here to avoid memory issues
-            try:
-                from .audio_analyzer import AudioAnalyzer
-            except ImportError as e:
-                log_universal('ERROR', 'Queue', f'Failed to import AudioAnalyzer: {e}')
-                return False
-            
-            # Create analyzer instance with configuration
-            try:
-                if analysis_config is None:
-                    # Use default configuration
-                    analyzer = AudioAnalyzer()
-                else:
-                    # Apply the analysis configuration to the analyzer
-                    analyzer = AudioAnalyzer(config=analysis_config)
-            except Exception as e:
-                log_universal('ERROR', 'Queue', f'Failed to create AudioAnalyzer: {e}')
-                return False
-            
-            # Set memory limit for this process
-            try:
-                import resource
-                # Set memory limit to 256MB per process
-                resource.setrlimit(resource.RLIMIT_AS, (256 * 1024 * 1024, -1))
-            except (ImportError, OSError):
-                # Windows doesn't support resource module, skip memory limit
-                pass
-            
-            # Check available memory before analysis
-            try:
-                available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
-                if available_memory_mb < 300:  # Less than 300MB available
-                    log_universal('WARNING', 'Queue', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(file_path)}')
-                    return False
-            except Exception:
-                pass  # Continue if memory check fails
-            
-            # Extract features using the correct method
-            try:
-                analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
-            except Exception as e:
-                log_universal('ERROR', 'Queue', f'Analysis failed for {file_path}: {e}')
-                return False
-            
-            # Get final resource usage
-            final_memory = process.memory_info().rss / (1024 * 1024)  # MB
-            final_cpu = process.cpu_percent()
-            memory_usage = final_memory - initial_memory
-            cpu_usage = (initial_cpu + final_cpu) / 2  # Average
-            
-            duration = time.time() - start_time
-            
-            # Force garbage collection after analysis
-            gc.collect()
-            
-            if analysis_result:
-                # Save to database using standalone database manager
-                if db_path:
-                    from .database import DatabaseManager
-                    db_manager = DatabaseManager(db_path=db_path)
-                    
-                    filename = os.path.basename(file_path)
-                    file_size_bytes = os.path.getsize(file_path)
-                    
-                    # Calculate hash (consistent with file discovery)
-                    import hashlib
-                    stat = os.stat(file_path)
-                    filename = os.path.basename(file_path)
-                    content = f"{filename}:{stat.st_mtime}:{stat.st_size}"
-                    file_hash = hashlib.md5(content.encode()).hexdigest()
-                    
-                    # Prepare analysis data with status
-                    analysis_data = analysis_result.get('features', {})
-                    analysis_data['status'] = 'analyzed'
-                    analysis_data['analysis_type'] = 'full'
-                    
-                    # Extract metadata
-                    metadata = analysis_result.get('metadata', {})
-                    
-                    # Determine long audio category
-                    long_audio_category = None
-                    if 'long_audio_category' in analysis_data:
-                        long_audio_category = analysis_data['long_audio_category']
-                    
-                    success = db_manager.save_analysis_result(
-                        file_path=file_path,
-                        filename=filename,
-                        file_size_bytes=file_size_bytes,
-                        file_hash=file_hash,
-                        analysis_data=analysis_data,
-                        metadata=metadata,
-                        discovery_source='file_system'
-                    )
-                    
-                    log_universal('INFO', 'Queue', f'{worker_id} completed: {filename} in {duration:.2f}s')
-                    return success
-                else:
-                    log_universal('INFO', 'Queue', f'{worker_id} completed: {os.path.basename(file_path)} in {duration:.2f}s')
-                    return True
+            from .audio_analyzer import AudioAnalyzer
+            log_universal('DEBUG', 'Queue', f'Successfully imported AudioAnalyzer in worker process')
+        except ImportError as e:
+            log_universal('ERROR', 'Queue', f'Failed to import AudioAnalyzer: {e}')
+            log_universal('DEBUG', 'Queue', f'Available modules: {list(sys.modules.keys())[:10]}...')
+            return False
+        
+        # Create analyzer instance with configuration
+        try:
+            if analysis_config is None:
+                # Use default configuration
+                analyzer = AudioAnalyzer()
             else:
-                # Mark as failed
-                if db_path:
-                    from .database import DatabaseManager
-                    db_manager = DatabaseManager(db_path=db_path)
-                    filename = os.path.basename(file_path)
-                    
-                    # Use analysis_cache table for failed analysis
-                    with db_manager._get_db_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            INSERT OR REPLACE INTO analysis_cache 
-                            (file_path, filename, error_message, status, retry_count, last_retry_date)
-                            VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                        """, (file_path, filename, "Analysis failed"))
-                        conn.commit()
-                
-                log_universal('DEBUG', 'Queue', f"Worker {worker_id} failed: {os.path.basename(file_path)}")
-                return False
-                
+                # Apply the analysis configuration to the analyzer
+                analyzer = AudioAnalyzer(config=analysis_config)
+            log_universal('DEBUG', 'Queue', f'Successfully created AudioAnalyzer instance')
         except Exception as e:
-            duration = time.time() - start_time
-            log_universal('ERROR', 'Queue', f"Worker {worker_id} error processing {os.path.basename(file_path)}: {e}")
-            
+            log_universal('ERROR', 'Queue', f'Failed to create AudioAnalyzer: {e}')
+            return False
+        
+        # Set memory limit for this process
+        try:
+            import resource
+            # Set memory limit to 256MB per process
+            resource.setrlimit(resource.RLIMIT_AS, (256 * 1024 * 1024, -1))
+        except (ImportError, OSError):
+            # Windows doesn't support resource module, skip memory limit
+            pass
+        
+        # Check available memory before analysis
+        try:
+            available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
+            if available_memory_mb < 300:  # Less than 300MB available
+                log_universal('WARNING', 'Queue', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(file_path)}')
+                return False
+        except Exception:
+            pass  # Continue if memory check fails
+        
+        # Extract features using the correct method
+        try:
+            log_universal('DEBUG', 'Queue', f'Starting analysis for {os.path.basename(file_path)}')
+            analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
+            log_universal('DEBUG', 'Queue', f'Analysis completed for {os.path.basename(file_path)}')
+        except Exception as e:
+            log_universal('ERROR', 'Queue', f'Analysis failed for {file_path}: {e}')
+            return False
+        
+        # Get final resource usage
+        final_memory = process.memory_info().rss / (1024 * 1024)  # MB
+        final_cpu = process.cpu_percent()
+        memory_usage = final_memory - initial_memory
+        cpu_usage = (initial_cpu + final_cpu) / 2  # Average
+        
+        duration = time.time() - start_time
+        
+        # Force garbage collection after analysis
+        gc.collect()
+        
+        if analysis_result:
+            # Save to database using standalone database manager
             if db_path:
+                # Create a new database manager instance in the worker process
+                from .database import DatabaseManager
+                db_manager = DatabaseManager(db_path=db_path)
+                
+                filename = os.path.basename(file_path)
+                file_size_bytes = os.path.getsize(file_path)
+                
+                # Calculate hash (consistent with file discovery)
+                import hashlib
+                stat = os.stat(file_path)
+                filename = os.path.basename(file_path)
+                content = f"{filename}:{stat.st_mtime}:{stat.st_size}"
+                file_hash = hashlib.md5(content.encode()).hexdigest()
+                
+                # Prepare analysis data with status
+                analysis_data = analysis_result.get('features', {})
+                analysis_data['status'] = 'analyzed'
+                analysis_data['analysis_type'] = 'full'
+                
+                # Extract metadata
+                metadata = analysis_result.get('metadata', {})
+                
+                # Determine long audio category
+                long_audio_category = None
+                if 'long_audio_category' in analysis_data:
+                    long_audio_category = analysis_data['long_audio_category']
+                
+                success = db_manager.save_analysis_result(
+                    file_path=file_path,
+                    filename=filename,
+                    file_size_bytes=file_size_bytes,
+                    file_hash=file_hash,
+                    analysis_data=analysis_data,
+                    metadata=metadata,
+                    discovery_source='file_system'
+                )
+                
+                log_universal('INFO', 'Queue', f'{worker_id} completed: {filename} in {duration:.2f}s')
+                return success
+            else:
+                log_universal('INFO', 'Queue', f'{worker_id} completed: {os.path.basename(file_path)} in {duration:.2f}s')
+                return True
+        else:
+            # Mark as failed
+            if db_path:
+                # Create a new database manager instance in the worker process
                 from .database import DatabaseManager
                 db_manager = DatabaseManager(db_path=db_path)
                 filename = os.path.basename(file_path)
@@ -955,18 +978,30 @@ class QueueManager:
                         INSERT OR REPLACE INTO analysis_cache 
                         (file_path, filename, error_message, status, retry_count, last_retry_date)
                         VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                    """, (file_path, filename, f"Worker error: {str(e)}"))
+                    """, (file_path, filename, "Analysis failed"))
                     conn.commit()
             
+            log_universal('DEBUG', 'Queue', f"Worker {worker_id} failed: {os.path.basename(file_path)}")
             return False
-
-
-# Global queue manager instance
-_queue_manager_instance = None
-
-def get_queue_manager() -> 'QueueManager':
-    """Get the global queue manager instance, creating it if necessary."""
-    global _queue_manager_instance
-    if _queue_manager_instance is None:
-        _queue_manager_instance = QueueManager()
-    return _queue_manager_instance 
+            
+    except Exception as e:
+        duration = time.time() - start_time
+        log_universal('ERROR', 'Queue', f"Worker {worker_id} error processing {os.path.basename(file_path)}: {e}")
+        
+        if db_path:
+            # Create a new database manager instance in the worker process
+            from .database import DatabaseManager
+            db_manager = DatabaseManager(db_path=db_path)
+            filename = os.path.basename(file_path)
+            
+            # Use analysis_cache table for failed analysis
+            with db_manager._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO analysis_cache 
+                    (file_path, filename, error_message, status, retry_count, last_retry_date)
+                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
+                """, (file_path, filename, f"Worker error: {str(e)}"))
+                conn.commit()
+        
+        return False 
