@@ -239,6 +239,7 @@ class AudioAnalyzer:
         self.force_reanalysis = config.get('FORCE_REANALYSIS', False)
         
         log_universal('INFO', 'Audio', 'AudioAnalyzer initialized')
+        log_universal('DEBUG', 'Audio', f'Feature extraction flags: rhythm={self.extract_rhythm}, spectral={self.extract_spectral}, loudness={self.extract_loudness}, key={self.extract_key}, mfcc={self.extract_mfcc}, musicnn={self.extract_musicnn}, chroma={self.extract_chroma}')
     
     def _get_analysis_cache_key(self, file_path: str, file_hash: str) -> str:
         """Generate cache key for analysis results."""
@@ -756,6 +757,8 @@ class AudioAnalyzer:
     def _extract_rhythm_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
         """Extract rhythm-related features using lightweight approach for large files."""
         features = {}
+        
+        log_universal('DEBUG', 'Audio', f'Starting rhythm extraction: audio_length={len(audio)}, sample_rate={sample_rate}')
         
         try:
             if ESSENTIA_AVAILABLE:
@@ -1715,6 +1718,10 @@ class AudioAnalyzer:
             electronic_score = tags.get('electronic', 0) if isinstance(tags, dict) else 0
             dance_score = tags.get('dance', 0) if isinstance(tags, dict) else 0
             rock_score = tags.get('rock', 0) if isinstance(tags, dict) else 0
+            
+            # Debug logging for MusiCNN tags
+            log_universal('DEBUG', 'Audio', f'MusiCNN tags available: {list(tags.keys()) if isinstance(tags, dict) else "No tags"}')
+            log_universal('DEBUG', 'Audio', f'MusiCNN scores: speechiness={speechiness:.2f}, electronic={electronic_score:.2f}, dance={dance_score:.2f}, rock={rock_score:.2f}')
 
             log_universal('DEBUG', 'Audio', f'Enhanced categorization with: BPM={bpm}, Confidence={confidence:.2f}, '
                           f'Spectral_Centroid={spectral_centroid:.0f}, Spectral_Flatness={spectral_flatness:.2f}, '
@@ -1884,8 +1891,15 @@ class AudioAnalyzer:
             
             # Extract lightweight rhythm features (BPM, confidence)
             if self.extract_rhythm:
+                log_universal('INFO', 'Audio', 'Starting rhythm analysis for categorization')
                 rhythm_features = self._extract_rhythm_features(audio_sample, sample_rate)
-                features.update(rhythm_features)
+                if rhythm_features:
+                    features.update(rhythm_features)
+                    log_universal('INFO', 'Audio', f'Rhythm features added: {list(rhythm_features.keys())}')
+                else:
+                    log_universal('WARNING', 'Audio', 'Rhythm features extraction returned None')
+            else:
+                log_universal('INFO', 'Audio', f'Rhythm extraction disabled: extract_rhythm={self.extract_rhythm}')
             
             # Extract basic spectral features (centroid, flatness)
             if self.extract_spectral:
@@ -1909,8 +1923,15 @@ class AudioAnalyzer:
             
             # Extract MusiCNN on sample (for genre classification)
             if self.extract_musicnn and TENSORFLOW_AVAILABLE:
+                log_universal('INFO', 'Audio', 'Starting MusiCNN analysis for categorization')
                 musicnn_features = self._extract_musicnn_features(audio_sample, sample_rate)
-                features.update(musicnn_features)
+                if musicnn_features:
+                    features.update(musicnn_features)
+                    log_universal('INFO', 'Audio', f'MusiCNN features added: {list(musicnn_features.keys())}')
+                else:
+                    log_universal('WARNING', 'Audio', 'MusiCNN features extraction returned None')
+            else:
+                log_universal('INFO', 'Audio', f'MusiCNN extraction disabled: extract_musicnn={self.extract_musicnn}, TENSORFLOW_AVAILABLE={TENSORFLOW_AVAILABLE}')
             
             # Extract chroma features (for genre classification)
             if self.extract_chroma:
