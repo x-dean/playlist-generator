@@ -99,8 +99,7 @@ CREATE TABLE tracks (
     key_scale_notes TEXT, -- JSON array of scale notes
     key_chord_progression TEXT, -- JSON array of key chords
     modulation_points TEXT, -- JSON array of key modulation points
-    tonal_centroid REAL, -- Tonal centroid
-    harmonic_centroid REAL, -- Harmonic centroid
+    tonal_centroid REAL -- Tonal centroid
     
     -- MFCC features (original + extended)
     mfcc_coefficients TEXT, -- JSON array of MFCC coefficients
