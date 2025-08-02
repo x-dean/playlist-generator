@@ -1,22 +1,10 @@
-# Docker Compose configuration for Playlist Generator Simple
-# All configuration is handled via playlista.conf file
-
 services:
-  playlista-simple:
-    container_name: playlista-simple
+  # API Server (always running)
+  playlist-api:
     build: .
-    entrypoint: ["playlista"]
-    env_file:
-      - .env
-    environment:
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LASTFM_API_KEY=${LASTFM_API_KEY}
-      - MUSICBRAINZ_USER_AGENT=${MUSICBRAINZ_USER_AGENT:-playlista-simple/1.0}
-      # Color support for Docker containers
-      - DOCKER_CONTAINER=true
-      - FORCE_COLOR=1
-      - TERM=xterm-256color
-      - PYTHONUNBUFFERED=1
+    container_name: playlist-api
+    ports:
+      - "8500:8500"
     volumes:
       # Music library - mount your music directory here
       - /root/music/library:/music:ro
@@ -29,12 +17,30 @@ services:
       
       # Logs directory
       - /root/music/playlista/logs:/app/logs
-            
+              
       # Models directory (for feature extraction models)
       - /root/music/playlista/models/musicnn:/app/models:ro
       
       # Configuration file
       - /root/music/playlista/config/playlista.conf:/app/playlista.conf:ro
+    environment:
+      - PYTHONPATH=/app
+      - CACHE_DIR=/app/cache
+      - LOG_LEVEL=INFO
+      - PROMETHEUS_MULTIPROC_DIR=/tmp
+      # Color support for Docker containers
+      - DOCKER_CONTAINER=true
+      - FORCE_COLOR=1
+      - TERM=xterm-256color
+      - PYTHONUNBUFFERED=1
+    command: ["/app/entrypoint.sh", "api"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     working_dir: /app
     tty: true
     stdin_open: true
