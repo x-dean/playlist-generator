@@ -20,7 +20,7 @@ from .file_discovery import FileDiscovery
 logger = get_logger('playlista.analysis_manager')
 
 # Constants
-BIG_FILE_SIZE_MB = 2000  # Files larger than this use sequential processing (increased from 50MB to 2GB)
+BIG_FILE_SIZE_MB = 200  # Files larger than this use sequential processing (changed from 2000MB to 200MB)
 DEFAULT_TIMEOUT_SECONDS = 300  # 5 minutes timeout for analysis
 DEFAULT_MEMORY_THRESHOLD_PERCENT = 85
 
