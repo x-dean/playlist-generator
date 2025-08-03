@@ -151,7 +151,7 @@ class SequentialAnalyzer:
     @log_function_call
     def process_files(self, files: List[str], force_reextract: bool = False) -> Dict[str, Any]:
         """
-        Process files sequentially with process isolation.
+        Process files sequentially with process isolation using multiprocessing.
         
         Args:
             files: List of file paths to process
@@ -180,8 +180,8 @@ class SequentialAnalyzer:
                 filename = os.path.basename(file_path)
                 log_universal('INFO', 'Sequential', f'Processing file {i}/{len(files)}: {filename}')
                 
-                # Process single file in isolated subprocess
-                success = self._process_single_file_isolated(file_path, force_reextract)
+                # Process single file using multiprocessing for isolation
+                success = self._process_single_file_multiprocessing(file_path, force_reextract)
                 
                 if success:
                     results['success_count'] += 1
@@ -341,6 +341,9 @@ class SequentialAnalyzer:
                 self.db_manager.mark_analysis_failed(file_path, filename, "File not found")
                 return False
             
+            # Calculate file hash for potential failure tracking
+            file_hash = self._calculate_file_hash(file_path)
+            
             # Use multiprocessing to isolate the analysis
             with mp.Pool(processes=1) as pool:
                 # Submit the work to the pool
@@ -359,18 +362,23 @@ class SequentialAnalyzer:
                     else:
                         error_msg = result.get('error', 'Unknown error')
                         log_universal('ERROR', 'Sequential', f"Multiprocessing failed for {filename}: {error_msg}")
-                        self.db_manager.mark_analysis_failed(file_path, filename, error_msg)
+                        self.db_manager.mark_analysis_failed(file_path, filename, error_msg, file_hash)
                         return False
                         
                 except mp.TimeoutError:
                     # Process timed out
                     log_universal('ERROR', 'Sequential', f"Multiprocessing timed out for {filename}")
-                    self.db_manager.mark_analysis_failed(file_path, filename, "Analysis timed out")
+                    self.db_manager.mark_analysis_failed(file_path, filename, "Analysis timed out", file_hash)
                     return False
                     
         except Exception as e:
             log_universal('ERROR', 'Sequential', f"Error in multiprocessing for {filename}: {e}")
-            self.db_manager.mark_analysis_failed(file_path, filename, str(e))
+            # Calculate file hash for error case
+            try:
+                file_hash = self._calculate_file_hash(file_path)
+            except:
+                file_hash = None
+            self.db_manager.mark_analysis_failed(file_path, filename, str(e), file_hash)
             return False
 
     def _process_single_file(self, file_path: str, force_reextract: bool = False) -> bool:
@@ -380,6 +388,20 @@ class SequentialAnalyzer:
         
         Args:
             file_path: Path to the file to process
+            force_reextract: If True, bypass cache
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        return self._process_single_file_multiprocessing(file_path, force_reextract)
+
+    def _extract_features_in_process(self, file_path: str, force_reextract: bool = False) -> bool:
+        """
+        Extract features sequentially in the same process.
+        This method is kept for backward compatibility but now uses multiprocessing.
+        
+        Args:
+            file_path: Path to the file
             force_reextract: If True, bypass cache
             
         Returns:
@@ -399,10 +421,12 @@ import sys
 import json
 import argparse
 import signal
+import traceback
 from pathlib import Path
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add the correct path to find the modules
+current_dir = Path(__file__).parent
+sys.path.insert(0, str(current_dir))
 
 def timeout_handler(signum, frame):
     raise TimeoutError("Worker timed out")
@@ -410,9 +434,12 @@ def timeout_handler(signum, frame):
 def process_file_isolated(file_path: str, force_reextract: bool = False) -> dict:
     """Process a single file in isolation."""
     try:
-        # Import required modules
-        from audio_analyzer import AudioAnalyzer
-        from database import DatabaseManager
+        # Import required modules with proper error handling
+        try:
+            from core.audio_analyzer import AudioAnalyzer
+            from core.database import DatabaseManager
+        except ImportError as e:
+            return {'success': False, 'error': f'Import error: {e}'}
         
         # Initialize components
         db_manager = DatabaseManager()
@@ -451,7 +478,8 @@ def process_file_isolated(file_path: str, force_reextract: bool = False) -> dict
             return {'success': False, 'error': 'Analysis failed - no valid result returned'}
             
     except Exception as e:
-        return {'success': False, 'error': str(e)}
+        error_details = f"{str(e)}\\n{traceback.format_exc()}"
+        return {'success': False, 'error': error_details}
 
 def main():
     parser = argparse.ArgumentParser()
@@ -498,20 +526,6 @@ if __name__ == "__main__":
         # Make script executable
         os.chmod(script_path, 0o755)
         log_universal('INFO', 'Sequential', f'Created worker script: {script_path}')
-
-    def _extract_features_in_process(self, file_path: str, force_reextract: bool = False) -> bool:
-        """
-        Extract features sequentially in the same process.
-        This method is kept for backward compatibility but now uses isolated processing.
-        
-        Args:
-            file_path: Path to the file
-            force_reextract: If True, bypass cache
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        return self._process_single_file_isolated(file_path, force_reextract)
 
     def _get_analysis_config(self, file_path: str) -> Dict[str, Any]:
         """

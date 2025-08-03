@@ -92,10 +92,10 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
                 log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
                 return None, None
             
-            # Configurable limits based on processing mode
+            # Configurable limits based on processing mode - INCREASED for sequential processing
             if processing_mode == 'sequential':
-                max_file_size_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 2000) if config else 2000
-                warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500) if config else 500
+                max_file_size_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 5000) if config else 5000  # Increased from 2000
+                warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 1000) if config else 1000  # Increased from 500
             else:  # parallel
                 max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
                 warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500) if config else 500
@@ -105,7 +105,7 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
                 log_universal('WARNING', 'Audio', f'File too large ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - skipping to prevent RAM saturation')
                 return None, None
                 
-            # Warn for large files
+            # Warn for large files but don't skip them in sequential mode
             if file_size_mb > warning_threshold_mb:
                 log_universal('WARNING', 'Audio', f'Large file detected ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - may cause memory issues')
                 
@@ -125,9 +125,10 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
             
             # For large files, try to load only a sample
             if processing_mode == 'sequential':
-                sample_threshold_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 2000) if config else 2000
+                sample_threshold_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 5000) if config else 5000  # Increased from 2000
             else:  # parallel
                 sample_threshold_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
+                
             if file_size_mb > sample_threshold_mb:  # Files larger than threshold
                 log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - loading sample only')
                 try:
@@ -170,7 +171,7 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
                     
                     # For large files, use offset and duration to load only a portion
                     if processing_mode == 'sequential':
-                        sample_threshold_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 2000) if config else 2000
+                        sample_threshold_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 5000) if config else 5000  # Increased from 2000
                     else:  # parallel
                         sample_threshold_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
                     if file_size_mb > sample_threshold_mb:
@@ -272,119 +273,133 @@ class AudioAnalyzer:
         log_universal('INFO', 'Audio', f'Starting analysis of: {os.path.basename(file_path)}')
         start_time = time.time()
         
-        # Check if file exists
-        if not os.path.exists(file_path):
-            log_universal('ERROR', 'Audio', f'File not found: {file_path}')
-            return None
-        
-        # Calculate file hash for change detection
         try:
-            file_hash = self._calculate_file_hash(file_path)
-            file_size = os.path.getsize(file_path)
+            # Check if file exists
+            if not os.path.exists(file_path):
+                log_universal('ERROR', 'Audio', f'File not found: {file_path}')
+                return None
+            
+            # Calculate file hash for change detection
+            try:
+                file_hash = self._calculate_file_hash(file_path)
+                file_size = os.path.getsize(file_path)
+                log_universal('DEBUG', 'Audio', f'File size: {file_size} bytes, Hash: {file_hash[:8]}...')
+            except Exception as e:
+                log_universal('ERROR', 'Audio', f'Failed to calculate file hash: {e}')
+                return None
+            
+            # Check cache first (unless forced)
+            if self.cache_enabled and not force_reanalysis:
+                cached_result = self._get_cached_analysis(file_path, file_hash)
+                if cached_result:
+                    analysis_time = time.time() - start_time
+                    log_universal('INFO', 'Audio', f'Using cached analysis for {os.path.basename(file_path)} ({analysis_time:.2f}s)')
+                    return cached_result
+            
+            # Extract metadata first
+            log_universal('DEBUG', 'Audio', f'Extracting metadata for: {os.path.basename(file_path)}')
+            metadata = self._extract_metadata(file_path)
+            
+            # Enrich metadata with external APIs FIRST (before audio analysis)
+            if metadata:
+                # Add filename to metadata for fallback extraction
+                metadata['filename'] = os.path.basename(file_path)
+                log_universal('DEBUG', 'Audio', f'Enriching metadata for: {os.path.basename(file_path)}')
+                enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
+                metadata = enriched_metadata
+            
+            # Check if we should skip audio loading for large files
+            if self._should_skip_audio_loading(file_path):
+                log_universal('WARNING', 'Audio', f'Skipping audio analysis for large file: {os.path.basename(file_path)}')
+                # Return basic analysis with enriched metadata
+                return self._create_basic_analysis_for_large_file(file_path, file_size, file_hash, metadata)
+            
+            # Load audio data
+            log_universal('DEBUG', 'Audio', f'Loading audio data for: {os.path.basename(file_path)}')
+            audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
+            if audio is None:
+                log_universal('ERROR', 'Audio', f'Failed to load audio: {os.path.basename(file_path)}')
+                return None
+            
+            log_universal('DEBUG', 'Audio', f'Successfully loaded audio: {len(audio)} samples at {sample_rate}Hz')
+            
+            # Check if this is a long audio track
+            is_long_audio = self._is_long_audio_track(file_path)
+            
+            # Add long audio flag to metadata for feature extraction
+            if metadata:
+                metadata['is_long_audio'] = is_long_audio
+            else:
+                metadata = {'is_long_audio': is_long_audio}
+            
+            # Perform audio analysis with enriched metadata
+            log_universal('DEBUG', 'Audio', f'Extracting audio features for: {os.path.basename(file_path)}')
+            analysis_result = self._extract_audio_features(audio, sample_rate, metadata)
+            if analysis_result is None:
+                log_universal('ERROR', 'Audio', f'Feature extraction failed: {os.path.basename(file_path)}')
+                return None
+            
+            # Set the enriched metadata in results
+            analysis_result['metadata'] = metadata or {}
+            
+            # Determine audio type and add file information
+            audio_type = self._get_audio_type(file_path, audio)
+            is_long_audio = self._is_long_audio_track(file_path)
+            
+            # Determine long audio category if it's a long audio track
+            long_audio_category = None
+            if is_long_audio:
+                log_universal('INFO', 'Audio', f'Long audio track detected: {os.path.basename(file_path)}')
+                # For now, determine category without audio features (will be updated after analysis)
+                long_audio_category = self._determine_long_audio_category(file_path, metadata, None)
+                log_universal('INFO', 'Audio', f'Long audio category determined: {long_audio_category}')
+            
+            analysis_result.update({
+                'file_path': file_path,
+                'filename': os.path.basename(file_path),
+                'file_size_bytes': file_size,
+                'file_hash': file_hash,
+                'analysis_date': datetime.now().isoformat(),
+                'analysis_version': '1.0.0',
+                'audio_type': audio_type,
+                'is_long_audio': is_long_audio,
+                'is_extremely_large': self._is_extremely_large_for_processing(audio),
+                'long_audio_category': long_audio_category
+            })
+            
+            # Update long audio category with actual audio features if available
+            if is_long_audio and analysis_result:
+                # Re-determine category with actual audio features
+                updated_category = self._determine_long_audio_category(file_path, metadata, analysis_result)
+                if updated_category != long_audio_category:
+                    log_universal('INFO', 'Audio', f'Updated long audio category: {long_audio_category} -> {updated_category}')
+                    long_audio_category = updated_category
+                    analysis_result['long_audio_category'] = long_audio_category
+            
+            # Update metadata with long audio category
+            if metadata and long_audio_category:
+                metadata['long_audio_category'] = long_audio_category
+                log_universal('DEBUG', 'Audio', f'Set long_audio_category in metadata: {long_audio_category}')
+            
+            # Also update the analysis result's metadata
+            if analysis_result and 'metadata' in analysis_result and long_audio_category:
+                analysis_result['metadata']['long_audio_category'] = long_audio_category
+                log_universal('DEBUG', 'Audio', f'Set long_audio_category in analysis_result metadata: {long_audio_category}')
+            
+            # Cache results
+            if self.cache_enabled:
+                self._cache_analysis_result(file_path, file_hash, analysis_result)
+            
+            analysis_time = time.time() - start_time
+            log_universal('INFO', 'Audio', f'Analysis completed for {os.path.basename(file_path)} ({analysis_time:.2f}s)')
+            
+            return analysis_result
+            
         except Exception as e:
-            log_universal('ERROR', 'Audio', f'Failed to calculate file hash: {e}')
+            log_universal('ERROR', 'Audio', f'Unexpected error during analysis of {os.path.basename(file_path)}: {e}')
+            import traceback
+            log_universal('ERROR', 'Audio', f'Traceback: {traceback.format_exc()}')
             return None
-        
-        # Check cache first (unless forced)
-        if self.cache_enabled and not force_reanalysis:
-            cached_result = self._get_cached_analysis(file_path, file_hash)
-            if cached_result:
-                analysis_time = time.time() - start_time
-                log_universal('INFO', 'Audio', f'Using cached analysis for {os.path.basename(file_path)} ({analysis_time:.2f}s)')
-                return cached_result
-        
-        # Extract metadata first
-        metadata = self._extract_metadata(file_path)
-        
-        # Enrich metadata with external APIs FIRST (before audio analysis)
-        if metadata:
-            # Add filename to metadata for fallback extraction
-            metadata['filename'] = os.path.basename(file_path)
-            enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
-            metadata = enriched_metadata
-        
-        # Check if we should skip audio loading for large files
-        if self._should_skip_audio_loading(file_path):
-            log_universal('WARNING', 'Audio', f'Skipping audio analysis for large file: {os.path.basename(file_path)}')
-            # Return basic analysis with enriched metadata
-            return self._create_basic_analysis_for_large_file(file_path, file_size, file_hash, metadata)
-        
-        # Load audio data
-        audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
-        if audio is None:
-            log_universal('ERROR', 'Audio', f'Failed to load audio: {os.path.basename(file_path)}')
-            return None
-        
-        # Check if this is a long audio track
-        is_long_audio = self._is_long_audio_track(file_path)
-        
-        # Add long audio flag to metadata for feature extraction
-        if metadata:
-            metadata['is_long_audio'] = is_long_audio
-        else:
-            metadata = {'is_long_audio': is_long_audio}
-        
-        # Perform audio analysis with enriched metadata
-        analysis_result = self._extract_audio_features(audio, sample_rate, metadata)
-        if analysis_result is None:
-            log_universal('ERROR', 'Audio', f'Feature extraction failed: {os.path.basename(file_path)}')
-            return None
-        
-        # Set the enriched metadata in results
-        analysis_result['metadata'] = metadata or {}
-        
-        # Determine audio type and add file information
-        audio_type = self._get_audio_type(file_path, audio)
-        is_long_audio = self._is_long_audio_track(file_path)
-        
-        # Determine long audio category if it's a long audio track
-        long_audio_category = None
-        if is_long_audio:
-            log_universal('INFO', 'Audio', f'Long audio track detected: {os.path.basename(file_path)}')
-            # For now, determine category without audio features (will be updated after analysis)
-            long_audio_category = self._determine_long_audio_category(file_path, metadata, None)
-            log_universal('INFO', 'Audio', f'Long audio category determined: {long_audio_category}')
-        
-        analysis_result.update({
-            'file_path': file_path,
-            'filename': os.path.basename(file_path),
-            'file_size_bytes': file_size,
-            'file_hash': file_hash,
-            'analysis_date': datetime.now().isoformat(),
-            'analysis_version': '1.0.0',
-            'audio_type': audio_type,
-            'is_long_audio': is_long_audio,
-            'is_extremely_large': self._is_extremely_large_for_processing(audio),
-            'long_audio_category': long_audio_category
-        })
-        
-        # Update long audio category with actual audio features if available
-        if is_long_audio and analysis_result:
-            # Re-determine category with actual audio features
-            updated_category = self._determine_long_audio_category(file_path, metadata, analysis_result)
-            if updated_category != long_audio_category:
-                log_universal('INFO', 'Audio', f'Updated long audio category: {long_audio_category} -> {updated_category}')
-                long_audio_category = updated_category
-                analysis_result['long_audio_category'] = long_audio_category
-        
-        # Update metadata with long audio category
-        if metadata and long_audio_category:
-            metadata['long_audio_category'] = long_audio_category
-            log_universal('DEBUG', 'Audio', f'Set long_audio_category in metadata: {long_audio_category}')
-        
-        # Also update the analysis result's metadata
-        if analysis_result and 'metadata' in analysis_result and long_audio_category:
-            analysis_result['metadata']['long_audio_category'] = long_audio_category
-            log_universal('DEBUG', 'Audio', f'Set long_audio_category in analysis_result metadata: {long_audio_category}')
-        
-        # Cache results
-        if self.cache_enabled:
-            self._cache_analysis_result(file_path, file_hash, analysis_result)
-        
-        analysis_time = time.time() - start_time
-        log_universal('INFO', 'Audio', f'Analysis completed for {os.path.basename(file_path)} ({analysis_time:.2f}s)')
-        
-        return analysis_result
     
     def _get_cached_analysis(self, file_path: str, file_hash: str) -> Optional[Dict[str, Any]]:
         """Get cached analysis results if available and valid."""

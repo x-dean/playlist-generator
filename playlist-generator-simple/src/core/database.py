@@ -241,19 +241,69 @@ class DatabaseManager:
 
     # 🚨 Mark failed analysis
     @log_function_call
-    def mark_analysis_failed(self, file_path: str, filename: str, error_message: str) -> bool:
+    def mark_analysis_failed(self, file_path: str, filename: str, error_message: str, file_hash: str = None) -> bool:
+        """
+        Mark an analysis as failed in the database.
+        
+        Args:
+            file_path: Path to the failed file
+            filename: Name of the failed file
+            error_message: Error message describing the failure
+            file_hash: File hash (calculated if not provided)
+            
+        Returns:
+            True if successful, False otherwise
+        """
         try:
+            # Calculate file hash if not provided
+            if file_hash is None:
+                file_hash = self._calculate_file_hash_for_failed(file_path)
+            
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT OR REPLACE INTO analysis_cache (file_path, filename, error_message, status, retry_count, last_retry_date)
-                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                """, (file_path, filename, error_message))
+                    INSERT OR REPLACE INTO analysis_cache 
+                    (file_path, filename, file_hash, error_message, status, retry_count, last_retry_date)
+                    VALUES (?, ?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
+                """, (file_path, filename, file_hash, error_message))
                 conn.commit()
                 return True
         except Exception as e:
             log_universal('ERROR', 'Database', f"Mark failed analysis error: {e}")
             return False
+
+    def _calculate_file_hash_for_failed(self, file_path: str) -> str:
+        """
+        Calculate file hash for failed files, handling cases where file doesn't exist.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            File hash string or "unknown" if file doesn't exist
+        """
+        try:
+            if not os.path.exists(file_path):
+                # Use filename + timestamp for non-existent files
+                filename = os.path.basename(file_path)
+                import hashlib
+                content = f"{filename}:{datetime.now().isoformat()}"
+                return hashlib.md5(content.encode()).hexdigest()
+            
+            # Use the same hash calculation as the audio analyzer
+            import hashlib
+            stat = os.stat(file_path)
+            filename = os.path.basename(file_path)
+            content = f"{filename}:{stat.st_mtime}:{stat.st_size}"
+            return hashlib.md5(content.encode()).hexdigest()
+            
+        except Exception as e:
+            log_universal('WARNING', 'Database', f"Could not calculate hash for {file_path}: {e}")
+            # Return a hash based on filename and timestamp
+            filename = os.path.basename(file_path)
+            import hashlib
+            content = f"{filename}:{datetime.now().isoformat()}:error"
+            return hashlib.md5(content.encode()).hexdigest()
 
     # 📁 Move failed file to failed directory
     @log_function_call
