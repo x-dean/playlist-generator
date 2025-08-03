@@ -296,6 +296,12 @@ Examples:
         cleanup_parser = subparsers.add_parser('cleanup', help='Clean up failed analysis')
         cleanup_parser.add_argument('--max-retries', type=int, default=3, 
                                    help='Maximum retry count to keep')
+        cleanup_parser.add_argument('--show-failed', action='store_true', 
+                                   help='Show failed files before cleaning')
+        cleanup_parser.add_argument('--move-to-failed-dir', action='store_true', 
+                                   help='Move failed files to a directory')
+        cleanup_parser.add_argument('--failed-dir', default='/music/failed',
+                                 help='Directory to move permanently failed files')
         
         # Generate playlists command
         playlist_parser = subparsers.add_parser('playlist', help='Generate playlists')
@@ -676,9 +682,37 @@ Examples:
         log_universal('INFO', 'CLI', 'Cleaning up failed analysis')
         
         try:
-            # Clean up failed files using the analysis manager
-            cleaned_count = self.analysis_manager.cleanup_failed_analysis(max_retries=args.max_retries)
-            log_universal('INFO', 'CLI', f"Cleaned up {cleaned_count} failed files")
+            # Get failed files statistics
+            failed_files = self.db_manager.get_failed_analysis_files(max_retries=args.max_retries)
+            log_universal('INFO', 'CLI', f"Found {len(failed_files)} failed files")
+            
+            if not failed_files:
+                log_universal('INFO', 'CLI', 'No failed files to clean up')
+                return 0
+            
+            # Show failed files if requested
+            if args.show_failed:
+                log_universal('INFO', 'CLI', 'Failed files:')
+                for failed in failed_files:
+                    log_universal('INFO', 'CLI', f"  {failed['filename']}: {failed['error_message']}")
+            
+            # Move failed files to failed directory if requested
+            if args.move_to_failed_dir:
+                failed_dir = args.failed_dir if hasattr(args, 'failed_dir') else None
+                cleanup_stats = self.db_manager.cleanup_failed_files(failed_dir=failed_dir, max_retries=args.max_retries)
+                
+                if 'error' in cleanup_stats:
+                    log_universal('ERROR', 'CLI', f"Failed to clean up files: {cleanup_stats['error']}")
+                    return 1
+                
+                log_universal('INFO', 'CLI', f"Cleanup completed:")
+                log_universal('INFO', 'CLI', f"  Moved: {cleanup_stats['moved_count']}")
+                log_universal('INFO', 'CLI', f"  Skipped: {cleanup_stats['skipped_count']}")
+                log_universal('INFO', 'CLI', f"  Errors: {cleanup_stats['error_count']}")
+            else:
+                # Just clean up old data without moving files
+                cleaned_count = self.analysis_manager.cleanup_failed_analysis(max_retries=args.max_retries)
+                log_universal('INFO', 'CLI', f"Cleaned up {cleaned_count} failed analysis entries")
             
             return 0
             

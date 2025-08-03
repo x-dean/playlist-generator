@@ -8,6 +8,11 @@ import time
 import threading
 import gc
 import signal
+import subprocess
+import sys
+import json
+import tempfile
+import multiprocessing as mp
 from typing import List, Dict, Any, Optional, Tuple, Iterator
 from datetime import datetime
 
@@ -32,6 +37,76 @@ class TimeoutException(Exception):
 def timeout_handler(signum, frame):
     """Signal handler for timeout."""
     raise TimeoutException("Analysis timed out")
+
+
+def _worker_process_function(file_path: str, force_reextract: bool, timeout_seconds: int) -> Dict[str, Any]:
+    """
+    Worker function for multiprocessing - runs in isolated process.
+    
+    Args:
+        file_path: Path to the file to process
+        force_reextract: If True, bypass cache
+        timeout_seconds: Timeout for analysis
+        
+    Returns:
+        Dictionary with result information
+    """
+    try:
+        # Set up timeout
+        def timeout_handler_worker(signum, frame):
+            raise TimeoutError("Worker process timed out")
+        
+        signal.signal(signal.SIGALRM, timeout_handler_worker)
+        signal.alarm(timeout_seconds)
+        
+        # Import required modules in worker process
+        from .audio_analyzer import AudioAnalyzer
+        from .database import DatabaseManager
+        
+        # Initialize components
+        db_manager = DatabaseManager()
+        analyzer = AudioAnalyzer(processing_mode='sequential')
+        
+        # Process file
+        result = analyzer.analyze_audio_file(file_path, force_reextract)
+        
+        if result:
+            # Save to database
+            filename = os.path.basename(file_path)
+            file_size_bytes = os.path.getsize(file_path)
+            file_hash = analyzer._calculate_file_hash(file_path)
+            
+            # Prepare analysis data
+            analysis_data = result.get('features', {})
+            analysis_data['status'] = 'analyzed'
+            analysis_data['analysis_type'] = 'full'
+            
+            # Extract metadata
+            metadata = result.get('metadata', {})
+            
+            # Save to database
+            success = db_manager.save_analysis_result(
+                file_path=file_path,
+                filename=filename,
+                file_size_bytes=file_size_bytes,
+                file_hash=file_hash,
+                analysis_data=analysis_data,
+                metadata=metadata,
+                discovery_source='file_system'
+            )
+            
+            signal.alarm(0)  # Cancel timeout
+            return {'success': success, 'error': None}
+        else:
+            signal.alarm(0)  # Cancel timeout
+            return {'success': False, 'error': 'Analysis failed - no valid result returned'}
+            
+    except Exception as e:
+        try:
+            signal.alarm(0)  # Cancel timeout
+        except:
+            pass
+        return {'success': False, 'error': str(e)}
 
 
 class SequentialAnalyzer:
@@ -76,7 +151,7 @@ class SequentialAnalyzer:
     @log_function_call
     def process_files(self, files: List[str], force_reextract: bool = False) -> Dict[str, Any]:
         """
-        Process files sequentially.
+        Process files sequentially with process isolation.
         
         Args:
             files: List of file paths to process
@@ -105,8 +180,8 @@ class SequentialAnalyzer:
                 filename = os.path.basename(file_path)
                 log_universal('INFO', 'Sequential', f'Processing file {i}/{len(files)}: {filename}')
                 
-                # Process single file
-                success = self._process_single_file(file_path, force_reextract)
+                # Process single file in isolated subprocess
+                success = self._process_single_file_isolated(file_path, force_reextract)
                 
                 if success:
                     results['success_count'] += 1
@@ -142,14 +217,11 @@ class SequentialAnalyzer:
         log_universal('INFO', 'Sequential', f"Sequential file processing completed in {total_time:.2f}s")
         log_universal('INFO', 'Sequential', f"Results: {results['success_count']} successful, {results['failed_count']} failed")
         
-        # Log performance
-        log_universal('INFO', 'Sequential', f"Sequential file processing completed in {total_time:.2f}s with {len(files)} files")
-        
         return results
 
-    def _process_single_file(self, file_path: str, force_reextract: bool = False) -> bool:
+    def _process_single_file_isolated(self, file_path: str, force_reextract: bool = False) -> bool:
         """
-        Process a single file with timeout and memory monitoring.
+        Process a single file in an isolated subprocess to prevent main app crashes.
         
         Args:
             file_path: Path to the file to process
@@ -159,64 +231,278 @@ class SequentialAnalyzer:
             True if successful, False otherwise
         """
         filename = os.path.basename(file_path)
-        log_universal('DEBUG', 'Sequential', f"Processing: {filename}")
+        log_universal('DEBUG', 'Sequential', f"Processing in isolated subprocess: {filename}")
         
         try:
             # Check if file exists
             if not os.path.exists(file_path):
                 log_universal('WARNING', 'Sequential', f"File not found: {file_path}")
-                
-                # Use analysis_cache table for failed analysis
-                with self.db_manager._get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO analysis_cache 
-                        (file_path, filename, error_message, status, retry_count, last_retry_date)
-                        VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                    """, (file_path, filename, "File not found"))
-                    conn.commit()
-                
+                self.db_manager.mark_analysis_failed(file_path, filename, "File not found")
                 return False
             
-            # Get file size
-            file_size_bytes = os.path.getsize(file_path)
-            file_size_mb = file_size_bytes / (1024 * 1024)
+            # Create temporary file for subprocess communication
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+                temp_file_path = temp_file.name
             
-            log_universal('DEBUG', 'Sequential', f"File size: {file_size_mb:.1f}MB")
+            # Prepare subprocess arguments
+            script_path = os.path.join(os.path.dirname(__file__), 'sequential_worker.py')
             
-            # Check memory before processing
-            if self.resource_manager.is_memory_critical():
-                log_universal('WARNING', 'Sequential', f"High memory usage before processing {filename}")
-                self._cleanup_memory()
+            # Create worker script if it doesn't exist
+            if not os.path.exists(script_path):
+                self._create_worker_script(script_path)
             
-            # Process file in separate process to isolate memory
-            success = self._extract_features_in_process(file_path, force_reextract)
+            # Run subprocess with timeout
+            cmd = [
+                sys.executable, script_path,
+                '--file-path', file_path,
+                '--force-reextract', str(force_reextract),
+                '--output-file', temp_file_path,
+                '--timeout', str(self.timeout_seconds)
+            ]
             
-            if success:
-                log_universal('INFO', 'Sequential', f"Successfully processed: {filename}")
-                return True
-            else:
-                log_universal('ERROR', 'Sequential', f"Failed to process: {filename}")
+            log_universal('DEBUG', 'Sequential', f"Starting subprocess: {' '.join(cmd)}")
+            
+            # Run subprocess with timeout
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            try:
+                stdout, stderr = process.communicate(timeout=self.timeout_seconds)
+                return_code = process.returncode
+                
+                # Check if subprocess completed successfully
+                if return_code == 0:
+                    # Read result from temporary file
+                    if os.path.exists(temp_file_path):
+                        with open(temp_file_path, 'r') as f:
+                            result_data = json.load(f)
+                        
+                        if result_data.get('success', False):
+                            log_universal('INFO', 'Sequential', f"Successfully processed: {filename}")
+                            return True
+                        else:
+                            error_msg = result_data.get('error', 'Unknown error')
+                            log_universal('ERROR', 'Sequential', f"Subprocess failed for {filename}: {error_msg}")
+                            self.db_manager.mark_analysis_failed(file_path, filename, error_msg)
+                            return False
+                    else:
+                        log_universal('ERROR', 'Sequential', f"No result file found for {filename}")
+                        self.db_manager.mark_analysis_failed(file_path, filename, "No result file generated")
+                        return False
+                else:
+                    # Subprocess failed
+                    error_msg = stderr.strip() if stderr else f"Subprocess failed with return code {return_code}"
+                    log_universal('ERROR', 'Sequential', f"Subprocess failed for {filename}: {error_msg}")
+                    self.db_manager.mark_analysis_failed(file_path, filename, error_msg)
+                    return False
+                    
+            except subprocess.TimeoutExpired:
+                # Kill subprocess if it times out
+                process.kill()
+                process.communicate()
+                log_universal('ERROR', 'Sequential', f"Subprocess timed out for {filename}")
+                self.db_manager.mark_analysis_failed(file_path, filename, "Analysis timed out")
                 return False
                 
         except Exception as e:
-            log_universal('ERROR', 'Sequential', f"Error processing {filename}: {e}")
-            
-            # Use analysis_cache table for failed analysis
-            with self.db_manager._get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count, last_retry_date)
-                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                """, (file_path, filename, str(e)))
-                conn.commit()
-            
+            log_universal('ERROR', 'Sequential', f"Error in isolated processing for {filename}: {e}")
+            self.db_manager.mark_analysis_failed(file_path, filename, str(e))
             return False
+        finally:
+            # Clean up temporary file
+            try:
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+            except Exception:
+                pass
+
+    def _process_single_file_multiprocessing(self, file_path: str, force_reextract: bool = False) -> bool:
+        """
+        Process a single file using multiprocessing for better isolation.
+        
+        Args:
+            file_path: Path to the file to process
+            force_reextract: If True, bypass cache
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        filename = os.path.basename(file_path)
+        log_universal('DEBUG', 'Sequential', f"Processing with multiprocessing: {filename}")
+        
+        try:
+            # Check if file exists
+            if not os.path.exists(file_path):
+                log_universal('WARNING', 'Sequential', f"File not found: {file_path}")
+                self.db_manager.mark_analysis_failed(file_path, filename, "File not found")
+                return False
+            
+            # Use multiprocessing to isolate the analysis
+            with mp.Pool(processes=1) as pool:
+                # Submit the work to the pool
+                future = pool.apply_async(
+                    _worker_process_function, 
+                    args=(file_path, force_reextract, self.timeout_seconds)
+                )
+                
+                try:
+                    # Wait for result with timeout
+                    result = future.get(timeout=self.timeout_seconds)
+                    
+                    if result['success']:
+                        log_universal('INFO', 'Sequential', f"Successfully processed: {filename}")
+                        return True
+                    else:
+                        error_msg = result.get('error', 'Unknown error')
+                        log_universal('ERROR', 'Sequential', f"Multiprocessing failed for {filename}: {error_msg}")
+                        self.db_manager.mark_analysis_failed(file_path, filename, error_msg)
+                        return False
+                        
+                except mp.TimeoutError:
+                    # Process timed out
+                    log_universal('ERROR', 'Sequential', f"Multiprocessing timed out for {filename}")
+                    self.db_manager.mark_analysis_failed(file_path, filename, "Analysis timed out")
+                    return False
+                    
+        except Exception as e:
+            log_universal('ERROR', 'Sequential', f"Error in multiprocessing for {filename}: {e}")
+            self.db_manager.mark_analysis_failed(file_path, filename, str(e))
+            return False
+
+    def _process_single_file(self, file_path: str, force_reextract: bool = False) -> bool:
+        """
+        Process a single file with timeout and memory monitoring.
+        This method now uses multiprocessing for better isolation.
+        
+        Args:
+            file_path: Path to the file to process
+            force_reextract: If True, bypass cache
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        return self._process_single_file_multiprocessing(file_path, force_reextract)
+
+    def _create_worker_script(self, script_path: str):
+        """Create the worker script for isolated processing."""
+        worker_script = '''#!/usr/bin/env python3
+"""
+Sequential worker script for isolated file processing.
+"""
+
+import os
+import sys
+import json
+import argparse
+import signal
+from pathlib import Path
+
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent))
+
+def timeout_handler(signum, frame):
+    raise TimeoutError("Worker timed out")
+
+def process_file_isolated(file_path: str, force_reextract: bool = False) -> dict:
+    """Process a single file in isolation."""
+    try:
+        # Import required modules
+        from audio_analyzer import AudioAnalyzer
+        from database import DatabaseManager
+        
+        # Initialize components
+        db_manager = DatabaseManager()
+        analyzer = AudioAnalyzer(processing_mode='sequential')
+        
+        # Process file
+        result = analyzer.analyze_audio_file(file_path, force_reextract)
+        
+        if result:
+            # Save to database
+            filename = os.path.basename(file_path)
+            file_size_bytes = os.path.getsize(file_path)
+            file_hash = analyzer._calculate_file_hash(file_path)
+            
+            # Prepare analysis data
+            analysis_data = result.get('features', {})
+            analysis_data['status'] = 'analyzed'
+            analysis_data['analysis_type'] = 'full'
+            
+            # Extract metadata
+            metadata = result.get('metadata', {})
+            
+            # Save to database
+            success = db_manager.save_analysis_result(
+                file_path=file_path,
+                filename=filename,
+                file_size_bytes=file_size_bytes,
+                file_hash=file_hash,
+                analysis_data=analysis_data,
+                metadata=metadata,
+                discovery_source='file_system'
+            )
+            
+            return {'success': success}
+        else:
+            return {'success': False, 'error': 'Analysis failed - no valid result returned'}
+            
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--file-path', required=True)
+    parser.add_argument('--force-reextract', default='False')
+    parser.add_argument('--output-file', required=True)
+    parser.add_argument('--timeout', type=int, default=600)
+    
+    args = parser.parse_args()
+    
+    # Set up timeout
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(args.timeout)
+    
+    try:
+        # Process file
+        result = process_file_isolated(
+            args.file_path, 
+            force_reextract=args.force_reextract.lower() == 'true'
+        )
+        
+        # Write result to output file
+        with open(args.output_file, 'w') as f:
+            json.dump(result, f)
+        
+        sys.exit(0 if result['success'] else 1)
+        
+    except Exception as e:
+        # Write error result
+        error_result = {'success': False, 'error': str(e)}
+        with open(args.output_file, 'w') as f:
+            json.dump(error_result, f)
+        sys.exit(1)
+    finally:
+        signal.alarm(0)
+
+if __name__ == "__main__":
+    main()
+'''
+        
+        with open(script_path, 'w') as f:
+            f.write(worker_script)
+        
+        # Make script executable
+        os.chmod(script_path, 0o755)
+        log_universal('INFO', 'Sequential', f'Created worker script: {script_path}')
 
     def _extract_features_in_process(self, file_path: str, force_reextract: bool = False) -> bool:
         """
         Extract features sequentially in the same process.
+        This method is kept for backward compatibility but now uses isolated processing.
         
         Args:
             file_path: Path to the file
@@ -225,70 +511,7 @@ class SequentialAnalyzer:
         Returns:
             True if successful, False otherwise
         """
-        try:
-            # Import audio analyzer
-            from .audio_analyzer import AudioAnalyzer
-            
-            # Get analysis configuration
-            analysis_config = self._get_analysis_config(file_path)
-            
-            # Create analyzer instance with configuration for sequential processing
-            analyzer = AudioAnalyzer(config=analysis_config, processing_mode='sequential')
-            
-            # Extract features
-            analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
-            
-            if analysis_result:
-                # Save to database
-                filename = os.path.basename(file_path)
-                file_size_bytes = os.path.getsize(file_path)
-                file_hash = self._calculate_file_hash(file_path)
-                
-                # Prepare analysis data with status
-                analysis_data = analysis_result.get('features', {})
-                analysis_data['status'] = 'analyzed'
-                analysis_data['analysis_type'] = 'full'
-                
-                # Extract metadata
-                metadata = analysis_result.get('metadata', {})
-                
-                # Determine long audio category
-                long_audio_category = None
-                if 'long_audio_category' in analysis_data:
-                    long_audio_category = analysis_data['long_audio_category']
-                
-                success = self.db_manager.save_analysis_result(
-                    file_path=file_path,
-                    filename=filename,
-                    file_size_bytes=file_size_bytes,
-                    file_hash=file_hash,
-                    analysis_data=analysis_data,
-                    metadata=metadata,
-                    discovery_source='file_system'
-                )
-                
-                return success
-            else:
-                # Mark analysis as failed
-                filename = os.path.basename(file_path)
-                error_message = "Analysis failed - no valid result returned"
-                
-                # Use analysis_cache table for failed analysis
-                with self.db_manager._get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO analysis_cache 
-                        (file_path, filename, error_message, status, retry_count, last_retry_date)
-                        VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                    """, (file_path, filename, error_message))
-                    conn.commit()
-                
-                log_universal('ERROR', 'Sequential', f"Analysis failed for {filename}: {error_message}")
-                return False
-                
-        except Exception as e:
-            log_universal('ERROR', 'Sequential', f"Error in sequential extraction: {e}")
-            return False
+        return self._process_single_file_isolated(file_path, force_reextract)
 
     def _get_analysis_config(self, file_path: str) -> Dict[str, Any]:
         """

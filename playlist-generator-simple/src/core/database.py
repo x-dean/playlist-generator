@@ -255,6 +255,109 @@ class DatabaseManager:
             log_universal('ERROR', 'Database', f"Mark failed analysis error: {e}")
             return False
 
+    # 📁 Move failed file to failed directory
+    @log_function_call
+    def move_failed_file_to_directory(self, file_path: str, failed_dir: str = None) -> bool:
+        """
+        Move a failed file to the failed directory.
+        
+        Args:
+            file_path: Path to the failed file
+            failed_dir: Directory to move failed files to (defaults to /app/cache/failed_dir)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if failed_dir is None:
+                failed_dir = '/app/cache/failed_dir'
+            
+            # Create failed directory if it doesn't exist
+            os.makedirs(failed_dir, exist_ok=True)
+            
+            if not os.path.exists(file_path):
+                log_universal('WARNING', 'Database', f"File not found for moving: {file_path}")
+                return False
+            
+            filename = os.path.basename(file_path)
+            failed_path = os.path.join(failed_dir, filename)
+            
+            # Handle duplicate filenames
+            counter = 1
+            original_failed_path = failed_path
+            while os.path.exists(failed_path):
+                name, ext = os.path.splitext(original_failed_path)
+                failed_path = f"{name}_{counter}{ext}"
+                counter += 1
+            
+            # Move the file
+            import shutil
+            shutil.move(file_path, failed_path)
+            log_universal('INFO', 'Database', f"Moved failed file: {file_path} -> {failed_path}")
+            
+            # Update database to reflect the move
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE analysis_cache 
+                    SET file_path = ?, error_message = ? 
+                    WHERE file_path = ?
+                """, (failed_path, f"Moved to failed directory: {failed_path}", file_path))
+                conn.commit()
+            
+            return True
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error moving failed file {file_path}: {e}")
+            return False
+
+    # 🧹 Clean up failed files by moving them to failed directory
+    @log_function_call
+    def cleanup_failed_files(self, failed_dir: str = None, max_retries: int = 3) -> Dict[str, int]:
+        """
+        Clean up failed files by moving them to a failed directory.
+        
+        Args:
+            failed_dir: Directory to move failed files to
+            max_retries: Maximum number of retries before moving to failed directory
+            
+        Returns:
+            Dictionary with cleanup statistics
+        """
+        try:
+            failed_files = self.get_failed_analysis_files(max_retries=max_retries)
+            
+            moved_count = 0
+            skipped_count = 0
+            error_count = 0
+            
+            for failed_file in failed_files:
+                file_path = failed_file['file_path']
+                
+                # Skip if file doesn't exist
+                if not os.path.exists(file_path):
+                    skipped_count += 1
+                    continue
+                
+                # Move to failed directory
+                if self.move_failed_file_to_directory(file_path, failed_dir):
+                    moved_count += 1
+                else:
+                    error_count += 1
+            
+            log_universal('INFO', 'Database', f"Failed files cleanup: {moved_count} moved, {skipped_count} skipped, {error_count} errors")
+            
+            return {
+                'moved_count': moved_count,
+                'skipped_count': skipped_count,
+                'error_count': error_count,
+                'total_processed': len(failed_files)
+            }
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Error during failed files cleanup: {e}")
+            return {'error': str(e)}
+
     # 🧾 Get failed analysis files
     @log_function_call
     def get_failed_analysis_files(self, max_retries: int = 3) -> List[Dict[str, Any]]:
