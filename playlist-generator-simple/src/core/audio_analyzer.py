@@ -1034,11 +1034,37 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                # Validate audio parameters before key extraction
+                if len(audio) < 1024:
+                    log_universal('WARNING', 'Audio', f'Audio too short for key extraction: {len(audio)} samples')
+                    features.update({
+                        'key': 'C',
+                        'scale': 'major',
+                        'key_strength': 0.0
+                    })
+                    return features
+                
+                # Ensure audio is mono and has proper sample rate
+                if len(audio.shape) > 1:
+                    audio = np.mean(audio, axis=1)
+                
+                # Resample to 16kHz if needed (KeyExtractor works better with 16kHz)
+                if sample_rate != 16000:
+                    try:
+                        import librosa
+                        audio_16k = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+                        log_universal('DEBUG', 'Audio', f'Resampled audio from {sample_rate}Hz to 16000Hz for key extraction')
+                    except Exception as e:
+                        log_universal('WARNING', 'Audio', f'Failed to resample audio for key extraction: {e}')
+                        audio_16k = audio
+                else:
+                    audio_16k = audio
+                
                 # Use KeyExtractor like the old working version
                 log_universal('DEBUG', 'Audio', "Using Essentia KeyExtractor for key detection")
                 key_algo = es.KeyExtractor()
                 log_universal('DEBUG', 'Audio', "Running key analysis on audio")
-                key, scale, strength = key_algo(audio)
+                key, scale, strength = key_algo(audio_16k)
                 log_universal('DEBUG', 'Audio', f"Extracted key: {key} {scale}, strength: {strength}")
                 
                 features['key'] = str(key)
@@ -1074,6 +1100,26 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                # Validate audio parameters before MFCC extraction
+                if len(audio) < 512:
+                    log_universal('WARNING', 'Audio', f'Audio too short for MFCC extraction: {len(audio)} samples')
+                    features.update({
+                        'mfcc_coefficients': [],
+                        'mfcc_bands': [],
+                        'mfcc_std': []
+                    })
+                    return features
+                
+                # Ensure audio is mono
+                if len(audio.shape) > 1:
+                    audio = np.mean(audio, axis=1)
+                
+                # Limit audio length to prevent spectrum size issues
+                max_audio_length = 60 * sample_rate  # 60 seconds max
+                if len(audio) > max_audio_length:
+                    log_universal('WARNING', 'Audio', f'Audio too long for MFCC extraction, truncating to 60s')
+                    audio = audio[:max_audio_length]
+                
                 # MFCC
                 mfcc = es.MFCC()
                 mfcc_result = mfcc(audio)
@@ -1230,6 +1276,12 @@ class AudioAnalyzer:
                 frame_size = 2048
                 hop_size = 1024
                 
+                # Limit audio length to prevent spectrum size issues
+                max_audio_length = 60 * sample_rate  # 60 seconds max
+                if len(audio) > max_audio_length:
+                    log_universal('WARNING', 'Audio', f'Audio too long for chroma extraction, truncating to 60s')
+                    audio = audio[:max_audio_length]
+                
                 # Initialize algorithms
                 window = es.Windowing(type='blackmanharris62')
                 spectrum = es.Spectrum()
@@ -1246,6 +1298,12 @@ class AudioAnalyzer:
                     try:
                         windowed = window(frame)
                         spec = spectrum(windowed)
+                        
+                        # Validate spectrum size before processing
+                        if len(spec) > 10000:  # Limit spectrum size to prevent TriangularBands error
+                            log_universal('WARNING', 'Audio', f'Spectrum size too large ({len(spec)}), skipping frame')
+                            continue
+                        
                         frequencies, magnitudes = spectral_peaks(spec)
                         
                         # Check if we have valid spectral peaks
@@ -1259,6 +1317,7 @@ class AudioAnalyzer:
                                 if hpcp_value is not None and len(hpcp_value) == 12:
                                     chroma_values.append(hpcp_value)
                     except Exception as frame_error:
+                        log_universal('DEBUG', 'Audio', f'Frame {frame_count} processing failed: {frame_error}')
                         continue
                 
                 # Calculate global average

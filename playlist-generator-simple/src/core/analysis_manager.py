@@ -91,6 +91,12 @@ class AnalysisManager:
         self.max_cpu_for_full_analysis_percent = config.get('MAX_CPU_FOR_FULL_ANALYSIS_PERCENT', 80)
         self.cpu_check_interval_seconds = config.get('CPU_CHECK_INTERVAL_SECONDS', 5)
         
+        # MusicNN specific thresholds
+        self.musicnn_max_file_size_mb = config.get('MUSICNN_MAX_FILE_SIZE_MB', 500)
+        self.musicnn_min_memory_gb = config.get('MUSICNN_MIN_MEMORY_GB', 3.0)
+        self.musicnn_max_cpu_percent = config.get('MUSICNN_MAX_CPU_PERCENT', 70)
+        self.musicnn_enabled = config.get('MUSICNN_ENABLED', True)
+        
         # Parallel processing thresholds
         self.parallel_max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100)
         self.parallel_min_memory_gb = config.get('PARALLEL_MIN_MEMORY_GB', 4.0)
@@ -382,6 +388,13 @@ class AnalysisManager:
             )
             return self._create_basic_analysis_config(file_size_mb, reason)
         
+        # Check MusicNN-specific constraints
+        musicnn_enabled = self.musicnn_enabled and (
+            file_size_mb <= self.musicnn_max_file_size_mb and
+            memory_available_gb >= self.musicnn_min_memory_gb and
+            cpu_percent <= self.musicnn_max_cpu_percent
+        )
+        
         # All checks passed - use full analysis
         reason = f"Smart analysis: File {file_size_mb:.1f}MB, Memory {memory_available_gb:.1f}GB, CPU {cpu_percent:.1f}%"
         log_universal(
@@ -395,7 +408,7 @@ class AnalysisManager:
             'extract_loudness': True,
             'extract_key': True,
             'extract_mfcc': True,
-            'extract_musicnn': True,
+            'extract_musicnn': musicnn_enabled,
             'extract_metadata': True
         }
         
