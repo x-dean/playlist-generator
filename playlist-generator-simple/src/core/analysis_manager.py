@@ -324,7 +324,7 @@ class AnalysisManager:
 
     def _determine_deterministic_analysis_type(self, file_path: str, file_size_mb: float) -> Dict[str, Any]:
         """Determine analysis type based on file size only (deterministic)."""
-        max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 2000)  # Increased from 100MB to 2GB
+        max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 25)  # Aligned with half-track threshold
         use_full_analysis = file_size_mb <= max_full_analysis_size_mb
         
         features_config = {
@@ -383,8 +383,8 @@ class AnalysisManager:
             )
             return self._create_basic_analysis_config(file_size_mb, reason)
         
-        # Check file size constraints - much higher threshold for sequential processing
-        max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 2000)  # Increased from 100MB to 2GB
+        # Check file size constraints - aligned with half-track threshold
+        max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 25)  # Aligned with half-track threshold
         if file_size_mb > max_full_analysis_size_mb:
             reason = f"File too large: {file_size_mb:.1f}MB > {max_full_analysis_size_mb}MB"
             log_universal(
@@ -565,8 +565,8 @@ class AnalysisManager:
             file_size_mb = file_size_bytes / (1024 * 1024)
             
             # Enhanced analysis type determination based on file size - much higher thresholds for sequential processing
-            max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 2000)  # Increased from 50MB to 2GB
-            if file_size_mb > max_full_analysis_size_mb:  # Very large files
+                    max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 25)  # Aligned with half-track threshold
+        if file_size_mb > max_full_analysis_size_mb:  # Files over 25MB use half-track
                 analysis_type = 'basic'
                 use_full_analysis = False
             else:  # Files up to 2GB - use full analysis
