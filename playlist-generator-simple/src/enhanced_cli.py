@@ -24,7 +24,8 @@ from core.resource_manager import ResourceManager
 from core.audio_analyzer import AudioAnalyzer
 from core.database import DatabaseManager
 from core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
-from core.logging_setup import get_logger, setup_logging, log_universal
+from core.unified_logging import get_logger, setup_logging, log_universal, log_session_start, log_session_end
+from core.logging_config import get_logging_config, LoggingPatterns, StandardLogMessages
 from core.config_loader import config_loader
 
 # Check for verbose arguments before setting up logging
@@ -70,13 +71,33 @@ log_file_size_mb = logging_config.get('LOG_FILE_SIZE_MB', 50)
 if verbose_level is not None:
     console_logging = True
 
-# --- Stage 2: Full logging setup with all config parameters ---
-setup_logging(
-    log_level=verbose_level if verbose_level is not None else log_level_from_config, # Prioritize CLI verbose_level
-    log_file_prefix=log_file_prefix,
-    console_logging=console_logging,
-    file_logging=file_logging
+# --- Stage 2: Full logging setup with unified system ---
+verbose_count = 0
+if verbose_level == 'DEBUG':
+    verbose_count = 3
+elif verbose_level == 'INFO':
+    verbose_count = 1
+
+# Create config overrides from legacy settings
+config_overrides = {
+    'console_enabled': console_logging,
+    'file_enabled': file_logging,
+    'log_file_prefix': log_file_prefix,
+    'max_file_size_mb': log_file_size_mb,
+    'backup_count': max_log_files,
+}
+
+# If verbose_level was set, override the config level
+if verbose_level is not None:
+    config_overrides['level'] = verbose_level
+
+logging_config = get_logging_config(
+    environment='cli',
+    verbose_level=verbose_count,
+    config_overrides=config_overrides
 )
+
+setup_logging(logging_config)
 
 logger = get_logger('playlista.enhanced_cli')
 
