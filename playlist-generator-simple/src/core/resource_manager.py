@@ -61,6 +61,11 @@ class ResourceManager:
         self.disk_threshold_percent = config.get('DISK_THRESHOLD_PERCENT', DEFAULT_DISK_THRESHOLD_PERCENT)
         self.monitoring_interval = config.get('MONITORING_INTERVAL_SECONDS', DEFAULT_MONITORING_INTERVAL_SECONDS)
         
+        # Container/Environment memory limit (overrides host memory detection)
+        self.container_memory_limit_gb = config.get('CONTAINER_MEMORY_LIMIT_GB', None)
+        if self.container_memory_limit_gb == '':
+            self.container_memory_limit_gb = None  # Empty string means use host detection
+        
         # Advanced resource settings
         self.resource_history_size = config.get('RESOURCE_HISTORY_SIZE', DEFAULT_RESOURCE_HISTORY_SIZE)
         self.resource_alert_threshold_percent = config.get('RESOURCE_ALERT_THRESHOLD_PERCENT', DEFAULT_RESOURCE_ALERT_THRESHOLD_PERCENT)
@@ -482,6 +487,11 @@ class ResourceManager:
                     else:
                         memory_limit_gb = value
             
+            # Use container memory limit if specified (overrides host memory detection)
+            if self.container_memory_limit_gb is not None:
+                memory_limit_gb = self.container_memory_limit_gb
+                log_universal('INFO', 'Resource', f"Using container memory limit: {memory_limit_gb:.2f}GB")
+            
             # Get current process memory usage (RSS)
             process = psutil.Process()
             current_rss_gb = process.memory_info().rss / (1024**3)
@@ -490,6 +500,11 @@ class ResourceManager:
             memory = psutil.virtual_memory()
             total_memory_gb = memory.total / (1024**3)
             system_memory_percent = memory.percent
+            
+            # Use container memory limit if specified, otherwise use host memory
+            if self.container_memory_limit_gb is not None:
+                total_memory_gb = self.container_memory_limit_gb
+                log_universal('INFO', 'Resource', f"Container mode: Using {total_memory_gb:.2f}GB as total memory (host reports {memory.total / (1024**3):.2f}GB)")
             
             # CONSERVATIVE: Calculate available memory for workers
             # Reserve 2GB for system and other processes (increased from 1.5GB)
@@ -517,6 +532,14 @@ class ResourceManager:
                 optimal_workers = max(2, optimal_workers // 2)  # Reduce by half, minimum 2
                 log_universal('WARNING', 'Resource', f"System memory usage {system_memory_percent:.1f}% > 75%, reducing workers to {optimal_workers}")
             
+            # In container mode, also check against container memory limit
+            if self.container_memory_limit_gb is not None:
+                container_memory_used_gb = current_rss_gb
+                container_memory_percent = (container_memory_used_gb / total_memory_gb) * 100
+                if container_memory_percent > 75:
+                    optimal_workers = max(2, optimal_workers // 2)  # Reduce by half, minimum 2
+                    log_universal('WARNING', 'Resource', f"Container memory usage {container_memory_percent:.1f}% > 75%, reducing workers to {optimal_workers}")
+            
             # CONSERVATIVE: If available memory is very low, use only 2 workers (increased from 1)
             if available_for_workers_gb < 2.0:  # Increased from 0.5GB to 2GB minimum
                 optimal_workers = 2
@@ -539,6 +562,11 @@ class ResourceManager:
             log_universal('INFO', 'Resource', f"  Memory per worker: {memory_per_worker_gb:.1f}GB")
             log_universal('INFO', 'Resource', f"  System memory usage: {system_memory_percent:.1f}%")
             
+            if self.container_memory_limit_gb is not None:
+                container_memory_percent = (current_rss_gb / total_memory_gb) * 100
+                log_universal('INFO', 'Resource', f"  Container memory usage: {container_memory_percent:.1f}%")
+                log_universal('INFO', 'Resource', f"  Container mode: Using {self.container_memory_limit_gb:.2f}GB limit")
+            
             return optimal_workers
             
         except Exception as e:
@@ -550,6 +578,13 @@ class ResourceManager:
                 # Use minimum of 2 workers, maximum of 2 workers for safety (reduced from 4)
                 safe_workers = min(2, cpu_count // 2)
                 safe_workers = max(2, safe_workers)  # Ensure minimum 2
+                
+                # In container mode, also consider memory limits
+                if self.container_memory_limit_gb is not None:
+                    memory_based_workers = max(1, int(self.container_memory_limit_gb / 1.2))  # 1.2GB per worker
+                    safe_workers = min(safe_workers, memory_based_workers)
+                    log_universal('INFO', 'Resource', f"Container fallback: memory-based workers: {memory_based_workers}")
+                
                 if max_workers:
                     safe_workers = min(safe_workers, max_workers)
                 log_universal('INFO', 'Resource', f"Using conservative fallback worker count: {safe_workers}")

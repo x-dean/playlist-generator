@@ -553,6 +553,7 @@ class ConfigLoader:
         # Extract resource management specific settings
         resource_config = {
             'MEMORY_LIMIT_GB': config.get('MEMORY_LIMIT_GB', 8.0),
+            'CONTAINER_MEMORY_LIMIT_GB': config.get('CONTAINER_MEMORY_LIMIT_GB', None),
             'CPU_THRESHOLD_PERCENT': config.get('CPU_THRESHOLD_PERCENT', 80),
             'DISK_THRESHOLD_PERCENT': config.get('DISK_THRESHOLD_PERCENT', 90),
             'MONITORING_INTERVAL_SECONDS': config.get('MONITORING_INTERVAL_SECONDS', 5),
