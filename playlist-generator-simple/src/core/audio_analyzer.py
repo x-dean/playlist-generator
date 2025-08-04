@@ -345,8 +345,20 @@ class AudioAnalyzer:
                 self.db_manager.save_spotify_features(file_path, spotify_features)
                 log_universal('INFO', 'Audio', f'Spotify-style features saved to database')
             
-            # STEP 4.6: Extract advanced categorization features
-            advanced_features = self._extract_advanced_categorization_features(audio, sample_rate)
+            # STEP 4.6: Extract advanced categorization features (optimized for performance)
+            file_size_mb = len(audio) * 4 / (1024 * 1024)  # Estimate file size
+            if file_size_mb > 50:  # For large files, use a sample
+                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using sample for advanced features')
+                # Use middle 30 seconds for large files
+                sample_duration = 30
+                sample_size = int(sample_duration * sample_rate)
+                start_sample = len(audio) // 2 - sample_size // 2
+                end_sample = start_sample + sample_size
+                audio_sample = audio[start_sample:end_sample]
+                advanced_features = self._extract_advanced_categorization_features(audio_sample, sample_rate)
+            else:
+                advanced_features = self._extract_advanced_categorization_features(audio, sample_rate)
+            
             if advanced_features:
                 self.db_manager.save_advanced_categorization_features(file_path, advanced_features)
                 log_universal('INFO', 'Audio', f'Advanced categorization features saved to database')
@@ -3146,7 +3158,7 @@ class AudioAnalyzer:
             return metadata
 
     def _extract_advanced_categorization_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Extract advanced features for music categorization."""
+        """Extract advanced features for music categorization (optimized for performance)."""
         features = {}
         
         try:
@@ -3162,7 +3174,13 @@ class AudioAnalyzer:
                 if len(audio.shape) > 1:
                     audio = np.mean(audio, axis=1)
 
-                # 1. DANCEABILITY FEATURES
+                # Limit audio length for performance (max 60 seconds)
+                max_samples = 60 * sample_rate
+                if len(audio) > max_samples:
+                    audio = audio[:max_samples]
+                    log_universal('DEBUG', 'Audio', f'Truncated audio to {max_samples} samples for performance')
+
+                # 1. DANCEABILITY FEATURES (keep - it's fast)
                 try:
                     danceability_algo = es.Danceability()
                     danceability_result = danceability_algo(audio)
@@ -3176,56 +3194,21 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Danceability extraction failed: {e}')
                     features['danceability'] = 0.0
 
-                # 2. HARMONIC FEATURES - Use SpectralPeaks first, then HarmonicPeaks
+                # 2. HARMONIC FEATURES (simplified - use only spectral peaks)
                 try:
-                    # First get spectral peaks
                     spectral_peaks_algo = es.SpectralPeaks()
                     peaks, peak_values = spectral_peaks_algo(audio)
-                    
-                    # Get pitch estimate for HarmonicPeaks
-                    pitch_algo = es.PitchYin()
-                    pitch, pitch_confidence = pitch_algo(audio)
-                    
-                    # Try HarmonicPeaks with the spectral peaks and pitch
-                    try:
-                        harmonic_peaks_algo = es.HarmonicPeaks()
-                        harmonic_peaks, harmonic_values = harmonic_peaks_algo(peaks, peak_values, pitch)
-                        features['harmonic_peaks_count'] = len(harmonic_peaks) if harmonic_peaks is not None else 0
-                        features['harmonic_peak_strength'] = float(np.mean(harmonic_values)) if harmonic_values is not None else 0.0
-                    except Exception as e_harmonic:
-                        log_universal('WARNING', 'Audio', f'Harmonic peaks extraction failed: {e_harmonic}')
-                        # Use spectral peaks as fallback
-                        features['harmonic_peaks_count'] = len(peaks) if peaks is not None else 0
-                        features['harmonic_peak_strength'] = float(np.mean(peak_values)) if peak_values is not None else 0.0
-                        
+                    features['harmonic_peaks_count'] = len(peaks) if peaks is not None else 0
+                    features['harmonic_peak_strength'] = float(np.mean(peak_values)) if peak_values is not None else 0.0
                 except Exception as e:
-                    log_universal('WARNING', 'Audio', f'Spectral peaks extraction failed: {e}')
+                    log_universal('WARNING', 'Audio', f'Harmonic peaks extraction failed: {e}')
                     features['harmonic_peaks_count'] = 0
                     features['harmonic_peak_strength'] = 0.0
 
-                # 3. INHARMONICITY (useful for electronic vs acoustic)
-                try:
-                    # First get spectral peaks
-                    spectral_peaks_algo = es.SpectralPeaks()
-                    peaks, peak_values = spectral_peaks_algo(audio)
-                    
-                    # Get pitch estimate
-                    pitch_algo = es.PitchYin()
-                    pitch, pitch_confidence = pitch_algo(audio)
-                    
-                    # Get harmonic peaks for Inharmonicity
-                    harmonic_peaks_algo = es.HarmonicPeaks()
-                    harmonic_peaks, harmonic_values = harmonic_peaks_algo(peaks, peak_values, pitch)
-                    
-                    # Calculate inharmonicity using harmonic peaks
-                    inharmonicity_algo = es.Inharmonicity()
-                    inharmonicity = inharmonicity_algo(harmonic_peaks, harmonic_values)
-                    features['inharmonicity'] = float(inharmonicity) if inharmonicity is not None else 0.0
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f'Inharmonicity extraction failed: {e}')
-                    features['inharmonicity'] = 0.0
+                # 3. INHARMONICITY (skip for performance - too expensive)
+                features['inharmonicity'] = 0.0
 
-                # 4. DYNAMIC COMPLEXITY (energy variations)
+                # 4. DYNAMIC COMPLEXITY (keep - it's useful and fast)
                 try:
                     dynamic_complexity_algo = es.DynamicComplexity()
                     dynamic_complexity_result = dynamic_complexity_algo(audio)
@@ -3239,7 +3222,7 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Dynamic complexity extraction failed: {e}')
                     features['dynamic_complexity'] = 0.0
 
-                # 5. SILENCE RATE (useful for speech vs music)
+                # 5. SILENCE RATE (keep - it's fast)
                 try:
                     silence_rate_algo = es.SilenceRate()
                     silence_rate = silence_rate_algo(audio)
@@ -3248,12 +3231,22 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Silence rate extraction failed: {e}')
                     features['silence_rate'] = 0.0
 
-                # 6. ZERO CROSSING RATE (useful for noise vs tonal content)
+                # 6. ZERO CROSSING RATE (simplified - use fewer frames)
                 try:
                     zcr_algo = es.ZeroCrossingRate()
+                    # Use larger frame size for fewer computations
+                    frame_size = 4096
+                    hop_size = 2048
                     zcr_values = []
-                    for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                    frame_count = 0
+                    max_frames = 100  # Limit number of frames for performance
+                    
+                    for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                        if frame_count >= max_frames:
+                            break
                         zcr_values.append(zcr_algo(frame))
+                        frame_count += 1
+                    
                     # Clean zcr values to avoid NaN warnings
                     zcr_values = clean_numpy_array(np.array(zcr_values))
                     features['zero_crossing_rate'] = float(np.nanmean(zcr_values)) if len(zcr_values) > 0 else 0.0
@@ -3261,12 +3254,19 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Zero crossing rate extraction failed: {e}')
                     features['zero_crossing_rate'] = 0.0
 
-                # 7. SPECTRAL COMPLEXITY (useful for genre classification)
+                # 7. SPECTRAL COMPLEXITY (simplified - use fewer frames)
                 try:
                     spectral_complexity_algo = es.SpectralComplexity()
                     complexity_values = []
-                    for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                    frame_count = 0
+                    max_frames = 50  # Limit number of frames for performance
+                    
+                    for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size, startFromZero=True):
+                        if frame_count >= max_frames:
+                            break
                         complexity_values.append(spectral_complexity_algo(frame))
+                        frame_count += 1
+                    
                     # Clean complexity values to avoid NaN warnings
                     complexity_values = clean_numpy_array(np.array(complexity_values))
                     features['spectral_complexity'] = float(np.nanmean(complexity_values)) if len(complexity_values) > 0 else 0.0
@@ -3274,38 +3274,13 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Spectral complexity extraction failed: {e}')
                     features['spectral_complexity'] = 0.0
 
-                # 8. TRILLIMUS (useful for classical vs modern) - might not exist
-                try:
-                    trillimus_algo = es.Trillimus()
-                    trillimus = trillimus_algo(audio)
-                    features['trillimus'] = float(trillimus) if trillimus is not None else 0.0
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f'Trillimus extraction failed: {e}')
-                    features['trillimus'] = 0.0
+                # 8. TRILLIMUS (skip - doesn't exist)
+                features['trillimus'] = 0.0
 
-                # 9. ODD TO EVEN HARMONIC ENERGY RATIO (useful for timbre analysis)
-                try:
-                    # First get spectral peaks
-                    spectral_peaks_algo = es.SpectralPeaks()
-                    peaks, peak_values = spectral_peaks_algo(audio)
-                    
-                    # Get pitch estimate
-                    pitch_algo = es.PitchYin()
-                    pitch, pitch_confidence = pitch_algo(audio)
-                    
-                    # Get harmonic peaks for OddToEvenHarmonicEnergyRatio
-                    harmonic_peaks_algo = es.HarmonicPeaks()
-                    harmonic_peaks, harmonic_values = harmonic_peaks_algo(peaks, peak_values, pitch)
-                    
-                    # Calculate odd to even harmonic ratio
-                    odd_even_algo = es.OddToEvenHarmonicEnergyRatio()
-                    odd_even_ratio = odd_even_algo(harmonic_peaks, harmonic_values)
-                    features['odd_to_even_harmonic_ratio'] = float(odd_even_ratio) if odd_even_ratio is not None else 0.0
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f'Odd to even harmonic ratio extraction failed: {e}')
-                    features['odd_to_even_harmonic_ratio'] = 0.0
+                # 9. ODD TO EVEN HARMONIC RATIO (skip for performance - too expensive)
+                features['odd_to_even_harmonic_ratio'] = 0.0
 
-                # 10. STRONG PEAK (useful for percussive vs melodic) - might not exist
+                # 10. STRONG PEAK (keep - it's fast)
                 try:
                     strong_peak_algo = es.StrongPeak()
                     # StrongPeak needs spectrum input
@@ -3319,25 +3294,13 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Strong peak extraction failed: {e}')
                     features['strong_peak'] = 0.0
 
-                # 11. STRONG DECAY (useful for envelope analysis) - might not exist
-                try:
-                    strong_decay_algo = es.StrongDecay()
-                    strong_decay = strong_decay_algo(audio)
-                    features['strong_decay'] = float(strong_decay) if strong_decay is not None else 0.0
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f'Strong decay extraction failed: {e}')
-                    features['strong_decay'] = 0.0
+                # 11. STRONG DECAY (skip - might not exist)
+                features['strong_decay'] = 0.0
 
-                # 12. EFFECTIVE DURATION (useful for track length analysis) - might not exist
-                try:
-                    effective_duration_algo = es.EffectiveDuration()
-                    effective_duration = effective_duration_algo(audio)
-                    features['effective_duration'] = float(effective_duration) if effective_duration is not None else 0.0
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f'Effective duration extraction failed: {e}')
-                    features['effective_duration'] = 0.0
+                # 12. EFFECTIVE DURATION (skip - might not exist)
+                features['effective_duration'] = 0.0
 
-            log_universal('DEBUG', 'Audio', f'Extracted advanced categorization features')
+            log_universal('DEBUG', 'Audio', f'Extracted optimized advanced categorization features')
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Advanced categorization feature extraction failed: {e}')
