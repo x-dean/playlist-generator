@@ -312,7 +312,7 @@ class AnalysisManager:
                     'extract_loudness': True,
                     'extract_key': True,
                     'extract_mfcc': True,
-                    'extract_musicnn': False,
+                    'extract_musicnn': True,  # Enabled since we handle large files with half-track loading
                     'extract_metadata': True
                 },
                 'reason': 'Error determining analysis type - using basic'
@@ -329,7 +329,7 @@ class AnalysisManager:
             'extract_loudness': True,
             'extract_key': True,
             'extract_mfcc': True,
-            'extract_musicnn': use_full_analysis,
+            'extract_musicnn': True,  # Always enable MusiCNN since we handle large files with half-track loading
             'extract_metadata': True
         }
         
@@ -389,12 +389,8 @@ class AnalysisManager:
             )
             return self._create_basic_analysis_config(file_size_mb, reason)
         
-        # Check MusicNN-specific constraints
-        musicnn_enabled = self.musicnn_enabled and (
-            file_size_mb <= self.musicnn_max_file_size_mb and
-            memory_available_gb >= self.musicnn_min_memory_gb and
-            cpu_percent <= self.musicnn_max_cpu_percent
-        )
+        # Check MusicNN-specific constraints - always enable MusiCNN since we handle large files with half-track loading
+        musicnn_enabled = self.musicnn_enabled  # Always enable if MusicNN is available
         
         # All checks passed - use full analysis
         reason = f"Smart analysis: File {file_size_mb:.1f}MB, Memory {memory_available_gb:.1f}GB, CPU {cpu_percent:.1f}%"
@@ -429,7 +425,7 @@ class AnalysisManager:
             'extract_loudness': True,
             'extract_key': True,
             'extract_mfcc': True,
-            'extract_musicnn': False,
+            'extract_musicnn': True,  # Enabled since we handle large files with half-track loading
             'extract_metadata': True
         }
         
@@ -471,8 +467,8 @@ class AnalysisManager:
         big_files, small_files = self._categorize_files_by_size(files)
         
         log_universal('INFO', 'Analysis', f"File categorization:")
-        log_universal('INFO', 'Analysis', f"  Large files (>={self.big_file_size_mb}MB): {len(big_files)}")
-        log_universal('INFO', 'Analysis', f"  Small files (<{self.big_file_size_mb}MB): {len(small_files)}")
+        log_universal('INFO', 'Analysis', f"  Large files (>={self.big_file_size_mb}MB): {len(big_files)} (Sequential + Half-track)")
+        log_universal('INFO', 'Analysis', f"  Small files (<{self.big_file_size_mb}MB): {len(small_files)} (Parallel: 100-200MB Half-track, <100MB Full)")
         
         results = {
             'success_count': 0,
@@ -484,7 +480,7 @@ class AnalysisManager:
         
         # Process big files sequentially
         if big_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(big_files)} large files sequentially")
+            log_universal('INFO', 'Analysis', f"Processing {len(big_files)} large files sequentially (Half-track loading)")
             big_results = self.sequential_analyzer.process_files(big_files, force_reextract)
             results['success_count'] += big_results['success_count']
             results['failed_count'] += big_results['failed_count']
@@ -492,7 +488,7 @@ class AnalysisManager:
         
         # Process small files using queue manager
         if small_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(small_files)} small files using parallel analyzer")
+            log_universal('INFO', 'Analysis', f"Processing {len(small_files)} small files using parallel analyzer (100-200MB: Half-track, <100MB: Full)")
             log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files < {self.big_file_size_mb}MB")
             
             # Use threaded processing (now the default)
@@ -538,9 +534,9 @@ class AnalysisManager:
         for file_path in files:
             try:
                 size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                if size_mb >= self.big_file_size_mb:
+                if size_mb >= self.big_file_size_mb:  # > 200MB: Sequential + Half-track
                     big_files.append(file_path)
-                else:
+                else:  # < 200MB: Parallel (100-200MB: Half-track, <100MB: Full)
                     small_files.append(file_path)
             except Exception as e:
                 log_universal('WARNING', 'Analysis', f"Could not determine size for {file_path}: {e}")
@@ -770,7 +766,7 @@ class AnalysisManager:
                     'extract_spectral': False,
                     'extract_key': False,
                     'extract_mfcc': False,
-                    'extract_musicnn': False
+                    'extract_musicnn': True  # Enabled since we handle large files with half-track loading
                 }
             }
             

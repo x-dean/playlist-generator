@@ -553,20 +553,22 @@ if __name__ == "__main__":
             file_size_bytes = os.path.getsize(file_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
             
-            # Simple analysis type determination based on file size
-            if file_size_mb > 50:  # Large files
+            # 3-tier system: >200MB files use sequential with half-track loading
+            if file_size_mb >= 200:  # Large files: Sequential + Half-track
                 analysis_type = 'basic'
                 use_full_analysis = False
-            else:  # Smaller files
+                log_universal('DEBUG', 'Sequential', f'File {file_size_mb:.1f}MB: Sequential + Half-track processing')
+            else:  # Should not reach here (should be handled by parallel)
                 analysis_type = 'basic'
                 use_full_analysis = False
+                log_universal('DEBUG', 'Sequential', f'File {file_size_mb:.1f}MB: Basic processing (should be parallel)')
             
             # Check if this is a long audio track (20+ minutes)
             from .audio_analyzer import AudioAnalyzer
             temp_analyzer = AudioAnalyzer()
             is_long_audio = temp_analyzer._is_long_audio_track(file_path)
             
-            # Enable MusiCNN for all tracks in sequential processing (needed for categorization)
+            # Enable MusiCNN for all tracks in sequential processing (half-track loading handles large files)
             enable_musicnn = True
             
             analysis_config = {
@@ -587,7 +589,7 @@ if __name__ == "__main__":
             }
             
             log_universal('DEBUG', 'Sequential', f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
-            log_universal('DEBUG', 'Sequential', f"MusiCNN enabled: {enable_musicnn} (always enabled for sequential categorization)")
+            log_universal('DEBUG', 'Sequential', f"MusiCNN enabled: {enable_musicnn} (half-track loading for large files)")
             
             return analysis_config
             
@@ -602,7 +604,7 @@ if __name__ == "__main__":
                 'EXTRACT_LOUDNESS': True,
                 'EXTRACT_KEY': True,
                 'EXTRACT_MFCC': True,
-                'EXTRACT_MUSICNN': False,  # Disabled in fallback
+                'EXTRACT_MUSICNN': True,  # Enabled since we handle large files with half-track loading
                 'EXTRACT_METADATA': True,
                 'EXTRACT_DANCEABILITY': True,
                 'EXTRACT_ONSET_RATE': True,

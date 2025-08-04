@@ -270,12 +270,12 @@ class AudioAnalyzer:
             estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
             estimated_duration_minutes = estimated_duration_seconds / 60
             
-            # Use half-track loading for files longer than 60 minutes (more realistic)
-            half_track_threshold_minutes = self.config.get('HALF_TRACK_DURATION_THRESHOLD_MINUTES', 60)
-            use_half_track = estimated_duration_minutes > half_track_threshold_minutes
+            # Use half-track loading for files larger than 100MB (3-tier system)
+            half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
+            use_half_track = file_size_mb > half_track_threshold_mb
             
             if use_half_track:
-                log_universal('INFO', 'Audio', f'Long file detected ({estimated_duration_minutes:.1f}min) - using half-track loading for memory efficiency')
+                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for memory efficiency')
             
             # Load audio data
             if use_half_track:
@@ -1100,13 +1100,7 @@ class AudioAnalyzer:
             from .model_manager import get_model_manager
             model_manager = get_model_manager(self.config)
             
-            # Check if MusicNN is suitable for this audio data
-            audio_size_bytes = len(audio) * 4  # Estimate size (4 bytes per float32 sample)
-            if not model_manager.is_file_suitable_for_musicnn(audio_size_bytes):
-                log_universal('INFO', 'Audio', 'File not suitable for MusicNN processing (size/memory limits)')
-                features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
-                return features
-            
+            # Check if MusicNN is available
             if not model_manager.is_musicnn_available():
                 log_universal('WARNING', 'Audio', 'MusicNN models not available - skipping MusiCNN features')
                 features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
@@ -1121,6 +1115,18 @@ class AudioAnalyzer:
                 return features
             
             log_universal('DEBUG', 'Audio', 'Using shared MusicNN models')
+            
+            # Check if we need to use half-track loading for large files
+            audio_size_bytes = len(audio) * 4  # Estimate size (4 bytes per float32 sample)
+            use_half_track = not model_manager.is_file_suitable_for_musicnn(audio_size_bytes)
+            
+            if use_half_track:
+                log_universal('INFO', 'Audio', f'Large audio detected ({len(audio)} samples) - using half-track loading for MusiCNN')
+                # Use middle 50% of the audio for MusiCNN analysis
+                start_sample = len(audio) // 4
+                end_sample = 3 * len(audio) // 4
+                audio = audio[start_sample:end_sample]
+                log_universal('DEBUG', 'Audio', f'Half-track loaded: {len(audio)} samples for MusiCNN analysis')
             
             # Use shared models for inference
             try:
