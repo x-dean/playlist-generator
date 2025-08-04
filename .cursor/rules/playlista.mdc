@@ -1,6 +1,6 @@
 ---
 description: Code Quality Guidelines
-alwaysApply: false
+alwaysApply: true
 ---
 # Code Quality Guidelines
 
