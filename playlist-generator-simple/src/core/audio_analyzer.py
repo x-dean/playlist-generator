@@ -21,7 +21,7 @@ except ImportError:
 
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
-from .database import DatabaseManager
+from .database import DatabaseManager, get_db_manager
 
 logger = get_logger('playlista.audio_analyzer')
 
