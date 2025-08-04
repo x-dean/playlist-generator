@@ -10,6 +10,7 @@ import hashlib
 import numpy as np
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
+from collections import Counter
 
 # Suppress TensorFlow warnings
 try:
@@ -265,11 +266,16 @@ class AudioAnalyzer:
             file_size_bytes = os.path.getsize(file_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
             
-            # Determine if we should use half-track loading for memory efficiency
-            use_half_track = False
-            if file_size_mb > self.config.get('HALF_TRACK_THRESHOLD_MB', 50):  # Files >50MB use half-track
-                use_half_track = True
-                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for memory efficiency')
+            # Determine analysis approach based on estimated duration (not file size)
+            estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
+            estimated_duration_minutes = estimated_duration_seconds / 60
+            
+            # Use half-track loading for files longer than 60 minutes (more realistic)
+            half_track_threshold_minutes = self.config.get('HALF_TRACK_DURATION_THRESHOLD_MINUTES', 60)
+            use_half_track = estimated_duration_minutes > half_track_threshold_minutes
+            
+            if use_half_track:
+                log_universal('INFO', 'Audio', f'Long file detected ({estimated_duration_minutes:.1f}min) - using half-track loading for memory efficiency')
             
             # Load audio data
             if use_half_track:
@@ -1412,7 +1418,7 @@ class AudioAnalyzer:
     def _is_extremely_large_for_processing(self, audio: np.ndarray) -> bool:
         """
         Check if audio is extremely large and should skip certain features.
-        Based on realistic limits for actual music files.
+        Based on realistic duration limits for actual music files.
         
         Args:
             audio: Audio array
@@ -1421,13 +1427,16 @@ class AudioAnalyzer:
             True if extremely large, False otherwise
         """
         try:
-            # Realistic threshold for extremely large files: 2B samples (~12.6 hours at 44kHz)
+            # Calculate duration in minutes
+            duration_minutes = len(audio) / (self.sample_rate * 60)
+            
+            # Realistic threshold for extremely large files: 12+ hours
             # This covers very long radio shows, podcasts, or live recordings
-            extremely_large_threshold = self.config.get('EXTREMELY_LARGE_SAMPLES_THRESHOLD', 2000000000)
-            is_extremely_large = len(audio) > extremely_large_threshold
+            extremely_large_threshold_minutes = self.config.get('EXTREMELY_LARGE_DURATION_THRESHOLD_MINUTES', 720)  # 12 hours
+            is_extremely_large = duration_minutes > extremely_large_threshold_minutes
             
             if is_extremely_large:
-                log_universal('WARNING', 'Audio', f'Extremely large file detected: {len(audio)} samples ({len(audio)/44100/60:.1f} minutes)')
+                log_universal('WARNING', 'Audio', f'Extremely large file detected: {duration_minutes:.1f} minutes')
                 log_universal('WARNING', 'Audio', f'Skipping memory-intensive features for this file')
             
             return is_extremely_large
@@ -1439,6 +1448,7 @@ class AudioAnalyzer:
     def _should_skip_audio_loading(self, file_path: str) -> bool:
         """
         Check if audio file should be skipped from loading into RAM.
+        Based on duration rather than file size for better accuracy.
         
         Args:
             file_path: Path to audio file
@@ -1450,17 +1460,21 @@ class AudioAnalyzer:
             file_size = os.path.getsize(file_path)
             file_size_mb = file_size / (1024 * 1024)
             
-            # Get configuration values - much higher thresholds for sequential processing
-            streaming_threshold_mb = self.config.get('STREAMING_LARGE_FILE_THRESHOLD_MB', 2000)  # Increased from 500MB to 2GB
-            skip_large_files = self.config.get('SKIP_LARGE_FILES', False)  # Changed default to False for sequential processing
+            # Estimate duration for more accurate decision making
+            estimated_duration_seconds = (file_size * 8) / (320 * 1000)
+            estimated_duration_minutes = estimated_duration_seconds / 60
+            
+            # Get configuration values - use duration-based thresholds
+            streaming_threshold_minutes = self.config.get('STREAMING_DURATION_THRESHOLD_MINUTES', 180)  # 3 hours
+            skip_large_files = self.config.get('SKIP_LARGE_FILES', False)
             
             # Convert string config to boolean if needed
             if isinstance(skip_large_files, str):
                 skip_large_files = skip_large_files.lower() in ('true', '1', 'yes', 'on')
             
-            # Skip files larger than streaming threshold to prevent RAM saturation
-            if skip_large_files and file_size_mb > streaming_threshold_mb:
-                log_universal('WARNING', 'Audio', f'Using lightweight analysis for large file ({file_size_mb:.1f}MB): {os.path.basename(file_path)}')
+            # Skip files longer than streaming threshold to prevent RAM saturation
+            if skip_large_files and estimated_duration_minutes > streaming_threshold_minutes:
+                log_universal('WARNING', 'Audio', f'Using lightweight analysis for long file ({estimated_duration_minutes:.1f}min): {os.path.basename(file_path)}')
                 return True
                 
             return False
@@ -1513,8 +1527,8 @@ class AudioAnalyzer:
     def _determine_long_audio_category(self, audio_path: str, metadata: Dict[str, Any] = None, 
                                      audio_features: Dict[str, Any] = None) -> str:
         """
-        Determine the category of a long audio track using metadata and audio features.
-
+        Determine the category of a long audio track using duration first, then content.
+        
         Args:
             audio_path: Path to the audio file
             metadata: Optional metadata dictionary
@@ -1524,105 +1538,83 @@ class AudioAnalyzer:
             Category string (long_mix, podcast, radio, compilation, or unknown)
         """
         try:
-            # Get configured categories
-            categories_str = self.config.get('LONG_AUDIO_CATEGORIES', 'long_mix,podcast,radio,compilation')
-            if isinstance(categories_str, str):
-                categories = categories_str.split(',')
+            # Priority 1: Use duration for initial categorization
+            file_size_bytes = os.path.getsize(audio_path)
+            estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
+            estimated_duration_minutes = estimated_duration_seconds / 60
+            
+            # Get configured thresholds
+            radio_threshold = self.config.get('RADIO_DURATION_MINUTES', 90)
+            long_mix_threshold = self.config.get('LONG_MIX_DURATION_MINUTES', 45)
+            
+            # Initial categorization based on duration
+            if estimated_duration_minutes > radio_threshold:
+                initial_category = 'radio'
+            elif estimated_duration_minutes > long_mix_threshold:
+                initial_category = 'long_mix'
             else:
-                categories = categories_str
-
-            # Priority 1: Use audio features for categorization (most accurate)
+                initial_category = 'mix'
+            
+            log_universal('INFO', 'Audio', f'Initial categorization by duration ({estimated_duration_minutes:.1f}min): {initial_category}')
+            
+            # Priority 2: Refine with audio features (most accurate)
             if audio_features:
-                category = self._categorize_by_audio_features(audio_features)
-                if category:
-                    log_universal('INFO', 'Audio', f"Category determined by audio features: {category}")
-                    return category
-
-            # Priority 2: Check metadata for explicit indicators
+                refined_category = self._categorize_by_audio_features(audio_features)
+                if refined_category and refined_category != 'unknown':
+                    log_universal('INFO', 'Audio', f'Refined by audio features: {initial_category} -> {refined_category}')
+                    return refined_category
+            
+            # Priority 3: Refine with metadata keywords
             if metadata:
                 title = str(metadata.get('title', '')).lower()
                 artist = str(metadata.get('artist', '')).lower()
                 album = str(metadata.get('album', '')).lower()
 
-                # Strong metadata indicators (explicit keywords)
-                # Enhanced metadata detection with more keywords
-                # Check for radio shows first (they often have "episode" but are not podcasts)
-                if any(word in title for word in ['radio', 'broadcast', 'live', 'fm', 'am', 'station', 'trance', 'state of trance']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (title): radio")
-                    return 'radio'
-                if any(word in artist for word in ['radio', 'station', 'broadcast', 'fm', 'am']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): radio")
-                    return 'radio'
-                
-                # Then check for actual podcasts (speech-based content)
+                # Strong metadata indicators override duration-based categorization
                 if any(word in title for word in ['podcast', 'talk', 'interview', 'conversation', 'discussion']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (title): podcast")
+                    log_universal('INFO', 'Audio', f'Refined by metadata (title): {initial_category} -> podcast')
                     return 'podcast'
                 if any(word in artist for word in ['podcast', 'show', 'network']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): podcast")
+                    log_universal('INFO', 'Audio', f'Refined by metadata (artist): {initial_category} -> podcast')
                     return 'podcast'
-                if any(word in artist for word in ['podcast', 'radio', 'station', 'show', 'network']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): podcast")
-                    return 'podcast'
-
-                if any(word in title for word in ['radio', 'broadcast', 'live', 'fm', 'am', 'station']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (title): radio")
-                    return 'radio'
-                if any(word in artist for word in ['radio', 'station', 'broadcast', 'fm', 'am']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): radio")
-                    return 'radio'
-
-                if any(word in title for word in ['mix', 'dj', 'set', 'session', 'live set', 'concert', 'performance']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (title): long_mix")
-                    return 'long_mix'
-                if any(word in artist for word in ['dj', 'mix', 'session', 'live', 'concert']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): long_mix")
-                    return 'long_mix'
-
+                
                 if any(word in title for word in ['compilation', 'collection', 'various', 'best of', 'greatest hits', 'anthology']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (title): compilation")
+                    log_universal('INFO', 'Audio', f'Refined by metadata (title): {initial_category} -> compilation')
                     return 'compilation'
                 if any(word in album for word in ['compilation', 'collection', 'various', 'best of', 'greatest hits', 'anthology']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (album): compilation")
+                    log_universal('INFO', 'Audio', f'Refined by metadata (album): {initial_category} -> compilation')
                     return 'compilation'
-
-                # New categories for better classification
+                
                 if any(word in title for word in ['classical', 'orchestra', 'symphony', 'concerto', 'sonata']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (title): classical")
+                    log_universal('INFO', 'Audio', f'Refined by metadata (title): {initial_category} -> classical')
                     return 'classical'
                 if any(word in artist for word in ['orchestra', 'symphony', 'philharmonic', 'quartet']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): classical")
+                    log_universal('INFO', 'Audio', f'Refined by metadata (artist): {initial_category} -> classical')
                     return 'classical'
-
+                
                 if any(word in title for word in ['jazz', 'swing', 'bebop', 'fusion']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (title): jazz")
+                    log_universal('INFO', 'Audio', f'Refined by metadata (title): {initial_category} -> jazz')
                     return 'jazz'
                 if any(word in artist for word in ['jazz', 'swing', 'bebop', 'fusion']):
-                    log_universal('INFO', 'Audio', f"Category determined by metadata (artist): jazz")
+                    log_universal('INFO', 'Audio', f'Refined by metadata (artist): {initial_category} -> jazz')
                     return 'jazz'
 
-            # Priority 3: Check filename for patterns
+            # Priority 4: Check filename for patterns
             filename = os.path.basename(audio_path).lower()
-
             if any(word in filename for word in ['podcast', 'episode', 'show', 'talk', 'interview']):
+                log_universal('INFO', 'Audio', f'Refined by filename: {initial_category} -> podcast')
                 return 'podcast'
-            if any(word in filename for word in ['radio', 'broadcast', 'live', 'fm', 'am']):
-                return 'radio'
-            if any(word in filename for word in ['mix', 'dj', 'set', 'concert', 'performance']):
-                return 'long_mix'
-            if any(word in filename for word in ['compilation', 'collection', 'various', 'best', 'hits']):
+            if any(word in filename for word in ['compilation', 'collection', 'various']):
+                log_universal('INFO', 'Audio', f'Refined by filename: {initial_category} -> compilation')
                 return 'compilation'
-            if any(word in filename for word in ['classical', 'orchestra', 'symphony']):
-                return 'classical'
-            if any(word in filename for word in ['jazz', 'swing', 'bebop']):
-                return 'jazz'
 
-            # Default fallback
-            return 'long_mix'
-
+            # Return duration-based categorization if no content-based refinement
+            log_universal('INFO', 'Audio', f'Using duration-based categorization: {initial_category}')
+            return initial_category
+                
         except Exception as e:
-            log_universal('WARNING', 'Audio', f"Error determining long audio category: {e}")
-            return 'long_mix'
+            log_universal('WARNING', 'Audio', f'Could not determine long audio category: {e}')
+            return 'unknown'
 
     def _categorize_by_audio_features(self, features: Dict[str, Any]) -> Optional[str]:
         """
@@ -2043,13 +2035,14 @@ class AudioAnalyzer:
         features = {}
         
         try:
-            # Sample 4 different 30-second segments for better representation
-            sample_duration = 30  # seconds
+            # Sample configurable segments for better representation
+            sample_duration = self.config.get('CATEGORIZATION_SAMPLE_DURATION_SECONDS', 30)  # seconds
+            sample_count = self.config.get('CATEGORIZATION_SAMPLE_COUNT', 4)
             sample_size = sample_duration * sample_rate
             total_duration = len(audio) / sample_rate
             
-            # Calculate 4 sample positions: 10%, 30%, 60%, 80% of track
-            positions = [0.1, 0.3, 0.6, 0.8]
+            # Calculate sample positions: 10%, 30%, 60%, 80% of track (configurable)
+            positions = [0.1, 0.3, 0.6, 0.8][:sample_count]  # Use first N positions
             audio_samples = []
             
             for i, pos in enumerate(positions):
@@ -2100,25 +2093,124 @@ class AudioAnalyzer:
             else:
                 log_universal('INFO', 'Audio', f'Rhythm extraction disabled: extract_rhythm={self.extract_rhythm}')
             
-            # Extract basic spectral features (centroid, flatness)
+            # Extract basic spectral features from all 4 samples for better representation
             if self.extract_spectral:
-                spectral_features = self._extract_spectral_features(audio_sample, sample_rate)
-                features.update(spectral_features)
+                log_universal('INFO', 'Audio', 'Starting spectral analysis for categorization (4 samples)')
+                
+                all_spectral_features = []
+                for i, sample in enumerate(audio_samples):
+                    log_universal('DEBUG', 'Audio', f'Analyzing spectral sample {i+1}/4')
+                    sample_spectral = self._extract_spectral_features(sample, sample_rate)
+                    if sample_spectral:
+                        all_spectral_features.append(sample_spectral)
+                
+                # Combine spectral features from all samples
+                if all_spectral_features:
+                    # Average spectral features for better representation
+                    combined_spectral = {}
+                    for key in all_spectral_features[0].keys():
+                        values = [f.get(key, 0) for f in all_spectral_features if f.get(key) is not None]
+                        if values:
+                            combined_spectral[key] = float(np.mean(values))
+                    
+                    features.update(combined_spectral)
+                    log_universal('INFO', 'Audio', f'Spectral features combined from {len(all_spectral_features)} samples')
+                else:
+                    log_universal('WARNING', 'Audio', 'Spectral features extraction returned None for all samples')
             
-            # Extract loudness features (RMS)
+            # Extract loudness features from all 4 samples
             if self.extract_loudness:
-                loudness_features = self._extract_loudness_features(audio_sample, sample_rate)
-                features.update(loudness_features)
+                log_universal('INFO', 'Audio', 'Starting loudness analysis for categorization (4 samples)')
+                
+                all_loudness_features = []
+                for i, sample in enumerate(audio_samples):
+                    log_universal('DEBUG', 'Audio', f'Analyzing loudness sample {i+1}/4')
+                    sample_loudness = self._extract_loudness_features(sample, sample_rate)
+                    if sample_loudness:
+                        all_loudness_features.append(sample_loudness)
+                
+                # Combine loudness features from all samples
+                if all_loudness_features:
+                    # Average loudness features for better representation
+                    combined_loudness = {}
+                    for key in all_loudness_features[0].keys():
+                        values = [f.get(key, 0) for f in all_loudness_features if f.get(key) is not None]
+                        if values:
+                            combined_loudness[key] = float(np.mean(values))
+                    
+                    features.update(combined_loudness)
+                    log_universal('INFO', 'Audio', f'Loudness features combined from {len(all_loudness_features)} samples')
+                else:
+                    log_universal('WARNING', 'Audio', 'Loudness features extraction returned None for all samples')
             
-            # Extract key features (for genre classification)
+            # Extract key features from all 4 samples for better key detection
             if self.extract_key:
-                key_features = self._extract_key_features(audio_sample, sample_rate)
-                features.update(key_features)
+                log_universal('INFO', 'Audio', 'Starting key analysis for categorization (4 samples)')
+                
+                all_key_features = []
+                all_keys = []
+                all_modes = []
+                
+                for i, sample in enumerate(audio_samples):
+                    log_universal('DEBUG', 'Audio', f'Analyzing key sample {i+1}/4')
+                    sample_key = self._extract_key_features(sample, sample_rate)
+                    if sample_key and 'key' in sample_key:
+                        all_key_features.append(sample_key)
+                        all_keys.append(sample_key['key'])
+                        if 'mode' in sample_key:
+                            all_modes.append(sample_key['mode'])
+                
+                # Combine key features from all samples
+                if all_key_features:
+                    # Use most common key (most robust)
+                    if all_keys:
+                        from collections import Counter
+                        key_counter = Counter(all_keys)
+                        most_common_key = key_counter.most_common(1)[0][0]
+                        features['key'] = most_common_key
+                        features['key_estimates'] = all_keys
+                        log_universal('INFO', 'Audio', f'Combined key from {len(all_keys)} samples: most_common={most_common_key}, all={all_keys}')
+                    
+                    # Use most common mode
+                    if all_modes:
+                        mode_counter = Counter(all_modes)
+                        most_common_mode = mode_counter.most_common(1)[0][0]
+                        features['mode'] = most_common_mode
+                        log_universal('INFO', 'Audio', f'Combined mode from {len(all_modes)} samples: most_common={most_common_mode}')
+                    
+                    log_universal('INFO', 'Audio', f'Key features combined from {len(all_key_features)} samples')
+                else:
+                    log_universal('WARNING', 'Audio', 'Key features extraction returned None for all samples')
             
-            # Extract lightweight MFCC (for genre classification)
+            # Extract lightweight MFCC from all 4 samples for better genre classification
             if self.extract_mfcc:
-                mfcc_features = self._extract_mfcc_features(audio_sample, sample_rate)
-                features.update(mfcc_features)
+                log_universal('INFO', 'Audio', 'Starting MFCC analysis for categorization (4 samples)')
+                
+                all_mfcc_features = []
+                for i, sample in enumerate(audio_samples):
+                    log_universal('DEBUG', 'Audio', f'Analyzing MFCC sample {i+1}/4')
+                    sample_mfcc = self._extract_mfcc_features(sample, sample_rate)
+                    if sample_mfcc:
+                        all_mfcc_features.append(sample_mfcc)
+                
+                # Combine MFCC features from all samples
+                if all_mfcc_features:
+                    # Average MFCC features for better representation
+                    combined_mfcc = {}
+                    for key in all_mfcc_features[0].keys():
+                        values = [f.get(key, 0) for f in all_mfcc_features if f.get(key) is not None]
+                        if values:
+                            if isinstance(values[0], (list, np.ndarray)):
+                                # For array-like features, average the arrays
+                                combined_mfcc[key] = np.mean(values, axis=0).tolist()
+                            else:
+                                # For scalar features, average the values
+                                combined_mfcc[key] = float(np.mean(values))
+                    
+                    features.update(combined_mfcc)
+                    log_universal('INFO', 'Audio', f'MFCC features combined from {len(all_mfcc_features)} samples')
+                else:
+                    log_universal('WARNING', 'Audio', 'MFCC features extraction returned None for all samples')
             
             # Extract MusiCNN on all 4 samples for better genre classification
             if self.extract_musicnn and TENSORFLOW_AVAILABLE:
@@ -2193,10 +2285,35 @@ class AudioAnalyzer:
                 log_universal('INFO', 'Audio', f'MusiCNN extraction disabled: extract_musicnn={self.extract_musicnn}, TENSORFLOW_AVAILABLE={TENSORFLOW_AVAILABLE}')
                 features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
             
-            # Extract chroma features (for genre classification)
+            # Extract chroma features from all 4 samples for better genre classification
             if self.extract_chroma:
-                chroma_features = self._extract_chroma_features(audio_sample, sample_rate)
-                features.update(chroma_features)
+                log_universal('INFO', 'Audio', 'Starting chroma analysis for categorization (4 samples)')
+                
+                all_chroma_features = []
+                for i, sample in enumerate(audio_samples):
+                    log_universal('DEBUG', 'Audio', f'Analyzing chroma sample {i+1}/4')
+                    sample_chroma = self._extract_chroma_features(sample, sample_rate)
+                    if sample_chroma:
+                        all_chroma_features.append(sample_chroma)
+                
+                # Combine chroma features from all samples
+                if all_chroma_features:
+                    # Average chroma features for better representation
+                    combined_chroma = {}
+                    for key in all_chroma_features[0].keys():
+                        values = [f.get(key, 0) for f in all_chroma_features if f.get(key) is not None]
+                        if values:
+                            if isinstance(values[0], (list, np.ndarray)):
+                                # For array-like features, average the arrays
+                                combined_chroma[key] = np.mean(values, axis=0).tolist()
+                            else:
+                                # For scalar features, average the values
+                                combined_chroma[key] = float(np.mean(values))
+                    
+                    features.update(combined_chroma)
+                    log_universal('INFO', 'Audio', f'Chroma features combined from {len(all_chroma_features)} samples')
+                else:
+                    log_universal('WARNING', 'Audio', 'Chroma features extraction returned None for all samples')
             
             # Add categorization-specific flags
             features['is_long_audio'] = True
