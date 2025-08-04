@@ -13,6 +13,7 @@ from datetime import datetime
 
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
+from .config_loader import config_loader
 
 logger = get_logger('playlista.model_manager')
 
@@ -53,8 +54,6 @@ class ModelManager:
         """
         # Load configuration
         if config is None:
-            from .config_loader import ConfigLoader
-            config_loader = ConfigLoader()
             config = config_loader.get_audio_analysis_config()
         
         self.config = config
