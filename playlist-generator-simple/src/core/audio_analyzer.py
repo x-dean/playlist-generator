@@ -318,13 +318,13 @@ class AudioAnalyzer:
             # STEP 4.5: Extract Spotify-style features (danceability, energy, etc.)
             spotify_features = self._extract_spotify_style_features(
                 audio, sample_rate,
-                rhythm_features=essentia_features.get('rhythm', {}),
-                spectral_features=essentia_features.get('spectral', {}),
-                loudness_features=essentia_features.get('loudness', {}),
-                key_features=essentia_features.get('key', {}),
-                mfcc_features=essentia_features.get('mfcc', {}),
+                rhythm_features=essentia_features.get('rhythm', {}) if isinstance(essentia_features, dict) else {},
+                spectral_features=essentia_features.get('spectral', {}) if isinstance(essentia_features, dict) else {},
+                loudness_features=essentia_features.get('loudness', {}) if isinstance(essentia_features, dict) else {},
+                key_features=essentia_features.get('key', {}) if isinstance(essentia_features, dict) else {},
+                mfcc_features=essentia_features.get('mfcc', {}) if isinstance(essentia_features, dict) else {},
                 musicnn_features={},  # Will be filled in step 5
-                chroma_features=essentia_features.get('chroma', {})
+                chroma_features=essentia_features.get('chroma', {}) if isinstance(essentia_features, dict) else {}
             )
             if spotify_features:
                 self.db_manager.save_spotify_features(file_path, spotify_features)
@@ -1381,7 +1381,6 @@ class AudioAnalyzer:
 
                 # Initialize Chromagram with configured frameSize/hopSize
                 chroma_algo = es.Chromagram(
-                    frameSize=self.frame_size,
                     hopSize=self.hop_size,
                     sampleRate=sample_rate
                 )
@@ -3131,6 +3130,9 @@ class AudioAnalyzer:
                 try:
                     danceability_algo = es.Danceability()
                     danceability = danceability_algo(audio)
+                    # Handle tuple return
+                    if isinstance(danceability, tuple):
+                        danceability = danceability[0]
                     features['danceability'] = float(danceability) if danceability is not None else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Danceability extraction failed: {e}')
@@ -3159,7 +3161,10 @@ class AudioAnalyzer:
                 # 3. INHARMONICITY (useful for electronic vs acoustic)
                 try:
                     inharmonicity_algo = es.Inharmonicity()
-                    inharmonicity = inharmonicity_algo(audio)
+                    # Inharmonicity needs peaks as input
+                    spectral_peaks_algo = es.SpectralPeaks()
+                    peaks, peak_values = spectral_peaks_algo(audio)
+                    inharmonicity = inharmonicity_algo(peaks, peak_values)
                     features['inharmonicity'] = float(inharmonicity) if inharmonicity is not None else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Inharmonicity extraction failed: {e}')
@@ -3169,6 +3174,9 @@ class AudioAnalyzer:
                 try:
                     dynamic_complexity_algo = es.DynamicComplexity()
                     dynamic_complexity = dynamic_complexity_algo(audio)
+                    # Handle tuple return
+                    if isinstance(dynamic_complexity, tuple):
+                        dynamic_complexity = dynamic_complexity[0]
                     features['dynamic_complexity'] = float(dynamic_complexity) if dynamic_complexity is not None else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Dynamic complexity extraction failed: {e}')
@@ -3217,7 +3225,10 @@ class AudioAnalyzer:
                 # 9. ODD TO EVEN HARMONIC ENERGY RATIO (useful for timbre analysis) - might not exist
                 try:
                     odd_even_algo = es.OddToEvenHarmonicEnergyRatio()
-                    odd_even_ratio = odd_even_algo(audio)
+                    # This algorithm needs peaks as input
+                    spectral_peaks_algo = es.SpectralPeaks()
+                    peaks, peak_values = spectral_peaks_algo(audio)
+                    odd_even_ratio = odd_even_algo(peaks, peak_values)
                     features['odd_to_even_harmonic_ratio'] = float(odd_even_ratio) if odd_even_ratio is not None else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Odd to even harmonic ratio extraction failed: {e}')
@@ -3226,7 +3237,12 @@ class AudioAnalyzer:
                 # 10. STRONG PEAK (useful for percussive vs melodic) - might not exist
                 try:
                     strong_peak_algo = es.StrongPeak()
-                    strong_peak = strong_peak_algo(audio)
+                    # StrongPeak needs spectrum input
+                    spectrum_algo = es.Spectrum()
+                    spectrum = spectrum_algo(audio)
+                    # Ensure positive values
+                    spectrum_positive = np.abs(spectrum)
+                    strong_peak = strong_peak_algo(spectrum_positive)
                     features['strong_peak'] = float(strong_peak) if strong_peak is not None else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Strong peak extraction failed: {e}')
