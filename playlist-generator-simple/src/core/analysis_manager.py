@@ -24,7 +24,7 @@ from .file_discovery import FileDiscovery
 logger = get_logger('playlista.analysis_manager')
 
 # Constants
-BIG_FILE_SIZE_MB = 100  # Files larger than this use sequential processing
+BIG_FILE_SIZE_MB = 200  # Files larger than this use sequential processing
 HALF_TRACK_SIZE_MB = 25  # Files larger than this use half-track loading
 DEFAULT_TIMEOUT_SECONDS = 300  # 5 minutes timeout for analysis
 DEFAULT_MEMORY_THRESHOLD_PERCENT = 85
@@ -61,7 +61,7 @@ class AnalysisManager:
         self.file_discovery = FileDiscovery()
         
         # Analysis settings
-        self.big_file_size_mb = config.get('BIG_FILE_SIZE_MB', BIG_FILE_SIZE_MB)
+        self.big_file_size_mb = config.get('VERY_LARGE_FILE_THRESHOLD_MB', BIG_FILE_SIZE_MB)
         self.timeout_seconds = config.get('ANALYSIS_TIMEOUT_SECONDS', DEFAULT_TIMEOUT_SECONDS)
         self.memory_threshold_percent = config.get('MEMORY_THRESHOLD_PERCENT', DEFAULT_MEMORY_THRESHOLD_PERCENT)
         
@@ -264,7 +264,16 @@ class AnalysisManager:
                             return False
                         else:
                             log_universal('DEBUG', 'Analysis', f"File previously failed analysis (retry {retry_count}/{self.failed_files_max_retries}): {file_path}")
-                            return False
+                            return True  # Include for retry if under max retries
+        else:
+            # If include_failed is True, include failed files for retry
+            if failed_files_cache:
+                for failed_file in failed_files_cache:
+                    if failed_file['file_path'] == file_path:
+                        retry_count = failed_file.get('retry_count', 0)
+                        if retry_count < self.failed_files_max_retries:
+                            log_universal('DEBUG', 'Analysis', f"Including previously failed file for retry: {file_path}")
+                            return True
         
         return True
 
@@ -472,8 +481,8 @@ class AnalysisManager:
         sequential_files, parallel_half_files, parallel_full_files = self._categorize_files_by_size(files)
         
         log_universal('INFO', 'Analysis', f"File categorization:")
-        log_universal('INFO', 'Analysis', f"  Sequential files (>100MB): {len(sequential_files)} (Sequential + Half-track + Full)")
-        log_universal('INFO', 'Analysis', f"  Parallel half files (25-100MB): {len(parallel_half_files)} (Parallel + Half-track + Full)")
+        log_universal('INFO', 'Analysis', f"  Sequential files (>200MB): {len(sequential_files)} (Sequential + Aggressive sampling + Full)")
+        log_universal('INFO', 'Analysis', f"  Parallel half files (25-200MB): {len(parallel_half_files)} (Parallel + Half-track + Full)")
         log_universal('INFO', 'Analysis', f"  Parallel full files (<25MB): {len(parallel_full_files)} (Parallel + Full)")
         
         results = {
@@ -496,7 +505,7 @@ class AnalysisManager:
         # Process parallel half files
         if parallel_half_files:
             log_universal('INFO', 'Analysis', f"Processing {len(parallel_half_files)} parallel half files (Half-track loading)")
-            log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files 25-100MB")
+            log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files 25-200MB")
             
             # Use threaded processing (now the default)
             log_universal('INFO', 'Analysis', f"Using threaded processing for parallel half files")
@@ -553,8 +562,8 @@ class AnalysisManager:
         Returns:
             Tuple of (sequential_files, parallel_half_files, parallel_full_files)
         """
-        sequential_files = []  # >100MB: Sequential + Half-track + Full processing
-        parallel_half_files = []  # 25-100MB: Parallel + Half-track + Full processing
+        sequential_files = []  # >200MB: Sequential + Aggressive sampling + Full processing
+        parallel_half_files = []  # 25-200MB: Parallel + Half-track + Full processing
         parallel_full_files = []  # <25MB: Parallel + Full processing
         
         for file_path in files:
@@ -562,7 +571,7 @@ class AnalysisManager:
                 # Get file size from database, not filesystem
                 file_size_mb = self.db_manager.get_file_size_mb(file_path)
                 
-                if file_size_mb > 100:  # Sequential + Half-track + Full processing
+                if file_size_mb > 200:  # Sequential + Aggressive sampling + Full processing
                     sequential_files.append(file_path)
                 elif file_size_mb > 25:  # Parallel + Half-track + Full processing
                     parallel_half_files.append(file_path)
@@ -964,7 +973,7 @@ class AnalysisManager:
             self.config.update(new_config)
             
             # Update analyzer settings
-            self.big_file_size_mb = self.config.get('BIG_FILE_SIZE_MB', BIG_FILE_SIZE_MB)
+            self.big_file_size_mb = self.config.get('VERY_LARGE_FILE_THRESHOLD_MB', BIG_FILE_SIZE_MB)
             self.timeout_seconds = self.config.get('ANALYSIS_TIMEOUT_SECONDS', DEFAULT_TIMEOUT_SECONDS)
             self.memory_threshold_percent = self.config.get('MEMORY_THRESHOLD_PERCENT', DEFAULT_MEMORY_THRESHOLD_PERCENT)
             

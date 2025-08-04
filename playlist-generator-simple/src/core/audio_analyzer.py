@@ -347,17 +347,17 @@ class AudioAnalyzer:
             
             # STEP 4.6: Extract advanced categorization features (optimized for performance)
             file_size_mb = self.db_manager.get_file_size_mb(file_path)
-            if file_size_mb > 200:  # Very large files: Use only 15 seconds
-                log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB from DB) - using 15s sample for advanced features')
-                # Use middle 15 seconds for very large files
-                sample_duration = 15
+            if file_size_mb > 200:  # Very large files: Use only 10 seconds
+                log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB from DB) - using 10s sample for advanced features')
+                # Use middle 10 seconds for very large files
+                sample_duration = 10
                 sample_size = int(sample_duration * sample_rate)
                 start_sample = len(audio) // 2 - sample_size // 2
                 end_sample = start_sample + sample_size
                 audio_sample = audio[start_sample:end_sample]
                 advanced_features = self._extract_advanced_categorization_features(audio_sample, sample_rate)
             elif file_size_mb > 50:  # For large files, use a sample
-                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using sample for advanced features')
+                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using 30s sample for advanced features')
                 # Use middle 30 seconds for large files
                 sample_duration = 30
                 sample_size = int(sample_duration * sample_rate)
@@ -366,6 +366,7 @@ class AudioAnalyzer:
                 audio_sample = audio[start_sample:end_sample]
                 advanced_features = self._extract_advanced_categorization_features(audio_sample, sample_rate)
             else:
+                # For smaller files, use full audio
                 advanced_features = self._extract_advanced_categorization_features(audio, sample_rate)
             
             if advanced_features:
@@ -374,7 +375,7 @@ class AudioAnalyzer:
             
             # STEP 5: Extract values using MusicNN
             log_universal('INFO', 'Audio', f'Step 5: Extracting MusicNN features for {os.path.basename(file_path)}')
-            musicnn_features = self._extract_musicnn_features(audio, sample_rate)
+            musicnn_features = self._extract_musicnn_features(audio, sample_rate, file_path)
             if musicnn_features:
                 self.db_manager.save_musicnn_features(file_path, musicnn_features)
                 log_universal('INFO', 'Audio', f'MusicNN features saved to database')
@@ -576,6 +577,24 @@ class AudioAnalyzer:
         """
         try:
             features = {}
+            
+            # Apply aggressive sampling for very large files
+            if file_path:
+                file_size_mb = self.db_manager.get_file_size_mb(file_path)
+                if file_size_mb > 200:  # Very large files: Use only 10 seconds
+                    log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB) - using 10s sample for Essentia features')
+                    sample_duration = 10
+                    sample_size = int(sample_duration * sample_rate)
+                    start_sample = len(audio) // 2 - sample_size // 2
+                    end_sample = start_sample + sample_size
+                    audio = audio[start_sample:end_sample]
+                elif file_size_mb > 50:  # Large files: Use 30 seconds
+                    log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using 30s sample for Essentia features')
+                    sample_duration = 30
+                    sample_size = int(sample_duration * sample_rate)
+                    start_sample = len(audio) // 2 - sample_size // 2
+                    end_sample = start_sample + sample_size
+                    audio = audio[start_sample:end_sample]
             
             # Extract rhythm features
             if self.extract_rhythm:
@@ -1153,7 +1172,7 @@ class AudioAnalyzer:
         
         return features
     
-    def _extract_musicnn_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+    def _extract_musicnn_features(self, audio: np.ndarray, sample_rate: int, file_path: str = None) -> Dict[str, Any]:
         """Extract MusiCNN features using shared model instances with enhanced error handling."""
         features = {}
         
@@ -1186,16 +1205,22 @@ class AudioAnalyzer:
             log_universal('INFO', 'Audio', 'Using shared MusicNN models')
             
             # Check if we need to use half-track loading for large files
-            audio_size_bytes = len(audio) * 4  # Estimate size (4 bytes per float32 sample)
-            file_size_mb = audio_size_bytes / (1024 * 1024)
+            # Get actual file size from database if file_path is available, otherwise estimate from audio length
+            if file_path:
+                file_size_mb = self.db_manager.get_file_size_mb(file_path)
+            else:
+                # Fallback to estimation if file_path not available
+                audio_size_bytes = len(audio) * 4  # Estimate size (4 bytes per float32 sample)
+                file_size_mb = audio_size_bytes / (1024 * 1024)
+            
             half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 25)  # Align with main analysis threshold
             print(f"MUSICNN_DEBUG: threshold={half_track_threshold_mb}MB, file_size={file_size_mb:.1f}MB")  # Direct print for debugging
             log_universal('DEBUG', 'Audio', f'MusicNN half-track threshold: {half_track_threshold_mb}MB, file size: {file_size_mb:.1f}MB')
             
             # Use half-track for files larger than threshold, but only if MusicNN is suitable
-            use_half_track = file_size_mb > half_track_threshold_mb and model_manager.is_file_suitable_for_musicnn(audio_size_bytes)
-            print(f"MUSICNN_DEBUG: decision: file_size({file_size_mb:.1f}) > threshold({half_track_threshold_mb}) = {file_size_mb > half_track_threshold_mb}, suitable = {model_manager.is_file_suitable_for_musicnn(audio_size_bytes)}, use_half_track = {use_half_track}")  # Direct print for debugging
-            log_universal('DEBUG', 'Audio', f'MusicNN decision: file_size_mb({file_size_mb:.1f}) > threshold({half_track_threshold_mb}) = {file_size_mb > half_track_threshold_mb}, suitable = {model_manager.is_file_suitable_for_musicnn(audio_size_bytes)}, use_half_track = {use_half_track}')
+            use_half_track = file_size_mb > half_track_threshold_mb and model_manager.is_file_suitable_for_musicnn(len(audio) * 4)
+            print(f"MUSICNN_DEBUG: decision: file_size({file_size_mb:.1f}) > threshold({half_track_threshold_mb}) = {file_size_mb > half_track_threshold_mb}, suitable = {model_manager.is_file_suitable_for_musicnn(len(audio) * 4)}, use_half_track = {use_half_track}")  # Direct print for debugging
+            log_universal('DEBUG', 'Audio', f'MusicNN decision: file_size_mb({file_size_mb:.1f}) > threshold({half_track_threshold_mb}) = {file_size_mb > half_track_threshold_mb}, suitable = {model_manager.is_file_suitable_for_musicnn(len(audio) * 4)}, use_half_track = {use_half_track}')
             
             if use_half_track:
                 log_universal('INFO', 'Audio', f'Large audio detected ({file_size_mb:.1f}MB, {len(audio)} samples) - using half-track loading for MusiCNN')
@@ -2349,7 +2374,7 @@ class AudioAnalyzer:
                         musicnn_sample = sample
                         log_universal('DEBUG', 'Audio', f'Using full sample {i+1} (shorter than 3s)')
                     
-                    sample_features = self._extract_musicnn_features(musicnn_sample, sample_rate)
+                    sample_features = self._extract_musicnn_features(musicnn_sample, sample_rate, file_path)
                     if sample_features:
                         all_musicnn_features.append(sample_features)
                         if 'tags' in sample_features:
