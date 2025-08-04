@@ -8,6 +8,8 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow warnings
 
 import uvicorn
+import os
+from datetime import datetime, timezone
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -18,34 +20,38 @@ from .core.lazy_imports import get_tensorflow
 
 from .api.routes import router
 from .infrastructure.container import configure_container
-from .infrastructure.logging import setup_logging, get_logger
 from .infrastructure.monitoring import get_metrics_collector
+from .core.professional_logging import get_logger, configure_logging, LogCategory, LogLevel
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    # Startup
-    logger = get_logger()
-    logger.info("Starting Playlist Generator API")
+    # Setup professional logging first
+    logger = configure_logging(
+        level=LogLevel.INFO,
+        console_enabled=True,
+        file_enabled=True,
+        json_enabled=os.getenv('LOG_FORMAT', 'text').lower() == 'json',
+        log_dir=os.getenv('LOG_DIR', 'logs')
+    )
+    
+    logger.info(LogCategory.SYSTEM, "startup", "Starting Playlist Generator API")
     
     # Configure container
     container = configure_container()
     app.state.container = container
     
-    # Setup logging
-    setup_logging()
-    
     # Update metrics
     metrics = get_metrics_collector()
     metrics.update_system_metrics()
     
-    logger.info("Playlist Generator API started successfully")
+    logger.info(LogCategory.SYSTEM, "startup", "Playlist Generator API started successfully")
     
     yield
     
     # Shutdown
-    logger.info("Shutting down Playlist Generator API")
+    logger.info(LogCategory.SYSTEM, "shutdown", "Shutting down Playlist Generator API")
 
 
 # Create FastAPI application
@@ -76,14 +82,24 @@ app.include_router(router)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler."""
     logger = get_logger()
-    logger.exception(f"Unhandled exception: {exc}")
+    logger.log_exception(
+        LogCategory.SYSTEM, 
+        "exception_handler", 
+        f"Unhandled exception in {request.method} {request.url}",
+        exception=exc,
+        metadata={
+            "method": request.method,
+            "url": str(request.url),
+            "client": request.client.host if request.client else None
+        }
+    )
     
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
             "message": "An unexpected error occurred",
-            "timestamp": "2024-01-01T00:00:00Z"
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     )
 

@@ -349,6 +349,20 @@ def _setup_external_logging(log_dir: str, file_logging: bool) -> None:
     # TensorFlow logging
     try:
         import tensorflow as tf
+        # Aggressive TensorFlow warning suppression
+        tf.get_logger().setLevel(logging.ERROR)
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+        tf.autograph.set_verbosity(0)
+        
+        # Suppress all TensorFlow warnings
+        import warnings
+        warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
+        warnings.filterwarnings('ignore', category=FutureWarning, module='tensorflow')
+        
+        # Disable TensorFlow GPU warnings
+        os.environ['TF_GPU_ALLOCATOR'] = 'cpu'
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+        
         tf_logger = logging.getLogger('tensorflow')
         tf_logger.handlers.clear()
         tf_logger.setLevel(logging.ERROR)

@@ -82,8 +82,13 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     CACHE_DIR=/app/cache \
     MODEL_DIR=/app/feature_extraction/models \
-    LOG_LEVEL=INFO \
     PROMETHEUS_MULTIPROC_DIR=/tmp \
+    # Professional logging configuration
+    LOG_LEVEL=INFO \
+    LOG_FORMAT=json \
+    LOG_DIR=/app/logs \
+    LOG_CONSOLE=true \
+    LOG_FILE=true \
     # TensorFlow optimizations
     TF_CPP_MIN_LOG_LEVEL=3 \
     TF_ENABLE_ONEDNN_OPTS=0 \

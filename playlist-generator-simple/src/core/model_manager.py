@@ -290,7 +290,7 @@ class ModelManager:
             import essentia.standard as es
             import tensorflow as tf
             
-            # Suppress TensorFlow warnings during model instance loading
+            # Aggressive TensorFlow warning suppression
             tf.get_logger().setLevel('ERROR')
             os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
             tf.autograph.set_verbosity(0)
@@ -300,14 +300,26 @@ class ModelManager:
             tf_logger = logging.getLogger('tensorflow')
             tf_logger.setLevel(logging.ERROR)
             
+            # Suppress all TensorFlow warnings during model creation
+            import warnings
+            warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
+            warnings.filterwarnings('ignore', category=FutureWarning, module='tensorflow')
+            
+            # Disable TensorFlow GPU warnings
+            os.environ['TF_GPU_ALLOCATOR'] = 'cpu'
+            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+            
             # Load activations model
             log_universal('DEBUG', 'Model', 'Loading MusicNN activations model')
             
             try:
-                self._musicnn_activations_model = es.TensorflowPredictMusiCNN(
-                    graphFilename=self.musicnn_model_path,
-                    output='model/Sigmoid'
-                )
+                # Suppress TensorFlow warnings during model instantiation
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    self._musicnn_activations_model = es.TensorflowPredictMusiCNN(
+                        graphFilename=self.musicnn_model_path,
+                        output='model/Sigmoid'
+                    )
                 log_universal('INFO', 'Model', 'Loaded MusicNN activations model')
             except Exception as e:
                 log_universal('ERROR', 'Model', f'Failed to load activations model: {e}')
@@ -318,10 +330,13 @@ class ModelManager:
             log_universal('DEBUG', 'Model', f'Loading MusicNN embeddings model with output layer: {output_layer}')
             
             try:
-                self._musicnn_embeddings_model = es.TensorflowPredictMusiCNN(
-                    graphFilename=self.musicnn_model_path,
-                    output=output_layer
-                )
+                # Suppress TensorFlow warnings during model instantiation
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    self._musicnn_embeddings_model = es.TensorflowPredictMusiCNN(
+                        graphFilename=self.musicnn_model_path,
+                        output=output_layer
+                    )
                 log_universal('INFO', 'Model', 'Loaded MusicNN embeddings model')
             except Exception as e:
                 log_universal('ERROR', 'Model', f'Failed to load embeddings model: {e}')

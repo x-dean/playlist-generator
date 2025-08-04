@@ -98,28 +98,27 @@ class DatabaseConnectionPool:
     def _create_connection(self) -> Optional[sqlite3.Connection]:
         """Create a new database connection with optimizations."""
         try:
-            conn = sqlite3.connect(
-                self.db_path,
-                timeout=self.config.connection_timeout,
-                check_same_thread=False
-            )
+            conn = sqlite3.connect(self.db_path, timeout=self.config.connection_timeout)
             
-            # Enable row factory for better data access
-            conn.row_factory = sqlite3.Row
+            # Enable WAL mode for better concurrent access
+            if self.config.enable_wal_mode:
+                conn.execute("PRAGMA journal_mode=WAL")
             
-            # Apply performance optimizations
-            cursor = conn.cursor()
-            
+            # Enable foreign keys
             if self.config.enable_foreign_keys:
-                cursor.execute("PRAGMA foreign_keys = ON")
+                conn.execute("PRAGMA foreign_keys=ON")
             
-            cursor.execute(f"PRAGMA cache_size = {self.config.cache_size}")
-            cursor.execute(f"PRAGMA journal_mode = {self.config.journal_mode}")
-            cursor.execute(f"PRAGMA synchronous = {self.config.synchronous}")
-            cursor.execute("PRAGMA temp_store = MEMORY")
-            cursor.execute("PRAGMA mmap_size = 268435456")  # 256MB
+            # Set cache size for better performance
+            conn.execute(f"PRAGMA cache_size={self.config.cache_size}")
             
-            conn.commit()
+            # Set synchronous mode
+            conn.execute(f"PRAGMA synchronous={self.config.synchronous}")
+            
+            # Enable memory-mapped I/O for better performance
+            conn.execute("PRAGMA mmap_size=268435456")  # 256MB
+            
+            # Set temp store to memory for better performance
+            conn.execute("PRAGMA temp_store=MEMORY")
             
             self.stats['connections_created'] += 1
             return conn
@@ -130,149 +129,154 @@ class DatabaseConnectionPool:
     
     @contextmanager
     def get_connection(self) -> ContextManager[sqlite3.Connection]:
-        """Get a connection from the pool (context manager)."""
-        pooled_conn = None
+        """
+        Get a database connection from the pool.
+        Automatically returns connection to pool when done.
+        """
+        connection = None
         try:
-            # Try to get from queue first (fast path)
+            # Try to get existing connection from pool
             try:
-                pooled_conn = self._connection_queue.get_nowait()
-                pooled_conn.mark_used()
-                pooled_conn.in_use = True
-                self.stats['pool_hits'] += 1
-                yield pooled_conn.connection
-                return
+                pooled_conn = self._connection_queue.get(timeout=1.0)
+                if pooled_conn.is_expired(self.config.idle_timeout):
+                    # Connection expired, create new one
+                    pooled_conn.connection.close()
+                    connection = self._create_connection()
+                    if connection:
+                        pooled_conn = PooledConnection(connection, time.time())
+                        self.stats['connections_expired'] += 1
+                    else:
+                        raise Exception("Failed to create new connection")
+                else:
+                    connection = pooled_conn.connection
+                    pooled_conn.mark_used()
+                    self.stats['pool_hits'] += 1
             except queue.Empty:
+                # No available connections, create new one if under limit
+                with self._lock:
+                    if len(self._connections) < self.config.max_connections:
+                        connection = self._create_connection()
+                        if connection:
+                            pooled_conn = PooledConnection(connection, time.time())
+                            self._connections.append(pooled_conn)
+                        else:
+                            raise Exception("Failed to create new connection")
+                    else:
+                        # Wait for available connection
+                        pooled_conn = self._connection_queue.get(timeout=5.0)
+                        connection = pooled_conn.connection
+                        pooled_conn.mark_used()
+                
                 self.stats['pool_misses'] += 1
             
-            # Slow path: find available connection or create new one
-            with self._lock:
-                # Look for available connection
-                for pc in self._connections:
-                    if not pc.in_use and not pc.is_expired(self.config.idle_timeout):
-                        pc.mark_used()
-                        pc.in_use = True
-                        self.stats['connections_reused'] += 1
-                        pooled_conn = pc
-                        break
-                
-                # Create new connection if none available and under limit
-                if pooled_conn is None and len(self._connections) < self.config.max_connections:
-                    conn = self._create_connection()
-                    if conn:
-                        pooled_conn = PooledConnection(conn, time.time())
-                        pooled_conn.in_use = True
-                        self._connections.append(pooled_conn)
-                
-                # If still no connection, wait for one to become available
-                if pooled_conn is None:
-                    try:
-                        pooled_conn = self._connection_queue.get(timeout=5)
-                        pooled_conn.mark_used()
-                        pooled_conn.in_use = True
-                    except queue.Empty:
-                        raise RuntimeError("Unable to get database connection: pool exhausted")
+            yield connection
             
-            yield pooled_conn.connection
-            
+        except Exception as e:
+            log_universal('ERROR', 'DatabasePool', f'Error getting connection: {e}')
+            raise
         finally:
-            if pooled_conn:
-                pooled_conn.in_use = False
-                # Return to queue if not expired
-                if not pooled_conn.is_expired(self.config.idle_timeout):
-                    try:
-                        self._connection_queue.put_nowait(pooled_conn)
-                    except queue.Full:
-                        pass  # Connection will be cleaned up later
+            # Return connection to pool
+            if connection:
+                try:
+                    # Reset connection state
+                    connection.rollback()
+                    self._connection_queue.put_nowait(PooledConnection(connection, time.time()))
+                except queue.Full:
+                    # Pool is full, close connection
+                    connection.close()
+                except Exception as e:
+                    log_universal('ERROR', 'DatabasePool', f'Error returning connection to pool: {e}')
+                    connection.close()
     
     def execute_query(self, query: str, params: tuple = None, fetch_one: bool = False, fetch_all: bool = True):
-        """Execute a query with connection pooling."""
+        """
+        Execute a query with automatic connection management.
+        
+        Args:
+            query: SQL query string
+            params: Query parameters
+            fetch_one: Return single row
+            fetch_all: Return all rows
+            
+        Returns:
+            Query results
+        """
         self.stats['total_queries'] += 1
         
         for attempt in range(self.config.max_retries):
             try:
                 with self.get_connection() as conn:
                     cursor = conn.cursor()
-                    
-                    if params:
-                        cursor.execute(query, params)
-                    else:
-                        cursor.execute(query)
+                    cursor.execute(query, params or ())
                     
                     if fetch_one:
-                        return cursor.fetchone()
+                        result = cursor.fetchone()
                     elif fetch_all:
-                        return cursor.fetchall()
+                        result = cursor.fetchall()
                     else:
-                        conn.commit()
-                        return cursor.rowcount
-                        
+                        result = None
+                    
+                    conn.commit()
+                    return result
+                    
             except Exception as e:
                 self.stats['failed_queries'] += 1
+                log_universal('ERROR', 'DatabasePool', f'Query failed (attempt {attempt + 1}): {e}')
+                
                 if attempt == self.config.max_retries - 1:
-                    log_universal('ERROR', 'DatabasePool', f'Query failed after {self.config.max_retries} attempts: {e}')
                     raise
-                time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+                
+                # Exponential backoff
+                time.sleep(2 ** attempt)
     
     def execute_batch(self, query: str, params_list: List[tuple]):
-        """Execute batch operations efficiently."""
-        self.stats['total_queries'] += len(params_list)
+        """
+        Execute batch of queries with single connection.
         
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.executemany(query, params_list)
-                conn.commit()
-                return cursor.rowcount
-        except Exception as e:
-            self.stats['failed_queries'] += len(params_list)
-            log_universal('ERROR', 'DatabasePool', f'Batch operation failed: {e}')
-            raise
+        Args:
+            query: SQL query string
+            params_list: List of parameter tuples
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.executemany(query, params_list)
+            conn.commit()
     
     def cleanup_expired_connections(self):
-        """Remove expired connections from the pool."""
+        """Clean up expired connections from the pool."""
         with self._lock:
-            expired_connections = []
+            expired_connections = [
+                conn for conn in self._connections
+                if conn.is_expired(self.config.idle_timeout) and not conn.in_use
+            ]
             
-            for pc in self._connections[:]:  # Copy list for safe iteration
-                if pc.is_expired(self.config.idle_timeout) and not pc.in_use:
-                    expired_connections.append(pc)
-                    self._connections.remove(pc)
-            
-            for pc in expired_connections:
+            for conn in expired_connections:
                 try:
-                    pc.connection.close()
+                    conn.connection.close()
+                    self._connections.remove(conn)
                     self.stats['connections_expired'] += 1
-                except:
-                    pass
-            
-            if expired_connections:
-                log_universal('INFO', 'DatabasePool', f'Cleaned up {len(expired_connections)} expired connections')
+                except Exception as e:
+                    log_universal('ERROR', 'DatabasePool', f'Error cleaning up expired connection: {e}')
     
     def get_stats(self) -> Dict[str, Any]:
         """Get pool statistics."""
         with self._lock:
             return {
                 **self.stats,
-                'active_connections': len([pc for pc in self._connections if pc.in_use]),
-                'idle_connections': len([pc for pc in self._connections if not pc.in_use]),
                 'total_connections': len(self._connections),
-                'queue_size': self._connection_queue.qsize()
+                'available_connections': self._connection_queue.qsize(),
+                'pool_size': self.config.max_connections,
+                'min_connections': self.config.min_connections
             }
     
     def close_all(self):
         """Close all connections in the pool."""
         with self._lock:
-            while not self._connection_queue.empty():
+            for conn in self._connections:
                 try:
-                    self._connection_queue.get_nowait()
-                except queue.Empty:
-                    break
-            
-            for pc in self._connections:
-                try:
-                    pc.connection.close()
-                except:
-                    pass
+                    conn.connection.close()
+                except Exception as e:
+                    log_universal('ERROR', 'DatabasePool', f'Error closing connection: {e}')
             
             self._connections.clear()
             log_universal('INFO', 'DatabasePool', 'All connections closed')
@@ -280,17 +284,13 @@ class DatabaseConnectionPool:
 
 # Global pool instance
 _pool_instance = None
-_pool_lock = threading.Lock()
 
 
 def get_database_pool(db_path: str, config: PoolConfig = None) -> DatabaseConnectionPool:
     """Get or create the global database pool instance."""
     global _pool_instance
     
-    with _pool_lock:
-        if _pool_instance is None or _pool_instance.db_path != db_path:
-            if _pool_instance:
-                _pool_instance.close_all()
-            _pool_instance = DatabaseConnectionPool(db_path, config)
-        
-        return _pool_instance
+    if _pool_instance is None:
+        _pool_instance = DatabaseConnectionPool(db_path, config)
+    
+    return _pool_instance

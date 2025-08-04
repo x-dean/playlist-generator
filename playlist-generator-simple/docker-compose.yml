@@ -33,6 +33,11 @@ services:
       - FORCE_COLOR=1
       - TERM=xterm-256color
       - PYTHONUNBUFFERED=1
+      # TensorFlow warning suppression
+      - TF_CPP_MIN_LOG_LEVEL=3
+      - TF_ENABLE_ONEDNN_OPTS=0
+      - TF_GPU_ALLOCATOR=cpu
+      - CUDA_VISIBLE_DEVICES=-1
       # External API keys (set these in your .env file)
       - LASTFM_API_KEY=${LASTFM_API_KEY}
       - DISCOGS_API_KEY=${DISCOGS_API_KEY}

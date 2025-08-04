@@ -17,11 +17,11 @@ from ..application.commands import AnalyzeTrackCommand, ImportTracksCommand, Gen
 from ..application.queries import GetAnalysisStatsQuery, SearchTracksQuery
 from ..application.use_cases import AnalyzeTrackUseCase, ImportTracksUseCase, GeneratePlaylistUseCase, GetAnalysisStatsUseCase
 from ..infrastructure.container import get_container
-from ..infrastructure.logging import get_logger
 from ..infrastructure.monitoring import get_metrics_collector, get_performance_monitor
 from ..domain.exceptions import DomainException, TrackNotFoundException, AnalysisFailedException
 from ..core.database import DatabaseManager
 from ..core.async_audio_processor import get_async_audio_processor
+from ..core.professional_logging import get_logger, LogCategory, LogLevel
 
 
 router = APIRouter(prefix="/api/v1", tags=["playlist-generator"])
@@ -79,8 +79,20 @@ async def analyze_track(
             if not result:
                 raise AnalysisFailedException(f"Failed to analyze track: {request.file_path}")
             
-            # Log success
-            logger.log_use_case_execution("analyze_track", "success", monitor.get_timing("analyze_track"))
+            # Log success with professional logging
+            logger.info(
+                LogCategory.API, 
+                "track_analysis", 
+                f"Successfully analyzed track: {request.file_path}",
+                operation="analyze_track",
+                duration_ms=monitor.get_timing("analyze_track") * 1000,
+                metadata={
+                    "file_path": request.file_path,
+                    "format": result.get("format", "unknown"),
+                    "confidence": result.get("confidence", 0.0),
+                    "force_reanalysis": request.force_reanalysis
+                }
+            )
             
             # Record metrics
             metrics.record_track_analysis(
@@ -98,19 +110,37 @@ async def analyze_track(
             )
             
     except TrackNotFoundException as e:
-        logger.error(f"Track not found: {e}")
+        logger.error(
+            LogCategory.API, 
+            "track_analysis", 
+            f"Track not found: {request.file_path}",
+            error_code="TrackNotFound",
+            metadata={"file_path": request.file_path, "error": str(e)}
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
         )
     except AnalysisFailedException as e:
-        logger.error(f"Analysis failed: {e}")
+        logger.error(
+            LogCategory.API, 
+            "track_analysis", 
+            f"Analysis failed for track: {request.file_path}",
+            error_code="AnalysisFailed",
+            metadata={"file_path": request.file_path, "error": str(e)}
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e)
         )
     except Exception as e:
-        logger.exception(f"Unexpected error in analyze_track: {e}")
+        logger.log_exception(
+            LogCategory.API, 
+            "track_analysis", 
+            f"Unexpected error in track analysis: {request.file_path}",
+            exception=e,
+            metadata={"file_path": request.file_path}
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"

@@ -12,6 +12,23 @@ from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 from collections import Counter
 
+# Suppress TensorFlow warnings
+try:
+    import tensorflow as tf
+    tf.get_logger().setLevel('ERROR')
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TF warnings
+    tf.autograph.set_verbosity(0)
+    
+    # Suppress all TensorFlow warnings
+    import warnings
+    warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
+    warnings.filterwarnings('ignore', category=FutureWarning, module='tensorflow')
+    
+    # Disable TensorFlow GPU warnings
+    os.environ['TF_GPU_ALLOCATOR'] = 'cpu'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+except ImportError:
+    pass
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
 from .database import DatabaseManager, get_db_manager
@@ -275,7 +292,7 @@ class AudioAnalyzer:
             metadata = self._extract_metadata(file_path)
             
             # Extract audio features
-            features = self._extract_audio_features(audio, sample_rate, metadata)
+            features = self._extract_audio_features(audio, sample_rate, metadata, file_size_mb)
             
             if features is None:
                 log_universal('ERROR', 'Audio', f'Failed to extract features: {os.path.basename(file_path)}')
@@ -605,7 +622,7 @@ class AudioAnalyzer:
             log_universal('WARNING', 'Audio', f'External API enrichment failed: {e}')
             return metadata
     
-    def _extract_audio_features(self, audio: np.ndarray, sample_rate: int, metadata: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    def _extract_audio_features(self, audio: np.ndarray, sample_rate: int, metadata: Dict[str, Any] = None, file_size_mb: float = None) -> Optional[Dict[str, Any]]:
         """
         Extract comprehensive audio features.
         Uses original skip logic for extremely large files to prevent RAM saturation.
@@ -615,6 +632,7 @@ class AudioAnalyzer:
             audio: Audio data as numpy array
             sample_rate: Sample rate in Hz
             metadata: Optional metadata dictionary
+            file_size_mb: Actual file size in MB (for consistent 3-tier decisions)
             
         Returns:
             Features dictionary or None on failure
@@ -641,7 +659,7 @@ class AudioAnalyzer:
         try:
             # Extract rhythm features (always extract for sequential processing)
             if self.extract_rhythm:
-                rhythm_features = self._extract_rhythm_features(audio, sample_rate)
+                rhythm_features = self._extract_rhythm_features(audio, sample_rate, file_size_mb)
                 features.update(rhythm_features)
             
             # Extract spectral features (always extract for sequential processing)
@@ -661,7 +679,7 @@ class AudioAnalyzer:
             
             # Extract MFCC features (always extract for sequential processing)
             if self.extract_mfcc:
-                mfcc_features = self._extract_mfcc_features(audio, sample_rate)
+                mfcc_features = self._extract_mfcc_features(audio, sample_rate, file_size_mb)
                 features.update(mfcc_features)
             
             # Extract MusiCNN features (always extract for sequential processing)
@@ -676,7 +694,7 @@ class AudioAnalyzer:
             
             # Extract chroma features (always extract for sequential processing)
             if self.extract_chroma:
-                chroma_features = self._extract_chroma_features(audio, sample_rate)
+                chroma_features = self._extract_chroma_features(audio, sample_rate, file_size_mb)
                 features.update(chroma_features)
             
             # Add BPM from metadata if available
@@ -718,7 +736,7 @@ class AudioAnalyzer:
             log_universal('ERROR', 'Audio', f'Feature extraction failed: {e}')
             return None
     
-    def _extract_rhythm_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+    def _extract_rhythm_features(self, audio: np.ndarray, sample_rate: int, file_size_mb: float = None) -> Dict[str, Any]:
         """Extract rhythm-related features using lightweight approach for large files."""
         features = {}
         
@@ -726,14 +744,35 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
-                # For large files, use a much smaller sample to avoid RAM issues
-                if len(audio) > 5000000:  # More than 5M samples (~1.9 minutes)
-                    log_universal('INFO', 'Audio', 'Using lightweight rhythm analysis (large file)')
-                    # Use only first 15 seconds for rhythm analysis - ultra memory efficient
-                    sample_size = min(15 * sample_rate, len(audio))
-                    audio_sample = audio[:sample_size]
+                # Use 3-tier system for rhythm analysis: align with file size thresholds
+                # Files < 100MB: Full processing, Files 100-200MB: Half-track, Files > 200MB: Half-track
+                half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
+                
+                if file_size_mb is not None:
+                    # Use actual file size for consistent decisions
+                    if file_size_mb > half_track_threshold_mb:
+                        # Use half-track loading for large files (middle 50%)
+                        start_sample = len(audio) // 4
+                        end_sample = 3 * len(audio) // 4
+                        audio_sample = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for rhythm analysis')
+                    else:
+                        # Use full audio for small files
+                        audio_sample = audio
+                        log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for rhythm analysis')
                 else:
-                    audio_sample = audio
+                    # Fallback to estimated size if actual size not provided
+                    estimated_size_mb = (len(audio) * 4) / (1024 * 1024)  # Rough estimate
+                    if estimated_size_mb > half_track_threshold_mb:
+                        # Use half-track loading for large files (middle 50%)
+                        start_sample = len(audio) // 4
+                        end_sample = 3 * len(audio) // 4
+                        audio_sample = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB estimated) - using half-track loading for rhythm analysis')
+                    else:
+                        # Use full audio for small files
+                        audio_sample = audio
+                        log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for rhythm analysis')
                 
                 # Try a simpler approach first - use TempoTapDegara which is more reliable
                 try:
@@ -798,7 +837,6 @@ class AudioAnalyzer:
                         features['rhythm_confidence'] = 0.0
                         features['bpm_estimates'] = []
                         features['bpm_intervals'] = []
-                
             elif LIBROSA_AVAILABLE:
                 # Use librosa as fallback
                 tempo, beats = librosa.beat.beat_track(y=audio, sr=sample_rate)
@@ -1013,7 +1051,7 @@ class AudioAnalyzer:
         
         return features
     
-    def _extract_mfcc_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+    def _extract_mfcc_features(self, audio: np.ndarray, sample_rate: int, file_size_mb: float = None) -> Dict[str, Any]:
         """Extract MFCC features."""
         features = {}
         
@@ -1036,17 +1074,30 @@ class AudioAnalyzer:
                 # Use 3-tier system for MFCC extraction instead of hardcoded 60s limit
                 # Files < 100MB: Full processing, Files 100-200MB: Half-track, Files > 200MB: Half-track
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
-                estimated_size_mb = (len(audio) * 4) / (1024 * 1024)  # Rough estimate
                 
-                if estimated_size_mb > half_track_threshold_mb:
-                    # Use half-track loading for large files (middle 50%)
-                    start_sample = len(audio) // 4
-                    end_sample = 3 * len(audio) // 4
-                    audio = audio[start_sample:end_sample]
-                    log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB) - using half-track loading for MFCC extraction')
+                if file_size_mb is not None:
+                    # Use actual file size for consistent decisions
+                    if file_size_mb > half_track_threshold_mb:
+                        # Use half-track loading for large files (middle 50%)
+                        start_sample = len(audio) // 4
+                        end_sample = 3 * len(audio) // 4
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for MFCC extraction')
+                    else:
+                        # Use full audio for small files
+                        log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for MFCC extraction')
                 else:
-                    # Use full audio for small files
-                    log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB) - using full audio for MFCC extraction')
+                    # Fallback to estimated size if actual size not provided
+                    estimated_size_mb = (len(audio) * 4) / (1024 * 1024)  # Rough estimate
+                    if estimated_size_mb > half_track_threshold_mb:
+                        # Use half-track loading for large files (middle 50%)
+                        start_sample = len(audio) // 4
+                        end_sample = 3 * len(audio) // 4
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB estimated) - using half-track loading for MFCC extraction')
+                    else:
+                        # Use full audio for small files
+                        log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for MFCC extraction')
                 
                 # MFCC
                 mfcc = es.MFCC()
@@ -1057,7 +1108,7 @@ class AudioAnalyzer:
                 features['mfcc_coefficients'] = mfcc_coefficients.tolist()
                 features['mfcc_bands'] = mfcc_bands.tolist()
                 features['mfcc_std'] = np.std(mfcc_coefficients, axis=0).tolist()
-                
+            
             elif LIBROSA_AVAILABLE:
                 # Use librosa as fallback
                 mfcc = librosa.feature.mfcc(y=audio, sr=sample_rate, n_mfcc=13)
@@ -1125,59 +1176,64 @@ class AudioAnalyzer:
             try:
                 log_universal('INFO', 'Audio', 'Starting MusiCNN inference...')
                 
-                # Enhanced audio preprocessing for MusiCNN
-                audio_16k = self._prepare_audio_for_musicnn(audio, sample_rate)
-                if audio_16k is None:
-                    log_universal('ERROR', 'Audio', 'Failed to prepare audio for MusiCNN')
-                    features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
-                    return features
-                
-                # Run activations inference using shared model
-                log_universal('INFO', 'Audio', 'Running MusiCNN activations inference...')
-                activations = activations_model(audio_16k)  # shape: [time, tags]
-                
-                # Enhanced return type handling
-                activations = self._validate_and_convert_musicnn_output(activations, 'activations')
-                if activations is None:
-                    features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
-                    return features
-                
-                # Calculate tag probabilities with enhanced validation
-                tags = self._calculate_musicnn_tags(activations, tag_names)
-                if tags is None:
-                    features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
-                    return features
-                
-                log_universal('INFO', 'Audio', f'MusiCNN tags extracted: {len(tags)} tags')
-                log_universal('INFO', 'Audio', f'Top 5 predicted tags: {sorted(tags.items(), key=lambda x: x[1], reverse=True)[:5]}')
-                
-                # Run embeddings inference using shared model
-                log_universal('INFO', 'Audio', 'Running MusiCNN embeddings inference...')
-                embeddings = embeddings_model(audio_16k)
-                
-                # Enhanced embeddings handling
-                embeddings = self._validate_and_convert_musicnn_output(embeddings, 'embeddings')
-                if embeddings is None:
-                    features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
-                    return features
-                
-                # Calculate embedding statistics with enhanced validation
-                embedding_stats = self._calculate_musicnn_embeddings(embeddings)
-                if embedding_stats is None:
-                    features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
-                    return features
-                
-                features.update({
-                    'embedding': embedding_stats['mean'],
-                    'embedding_std': embedding_stats['std'],
-                    'embedding_min': embedding_stats['min'],
-                    'embedding_max': embedding_stats['max'],
-                    'tags': tags,
-                    'musicnn_skipped': 0
-                })
-                
-                log_universal('INFO', 'Audio', f'MusiCNN extraction completed successfully: {len(tags)} tags, {len(embedding_stats["mean"])} embedding dimensions')
-                
+                # Suppress TensorFlow warnings during inference
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    
+                    # Enhanced audio preprocessing for MusiCNN
+                    audio_16k = self._prepare_audio_for_musicnn(audio, sample_rate)
+                    if audio_16k is None:
+                        log_universal('ERROR', 'Audio', 'Failed to prepare audio for MusiCNN')
+                        features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                        return features
+                    
+                    # Run activations inference using shared model
+                    log_universal('INFO', 'Audio', 'Running MusiCNN activations inference...')
+                    activations = activations_model(audio_16k)  # shape: [time, tags]
+                    
+                    # Enhanced return type handling
+                    activations = self._validate_and_convert_musicnn_output(activations, 'activations')
+                    if activations is None:
+                        features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                        return features
+                    
+                    # Calculate tag probabilities with enhanced validation
+                    tags = self._calculate_musicnn_tags(activations, tag_names)
+                    if tags is None:
+                        features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                        return features
+                    
+                    log_universal('INFO', 'Audio', f'MusiCNN tags extracted: {len(tags)} tags')
+                    log_universal('INFO', 'Audio', f'Top 5 predicted tags: {sorted(tags.items(), key=lambda x: x[1], reverse=True)[:5]}')
+                    
+                    # Run embeddings inference using shared model
+                    log_universal('INFO', 'Audio', 'Running MusiCNN embeddings inference...')
+                    embeddings = embeddings_model(audio_16k)
+                    
+                    # Enhanced embeddings handling
+                    embeddings = self._validate_and_convert_musicnn_output(embeddings, 'embeddings')
+                    if embeddings is None:
+                        features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                        return features
+                    
+                    # Calculate embedding statistics with enhanced validation
+                    embedding_stats = self._calculate_musicnn_embeddings(embeddings)
+                    if embedding_stats is None:
+                        features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                        return features
+                    
+                    features.update({
+                        'embedding': embedding_stats['mean'],
+                        'embedding_std': embedding_stats['std'],
+                        'embedding_min': embedding_stats['min'],
+                        'embedding_max': embedding_stats['max'],
+                        'tags': tags,
+                        'musicnn_skipped': 0
+                    })
+                    
+                    log_universal('INFO', 'Audio', f'MusiCNN extraction completed successfully: {len(tags)} tags, {len(embedding_stats["mean"])} embedding dimensions')
+                    
             except Exception as e:
                 log_universal('ERROR', 'Audio', f'MusiCNN inference failed: {e}')
                 features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
@@ -1304,78 +1360,60 @@ class AudioAnalyzer:
             log_universal('ERROR', 'Audio', f'Embedding calculation failed: {e}')
             return None
     
-    def _extract_chroma_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+    def _extract_chroma_features(self, audio: np.ndarray, sample_rate: int, file_size_mb: float = None) -> Dict[str, Any]:
         """Extract chroma features using frame-by-frame processing."""
         features = {}
         
         try:
             if ESSENTIA_AVAILABLE:
-                # Use frame-by-frame approach like the old working version
-                frame_size = 2048
-                hop_size = 1024
+                # Validate audio parameters before chroma extraction
+                if len(audio) < 512:
+                    log_universal('WARNING', 'Audio', f'Audio too short for chroma extraction: {len(audio)} samples')
+                    features.update({
+                        'chroma': [],
+                        'chroma_std': []
+                    })
+                    return features
+                
+                # Ensure audio is mono
+                if len(audio.shape) > 1:
+                    audio = np.mean(audio, axis=1)
                 
                 # Use 3-tier system for chroma extraction instead of hardcoded 60s limit
                 # Files < 100MB: Full processing, Files 100-200MB: Half-track, Files > 200MB: Half-track
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
-                estimated_size_mb = (len(audio) * 4) / (1024 * 1024)  # Rough estimate
                 
-                if estimated_size_mb > half_track_threshold_mb:
-                    # Use half-track loading for large files (middle 50%)
-                    start_sample = len(audio) // 4
-                    end_sample = 3 * len(audio) // 4
-                    audio = audio[start_sample:end_sample]
-                    log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB) - using half-track loading for chroma extraction')
+                if file_size_mb is not None:
+                    # Use actual file size for consistent decisions
+                    if file_size_mb > half_track_threshold_mb:
+                        # Use half-track loading for large files (middle 50%)
+                        start_sample = len(audio) // 4
+                        end_sample = 3 * len(audio) // 4
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for chroma extraction')
+                    else:
+                        # Use full audio for small files
+                        log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for chroma extraction')
                 else:
-                    # Use full audio for small files
-                    log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB) - using full audio for chroma extraction')
+                    # Fallback to estimated size if actual size not provided
+                    estimated_size_mb = (len(audio) * 4) / (1024 * 1024)  # Rough estimate
+                    if estimated_size_mb > half_track_threshold_mb:
+                        # Use half-track loading for large files (middle 50%)
+                        start_sample = len(audio) // 4
+                        end_sample = 3 * len(audio) // 4
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB estimated) - using half-track loading for chroma extraction')
+                    else:
+                        # Use full audio for small files
+                        log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for chroma extraction')
                 
-                # Initialize algorithms
-                window = es.Windowing(type='blackmanharris62')
-                spectrum = es.Spectrum()
-                spectral_peaks = es.SpectralPeaks()
-                hpcp = es.HPCP()
+                # Chroma
+                chroma = es.Chromagram()
+                chroma_result = chroma(audio)
                 
-                # Process audio in frames
-                chroma_values = []
-                frame_count = 0
-                
-                for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
-                    frame_count += 1
-                    
-                    try:
-                        windowed = window(frame)
-                        spec = spectrum(windowed)
-                        
-                        # Validate spectrum size before processing
-                        if len(spec) > 10000:  # Limit spectrum size to prevent TriangularBands error
-                            log_universal('WARNING', 'Audio', f'Spectrum size too large ({len(spec)}), skipping frame')
-                            continue
-                        
-                        frequencies, magnitudes = spectral_peaks(spec)
-                        
-                        # Check if we have valid spectral peaks
-                        if len(frequencies) > 0 and len(magnitudes) > 0:
-                            freq_array = np.array(frequencies)
-                            mag_array = np.array(magnitudes)
-                            
-                            # Check for valid frequency and magnitude ranges
-                            if len(freq_array) > 0 and len(mag_array) > 0 and np.any(mag_array > 0):
-                                hpcp_value = hpcp(freq_array, mag_array)
-                                if hpcp_value is not None and len(hpcp_value) == 12:
-                                    chroma_values.append(hpcp_value)
-                    except Exception as frame_error:
-                        log_universal('DEBUG', 'Audio', f'Frame {frame_count} processing failed: {frame_error}')
-                        continue
-                
-                # Calculate global average
-                if chroma_values:
-                    chroma_avg = np.mean(chroma_values, axis=0).tolist()
-                    features['chroma_mean'] = chroma_avg
-                    features['chroma_std'] = np.std(chroma_values, axis=0).tolist()
-                else:
-                    features['chroma_mean'] = [0.0] * 12
-                    features['chroma_std'] = [0.0] * 12
-                
+                features['chroma'] = chroma_result.tolist()
+                features['chroma_std'] = np.std(chroma_result, axis=1).tolist()
+            
             elif LIBROSA_AVAILABLE:
                 # Use librosa as fallback
                 chroma = librosa.feature.chroma_cqt(y=audio, sr=sample_rate)

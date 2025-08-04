@@ -176,9 +176,11 @@ def setup_logging(config: Dict[str, Any] = None):
         import os
         import tensorflow as tf
         
-        # Set TensorFlow environment variables to suppress warnings
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Hide INFO and WARNING, show only ERROR
+        # Aggressive TensorFlow warning suppression
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TF warnings
         os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimization messages
+        os.environ['TF_GPU_ALLOCATOR'] = 'cpu'  # Disable GPU warnings
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU usage
         
         # Configure TensorFlow logger
         tf_logger = tf.get_logger()
@@ -186,6 +188,11 @@ def setup_logging(config: Dict[str, Any] = None):
         
         # Suppress TensorFlow warnings about network creation
         tf.autograph.set_verbosity(0)
+        
+        # Suppress all TensorFlow warnings
+        import warnings
+        warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
+        warnings.filterwarnings('ignore', category=FutureWarning, module='tensorflow')
         
     except ImportError:
         # TensorFlow not available, skip configuration

@@ -103,13 +103,24 @@ def is_mutagen_available() -> bool:
     """Check if Mutagen is available without importing."""
     return mutagen.available
 
-
 @functools.lru_cache(maxsize=1)
 def get_audio_libraries_status():
-    """Get status of all audio libraries (cached)."""
+    """Get status of all audio processing libraries."""
     return {
-        'tensorflow': is_tensorflow_available(),
-        'essentia': is_essentia_available(),
-        'librosa': is_librosa_available(),
-        'mutagen': is_mutagen_available()
+        'tensorflow': {
+            'available': is_tensorflow_available(),
+            'description': 'Deep learning framework for MusiCNN features'
+        },
+        'essentia': {
+            'available': is_essentia_available(),
+            'description': 'Audio analysis library for feature extraction'
+        },
+        'librosa': {
+            'available': is_librosa_available(),
+            'description': 'Audio analysis library (fallback for Essentia)'
+        },
+        'mutagen': {
+            'available': is_mutagen_available(),
+            'description': 'Audio metadata extraction library'
+        }
     }
