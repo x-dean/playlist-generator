@@ -673,27 +673,50 @@ class AudioAnalyzer:
                 # Handle the result based on the actual return format
                 if isinstance(rhythm_result, (list, tuple)):
                     if len(rhythm_result) >= 1:
-                        features['bpm'] = float(rhythm_result[0]) if rhythm_result[0] is not None else 120.0
+                        # Handle array to scalar conversion
+                        bpm_value = rhythm_result[0]
+                        if isinstance(bpm_value, np.ndarray):
+                            bpm_value = float(bpm_value[0]) if len(bpm_value) > 0 else 120.0
+                        else:
+                            bpm_value = float(bpm_value) if bpm_value is not None else 120.0
+                        features['bpm'] = bpm_value
                     else:
                         features['bpm'] = 120.0
                     
                     if len(rhythm_result) >= 2:
-                        features['rhythm_confidence'] = float(rhythm_result[1]) if rhythm_result[1] is not None else 0.0
+                        # Handle array to scalar conversion
+                        confidence_value = rhythm_result[1]
+                        if isinstance(confidence_value, np.ndarray):
+                            confidence_value = float(confidence_value[0]) if len(confidence_value) > 0 else 0.0
+                        else:
+                            confidence_value = float(confidence_value) if confidence_value is not None else 0.0
+                        features['rhythm_confidence'] = confidence_value
                     else:
                         features['rhythm_confidence'] = 0.0
                     
                     if len(rhythm_result) >= 3:
-                        features['bpm_estimates'] = [float(x) for x in rhythm_result[2]] if rhythm_result[2] is not None else [120.0]
+                        estimates_value = rhythm_result[2]
+                        if isinstance(estimates_value, np.ndarray):
+                            features['bpm_estimates'] = [float(x) for x in estimates_value]
+                        else:
+                            features['bpm_estimates'] = [float(estimates_value)] if estimates_value is not None else [120.0]
                     else:
                         features['bpm_estimates'] = [120.0]
                     
                     if len(rhythm_result) >= 4:
-                        features['bpm_intervals'] = [float(x) for x in rhythm_result[3]] if rhythm_result[3] is not None else []
+                        intervals_value = rhythm_result[3]
+                        if isinstance(intervals_value, np.ndarray):
+                            features['bpm_intervals'] = [float(x) for x in intervals_value]
+                        else:
+                            features['bpm_intervals'] = [float(intervals_value)] if intervals_value is not None else []
                     else:
                         features['bpm_intervals'] = []
                 else:
                     # Single value returned
-                    features['bpm'] = float(rhythm_result) if rhythm_result is not None else 120.0
+                    if isinstance(rhythm_result, np.ndarray):
+                        features['bpm'] = float(rhythm_result[0]) if len(rhythm_result) > 0 else 120.0
+                    else:
+                        features['bpm'] = float(rhythm_result) if rhythm_result is not None else 120.0
                     features['rhythm_confidence'] = 0.0
                     features['bpm_estimates'] = [features['bpm']]
                     features['bpm_intervals'] = []
@@ -749,52 +772,54 @@ class AudioAnalyzer:
 
                 # Extract spectral features using the correct essentia algorithms
                 try:
-                    # Use SpectralCentroid (not SpectralCentroidTime) - simpler approach
-                    spectral_centroid_algo = es.SpectralCentroid()
+                    # Use Centroid (not SpectralCentroid) - simpler approach
+                    centroid_algo = es.Centroid()
                     centroid_values = []
                     for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
-                        centroid_values.append(spectral_centroid_algo(frame))
+                        centroid_values.append(centroid_algo(frame))
                     features['spectral_centroid'] = float(np.nanmean(centroid_values)) if centroid_values else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Spectral centroid extraction failed: {e}')
                     features['spectral_centroid'] = 0.0
 
                 try:
-                    # Use SpectralRolloff (not SpectralRolloffTime) - simpler approach
-                    spectral_rolloff_algo = es.SpectralRolloff()
+                    # Use RollOff (not SpectralRolloff) - simpler approach
+                    rolloff_algo = es.RollOff()
                     rolloff_values = []
                     for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
-                        rolloff_values.append(spectral_rolloff_algo(frame))
+                        rolloff_values.append(rolloff_algo(frame))
                     features['spectral_rolloff'] = float(np.nanmean(rolloff_values)) if rolloff_values else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Spectral rolloff extraction failed: {e}')
                     features['spectral_rolloff'] = 0.0
 
                 try:
-                    # Use Flatness (not FlatnessSFX) - simpler approach
-                    spectral_flatness_algo = es.Flatness()
+                    # Use FlatnessDB (not Flatness) - handles negative values better
+                    flatness_algo = es.FlatnessDB()
                     flatness_values = []
                     for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
-                        flatness_values.append(spectral_flatness_algo(frame))
+                        # Ensure frame has no negative values
+                        frame_positive = np.abs(frame)
+                        flatness_values.append(flatness_algo(frame_positive))
                     features['spectral_flatness'] = float(np.nanmean(flatness_values)) if flatness_values else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Spectral flatness extraction failed: {e}')
                     features['spectral_flatness'] = 0.0
 
                 try:
-                    # Use SpectralBandwidth (not SpectralBandwidthTime) - simpler approach
-                    spectral_bandwidth_algo = es.SpectralBandwidth()
+                    # Use SpectralBandwidth (this should exist)
+                    bandwidth_algo = es.SpectralBandwidth()
                     bandwidth_values = []
                     for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
-                        bandwidth_values.append(spectral_bandwidth_algo(frame))
+                        bandwidth_values.append(bandwidth_algo(frame))
                     features['spectral_bandwidth'] = float(np.nanmean(bandwidth_values)) if bandwidth_values else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Spectral bandwidth extraction failed: {e}')
                     features['spectral_bandwidth'] = 0.0
 
                 try:
-                    # Use SpectralContrast - this one should work
-                    spectral_contrast_algo = es.SpectralContrast()
+                    # Use SpectralContrast with proper frame size
+                    spectral_contrast_algo = es.SpectralContrast(frameSize=self.frame_size)
                     contrast_values = []
                     for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
                         contrast_values.append(spectral_contrast_algo(frame))
@@ -3100,17 +3125,25 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Danceability extraction failed: {e}')
                     features['danceability'] = 0.0
 
-                # 2. HARMONIC FEATURES
+                # 2. HARMONIC FEATURES - Use SpectralPeaks as fallback
                 try:
-                    # Harmonic peaks for chord analysis
+                    # Try HarmonicPeaks first
                     harmonic_peaks_algo = es.HarmonicPeaks()
                     peaks, peak_values = harmonic_peaks_algo(audio)
                     features['harmonic_peaks_count'] = len(peaks) if peaks is not None else 0
                     features['harmonic_peak_strength'] = float(np.mean(peak_values)) if peak_values is not None else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Harmonic peaks extraction failed: {e}')
-                    features['harmonic_peaks_count'] = 0
-                    features['harmonic_peak_strength'] = 0.0
+                    # Fallback to SpectralPeaks
+                    try:
+                        spectral_peaks_algo = es.SpectralPeaks()
+                        peaks, peak_values = spectral_peaks_algo(audio)
+                        features['harmonic_peaks_count'] = len(peaks) if peaks is not None else 0
+                        features['harmonic_peak_strength'] = float(np.mean(peak_values)) if peak_values is not None else 0.0
+                    except Exception as e2:
+                        log_universal('WARNING', 'Audio', f'Spectral peaks fallback also failed: {e2}')
+                        features['harmonic_peaks_count'] = 0
+                        features['harmonic_peak_strength'] = 0.0
 
                 # 3. INHARMONICITY (useful for electronic vs acoustic)
                 try:
@@ -3161,7 +3194,7 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Spectral complexity extraction failed: {e}')
                     features['spectral_complexity'] = 0.0
 
-                # 8. TRILLIMUS (useful for classical vs modern)
+                # 8. TRILLIMUS (useful for classical vs modern) - might not exist
                 try:
                     trillimus_algo = es.Trillimus()
                     trillimus = trillimus_algo(audio)
@@ -3170,7 +3203,7 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Trillimus extraction failed: {e}')
                     features['trillimus'] = 0.0
 
-                # 9. ODD TO EVEN HARMONIC ENERGY RATIO (useful for timbre analysis)
+                # 9. ODD TO EVEN HARMONIC ENERGY RATIO (useful for timbre analysis) - might not exist
                 try:
                     odd_even_algo = es.OddToEvenHarmonicEnergyRatio()
                     odd_even_ratio = odd_even_algo(audio)
@@ -3179,7 +3212,7 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Odd to even harmonic ratio extraction failed: {e}')
                     features['odd_to_even_harmonic_ratio'] = 0.0
 
-                # 10. STRONG PEAK (useful for percussive vs melodic)
+                # 10. STRONG PEAK (useful for percussive vs melodic) - might not exist
                 try:
                     strong_peak_algo = es.StrongPeak()
                     strong_peak = strong_peak_algo(audio)
@@ -3188,7 +3221,7 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Strong peak extraction failed: {e}')
                     features['strong_peak'] = 0.0
 
-                # 11. STRONG DECAY (useful for envelope analysis)
+                # 11. STRONG DECAY (useful for envelope analysis) - might not exist
                 try:
                     strong_decay_algo = es.StrongDecay()
                     strong_decay = strong_decay_algo(audio)
@@ -3197,7 +3230,7 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Strong decay extraction failed: {e}')
                     features['strong_decay'] = 0.0
 
-                # 12. EFFECTIVE DURATION (useful for track length analysis)
+                # 12. EFFECTIVE DURATION (useful for track length analysis) - might not exist
                 try:
                     effective_duration_algo = es.EffectiveDuration()
                     effective_duration = effective_duration_algo(audio)
