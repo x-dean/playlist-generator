@@ -365,6 +365,7 @@ class ConfigLoader:
             'MUSICNN_MODEL_PATH': config.get('MUSICNN_MODEL_PATH', '/app/models/msd-musicnn-1.pb'),
             'MUSICNN_JSON_PATH': config.get('MUSICNN_JSON_PATH', '/app/models/msd-musicnn-1.json'),
             'MUSICNN_TIMEOUT_SECONDS': config.get('MUSICNN_TIMEOUT_SECONDS', 60),
+            'MUSICNN_HALF_TRACK_THRESHOLD_MB': config.get('MUSICNN_HALF_TRACK_THRESHOLD_MB', 50),
             'EXTRACT_CHROMA': config.get('EXTRACT_CHROMA', True),
             'EXTRACT_DANCEABILITY': config.get('EXTRACT_DANCEABILITY', True),
             'EXTRACT_ONSET_RATE': config.get('EXTRACT_ONSET_RATE', True),
