@@ -97,16 +97,13 @@ class ParallelAnalyzer:
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from .audio_analyzer import AudioAnalyzer
+        from .model_manager import get_model_manager
         
-        # Import TensorFlow only if available
-        try:
-            import tensorflow as tf
-            tf_available = True
-        except ImportError:
-            tf_available = False
-            log_universal('WARNING', 'Parallel', 'TensorFlow not available for threaded processing')
-
+        # Initialize shared model manager
+        model_manager = get_model_manager(self.config)
+        
         log_universal('INFO', 'Parallel', f"Threaded analysis: {len(files)} files, {max_workers} workers")
+        log_universal('DEBUG', 'Parallel', f"Using shared model manager: {model_manager.get_model_info()}")
         start_time = time.time()
         results = {
             'success_count': 0,
@@ -116,42 +113,16 @@ class ParallelAnalyzer:
 
         def _thread_initializer():
             """Initialize thread-local resources."""
-            nonlocal model, analyzer
             try:
-                # Load TensorFlow model if available and path exists
-                model = None
-                if tf_available and TENSORFLOW_AVAILABLE:
-                    try:
-                        # Get model path from configuration
-                        model_path = self.config.get('MUSICNN_MODEL_PATH', '/app/models/msd-musicnn-1.pb')
-                        json_path = self.config.get('MUSICNN_JSON_PATH', '/app/models/msd-musicnn-1.json')
-                        
-                        if os.path.exists(model_path):
-                            # Load model based on file extension
-                            if model_path.endswith('.pb'):
-                                # Load protobuf model
-                                model = tf.saved_model.load(model_path)
-                                log_universal('DEBUG', 'Parallel', f"Loaded TensorFlow protobuf model in thread {threading.current_thread().ident}")
-                            elif model_path.endswith('.h5'):
-                                # Load Keras model
-                                model = tf.keras.models.load_model(model_path)
-                                log_universal('DEBUG', 'Parallel', f"Loaded TensorFlow Keras model in thread {threading.current_thread().ident}")
-                            else:
-                                log_universal('WARNING', 'Parallel', f"Unsupported model format: {model_path}")
-                        else:
-                            log_universal('DEBUG', 'Parallel', f"Model path not found: {model_path}")
-                    except Exception as e:
-                        log_universal('DEBUG', 'Parallel', f"Could not load TensorFlow model: {e}")
-                
-                # Create analyzer instance with configuration
-                analysis_config = self._get_analysis_config(files[0]) if files else {}
-                analyzer = AudioAnalyzer(config=analysis_config, processing_mode='parallel')
+                # Pre-initialize shared models in main thread
+                if not model_manager.is_musicnn_available():
+                    log_universal('DEBUG', 'Parallel', f"MusicNN models not available in thread {threading.current_thread().ident}")
+                else:
+                    log_universal('DEBUG', 'Parallel', f"MusicNN models available in thread {threading.current_thread().ident}")
                 
                 log_universal('DEBUG', 'Parallel', f"Thread {threading.current_thread().ident} initialized")
             except Exception as e:
                 log_universal('ERROR', 'Parallel', f"Thread initialization failed: {e}")
-                model = None
-                analyzer = None
 
         def _thread_worker(file_path: str) -> Tuple[str, bool]:
             """Worker function for threaded processing."""
@@ -159,7 +130,7 @@ class ParallelAnalyzer:
                 # Get analysis configuration for this file
                 analysis_config = self._get_analysis_config(file_path)
                 
-                # Create analyzer instance for this thread
+                # Create analyzer instance for this thread (uses shared models)
                 analyzer = AudioAnalyzer(config=analysis_config, processing_mode='parallel')
                 
                 # Analyze the file
@@ -223,10 +194,6 @@ class ParallelAnalyzer:
                     log_universal('ERROR', 'Threaded', f"Database error: {db_error}")
                 
                 return file_path, False
-
-        # Initialize thread-local variables
-        model = None
-        analyzer = None
 
         with ThreadPoolExecutor(max_workers=max_workers, initializer=_thread_initializer) as executor:
             futures = [executor.submit(_thread_worker, f) for f in files]

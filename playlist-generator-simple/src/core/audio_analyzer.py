@@ -71,11 +71,12 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
             log_universal('ERROR', 'Audio', f'File not found: {audio_path}')
             return None, None
         
-        # Check available memory before loading
+        # Check available memory before loading - OPTIMIZED THRESHOLDS
         try:
             import psutil
             available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
-            min_memory_mb = config.get('MIN_MEMORY_FOR_FULL_ANALYSIS_GB', 2.0) * 1024 if config else 2048  # Convert GB to MB
+            # Reduced minimum memory requirement from 2GB to 1.5GB
+            min_memory_mb = config.get('MIN_MEMORY_FOR_FULL_ANALYSIS_GB', 1.5) * 1024 if config else 1536  # Convert GB to MB
             if available_memory_mb < min_memory_mb:
                 log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(audio_path)}')
                 return None, None
@@ -92,105 +93,60 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
                 log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
                 return None, None
             
-            # Configurable limits based on processing mode - INCREASED for sequential processing
+            # Configurable limits based on processing mode - OPTIMIZED THRESHOLDS
             if processing_mode == 'sequential':
                 max_file_size_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 5000) if config else 5000  # Increased from 2000
                 warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 1000) if config else 1000  # Increased from 500
             else:  # parallel
-                max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
-                warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500) if config else 500
+                max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 200) if config else 200  # Increased from 100
+                warning_threshold_mb = config.get('PARALLEL_LARGE_FILE_WARNING_THRESHOLD_MB', 100) if config else 100  # Increased from 50
             
-            # Skip large files to prevent RAM saturation (only for parallel processing)
-            if processing_mode == 'parallel' and file_size_mb > max_file_size_mb:
-                log_universal('WARNING', 'Audio', f'File too large ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - skipping to prevent RAM saturation')
+            if file_size_mb > max_file_size_mb:
+                log_universal('WARNING', 'Audio', f'File too large ({file_size_mb:.1f}MB > {max_file_size_mb}MB): {os.path.basename(audio_path)}')
                 return None, None
-                
-            # Warn for large files but don't skip them in sequential mode
+            
             if file_size_mb > warning_threshold_mb:
-                log_universal('WARNING', 'Audio', f'Large file detected ({file_size_mb:.1f}MB): {os.path.basename(audio_path)} - may cause memory issues')
+                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB): {os.path.basename(audio_path)}')
                 
         except Exception as e:
-            log_universal('WARNING', 'Audio', f'Cannot check file size for {os.path.basename(audio_path)}: {e}')
+            log_universal('WARNING', 'Audio', f'Could not check file size: {e}')
         
-        # Force garbage collection before loading
-        try:
-            import gc
-            gc.collect()
-        except Exception:
-            pass
-        
-        try:
-            import essentia.standard as es
-            log_universal('DEBUG', 'Audio', f'Loading {os.path.basename(audio_path)} with Essentia MonoLoader')
-            
-            # For large files, try to load only a sample
-            if processing_mode == 'sequential':
-                sample_threshold_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 5000) if config else 5000  # Increased from 2000
-            else:  # parallel
-                sample_threshold_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
+        # Load audio using Essentia if available
+        if ESSENTIA_AVAILABLE:
+            try:
+                import essentia.standard as es
                 
-            if file_size_mb > sample_threshold_mb:  # Files larger than threshold
-                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - loading sample only')
-                try:
-                    # Try to load just the first 30 seconds
-                    loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
-                    audio = loader()
-                    if audio is not None and len(audio) > 0:
-                        # Take only first 30 seconds
-                        max_samples = 30 * sample_rate
-                        if len(audio) > max_samples:
-                            audio = audio[:max_samples]
-                            log_universal('INFO', 'Audio', f'Loaded sample: {len(audio)} samples (30s) from {os.path.basename(audio_path)}')
-                        else:
-                            log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)}: {len(audio)} samples at {sample_rate}Hz')
-                        return audio, sample_rate
-                except Exception as sample_e:
-                    log_universal('WARNING', 'Audio', f'Sample loading failed for {os.path.basename(audio_path)}: {sample_e}')
-                    # Fall through to normal loading
-            else:
-                # Normal loading for smaller files
+                # Use Essentia loader with optimized settings
                 loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
                 audio = loader()
                 
-                if audio is not None and len(audio) > 0:
-                    log_universal('DEBUG', 'Audio', f'Successfully loaded {os.path.basename(audio_path)}: {len(audio)} samples at {sample_rate}Hz')
-                    return audio, sample_rate
-                else:
-                    log_universal('WARNING', 'Audio', f'Essentia returned empty audio for {os.path.basename(audio_path)}')
-                    return None, None
-                    
-        except Exception as e:
-            log_universal('ERROR', 'Audio', f'Essentia audio loading failed for {os.path.basename(audio_path)}: {e}')
-            log_universal('DEBUG', 'Audio', f'Full error details: {type(e).__name__}: {str(e)}')
-            
-            # Try librosa as fallback (with memory management)
-            if LIBROSA_AVAILABLE:
-                try:
-                    log_universal('DEBUG', 'Audio', f'Trying librosa fallback for {os.path.basename(audio_path)}')
-                    import librosa
-                    
-                    # For large files, use offset and duration to load only a portion
-                    if processing_mode == 'sequential':
-                        sample_threshold_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 5000) if config else 5000  # Increased from 2000
-                    else:  # parallel
-                        sample_threshold_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100
-                    if file_size_mb > sample_threshold_mb:
-                        log_universal('INFO', 'Audio', f'Loading 30-second sample with librosa for {os.path.basename(audio_path)}')
-                        audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True, duration=30)
-                    else:
-                        audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
-                        
-                    if audio is not None and len(audio) > 0:
-                        log_universal('DEBUG', 'Audio', f'Librosa fallback successful: {len(audio)} samples at {sr}Hz')
-                        return audio, sr
-                    else:
-                        log_universal('WARNING', 'Audio', f'Librosa fallback returned empty audio for {os.path.basename(audio_path)}')
-                except Exception as librosa_e:
-                    log_universal('ERROR', 'Audio', f'Librosa fallback also failed for {os.path.basename(audio_path)}: {librosa_e}')
-            
-            return None, None
+                log_universal('DEBUG', 'Audio', f'Loaded with Essentia: {os.path.basename(audio_path)} ({len(audio)} samples, {sample_rate}Hz')
+                return audio, sample_rate
+                
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f'Essentia loading failed for {os.path.basename(audio_path)}: {e}')
+                # Fall through to librosa
+        
+        # Fallback to librosa
+        if LIBROSA_AVAILABLE:
+            try:
+                import librosa
+                
+                # Use librosa with optimized settings
+                audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
+                
+                log_universal('DEBUG', 'Audio', f'Loaded with librosa: {os.path.basename(audio_path)} ({len(audio)} samples, {sr}Hz')
+                return audio, sr
+                
+            except Exception as e:
+                log_universal('ERROR', 'Audio', f'Librosa loading failed for {os.path.basename(audio_path)}: {e}')
+                return None, None
+        
+        log_universal('ERROR', 'Audio', f'No audio loading library available for {os.path.basename(audio_path)}')
+        return None, None
+        
     except Exception as e:
-        log_universal('ERROR', 'Audio', f'Unexpected error in safe_essentia_load for {os.path.basename(audio_path)}: {e}')
+        log_universal('ERROR', 'Audio', f'Unexpected error loading {os.path.basename(audio_path)}: {e}')
         return None, None
 
 
@@ -1156,7 +1112,7 @@ class AudioAnalyzer:
         return features
     
     def _extract_musicnn_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Extract MusiCNN features using Essentia's TensorflowPredictMusiCNN."""
+        """Extract MusiCNN features using shared model instances."""
         features = {}
         
         log_universal('DEBUG', 'Audio', f'MusiCNN extraction started: audio shape={audio.shape}, sample_rate={sample_rate}')
@@ -1167,72 +1123,26 @@ class AudioAnalyzer:
                 features.update({'embedding': [], 'tags': {}})
                 return features
             
-            # Get model paths from configuration
-            model_path = self.config.get('MUSICNN_MODEL_PATH', '/app/models/msd-musicnn-1.pb')
-            json_path = self.config.get('MUSICNN_JSON_PATH', '/app/models/msd-musicnn-1.json')
+            # Get shared model instances from model manager
+            from .model_manager import get_model_manager
+            model_manager = get_model_manager(self.config)
             
-            log_universal('DEBUG', 'Audio', f'MusiCNN model path: {model_path}')
-            log_universal('DEBUG', 'Audio', f'MusiCNN JSON path: {json_path}')
-            
-            if not os.path.exists(model_path):
-                log_universal('WARNING', 'Audio', f'MusiCNN model not found: {model_path}')
+            if not model_manager.is_musicnn_available():
+                log_universal('WARNING', 'Audio', 'MusicNN models not available - skipping MusiCNN features')
                 features.update({'embedding': [], 'tags': {}})
                 return features
             
-            if not os.path.exists(json_path):
-                log_universal('WARNING', 'Audio', f'MusiCNN JSON config not found: {json_path}')
+            # Get shared model instances
+            activations_model, embeddings_model, tag_names, metadata = model_manager.get_musicnn_models()
+            
+            if not activations_model or not embeddings_model or not tag_names:
+                log_universal('WARNING', 'Audio', 'MusicNN models not properly loaded - skipping MusiCNN features')
                 features.update({'embedding': [], 'tags': {}})
                 return features
             
-            log_universal('DEBUG', 'Audio', 'MusiCNN model files found')
+            log_universal('DEBUG', 'Audio', 'Using shared MusicNN models')
             
-            # Load tag names from JSON (only once)
-            if not hasattr(self, '_musicnn_tag_names'):
-                try:
-                    import json
-                    with open(json_path, 'r') as f:
-                        metadata = json.load(f)
-                    self._musicnn_tag_names = metadata.get('classes', [])
-                    self._musicnn_metadata = metadata
-                    log_universal('DEBUG', 'Audio', f'Loaded {len(self._musicnn_tag_names)} tag names from MusiCNN config')
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f'Failed to load MusiCNN JSON config: {e}')
-                    features.update({'embedding': [], 'tags': {}})
-                    return features
-            
-            # Load MusicNN models (only once)
-            if not hasattr(self, '_musicnn_activations_model'):
-                try:
-                    import essentia.standard as es
-                    
-                    log_universal('DEBUG', 'Audio', 'Loading MusiCNN activations model...')
-                    
-                    # Initialize MusiCNN for activations (auto-tagging)
-                    self._musicnn_activations_model = es.TensorflowPredictMusiCNN(graphFilename=model_path)
-                    log_universal('INFO', 'Audio', 'Loaded MusiCNN activations model')
-                    
-                    # Get embeddings using different output layer
-                    output_layer = 'model/dense_1/BiasAdd'
-                    if 'schema' in self._musicnn_metadata and 'outputs' in self._musicnn_metadata['schema']:
-                        for output in self._musicnn_metadata['schema']['outputs']:
-                            if 'description' in output and output['description'] == 'embeddings':
-                                output_layer = output['name']
-                                break
-                    
-                    log_universal('DEBUG', 'Audio', f'Loading MusiCNN embeddings model with output layer: {output_layer}')
-                    
-                    self._musicnn_embeddings_model = es.TensorflowPredictMusiCNN(
-                        graphFilename=model_path,
-                        output=output_layer
-                    )
-                    log_universal('INFO', 'Audio', 'Loaded MusiCNN embeddings model')
-                    
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f'Failed to load MusiCNN models: {e}')
-                    features.update({'embedding': [], 'tags': {}})
-                    return features
-            
-            # Use loaded models for inference
+            # Use shared models for inference
             try:
                 log_universal('DEBUG', 'Audio', 'Starting MusiCNN inference...')
                 
@@ -1245,9 +1155,9 @@ class AudioAnalyzer:
                 
                 log_universal('DEBUG', 'Audio', f'Resampled audio to 16kHz: {len(audio_16k)} samples')
                 
-                # Run activations inference using loaded model
+                # Run activations inference using shared model
                 log_universal('DEBUG', 'Audio', 'Running MusiCNN activations inference...')
-                activations = self._musicnn_activations_model(audio_16k)  # shape: [time, tags]
+                activations = activations_model(audio_16k)  # shape: [time, tags]
                 
                 # Handle different return types
                 if isinstance(activations, list):
@@ -1257,13 +1167,13 @@ class AudioAnalyzer:
                 
                 # Calculate tag probabilities (mean across time)
                 tag_probs = activations.mean(axis=0)
-                tags = dict(zip(self._musicnn_tag_names, [float(prob) for prob in tag_probs]))
+                tags = dict(zip(tag_names, [float(prob) for prob in tag_probs]))
                 
                 log_universal('DEBUG', 'Audio', f'MusiCNN tags extracted: {len(tags)} tags')
                 
-                # Run embeddings inference using loaded model
+                # Run embeddings inference using shared model
                 log_universal('DEBUG', 'Audio', 'Running MusiCNN embeddings inference...')
-                embeddings = self._musicnn_embeddings_model(audio_16k)
+                embeddings = embeddings_model(audio_16k)
                 
                 # Handle embeddings
                 if isinstance(embeddings, list):

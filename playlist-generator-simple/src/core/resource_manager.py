@@ -487,13 +487,13 @@ class ResourceManager:
             total_memory_gb = memory.total / (1024**3)
             system_memory_percent = memory.percent
             
-            # Calculate available memory for workers based on RSS
-            # Reserve 2GB for system and other processes, but ensure we don't go negative
-            reserved_memory_gb = min(2.0, total_memory_gb * 0.1)  # 10% of total memory or 2GB, whichever is smaller
-            available_for_workers_gb = max(0.5, total_memory_gb - reserved_memory_gb - current_rss_gb)  # Minimum 0.5GB available
+            # Calculate available memory for workers - OPTIMIZED THRESHOLDS
+            # Reserve 1.5GB for system and other processes (reduced from 2GB)
+            reserved_memory_gb = min(1.5, total_memory_gb * 0.08)  # 8% of total memory or 1.5GB, whichever is smaller
+            available_for_workers_gb = max(0.3, total_memory_gb - reserved_memory_gb - current_rss_gb)  # Minimum 0.3GB available
             
-            # Estimate memory per worker
-            memory_per_worker_gb = 1.0  # 1GB per worker
+            # Estimate memory per worker - OPTIMIZED
+            memory_per_worker_gb = 0.8  # Reduced from 1GB to 0.8GB per worker
             
             # Calculate optimal workers based on available memory for workers
             memory_based_workers = max(1, int(available_for_workers_gb / memory_per_worker_gb))
@@ -505,15 +505,15 @@ class ResourceManager:
             # Use the minimum of memory-based and CPU-based workers to avoid over-subscription
             optimal_workers = min(memory_based_workers, cpu_count)
             
-            # Failsafe: If system memory usage is >80%, reduce workers
-            if system_memory_percent > 80:
+            # OPTIMIZED: Less aggressive memory failsafe - only reduce if system memory >85%
+            if system_memory_percent > 85:
                 optimal_workers = max(1, optimal_workers // 2)  # Reduce by half
-                log_universal('WARNING', 'Resource', f"System memory usage {system_memory_percent:.1f}% > 80%, reducing workers to {optimal_workers}")
+                log_universal('WARNING', 'Resource', f"System memory usage {system_memory_percent:.1f}% > 85%, reducing workers to {optimal_workers}")
             
-            # Additional failsafe: If available memory is very low, use only 1 worker
-            if available_for_workers_gb < 1.0:  # 1GB minimum
+            # OPTIMIZED: Less restrictive minimum memory check
+            if available_for_workers_gb < 0.5:  # Reduced from 1GB to 0.5GB minimum
                 optimal_workers = 1
-                log_universal('WARNING', 'Resource', f"Available memory {available_for_workers_gb:.2f}GB < 1GB, using only 1 worker")
+                log_universal('WARNING', 'Resource', f"Available memory {available_for_workers_gb:.2f}GB < 0.5GB, using only 1 worker")
             
             # Apply max_workers limit
             if max_workers:
@@ -536,8 +536,8 @@ class ResourceManager:
             try:
                 import multiprocessing as mp
                 cpu_count = mp.cpu_count()
-                # Use minimum of 1 worker, maximum of 2 workers for safety
-                safe_workers = min(2, cpu_count)
+                # Use minimum of 1 worker, maximum of 4 workers for safety (increased from 2)
+                safe_workers = min(4, cpu_count)
                 if max_workers:
                     safe_workers = min(safe_workers, max_workers)
                 log_universal('INFO', 'Resource', f"Using fallback worker count: {safe_workers}")
