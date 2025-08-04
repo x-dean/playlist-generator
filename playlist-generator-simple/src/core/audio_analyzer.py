@@ -690,10 +690,22 @@ class AudioAnalyzer:
                 for tag_type in audio_file.tags:
                     if tag_type in audio_file.tags:
                         tags = audio_file.tags[tag_type]
-                        for key, value in tags.items():
-                            if isinstance(value, list):
-                                value = value[0] if value else ''
-                            metadata[key] = str(value)
+                        # Handle different tag formats
+                        if hasattr(tags, 'items'):
+                            # Dictionary-like tags
+                            for key, value in tags.items():
+                                if isinstance(value, list):
+                                    value = value[0] if value else ''
+                                metadata[key] = str(value)
+                        elif isinstance(tags, list):
+                            # List-like tags
+                            for i, value in enumerate(tags):
+                                if isinstance(value, list):
+                                    value = value[0] if value else ''
+                                metadata[f'tag_{i}'] = str(value)
+                        else:
+                            # Single value or other format
+                            metadata[str(tag_type)] = str(tags)
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Basic metadata extraction failed: {e}')
