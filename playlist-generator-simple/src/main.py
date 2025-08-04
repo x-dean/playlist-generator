@@ -18,7 +18,8 @@ from .core.lazy_imports import get_tensorflow
 
 from .api.routes import router
 from .infrastructure.container import configure_container
-from .infrastructure.logging import setup_logging, get_logger
+from .core.unified_logging import setup_logging, get_logger
+from .core.logging_config import get_logging_config
 from .infrastructure.monitoring import get_metrics_collector
 
 
@@ -33,8 +34,9 @@ async def lifespan(app: FastAPI):
     container = configure_container()
     app.state.container = container
     
-    # Setup logging
-    setup_logging()
+    # Setup logging with API configuration
+    api_logging_config = get_logging_config(environment='api')
+    setup_logging(api_logging_config)
     
     # Update metrics
     metrics = get_metrics_collector()
