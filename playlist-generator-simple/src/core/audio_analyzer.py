@@ -807,22 +807,33 @@ class AudioAnalyzer:
                     features['spectral_flatness'] = 0.0
 
                 try:
-                    # Use SpectralBandwidth (this should exist)
-                    bandwidth_algo = es.SpectralBandwidth()
+                    # Calculate spectral bandwidth manually using spectrum
                     bandwidth_values = []
                     for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
-                        bandwidth_values.append(bandwidth_algo(frame))
+                        # Compute spectrum first
+                        spectrum_algo = es.Spectrum()
+                        spectrum = spectrum_algo(frame)
+                        # Calculate bandwidth as weighted average of frequencies
+                        frequencies = np.linspace(0, sample_rate/2, len(spectrum))
+                        if np.sum(spectrum) > 0:
+                            bandwidth = np.sum(frequencies * spectrum) / np.sum(spectrum)
+                        else:
+                            bandwidth = 0.0
+                        bandwidth_values.append(bandwidth)
                     features['spectral_bandwidth'] = float(np.nanmean(bandwidth_values)) if bandwidth_values else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Spectral bandwidth extraction failed: {e}')
                     features['spectral_bandwidth'] = 0.0
 
                 try:
-                    # Use SpectralContrast with proper frame size
+                    # Use SpectralContrast with proper spectrum input
                     spectral_contrast_algo = es.SpectralContrast(frameSize=self.frame_size)
                     contrast_values = []
                     for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
-                        contrast_values.append(spectral_contrast_algo(frame))
+                        # First compute spectrum, then contrast
+                        spectrum_algo = es.Spectrum()
+                        spectrum = spectrum_algo(frame)
+                        contrast_values.append(spectral_contrast_algo(spectrum))
                     if contrast_values:
                         contrast_array = np.array(contrast_values)
                         features['spectral_contrast_mean'] = float(np.nanmean(contrast_array))
