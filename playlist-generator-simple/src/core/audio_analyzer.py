@@ -347,7 +347,16 @@ class AudioAnalyzer:
             
             # STEP 4.6: Extract advanced categorization features (optimized for performance)
             file_size_mb = self.db_manager.get_file_size_mb(file_path)
-            if file_size_mb > 50:  # For large files, use a sample
+            if file_size_mb > 200:  # Very large files: Use only 15 seconds
+                log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB from DB) - using 15s sample for advanced features')
+                # Use middle 15 seconds for very large files
+                sample_duration = 15
+                sample_size = int(sample_duration * sample_rate)
+                start_sample = len(audio) // 2 - sample_size // 2
+                end_sample = start_sample + sample_size
+                audio_sample = audio[start_sample:end_sample]
+                advanced_features = self._extract_advanced_categorization_features(audio_sample, sample_rate)
+            elif file_size_mb > 50:  # For large files, use a sample
                 log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using sample for advanced features')
                 # Use middle 30 seconds for large files
                 sample_duration = 30
@@ -672,7 +681,12 @@ class AudioAnalyzer:
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
 
                 if file_size_mb is not None:
-                    if file_size_mb > half_track_threshold_mb:
+                    if file_size_mb > 200:  # Very large files: Use only 10% of audio
+                        start_sample = len(audio) // 2 - len(audio) // 20  # Middle 10%
+                        end_sample = len(audio) // 2 + len(audio) // 20
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB) - using 10% sample for rhythm extraction')
+                    elif file_size_mb > half_track_threshold_mb:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
@@ -682,7 +696,12 @@ class AudioAnalyzer:
                 else:
                     # Get file size from database instead of estimation
                     file_size_mb = self.db_manager.get_file_size_mb(file_path)
-                    if file_size_mb > half_track_threshold_mb:
+                    if file_size_mb > 200:  # Very large files: Use only 10% of audio
+                        start_sample = len(audio) // 2 - len(audio) // 20  # Middle 10%
+                        end_sample = len(audio) // 2 + len(audio) // 20
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB from DB) - using 10% sample for rhythm extraction')
+                    elif file_size_mb > half_track_threshold_mb:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
@@ -1073,7 +1092,12 @@ class AudioAnalyzer:
                 
                 if file_size_mb is not None:
                     # Use actual file size for consistent decisions
-                    if file_size_mb > half_track_threshold_mb:
+                    if file_size_mb > 200:  # Very large files: Use only 10% of audio
+                        start_sample = len(audio) // 2 - len(audio) // 20  # Middle 10%
+                        end_sample = len(audio) // 2 + len(audio) // 20
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB) - using 10% sample for MFCC extraction')
+                    elif file_size_mb > half_track_threshold_mb:
                         # Use half-track loading for large files (middle 50%)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
@@ -1085,7 +1109,12 @@ class AudioAnalyzer:
                 else:
                     # Get file size from database instead of estimation
                     file_size_mb = self.db_manager.get_file_size_mb(file_path)
-                    if file_size_mb > half_track_threshold_mb:
+                    if file_size_mb > 200:  # Very large files: Use only 10% of audio
+                        start_sample = len(audio) // 2 - len(audio) // 20  # Middle 10%
+                        end_sample = len(audio) // 2 + len(audio) // 20
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB from DB) - using 10% sample for MFCC extraction')
+                    elif file_size_mb > half_track_threshold_mb:
                         # Use half-track loading for large files (middle 50%)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
@@ -1400,7 +1429,12 @@ class AudioAnalyzer:
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
 
                 if file_size_mb is not None:
-                    if file_size_mb > half_track_threshold_mb:
+                    if file_size_mb > 200:  # Very large files: Use only 10% of audio
+                        start_sample = len(audio) // 2 - len(audio) // 20  # Middle 10%
+                        end_sample = len(audio) // 2 + len(audio) // 20
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB) - using 10% sample for chroma extraction')
+                    elif file_size_mb > half_track_threshold_mb:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
@@ -1410,7 +1444,12 @@ class AudioAnalyzer:
                 else:
                     # Get file size from database instead of estimation
                     file_size_mb = self.db_manager.get_file_size_mb(file_path)
-                    if file_size_mb > half_track_threshold_mb:
+                    if file_size_mb > 200:  # Very large files: Use only 10% of audio
+                        start_sample = len(audio) // 2 - len(audio) // 20  # Middle 10%
+                        end_sample = len(audio) // 2 + len(audio) // 20
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB from DB) - using 10% sample for chroma extraction')
+                    elif file_size_mb > half_track_threshold_mb:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
