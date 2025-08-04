@@ -14,7 +14,7 @@ from ..core.memory_cache import get_analysis_cache, get_feature_cache
 from ..core.database_pool import get_database_pool
 from ..core.async_audio_processor import get_async_audio_processor
 from ..core.resource_manager import ResourceManager
-from ..infrastructure.logging import get_logger
+from ..core.professional_logging import get_logger, LogCategory, LogLevel
 
 router = APIRouter(prefix="/api/v1/performance", tags=["performance"])
 logger = get_logger()
@@ -76,7 +76,12 @@ async def get_performance_metrics():
         }
         
     except Exception as e:
-        logger.error(f"Error getting performance metrics: {e}")
+        logger.log_exception(
+            LogCategory.API, 
+            "performance_metrics", 
+            "Failed to retrieve performance metrics",
+            exception=e
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -340,3 +345,144 @@ def _generate_recommendations(memory_percent: float, cache_efficiency: float,
         })
     
     return recommendations
+
+
+@router.get("/logging/stats")
+async def get_logging_stats():
+    """Get logging system statistics and configuration."""
+    try:
+        logger = get_logger()
+        stats = logger.get_stats()
+        
+        # Add runtime statistics
+        import os
+        log_dir = stats.get('log_dir', 'logs')
+        
+        log_files = []
+        if os.path.exists(log_dir):
+            for file in os.listdir(log_dir):
+                if file.endswith('.log'):
+                    file_path = os.path.join(log_dir, file)
+                    file_stat = os.stat(file_path)
+                    log_files.append({
+                        'name': file,
+                        'size_mb': file_stat.st_size / (1024 * 1024),
+                        'modified': file_stat.st_mtime
+                    })
+        
+        return {
+            'logger_config': stats,
+            'log_files': log_files,
+            'environment': {
+                'log_level': os.getenv('LOG_LEVEL', 'INFO'),
+                'log_format': os.getenv('LOG_FORMAT', 'text'),
+                'log_dir': os.getenv('LOG_DIR', 'logs')
+            },
+            'features': {
+                'structured_logging': True,
+                'json_output': stats.get('json_enabled', False),
+                'file_logging': stats.get('file_enabled', True),
+                'console_logging': stats.get('console_enabled', True),
+                'performance_logging': stats.get('performance_logging', True),
+                'security_logging': stats.get('security_logging', True),
+                'log_rotation': True,
+                'correlation_ids': True,
+                'error_context': True
+            }
+        }
+        
+    except Exception as e:
+        logger.log_exception(
+            LogCategory.API,
+            "logging_stats",
+            "Failed to retrieve logging statistics",
+            exception=e
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/logging/test")
+async def test_logging_system():
+    """Test the logging system with sample log entries."""
+    try:
+        logger = get_logger()
+        correlation_id = f"test_{int(time.time())}"
+        
+        # Test basic logging levels
+        logger.trace(LogCategory.SYSTEM, "test", "Trace level test message")
+        logger.debug(LogCategory.SYSTEM, "test", "Debug level test message")
+        logger.info(LogCategory.SYSTEM, "test", "Info level test message", correlation_id=correlation_id)
+        logger.warning(LogCategory.SYSTEM, "test", "Warning level test message", correlation_id=correlation_id)
+        
+        # Test structured logging with metadata
+        logger.info(
+            LogCategory.PERFORMANCE,
+            "test",
+            "Performance test with metadata",
+            correlation_id=correlation_id,
+            duration_ms=123.45,
+            metadata={
+                "test_type": "logging_system",
+                "timestamp": time.time(),
+                "parameters": {"level": "INFO", "structured": True}
+            }
+        )
+        
+        # Test security logging
+        if logger.security:
+            logger.security.authentication_attempt(
+                user_id="test_user",
+                success=True,
+                ip_address="127.0.0.1"
+            )
+        
+        # Test performance logging
+        if logger.performance:
+            logger.performance.log_metric(
+                "test_metric",
+                42.0,
+                "test_component",
+                unit="count"
+            )
+        
+        # Test operation context
+        with logger.operation_context("test_operation", "test_component"):
+            logger.info(LogCategory.BUSINESS, "test", "Operation context test")
+            time.sleep(0.1)  # Simulate some work
+        
+        # Test exception logging (controlled)
+        try:
+            raise ValueError("This is a test exception")
+        except ValueError as e:
+            logger.log_exception(
+                LogCategory.SYSTEM,
+                "test",
+                "Test exception logging",
+                exception=e,
+                correlation_id=correlation_id,
+                metadata={"test_scenario": "exception_handling"}
+            )
+        
+        return {
+            "message": "Logging system test completed successfully",
+            "correlation_id": correlation_id,
+            "test_timestamp": time.time(),
+            "tests_performed": [
+                "Basic log levels (TRACE, DEBUG, INFO, WARNING)",
+                "Structured logging with metadata",
+                "Security logging",
+                "Performance logging",
+                "Operation context tracking",
+                "Exception logging"
+            ]
+        }
+        
+    except Exception as e:
+        logger = get_logger()
+        logger.log_exception(
+            LogCategory.API,
+            "logging_test",
+            "Failed to execute logging system test",
+            exception=e
+        )
+        raise HTTPException(status_code=500, detail=str(e))
