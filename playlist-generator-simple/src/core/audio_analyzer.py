@@ -647,12 +647,35 @@ class AudioAnalyzer:
                     minTempo=40
                 )
 
-                bpm, confidence, estimates, intervals = rhythm_extractor(audio)
-
-                features['bpm'] = float(bpm) if bpm is not None else 120.0
-                features['rhythm_confidence'] = float(confidence) if confidence is not None else 0.0
-                features['bpm_estimates'] = [float(x) for x in estimates] if estimates is not None else [120.0]
-                features['bpm_intervals'] = [float(x) for x in intervals] if intervals is not None else []
+                rhythm_result = rhythm_extractor(audio)
+                
+                # Handle the result based on the actual return format
+                if isinstance(rhythm_result, (list, tuple)):
+                    if len(rhythm_result) >= 1:
+                        features['bpm'] = float(rhythm_result[0]) if rhythm_result[0] is not None else 120.0
+                    else:
+                        features['bpm'] = 120.0
+                    
+                    if len(rhythm_result) >= 2:
+                        features['rhythm_confidence'] = float(rhythm_result[1]) if rhythm_result[1] is not None else 0.0
+                    else:
+                        features['rhythm_confidence'] = 0.0
+                    
+                    if len(rhythm_result) >= 3:
+                        features['bpm_estimates'] = [float(x) for x in rhythm_result[2]] if rhythm_result[2] is not None else [120.0]
+                    else:
+                        features['bpm_estimates'] = [120.0]
+                    
+                    if len(rhythm_result) >= 4:
+                        features['bpm_intervals'] = [float(x) for x in rhythm_result[3]] if rhythm_result[3] is not None else []
+                    else:
+                        features['bpm_intervals'] = []
+                else:
+                    # Single value returned
+                    features['bpm'] = float(rhythm_result) if rhythm_result is not None else 120.0
+                    features['rhythm_confidence'] = 0.0
+                    features['bpm_estimates'] = [features['bpm']]
+                    features['bpm_intervals'] = []
 
             elif LIBROSA_AVAILABLE:
                 # Fallback to librosa for rhythm extraction
@@ -674,7 +697,7 @@ class AudioAnalyzer:
         return features
     
     def _extract_spectral_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Extract spectral features using the old working approach."""
+        """Extract spectral features using the correct essentia algorithms."""
         features = {}
         
         try:
@@ -703,39 +726,61 @@ class AudioAnalyzer:
                 if len(audio.shape) > 1:
                     audio = np.mean(audio, axis=1)
 
-                # Extract spectral features using the old working approach
-                spectral_centroid_algo = es.SpectralCentroid()
-                spectral_rolloff_algo = es.SpectralRolloff()
-                spectral_flatness_algo = es.SpectralFlatness()
-                spectral_bandwidth_algo = es.SpectralBandwidth()
-                spectral_contrast_algo = es.SpectralContrast()
+                # Extract spectral features using the correct essentia algorithms
+                try:
+                    spectral_centroid_algo = es.SpectralCentroidTime()
+                    centroid_values = []
+                    for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                        centroid_values.append(spectral_centroid_algo(frame))
+                    features['spectral_centroid'] = float(np.nanmean(centroid_values)) if centroid_values else 0.0
+                except Exception as e:
+                    log_universal('WARNING', 'Audio', f'Spectral centroid extraction failed: {e}')
+                    features['spectral_centroid'] = 0.0
 
-                # Process audio in frames
-                centroid_values = []
-                rolloff_values = []
-                flatness_values = []
-                bandwidth_values = []
-                contrast_values = []
+                try:
+                    spectral_rolloff_algo = es.SpectralRolloffTime()
+                    rolloff_values = []
+                    for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                        rolloff_values.append(spectral_rolloff_algo(frame))
+                    features['spectral_rolloff'] = float(np.nanmean(rolloff_values)) if rolloff_values else 0.0
+                except Exception as e:
+                    log_universal('WARNING', 'Audio', f'Spectral rolloff extraction failed: {e}')
+                    features['spectral_rolloff'] = 0.0
 
-                for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
-                    centroid_values.append(spectral_centroid_algo(frame))
-                    rolloff_values.append(spectral_rolloff_algo(frame))
-                    flatness_values.append(spectral_flatness_algo(frame))
-                    bandwidth_values.append(spectral_bandwidth_algo(frame))
-                    contrast_values.append(spectral_contrast_algo(frame))
+                try:
+                    spectral_flatness_algo = es.FlatnessSFX()
+                    flatness_values = []
+                    for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                        flatness_values.append(spectral_flatness_algo(frame))
+                    features['spectral_flatness'] = float(np.nanmean(flatness_values)) if flatness_values else 0.0
+                except Exception as e:
+                    log_universal('WARNING', 'Audio', f'Spectral flatness extraction failed: {e}')
+                    features['spectral_flatness'] = 0.0
 
-                # Calculate statistics
-                features['spectral_centroid'] = float(np.nanmean(centroid_values)) if centroid_values else 0.0
-                features['spectral_rolloff'] = float(np.nanmean(rolloff_values)) if rolloff_values else 0.0
-                features['spectral_flatness'] = float(np.nanmean(flatness_values)) if flatness_values else 0.0
-                features['spectral_bandwidth'] = float(np.nanmean(bandwidth_values)) if bandwidth_values else 0.0
-                
-                # Handle spectral contrast (returns multiple values)
-                if contrast_values:
-                    contrast_array = np.array(contrast_values)
-                    features['spectral_contrast_mean'] = float(np.nanmean(contrast_array))
-                    features['spectral_contrast_std'] = float(np.nanstd(contrast_array))
-                else:
+                try:
+                    spectral_bandwidth_algo = es.SpectralBandwidthTime()
+                    bandwidth_values = []
+                    for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                        bandwidth_values.append(spectral_bandwidth_algo(frame))
+                    features['spectral_bandwidth'] = float(np.nanmean(bandwidth_values)) if bandwidth_values else 0.0
+                except Exception as e:
+                    log_universal('WARNING', 'Audio', f'Spectral bandwidth extraction failed: {e}')
+                    features['spectral_bandwidth'] = 0.0
+
+                try:
+                    spectral_contrast_algo = es.SpectralContrast()
+                    contrast_values = []
+                    for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                        contrast_values.append(spectral_contrast_algo(frame))
+                    if contrast_values:
+                        contrast_array = np.array(contrast_values)
+                        features['spectral_contrast_mean'] = float(np.nanmean(contrast_array))
+                        features['spectral_contrast_std'] = float(np.nanstd(contrast_array))
+                    else:
+                        features['spectral_contrast_mean'] = 0.0
+                        features['spectral_contrast_std'] = 0.0
+                except Exception as e:
+                    log_universal('WARNING', 'Audio', f'Spectral contrast extraction failed: {e}')
                     features['spectral_contrast_mean'] = 0.0
                     features['spectral_contrast_std'] = 0.0
             
