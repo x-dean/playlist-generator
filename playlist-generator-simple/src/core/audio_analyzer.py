@@ -4,6 +4,18 @@ Extracts audio features including MusicNN embeddings and auto-tags.
 """
 
 import os
+import sys
+import json
+import hashlib
+import logging
+from typing import Dict, Any, Optional, Tuple, List
+from datetime import datetime, timedelta
+
+# Suppress numpy warnings for invalid values
+import warnings
+import numpy as np
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='numpy')
+
 # Configure TensorFlow logging BEFORE any imports
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Hide INFO and WARNING, show only ERROR
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimization messages
@@ -1382,17 +1394,23 @@ class AudioAnalyzer:
                     else:
                         log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for chroma extraction')
 
-                # Initialize Chromagram with correct parameters
+                # Initialize Chromagram with correct parameters and required frame size
                 chroma_algo = es.Chromagram(
                     sampleRate=sample_rate
                 )
 
                 chroma_frames = []
-                for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                # Use the required frame size for Chromagram (32768 samples)
+                chroma_frame_size = 32768
+                chroma_hop_size = chroma_frame_size // 2  # 50% overlap
+                
+                for frame in es.FrameGenerator(audio, frameSize=chroma_frame_size, hopSize=chroma_hop_size, startFromZero=True):
                     chroma_frames.append(chroma_algo(frame))
 
                 if chroma_frames:
                     chroma_matrix = np.stack(chroma_frames, axis=1)
+                    # Clean the matrix to avoid NaN warnings
+                    chroma_matrix = clean_numpy_array(chroma_matrix)
                     features['chroma_mean'] = np.mean(chroma_matrix, axis=1).tolist()
                     features['chroma_std']  = np.std(chroma_matrix, axis=1).tolist()
                 else:
@@ -3236,7 +3254,9 @@ class AudioAnalyzer:
                     zcr_values = []
                     for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
                         zcr_values.append(zcr_algo(frame))
-                    features['zero_crossing_rate'] = float(np.nanmean(zcr_values)) if zcr_values else 0.0
+                    # Clean zcr values to avoid NaN warnings
+                    zcr_values = clean_numpy_array(np.array(zcr_values))
+                    features['zero_crossing_rate'] = float(np.nanmean(zcr_values)) if len(zcr_values) > 0 else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Zero crossing rate extraction failed: {e}')
                     features['zero_crossing_rate'] = 0.0
@@ -3247,7 +3267,9 @@ class AudioAnalyzer:
                     complexity_values = []
                     for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
                         complexity_values.append(spectral_complexity_algo(frame))
-                    features['spectral_complexity'] = float(np.nanmean(complexity_values)) if complexity_values else 0.0
+                    # Clean complexity values to avoid NaN warnings
+                    complexity_values = clean_numpy_array(np.array(complexity_values))
+                    features['spectral_complexity'] = float(np.nanmean(complexity_values)) if len(complexity_values) > 0 else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Spectral complexity extraction failed: {e}')
                     features['spectral_complexity'] = 0.0
@@ -3462,3 +3484,17 @@ def load_half_track(audio_path: str, sample_rate: int = 44100, config: Dict[str,
     except Exception as e:
         log_universal('ERROR', 'Audio', f'Unexpected error loading half track {os.path.basename(audio_path)}: {e}')
         return None, None
+
+def clean_numpy_array(arr: np.ndarray) -> np.ndarray:
+    """Clean numpy array by replacing NaN and Inf values with zeros."""
+    if arr is None:
+        return np.array([])
+    
+    # Replace NaN and Inf values with 0
+    arr_clean = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Ensure array is finite
+    if not np.all(np.isfinite(arr_clean)):
+        arr_clean = np.zeros_like(arr_clean)
+    
+    return arr_clean
