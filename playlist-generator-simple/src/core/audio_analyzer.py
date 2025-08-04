@@ -7,6 +7,7 @@ import os
 import time
 import json
 import hashlib
+import numpy as np
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
