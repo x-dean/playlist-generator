@@ -12,48 +12,34 @@ from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 from collections import Counter
 
-# Suppress TensorFlow warnings
-try:
-    import tensorflow as tf
-    tf.get_logger().setLevel('ERROR')
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-except ImportError:
-    pass
-
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
 from .database import DatabaseManager, get_db_manager
 from .config_loader import config_loader
+from .lazy_imports import (
+    get_tensorflow, get_essentia, 
+    is_tensorflow_available, is_essentia_available, 
+    is_librosa_available, is_mutagen_available,
+    librosa, mutagen
+)
 
 logger = get_logger('playlista.audio_analyzer')
 
-# Check for required libraries
-try:
-    import essentia.standard as es
-    ESSENTIA_AVAILABLE = True
-except ImportError:
-    ESSENTIA_AVAILABLE = False
+# Check for required libraries using lazy imports
+ESSENTIA_AVAILABLE = is_essentia_available()
+if not ESSENTIA_AVAILABLE:
     log_universal('WARNING', 'Audio', 'Essentia not available - using librosa fallback')
 
-try:
-    import librosa
-    LIBROSA_AVAILABLE = True
-except ImportError:
-    LIBROSA_AVAILABLE = False
+LIBROSA_AVAILABLE = is_librosa_available()
+if not LIBROSA_AVAILABLE:
     log_universal('WARNING', 'Audio', 'Librosa not available')
 
-try:
-    import tensorflow as tf
-    TENSORFLOW_AVAILABLE = True
-except ImportError:
-    TENSORFLOW_AVAILABLE = False
+TENSORFLOW_AVAILABLE = is_tensorflow_available()
+if not TENSORFLOW_AVAILABLE:
     log_universal('WARNING', 'Audio', 'TensorFlow not available - MusiCNN features disabled')
 
-try:
-    from mutagen import File
-    MUTAGEN_AVAILABLE = True
-except ImportError:
-    MUTAGEN_AVAILABLE = False
+MUTAGEN_AVAILABLE = is_mutagen_available()
+if not MUTAGEN_AVAILABLE:
     log_universal('WARNING', 'Audio', 'Mutagen not available - metadata extraction disabled')
 
 # Constants
@@ -139,8 +125,6 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
         # Fallback to librosa
         if LIBROSA_AVAILABLE:
             try:
-                import librosa
-                
                 # Use librosa with optimized settings
                 audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
                 
