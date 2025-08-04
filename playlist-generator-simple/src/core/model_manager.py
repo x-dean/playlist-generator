@@ -457,6 +457,7 @@ class ModelManager:
             # Check file size limit - now we allow larger files with half-track loading
             file_size_mb = file_size_bytes / (1024 * 1024)
             half_track_threshold_mb = self.config.get('MUSICNN_HALF_TRACK_THRESHOLD_MB', 50)
+            log_universal('DEBUG', 'Model', f'ModelManager: MusicNN half-track threshold: {half_track_threshold_mb}MB, file size: {file_size_mb:.1f}MB')
             
             if file_size_mb > self.musicnn_max_file_size_mb:
                 log_universal('DEBUG', 'Model', f'File too large for MusicNN: {file_size_mb:.1f}MB > {self.musicnn_max_file_size_mb}MB')
