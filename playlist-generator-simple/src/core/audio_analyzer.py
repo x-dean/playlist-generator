@@ -22,6 +22,7 @@ except ImportError:
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
 from .database import DatabaseManager, get_db_manager
+from .config_loader import config_loader
 
 logger = get_logger('playlista.audio_analyzer')
 
@@ -177,7 +178,13 @@ class AudioAnalyzer:
             config: Configuration dictionary (uses global config if None)
         """
         if config is None:
-            config = config_loader.get_audio_analysis_config()
+            try:
+                config = config_loader.get_audio_analysis_config()
+            except NameError:
+                # Handle case where config_loader is not available (e.g., in multiprocessing)
+                from .config_loader import ConfigLoader
+                local_config_loader = ConfigLoader()
+                config = local_config_loader.get_audio_analysis_config()
         
         self.config = config
         self.processing_mode = processing_mode

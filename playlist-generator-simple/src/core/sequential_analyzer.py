@@ -39,7 +39,7 @@ def timeout_handler(signum, frame):
     raise TimeoutException("Analysis timed out")
 
 
-def _worker_process_function(file_path: str, force_reextract: bool, timeout_seconds: int) -> Dict[str, Any]:
+def _worker_process_function(file_path: str, force_reextract: bool, timeout_seconds: int, config: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Worker function for multiprocessing - runs in isolated process.
     
@@ -65,7 +65,7 @@ def _worker_process_function(file_path: str, force_reextract: bool, timeout_seco
         
         # Initialize components
         db_manager = DatabaseManager()
-        analyzer = AudioAnalyzer(processing_mode='sequential')
+        analyzer = AudioAnalyzer(config=config, processing_mode='sequential')
         
         # Process file
         result = analyzer.analyze_audio_file(file_path, force_reextract)
@@ -344,12 +344,15 @@ class SequentialAnalyzer:
             # Calculate file hash for potential failure tracking
             file_hash = self._calculate_file_hash(file_path)
             
+            # Get config for worker process
+            config = self.get_config()
+            
             # Use multiprocessing to isolate the analysis
             with mp.Pool(processes=1) as pool:
                 # Submit the work to the pool
                 future = pool.apply_async(
                     _worker_process_function, 
-                    args=(file_path, force_reextract, self.timeout_seconds)
+                    args=(file_path, force_reextract, self.timeout_seconds, config)
                 )
                 
                 try:
