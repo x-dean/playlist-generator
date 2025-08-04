@@ -315,6 +315,7 @@ class ConfigLoader:
             return self._config_cache[cache_key]
         
         log_universal('INFO', 'Config', 'Loading configuration')
+        print("CONFIG_DEBUG: Starting configuration loading")  # Direct print for debugging
         
         # Start with defaults
         config = self._get_default_config()
@@ -325,9 +326,11 @@ class ConfigLoader:
             if file_config:
                 config.update(file_config)
                 log_universal('INFO', 'Config', f'Applied config from: {config_path}')
+                print(f"CONFIG_DEBUG: Applied config from: {config_path}")  # Direct print for debugging
                 # Log the MUSICNN_HALF_TRACK_THRESHOLD_MB value for debugging
                 if 'MUSICNN_HALF_TRACK_THRESHOLD_MB' in file_config:
                     log_universal('INFO', 'Config', f'  MUSICNN_HALF_TRACK_THRESHOLD_MB = {file_config["MUSICNN_HALF_TRACK_THRESHOLD_MB"]}')
+                    print(f"CONFIG_DEBUG: MUSICNN_HALF_TRACK_THRESHOLD_MB = {file_config['MUSICNN_HALF_TRACK_THRESHOLD_MB']}")  # Direct print for debugging
         
         # Apply environment overrides (highest priority)
         env_config = self._load_environment_overrides()
@@ -398,6 +401,7 @@ class ConfigLoader:
         # Log the final MUSICNN_HALF_TRACK_THRESHOLD_MB value for debugging
         if 'MUSICNN_HALF_TRACK_THRESHOLD_MB' in audio_config:
             log_universal('INFO', 'Config', f'Audio analysis config: MUSICNN_HALF_TRACK_THRESHOLD_MB = {audio_config["MUSICNN_HALF_TRACK_THRESHOLD_MB"]}')
+            print(f"CONFIG_DEBUG: Final audio analysis config: MUSICNN_HALF_TRACK_THRESHOLD_MB = {audio_config['MUSICNN_HALF_TRACK_THRESHOLD_MB']}")  # Direct print for debugging
         
         return audio_config
     
