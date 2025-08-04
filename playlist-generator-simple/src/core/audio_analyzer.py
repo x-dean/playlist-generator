@@ -857,11 +857,20 @@ class AudioAnalyzer:
                     # Use SpectralContrast with proper spectrum input
                     spectral_contrast_algo = es.SpectralContrast(frameSize=self.frame_size)
                     contrast_values = []
+                    
+                    # Limit frames for large files to prevent timeout
+                    frame_count = 0
+                    max_frames = 1000  # Limit to 1000 frames for large files
+                    
                     for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                        if frame_count >= max_frames:
+                            break
                         # First compute spectrum, then contrast
                         spectrum_algo = es.Spectrum()
                         spectrum = spectrum_algo(frame)
                         contrast_values.append(spectral_contrast_algo(spectrum))
+                        frame_count += 1
+                    
                     if contrast_values:
                         contrast_array = np.array(contrast_values)
                         features['spectral_contrast_mean'] = float(np.nanmean(contrast_array))
