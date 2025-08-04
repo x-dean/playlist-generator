@@ -101,13 +101,13 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
                 log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
                 return None, None
             
-            # Configurable limits based on processing mode - CONSERVATIVE THRESHOLDS
+            # Configurable limits based on processing mode - REALISTIC THRESHOLDS
             if processing_mode == 'sequential':
-                max_file_size_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 2000) if config else 2000  # Reduced from 5000
-                warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500) if config else 500  # Reduced from 1000
+                max_file_size_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 500) if config else 500  # Realistic for large lossless files
+                warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 100) if config else 100  # Realistic for high-quality tracks
             else:  # parallel
-                max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100  # Reduced from 200
-                warning_threshold_mb = config.get('PARALLEL_LARGE_FILE_WARNING_THRESHOLD_MB', 50) if config else 50  # Reduced from 100
+                max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 200) if config else 200  # Realistic for parallel processing
+                warning_threshold_mb = config.get('PARALLEL_LARGE_FILE_WARNING_THRESHOLD_MB', 50) if config else 50  # Realistic for parallel processing
             
             if file_size_mb > max_file_size_mb:
                 log_universal('WARNING', 'Audio', f'File too large ({file_size_mb:.1f}MB > {max_file_size_mb}MB): {os.path.basename(audio_path)}')
@@ -1378,7 +1378,7 @@ class AudioAnalyzer:
     
     def _is_long_audio_track(self, file_path: str) -> bool:
         """
-        Check if a file is a long audio track (20+ minutes).
+        Check if a file is a long audio track (45+ minutes).
         
         Args:
             file_path: Path to the audio file
@@ -1397,8 +1397,9 @@ class AudioAnalyzer:
             estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
             estimated_duration_minutes = estimated_duration_seconds / 60
             
-            # Much higher threshold for sequential processing: consider it long if estimated duration > 120 minutes (increased from 60)
-            is_long = estimated_duration_minutes > 120
+            # Realistic threshold for long audio: 45 minutes (typical album side, long DJ mix)
+            long_threshold = self.config.get('LONG_AUDIO_DURATION_THRESHOLD_MINUTES', 45)
+            is_long = estimated_duration_minutes > long_threshold
             
             log_universal('DEBUG', 'Audio', f'File {os.path.basename(file_path)}: {estimated_duration_minutes:.1f} minutes estimated, long_audio: {is_long}')
             
@@ -1411,7 +1412,7 @@ class AudioAnalyzer:
     def _is_extremely_large_for_processing(self, audio: np.ndarray) -> bool:
         """
         Check if audio is extremely large and should skip certain features.
-        Based on original logic: skip for files > 500M samples.
+        Based on realistic limits for actual music files.
         
         Args:
             audio: Audio array
@@ -1420,8 +1421,10 @@ class AudioAnalyzer:
             True if extremely large, False otherwise
         """
         try:
-            # Much higher threshold for sequential processing: skip for files > 5B samples (was 1B)
-            is_extremely_large = len(audio) > 5000000000
+            # Realistic threshold for extremely large files: 2B samples (~12.6 hours at 44kHz)
+            # This covers very long radio shows, podcasts, or live recordings
+            extremely_large_threshold = self.config.get('EXTREMELY_LARGE_SAMPLES_THRESHOLD', 2000000000)
+            is_extremely_large = len(audio) > extremely_large_threshold
             
             if is_extremely_large:
                 log_universal('WARNING', 'Audio', f'Extremely large file detected: {len(audio)} samples ({len(audio)/44100/60:.1f} minutes)')
@@ -1479,21 +1482,26 @@ class AudioAnalyzer:
             Audio type string
         """
         try:
-            # Calculate duration
+            # Get duration in minutes
             if audio is not None:
-                duration_minutes = len(audio) / self.sample_rate / 60
+                duration_minutes = len(audio) / (self.sample_rate * 60)
             else:
                 # Estimate from file size
                 file_size_bytes = os.path.getsize(file_path)
                 estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
                 duration_minutes = estimated_duration_seconds / 60
             
-            # Determine type based on duration - expanded for sequential processing
-            if duration_minutes > 120:  # Over 2 hours
+            # Get configured thresholds
+            radio_threshold = self.config.get('RADIO_DURATION_MINUTES', 90)
+            long_mix_threshold = self.config.get('LONG_MIX_DURATION_MINUTES', 45)
+            mix_threshold = self.config.get('MIX_DURATION_MINUTES', 20)
+            
+            # Determine type based on duration - realistic thresholds for actual music
+            if duration_minutes > radio_threshold:  # Over 90 minutes
                 return 'radio'
-            elif duration_minutes > 60:  # 1-2 hours
+            elif duration_minutes > long_mix_threshold:  # 45-90 minutes
                 return 'long_mix'
-            elif duration_minutes > 30:  # 30-60 minutes
+            elif duration_minutes > mix_threshold:  # 20-45 minutes
                 return 'mix'
             else:
                 return 'normal'
