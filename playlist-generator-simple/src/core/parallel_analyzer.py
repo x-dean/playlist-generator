@@ -307,11 +307,11 @@ class ParallelAnalyzer:
             # Import audio analyzer here to avoid memory issues
             from .audio_analyzer import AudioAnalyzer
             
-            # Create analyzer instance
-            analyzer = AudioAnalyzer()
-            
             # Get analysis configuration from analysis manager
             analysis_config = self._get_analysis_config(file_path)
+            
+            # Create analyzer instance with config
+            analyzer = AudioAnalyzer(config=analysis_config, processing_mode='parallel')
             
             # Extract features
             analysis_result = analyzer.analyze_audio_file(file_path, force_reextract)
@@ -334,6 +334,10 @@ class ParallelAnalyzer:
                 analysis_data = analysis_result.get('features', {})
                 analysis_data['status'] = 'analyzed'
                 analysis_data['analysis_type'] = 'full'
+                
+                # Add audio type and category
+                analysis_data['audio_type'] = analysis_result.get('audio_type', 'normal')
+                analysis_data['audio_category'] = analysis_result.get('audio_category')
                 
                 # Extract metadata
                 metadata = analysis_result.get('metadata', {})

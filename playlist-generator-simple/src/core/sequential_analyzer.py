@@ -81,6 +81,10 @@ def _worker_process_function(file_path: str, force_reextract: bool, timeout_seco
             analysis_data['status'] = 'analyzed'
             analysis_data['analysis_type'] = 'full'
             
+            # Add audio type and category
+            analysis_data['audio_type'] = result.get('audio_type', 'normal')
+            analysis_data['audio_category'] = result.get('audio_category')
+            
             # Extract metadata
             metadata = result.get('metadata', {})
             
@@ -345,7 +349,7 @@ class SequentialAnalyzer:
             file_hash = self._calculate_file_hash(file_path)
             
             # Get config for worker process
-            config = self.get_config()
+            config = self._get_analysis_config(file_path)
             
             # Use multiprocessing to isolate the analysis
             with mp.Pool(processes=1) as pool:
@@ -461,6 +465,10 @@ def process_file_isolated(file_path: str, force_reextract: bool = False) -> dict
             analysis_data = result.get('features', {})
             analysis_data['status'] = 'analyzed'
             analysis_data['analysis_type'] = 'full'
+            
+            # Add audio type and category
+            analysis_data['audio_type'] = result.get('audio_type', 'normal')
+            analysis_data['audio_category'] = result.get('audio_category')
             
             # Extract metadata
             metadata = result.get('metadata', {})

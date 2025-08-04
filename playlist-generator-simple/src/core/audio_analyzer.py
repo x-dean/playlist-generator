@@ -204,6 +204,10 @@ class AudioAnalyzer:
         self.extract_mfcc = config.get('EXTRACT_MFCC', True)
         self.extract_musicnn = config.get('EXTRACT_MUSICNN', True)
         self.extract_chroma = config.get('EXTRACT_CHROMA', True)
+        self.extract_danceability = config.get('EXTRACT_DANCEABILITY', True)
+        self.extract_onset_rate = config.get('EXTRACT_ONSET_RATE', True)
+        self.extract_zcr = config.get('EXTRACT_ZCR', True)
+        self.extract_spectral_contrast = config.get('EXTRACT_SPECTRAL_CONTRAST', True)
         
         # Caching settings
         self.cache_enabled = config.get('CACHE_ENABLED', True)
@@ -211,7 +215,7 @@ class AudioAnalyzer:
         self.force_reanalysis = config.get('FORCE_REANALYSIS', False)
         
         log_universal('INFO', 'Audio', 'AudioAnalyzer initialized')
-        log_universal('DEBUG', 'Audio', f'Feature extraction flags: rhythm={self.extract_rhythm}, spectral={self.extract_spectral}, loudness={self.extract_loudness}, key={self.extract_key}, mfcc={self.extract_mfcc}, musicnn={self.extract_musicnn}, chroma={self.extract_chroma}')
+        log_universal('DEBUG', 'Audio', f'Feature extraction flags: rhythm={self.extract_rhythm}, spectral={self.extract_spectral}, loudness={self.extract_loudness}, key={self.extract_key}, mfcc={self.extract_mfcc}, musicnn={self.extract_musicnn}, chroma={self.extract_chroma}, danceability={self.extract_danceability}, onset_rate={self.extract_onset_rate}, zcr={self.extract_zcr}, spectral_contrast={self.extract_spectral_contrast}')
         log_universal('DEBUG', 'Audio', f'Processing mode: {self.processing_mode}')
         log_universal('DEBUG', 'Audio', f'TensorFlow available: {TENSORFLOW_AVAILABLE}')
     
@@ -287,6 +291,14 @@ class AudioAnalyzer:
                 log_universal('ERROR', 'Audio', f'Failed to extract features: {os.path.basename(file_path)}')
                 return None
             
+            # Determine audio type/category for long tracks
+            audio_type = 'normal'
+            audio_category = None
+            if self._is_long_audio_track(file_path):
+                audio_type = 'long'
+                audio_category = self._determine_long_audio_category(file_path, metadata, features)
+                log_universal('INFO', 'Audio', f'Long audio track detected: {audio_category}')
+            
             # Prepare result
             result = {
                 'success': True,
@@ -295,7 +307,9 @@ class AudioAnalyzer:
                 'file_path': file_path,
                 'sample_rate': sample_rate,
                 'audio_length': len(audio),
-                'analysis_mode': 'half_track' if use_half_track else 'full_track'
+                'analysis_mode': 'half_track' if use_half_track else 'full_track',
+                'audio_type': audio_type,
+                'audio_category': audio_category
             }
             
             # Cache the result
