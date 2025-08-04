@@ -1172,15 +1172,21 @@ class AudioAnalyzer:
             
             # Check if we need to use half-track loading for large files
             audio_size_bytes = len(audio) * 4  # Estimate size (4 bytes per float32 sample)
-            use_half_track = not model_manager.is_file_suitable_for_musicnn(audio_size_bytes)
+            file_size_mb = audio_size_bytes / (1024 * 1024)
+            half_track_threshold_mb = self.config.get('MUSICNN_HALF_TRACK_THRESHOLD_MB', 50)
+            
+            # Use half-track for files larger than threshold, but only if MusicNN is suitable
+            use_half_track = file_size_mb > half_track_threshold_mb and model_manager.is_file_suitable_for_musicnn(audio_size_bytes)
             
             if use_half_track:
-                log_universal('INFO', 'Audio', f'Large audio detected ({len(audio)} samples) - using half-track loading for MusiCNN')
+                log_universal('INFO', 'Audio', f'Large audio detected ({file_size_mb:.1f}MB, {len(audio)} samples) - using half-track loading for MusiCNN')
                 # Use middle 50% of the audio for MusiCNN analysis
                 start_sample = len(audio) // 4
                 end_sample = 3 * len(audio) // 4
                 audio = audio[start_sample:end_sample]
                 log_universal('INFO', 'Audio', f'Half-track loaded: {len(audio)} samples for MusiCNN analysis')
+            else:
+                log_universal('DEBUG', 'Audio', f'Using full track for MusiCNN analysis ({file_size_mb:.1f}MB, {len(audio)} samples)')
             
             # Use shared models for inference
             try:
