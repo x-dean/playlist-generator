@@ -373,12 +373,28 @@ class AudioAnalyzer:
                 self.db_manager.save_advanced_categorization_features(file_path, advanced_features)
                 log_universal('INFO', 'Audio', f'Advanced categorization features saved to database')
             
-            # STEP 5: Extract values using MusicNN
-            log_universal('INFO', 'Audio', f'Step 5: Extracting MusicNN features for {os.path.basename(file_path)}')
-            musicnn_features = self._extract_musicnn_features(audio, sample_rate, file_path)
-            if musicnn_features:
-                self.db_manager.save_musicnn_features(file_path, musicnn_features)
-                log_universal('INFO', 'Audio', f'MusicNN features saved to database')
+            # STEP 5: Extract values using MusicNN (skip for very large files)
+            file_size_mb = self.db_manager.get_file_size_mb(file_path)
+            skip_musicnn_for_large = self.config.get('SKIP_MUSICNN_FOR_VERY_LARGE_FILES', True)
+            enable_lightweight_categorization = self.config.get('ENABLE_LIGHTWEIGHT_CATEGORIZATION', True)
+            
+            if file_size_mb > 200 and skip_musicnn_for_large:  # Skip MusicNN for very large files
+                log_universal('INFO', 'Audio', f'Step 5: Skipping MusicNN for very large file ({file_size_mb:.1f}MB) - using lightweight categorization only')
+                musicnn_features = {}
+                
+                # Create lightweight category for very large files
+                if advanced_features and enable_lightweight_categorization:
+                    lightweight_category = self._create_lightweight_category(advanced_features, metadata)
+                    if lightweight_category:
+                        log_universal('INFO', 'Audio', f'Created lightweight category for very large file: {lightweight_category}')
+                        # Store category in metadata
+                        metadata['lightweight_category'] = lightweight_category
+            else:
+                log_universal('INFO', 'Audio', f'Step 5: Extracting MusicNN features for {os.path.basename(file_path)}')
+                musicnn_features = self._extract_musicnn_features(audio, sample_rate, file_path)
+                if musicnn_features:
+                    self.db_manager.save_musicnn_features(file_path, musicnn_features)
+                    log_universal('INFO', 'Audio', f'MusicNN features saved to database')
             
             # STEP 6: Ensure everything written to DB
             log_universal('INFO', 'Audio', f'Step 6: Committing all analysis results to database for {os.path.basename(file_path)}')
@@ -1214,12 +1230,10 @@ class AudioAnalyzer:
                 file_size_mb = audio_size_bytes / (1024 * 1024)
             
             half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 25)  # Align with main analysis threshold
-            print(f"MUSICNN_DEBUG: threshold={half_track_threshold_mb}MB, file_size={file_size_mb:.1f}MB")  # Direct print for debugging
             log_universal('DEBUG', 'Audio', f'MusicNN half-track threshold: {half_track_threshold_mb}MB, file size: {file_size_mb:.1f}MB')
             
             # Use half-track for files larger than threshold, but only if MusicNN is suitable
             use_half_track = file_size_mb > half_track_threshold_mb and model_manager.is_file_suitable_for_musicnn(len(audio) * 4)
-            print(f"MUSICNN_DEBUG: decision: file_size({file_size_mb:.1f}) > threshold({half_track_threshold_mb}) = {file_size_mb > half_track_threshold_mb}, suitable = {model_manager.is_file_suitable_for_musicnn(len(audio) * 4)}, use_half_track = {use_half_track}")  # Direct print for debugging
             log_universal('DEBUG', 'Audio', f'MusicNN decision: file_size_mb({file_size_mb:.1f}) > threshold({half_track_threshold_mb}) = {file_size_mb > half_track_threshold_mb}, suitable = {model_manager.is_file_suitable_for_musicnn(len(audio) * 4)}, use_half_track = {use_half_track}')
             
             if use_half_track:
@@ -3232,6 +3246,83 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'External API enrichment failed: {e}')
             return metadata
+
+    def _create_lightweight_category(self, features: Dict[str, Any], metadata: Dict[str, Any]) -> Optional[str]:
+        """
+        Create a lightweight category for very large files based on basic features.
+        
+        Args:
+            features: Advanced categorization features
+            metadata: File metadata
+            
+        Returns:
+            Category string or None
+        """
+        try:
+            # Extract key features for categorization
+            danceability = features.get('danceability', 0.0)
+            dynamic_complexity = features.get('dynamic_complexity', 0.0)
+            silence_rate = features.get('silence_rate', 0.0)
+            zero_crossing_rate = features.get('zero_crossing_rate', 0.0)
+            harmonic_peaks_count = features.get('harmonic_peaks_count', 0)
+            
+            # Get metadata hints
+            artist = metadata.get('artist', '').lower()
+            title = metadata.get('title', '').lower()
+            genre = metadata.get('genre', '').lower()
+            
+            # Category determination logic
+            category = None
+            
+            # 1. Check for specific keywords in metadata
+            if any(word in artist or word in title for word in ['podcast', 'radio', 'show', 'episode']):
+                category = 'Podcast/Radio'
+            elif any(word in artist or word in title for word in ['mix', 'compilation', 'various']):
+                category = 'Mix/Compilation'
+            elif any(word in artist or word in title for word in ['interview', 'talk', 'speech']):
+                category = 'Speech/Interview'
+            elif any(word in artist or word in title for word in ['ambient', 'chill', 'relax']):
+                category = 'Ambient/Chill'
+            elif any(word in artist or word in title for word in ['classical', 'orchestra', 'symphony']):
+                category = 'Classical/Orchestral'
+            elif any(word in artist or word in title for word in ['jazz', 'blues', 'smooth']):
+                category = 'Jazz/Blues'
+            elif any(word in artist or word in title for word in ['electronic', 'techno', 'trance', 'house']):
+                category = 'Electronic/Dance'
+            elif any(word in artist or word in title for word in ['rock', 'metal', 'punk']):
+                category = 'Rock/Metal'
+            elif any(word in artist or word in title for word in ['pop', 'indie', 'alternative']):
+                category = 'Pop/Indie'
+            elif any(word in artist or word in title for word in ['hip', 'rap', 'urban']):
+                category = 'Hip-Hop/Rap'
+            elif any(word in artist or word in title for word in ['country', 'folk', 'acoustic']):
+                category = 'Country/Folk'
+            elif any(word in artist or word in title for word in ['reggae', 'latin', 'world']):
+                category = 'World/Latin'
+            
+            # 2. If no metadata-based category, use audio features
+            if not category:
+                if danceability > 0.7:
+                    category = 'High Energy/Dance'
+                elif danceability < 0.3:
+                    category = 'Low Energy/Ambient'
+                elif dynamic_complexity > 0.8:
+                    category = 'Dynamic/Complex'
+                elif silence_rate > 0.5:
+                    category = 'Speech/Spoken'
+                elif zero_crossing_rate > 0.1:
+                    category = 'Noisy/Experimental'
+                elif harmonic_peaks_count > 100:
+                    category = 'Harmonic/Rich'
+                else:
+                    category = 'Mixed/General'
+            
+            log_universal('DEBUG', 'Audio', f'Lightweight category created: {category} (danceability: {danceability:.2f}, complexity: {dynamic_complexity:.2f})')
+            return category
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to create lightweight category: {e}')
+            return None
 
     def _extract_advanced_categorization_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
         """Extract advanced features for music categorization (optimized for performance)."""

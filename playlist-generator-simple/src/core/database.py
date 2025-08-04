@@ -262,6 +262,27 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Check if this file already has a failed analysis entry
+                cursor.execute("""
+                    SELECT cache_value FROM cache 
+                    WHERE cache_key = ? AND cache_type = 'failed_analysis'
+                """, (f"failed_analysis:{file_path}",))
+                
+                existing_entry = cursor.fetchone()
+                retry_count = 0
+                
+                if existing_entry:
+                    try:
+                        existing_data = json.loads(existing_entry[0])
+                        retry_count = existing_data.get('retry_count', 0) + 1
+                        log_universal('DEBUG', 'Database', f'Incrementing retry count for {filename}: {retry_count}')
+                    except json.JSONDecodeError:
+                        retry_count = 1
+                        log_universal('WARNING', 'Database', f'Invalid JSON in existing failed analysis entry for {filename}')
+                else:
+                    retry_count = 0
+                    log_universal('DEBUG', 'Database', f'First failure for {filename}')
+                
                 # Use cache table for failed analysis with cache_type='failed_analysis'
                 cache_key = f"failed_analysis:{file_path}"
                 cache_value = json.dumps({
@@ -269,7 +290,7 @@ class DatabaseManager:
                     'filename': filename,
                     'file_hash': file_hash,
                     'error_message': error_message,
-                    'retry_count': 0,
+                    'retry_count': retry_count,
                     'last_retry_date': datetime.now().isoformat(),
                     'status': 'failed'
                 })
@@ -281,7 +302,8 @@ class DatabaseManager:
                 """, (cache_key, cache_value))
                 
                 conn.commit()
-                log_universal('INFO', 'Database', f'Marked analysis as failed: {filename}')
+                log_universal('INFO', 'Database', f'Marked analysis as failed: {filename} - Error: {error_message}')
+                log_universal('DEBUG', 'Database', f'Stored failed analysis in cache table with key: failed_analysis:{file_path}')
                 return True
                 
         except Exception as e:
@@ -477,7 +499,15 @@ class DatabaseManager:
                 """)
                 
                 failed_files = []
-                for row in cursor.fetchall():
+                cursor.execute("""
+                    SELECT cache_value
+                    FROM cache
+                    WHERE cache_type = 'failed_analysis'
+                    ORDER BY created_at DESC
+                """)
+                rows = cursor.fetchall()
+                log_universal('DEBUG', 'Database', f'Found {len(rows)} failed analysis entries in cache table')
+                for row in rows:
                     try:
                         cache_data = json.loads(row[0])
                         retry_count = cache_data.get('retry_count', 0)
@@ -492,6 +522,7 @@ class DatabaseManager:
                                 'last_retry_date': cache_data.get('last_retry_date'),
                                 'status': cache_data.get('status', 'failed')
                             })
+                            log_universal('DEBUG', 'Database', f'Retrieved failed file: {cache_data.get("filename")} (retry count: {retry_count})')
                     except json.JSONDecodeError:
                         log_universal('WARNING', 'Database', f'Invalid JSON in cache for failed analysis')
                         continue
@@ -782,6 +813,62 @@ class DatabaseManager:
                 return True
         except Exception as e:
             log_universal('ERROR', 'Database', f'Delete failed analysis error: {e}')
+            return False
+
+    # 🔄 Increment failed analysis retry count
+    @log_function_call
+    def increment_failed_analysis_retry(self, file_path: str) -> bool:
+        """
+        Increment the retry count for a failed analysis entry.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get current retry count
+                cursor.execute("""
+                    SELECT cache_value FROM cache 
+                    WHERE cache_key = ? AND cache_type = 'failed_analysis'
+                """, (f"failed_analysis:{file_path}",))
+                
+                existing_entry = cursor.fetchone()
+                if not existing_entry:
+                    log_universal('WARNING', 'Database', f'No failed analysis entry found for: {file_path}')
+                    return False
+                
+                try:
+                    existing_data = json.loads(existing_entry[0])
+                    current_retry_count = existing_data.get('retry_count', 0)
+                    new_retry_count = current_retry_count + 1
+                    
+                    # Update the retry count
+                    existing_data['retry_count'] = new_retry_count
+                    existing_data['last_retry_date'] = datetime.now().isoformat()
+                    
+                    cache_value = json.dumps(existing_data)
+                    
+                    cursor.execute("""
+                        UPDATE cache 
+                        SET cache_value = ?, created_at = CURRENT_TIMESTAMP
+                        WHERE cache_key = ? AND cache_type = 'failed_analysis'
+                    """, (cache_value, f"failed_analysis:{file_path}"))
+                    
+                    conn.commit()
+                    log_universal('INFO', 'Database', f'Incremented retry count for {file_path}: {new_retry_count}')
+                    return True
+                    
+                except json.JSONDecodeError:
+                    log_universal('ERROR', 'Database', f'Invalid JSON in failed analysis entry for: {file_path}')
+                    return False
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to increment retry count: {e}')
             return False
 
     # 🧮 Database statistics snapshot

@@ -180,6 +180,10 @@ class AnalysisManager:
             if not include_failed:
                 failed_files_cache = self.db_manager.get_failed_analysis_files(max_retries=self.failed_files_max_retries)
                 failed_files_paths = {f['file_path'] for f in failed_files_cache}
+                log_universal('DEBUG', 'Analysis', f'Retrieved {len(failed_files_cache)} failed files from database')
+                if failed_files_cache:
+                    for failed_file in failed_files_cache:
+                        log_universal('DEBUG', 'Analysis', f'Failed file: {failed_file["filename"]} - {failed_file["error_message"]}')
             
             files_to_analyze = []
             skipped_count = 0
@@ -264,6 +268,8 @@ class AnalysisManager:
                             return False
                         else:
                             log_universal('DEBUG', 'Analysis', f"File previously failed analysis (retry {retry_count}/{self.failed_files_max_retries}): {file_path}")
+                            # Increment retry count when including for retry
+                            self.db_manager.increment_failed_analysis_retry(file_path)
                             return True  # Include for retry if under max retries
         else:
             # If include_failed is True, include failed files for retry
@@ -273,6 +279,8 @@ class AnalysisManager:
                         retry_count = failed_file.get('retry_count', 0)
                         if retry_count < self.failed_files_max_retries:
                             log_universal('DEBUG', 'Analysis', f"Including previously failed file for retry: {file_path}")
+                            # Increment retry count when including for retry
+                            self.db_manager.increment_failed_analysis_retry(file_path)
                             return True
         
         return True
@@ -481,7 +489,7 @@ class AnalysisManager:
         sequential_files, parallel_half_files, parallel_full_files = self._categorize_files_by_size(files)
         
         log_universal('INFO', 'Analysis', f"File categorization:")
-        log_universal('INFO', 'Analysis', f"  Sequential files (>200MB): {len(sequential_files)} (Sequential + Aggressive sampling + Full)")
+        log_universal('INFO', 'Analysis', f"  Sequential files (>200MB): {len(sequential_files)} (Sequential + Aggressive sampling + Lightweight categorization)")
         log_universal('INFO', 'Analysis', f"  Parallel half files (25-200MB): {len(parallel_half_files)} (Parallel + Half-track + Full)")
         log_universal('INFO', 'Analysis', f"  Parallel full files (<25MB): {len(parallel_full_files)} (Parallel + Full)")
         
