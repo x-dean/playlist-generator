@@ -3,11 +3,23 @@ FastAPI application entry point for Playlist Generator.
 Main application with OpenAPI documentation and middleware.
 """
 
+# Suppress TensorFlow warnings globally
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow warnings
+
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+
+# Suppress TensorFlow logging after import
+try:
+    import tensorflow as tf
+    tf.get_logger().setLevel('ERROR')
+    tf.autograph.set_verbosity(0)
+except ImportError:
+    pass
 
 from .api.routes import router
 from .infrastructure.container import configure_container

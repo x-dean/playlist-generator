@@ -11,6 +11,9 @@ from typing import Dict, Any, Optional, Tuple
 from threading import RLock
 from datetime import datetime
 
+# Suppress TensorFlow warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=no INFO, 2=no INFO/WARNING, 3=no INFO/WARNING/ERROR
+
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
 from .config_loader import config_loader
@@ -20,6 +23,10 @@ logger = get_logger('playlista.model_manager')
 # Check for TensorFlow
 try:
     import tensorflow as tf
+    # Suppress TensorFlow logging
+    tf.get_logger().setLevel('ERROR')
+    # Disable TensorFlow warnings about network creation
+    tf.autograph.set_verbosity(0)
     TENSORFLOW_AVAILABLE = True
 except ImportError:
     TENSORFLOW_AVAILABLE = False
@@ -223,52 +230,34 @@ class ModelManager:
             return False
     
     def _load_musicnn_models(self) -> bool:
-        """Load MusicNN models with enhanced error handling."""
+        """Load MusicNN models with enhanced error handling and warning suppression."""
         try:
-            import essentia.standard as es
+            # Suppress TensorFlow warnings during model loading
             import tensorflow as tf
-            
-            # Configure TensorFlow to suppress warnings
             tf.get_logger().setLevel('ERROR')
-            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all warnings including GPU
+            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TF warnings
+            tf.autograph.set_verbosity(0)
             
-            # Configure GPU memory growth to prevent warnings
-            try:
-                gpus = tf.config.experimental.list_physical_devices('GPU')
-                if gpus:
-                    for gpu in gpus:
-                        tf.config.experimental.set_memory_growth(gpu, True)
-                    log_universal('DEBUG', 'Model', 'GPU memory growth enabled')
-                else:
-                    # Disable GPU logging when no GPU is available
-                    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-                    log_universal('DEBUG', 'Model', 'No GPU detected, using CPU only')
-            except Exception as e:
-                log_universal('DEBUG', 'Model', f'GPU configuration failed: {e}')
-                # Ensure GPU warnings are suppressed
-                os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+            # Temporarily disable TensorFlow logging
+            import logging
+            tf_logger = logging.getLogger('tensorflow')
+            tf_logger.setLevel(logging.ERROR)
             
-            # Create TensorFlow session with optimized settings
-            config = tf.compat.v1.ConfigProto()
-            config.gpu_options.allow_growth = True
-            config.intra_op_parallelism_threads = 1
-            config.inter_op_parallelism_threads = 1
-            # Suppress GPU warnings in session config
-            config.log_device_placement = False
+            log_universal('INFO', 'Model', 'Loading MusicNN models...')
             
-            with tf.compat.v1.Session(config=config) as session:
-                # Load MusicNN JSON configuration
-                if not self._load_musicnn_config():
-                    return False
-                
-                # Load MusicNN models
-                if not self._load_musicnn_model_instances():
-                    return False
+            # Load model configuration
+            if not self._load_musicnn_config():
+                return False
             
+            # Load model instances
+            if not self._load_musicnn_model_instances():
+                return False
+            
+            log_universal('INFO', 'Model', 'MusicNN models loaded successfully')
             return True
             
         except Exception as e:
-            log_universal('ERROR', 'Model', f'Model loading failed: {e}')
+            log_universal('ERROR', 'Model', f'Failed to load MusicNN models: {e}')
             return False
     
     def _load_musicnn_config(self) -> bool:
@@ -296,14 +285,29 @@ class ModelManager:
             return False
     
     def _load_musicnn_model_instances(self) -> bool:
-        """Load MusicNN model instances with enhanced error handling."""
+        """Load MusicNN model instances with warning suppression."""
         try:
             import essentia.standard as es
+            import tensorflow as tf
+            
+            # Suppress TensorFlow warnings during model instance loading
+            tf.get_logger().setLevel('ERROR')
+            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+            tf.autograph.set_verbosity(0)
+            
+            # Temporarily disable TensorFlow logging
+            import logging
+            tf_logger = logging.getLogger('tensorflow')
+            tf_logger.setLevel(logging.ERROR)
             
             # Load activations model
-            log_universal('DEBUG', 'Model', 'Loading MusicNN activations model...')
+            log_universal('DEBUG', 'Model', 'Loading MusicNN activations model')
+            
             try:
-                self._musicnn_activations_model = es.TensorflowPredictMusiCNN(graphFilename=self.musicnn_model_path)
+                self._musicnn_activations_model = es.TensorflowPredictMusiCNN(
+                    graphFilename=self.musicnn_model_path,
+                    output='model/Sigmoid'
+                )
                 log_universal('INFO', 'Model', 'Loaded MusicNN activations model')
             except Exception as e:
                 log_universal('ERROR', 'Model', f'Failed to load activations model: {e}')

@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """
-Test script to verify MusiCNN model file paths and accessibility.
+Test script to check MusicNN model paths and availability.
 """
 
+# Suppress TensorFlow warnings
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow warnings
+
 import sys
+from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# Add src to Python path
+src_path = Path(__file__).parent / "src"
+sys.path.insert(0, str(src_path))
 
-from core.config_loader import ConfigLoader
+from src.core.config_loader import ConfigLoader
 from core.logging_setup import log_universal
 
 def test_musicnn_paths():
@@ -74,6 +79,9 @@ def test_musicnn_paths():
     print(f"\nTensorFlow check:")
     try:
         import tensorflow as tf
+        # Suppress TensorFlow warnings
+        tf.get_logger().setLevel('ERROR')
+        tf.autograph.set_verbosity(0)
         print(f"  TensorFlow version: {tf.__version__}")
         print(f"  TensorFlow available: True")
     except ImportError:
@@ -84,6 +92,9 @@ def test_musicnn_paths():
     if os.path.exists(model_path):
         try:
             import tensorflow as tf
+            # Suppress TensorFlow warnings during model loading
+            tf.get_logger().setLevel('ERROR')
+            tf.autograph.set_verbosity(0)
             if model_path.endswith('.pb'):
                 model = tf.saved_model.load(model_path)
                 print(f"  ✓ Model loaded successfully (SavedModel)")

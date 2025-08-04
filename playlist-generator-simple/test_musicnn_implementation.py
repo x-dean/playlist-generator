@@ -4,7 +4,10 @@ Test script for MusiCNN implementation.
 Verifies model loading and feature extraction.
 """
 
+# Suppress TensorFlow warnings
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all TensorFlow warnings
+
 import sys
 import json
 from pathlib import Path
