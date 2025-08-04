@@ -679,14 +679,15 @@ class AudioAnalyzer:
                     else:
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for rhythm extraction')
                 else:
-                    estimated_size_mb = (len(audio) * 4) / (1024 * 1024)
-                    if estimated_size_mb > half_track_threshold_mb:
+                    # Get file size from database instead of estimation
+                    file_size_mb = self.db_manager.get_file_size_mb(file_path)
+                    if file_size_mb > half_track_threshold_mb:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB estimated) - using half-track loading for rhythm extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using half-track loading for rhythm extraction')
                     else:
-                        log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for rhythm extraction')
+                        log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB from DB) - using full audio for rhythm extraction')
 
                 # Extract rhythm features
                 rhythm_extractor = es.RhythmExtractor2013(
@@ -1072,17 +1073,17 @@ class AudioAnalyzer:
                         # Use full audio for small files
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for MFCC extraction')
                 else:
-                    # Fallback to estimated size if actual size not provided
-                    estimated_size_mb = (len(audio) * 4) / (1024 * 1024)  # Rough estimate
-                    if estimated_size_mb > half_track_threshold_mb:
+                    # Get file size from database instead of estimation
+                    file_size_mb = self.db_manager.get_file_size_mb(file_path)
+                    if file_size_mb > half_track_threshold_mb:
                         # Use half-track loading for large files (middle 50%)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB estimated) - using half-track loading for MFCC extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using half-track loading for MFCC extraction')
                     else:
                         # Use full audio for small files
-                        log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for MFCC extraction')
+                        log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB from DB) - using full audio for MFCC extraction')
                 
                 # MFCC
                 mfcc = es.MFCC()
@@ -1397,14 +1398,15 @@ class AudioAnalyzer:
                     else:
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for chroma extraction')
                 else:
-                    estimated_size_mb = (len(audio) * 4) / (1024 * 1024)
-                    if estimated_size_mb > half_track_threshold_mb:
+                    # Get file size from database instead of estimation
+                    file_size_mb = self.db_manager.get_file_size_mb(file_path)
+                    if file_size_mb > half_track_threshold_mb:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB estimated) - using half-track loading for chroma extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using half-track loading for chroma extraction')
                     else:
-                        log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for chroma extraction')
+                        log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB from DB) - using full audio for chroma extraction')
 
                 # Initialize Chromagram with correct parameters and required frame size
                 chroma_algo = es.Chromagram(
