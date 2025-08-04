@@ -245,9 +245,10 @@ class AudioAnalyzer:
         Steps:
         1. Extract artist/track using mutagen with tag mapping (save to DB)
         2. Fallback: filename pattern extraction if mutagen fails
-        3. Extract values using Essentia
-        4. Extract values using MusicNN
-        5. Ensure everything written to DB
+        3. Enrich metadata with external APIs (MusicBrainz, Last.fm, etc.)
+        4. Extract values using Essentia
+        5. Extract values using MusicNN
+        6. Ensure everything written to DB
         
         Args:
             file_path: Path to the audio file
@@ -291,6 +292,14 @@ class AudioAnalyzer:
                     self.db_manager.save_metadata(file_path, metadata)
                     log_universal('INFO', 'Audio', f'Filename pattern metadata saved: {metadata.get("artist", "Unknown")} - {metadata.get("title", "Unknown")}')
             
+            # STEP 3: Enrich metadata with external APIs
+            log_universal('INFO', 'Audio', f'Step 3: Enriching metadata with external APIs for {os.path.basename(file_path)}')
+            enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
+            if enriched_metadata and enriched_metadata != metadata:
+                self.db_manager.save_metadata(file_path, enriched_metadata)
+                log_universal('INFO', 'Audio', f'Enriched metadata saved: {enriched_metadata.get("artist", "Unknown")} - {enriched_metadata.get("title", "Unknown")}')
+                metadata = enriched_metadata
+            
             # Load audio data
             log_universal('INFO', 'Audio', f'Loading audio data for {os.path.basename(file_path)}')
             audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
@@ -299,22 +308,22 @@ class AudioAnalyzer:
                 log_universal('ERROR', 'Audio', f'Failed to load audio: {os.path.basename(file_path)}')
                 return None
             
-            # STEP 3: Extract values using Essentia
-            log_universal('INFO', 'Audio', f'Step 3: Extracting Essentia features for {os.path.basename(file_path)}')
+            # STEP 4: Extract values using Essentia
+            log_universal('INFO', 'Audio', f'Step 4: Extracting Essentia features for {os.path.basename(file_path)}')
             essentia_features = self._extract_essentia_features(audio, sample_rate)
             if essentia_features:
                 self.db_manager.save_essentia_features(file_path, essentia_features)
                 log_universal('INFO', 'Audio', f'Essentia features saved to database')
             
-            # STEP 4: Extract values using MusicNN
-            log_universal('INFO', 'Audio', f'Step 4: Extracting MusicNN features for {os.path.basename(file_path)}')
+            # STEP 5: Extract values using MusicNN
+            log_universal('INFO', 'Audio', f'Step 5: Extracting MusicNN features for {os.path.basename(file_path)}')
             musicnn_features = self._extract_musicnn_features(audio, sample_rate)
             if musicnn_features:
                 self.db_manager.save_musicnn_features(file_path, musicnn_features)
                 log_universal('INFO', 'Audio', f'MusicNN features saved to database')
             
-            # STEP 5: Ensure everything written to DB
-            log_universal('INFO', 'Audio', f'Step 5: Committing all analysis results to database for {os.path.basename(file_path)}')
+            # STEP 6: Ensure everything written to DB
+            log_universal('INFO', 'Audio', f'Step 6: Committing all analysis results to database for {os.path.basename(file_path)}')
             all_features = {
                 'essentia': essentia_features,
                 'musicnn': musicnn_features,
@@ -330,7 +339,7 @@ class AudioAnalyzer:
                 'file_path': file_path,
                 'sample_rate': sample_rate,
                 'audio_length': len(audio),
-                'analysis_mode': 'simplified_5_step'
+                'analysis_mode': 'simplified_6_step'
             }
             
             # Cache the result
@@ -2946,6 +2955,44 @@ class AudioAnalyzer:
                 metadata['artist'] = 'Unknown Artist'
             if not metadata.get('title'):
                 metadata['title'] = os.path.basename(file_path) or 'Unknown Title'
+
+    def _enrich_metadata_with_external_apis(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Enrich metadata using external APIs (MusicBrainz, Last.fm, etc.).
+        
+        Args:
+            metadata: Original metadata dictionary
+            
+        Returns:
+            Enriched metadata dictionary
+        """
+        try:
+            from .external_apis import get_enhanced_metadata_enrichment_service
+            
+            enrichment_service = get_enhanced_metadata_enrichment_service()
+            if enrichment_service.is_available():
+                log_universal('DEBUG', 'Audio', 'Enriching metadata with external APIs')
+                enriched_metadata = enrichment_service.enrich_metadata(metadata)
+                
+                # Log what was enriched
+                original_artist = metadata.get('artist', 'Unknown')
+                original_title = metadata.get('title', 'Unknown')
+                enriched_artist = enriched_metadata.get('artist', original_artist)
+                enriched_title = enriched_metadata.get('title', original_title)
+                
+                if enriched_artist != original_artist or enriched_title != original_title:
+                    log_universal('INFO', 'Audio', f'External API enrichment successful: {original_artist} - {original_title} → {enriched_artist} - {enriched_title}')
+                else:
+                    log_universal('INFO', 'Audio', f'External API enrichment completed (no changes): {original_artist} - {original_title}')
+                
+                return enriched_metadata
+            else:
+                log_universal('DEBUG', 'Audio', 'No external APIs available for enrichment')
+                return metadata
+                
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'External API enrichment failed: {e}')
+            return metadata
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':
