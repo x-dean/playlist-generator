@@ -5,13 +5,12 @@ This is the primary CLI interface for all functionality.
 """
 
 import os
-import sys
-from pathlib import Path
-
 # Configure TensorFlow logging BEFORE any imports
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Hide INFO and WARNING, show only ERROR
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimization messages
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU to avoid GPU-related warnings
+import sys
+from pathlib import Path
 
 # Add src to Python path
 src_path = Path(__file__).parent / "src"
@@ -21,4 +20,4 @@ sys.path.insert(0, str(src_path))
 from enhanced_cli import main
 
 if __name__ == "__main__":
-    exit(main()) 
+    exit(main())

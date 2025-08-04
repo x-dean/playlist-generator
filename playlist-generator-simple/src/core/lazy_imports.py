@@ -70,6 +70,10 @@ mutagen = LazyImport('mutagen')
 def get_tensorflow():
     """Get TensorFlow with proper configuration."""
     import os
+    # Configure TensorFlow logging BEFORE any imports
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Hide INFO and WARNING, show only ERROR
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimization messages
+    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU to avoid GPU-related warnings
     # Set TensorFlow logging before import
     os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '3')
     os.environ.setdefault('TF_ENABLE_ONEDNN_OPTS', '0')
@@ -84,6 +88,10 @@ def get_tensorflow():
 def get_essentia():
     """Get Essentia with proper configuration."""
     import os
+    # Configure TensorFlow logging BEFORE any imports
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Hide INFO and WARNING, show only ERROR
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimization messages
+    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU to avoid GPU-related warnings
     os.environ.setdefault('ESSENTIA_LOG_LEVEL', 'error')
     return essentia_standard
 

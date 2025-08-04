@@ -5,6 +5,10 @@ Provides various playlist generation methods using analyzed audio features.
 
 import logging
 import os
+# Configure TensorFlow logging BEFORE any imports
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Hide INFO and WARNING, show only ERROR
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimization messages
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU to avoid GPU-related warnings
 import json
 import random
 import numpy as np

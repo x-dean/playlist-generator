@@ -6,6 +6,10 @@ Implements domain interfaces with SQLite database.
 import sqlite3
 import json
 import os
+# Configure TensorFlow logging BEFORE any imports
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Hide INFO and WARNING, show only ERROR
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimization messages
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU to avoid GPU-related warnings
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from contextlib import contextmanager

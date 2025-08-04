@@ -174,6 +174,10 @@ def setup_logging(config: Dict[str, Any] = None):
     # Configure TensorFlow logging to suppress warnings
     try:
         import os
+        # Configure TensorFlow logging BEFORE any imports
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Hide INFO and WARNING, show only ERROR
+        os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimization messages
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU to avoid GPU-related warnings
         import tensorflow as tf
         
         # Aggressive TensorFlow warning suppression

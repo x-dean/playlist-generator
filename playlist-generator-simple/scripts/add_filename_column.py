@@ -5,6 +5,10 @@ Script to add filename column to existing analysis_cache table.
 
 import sqlite3
 import os
+# Configure TensorFlow logging BEFORE any imports
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Hide INFO and WARNING, show only ERROR
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimization messages
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU to avoid GPU-related warnings
 import sys
 
 def add_filename_column(db_path: str) -> bool:
