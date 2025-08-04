@@ -111,7 +111,11 @@ CREATE TABLE tracks (
     
     -- MusiCNN features (from _extract_musicnn_features)
     embedding TEXT, -- JSON array of 200-dimensional MusiCNN embedding
+    embedding_std TEXT, -- JSON array of embedding standard deviations
+    embedding_min TEXT, -- JSON array of embedding minimum values
+    embedding_max TEXT, -- JSON array of embedding maximum values
     tags TEXT, -- JSON object of MusiCNN tag names to confidence scores
+    musicnn_skipped INTEGER DEFAULT 0, -- Track if MusicNN was skipped (0=no, 1=yes)
     
     -- Chroma features (from _extract_chroma_features)
     chroma_mean TEXT, -- JSON array of 12-dimensional chroma means

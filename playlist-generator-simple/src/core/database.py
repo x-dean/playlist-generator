@@ -159,7 +159,7 @@ class DatabaseManager:
                     get(analysis_data, 'acousticness'), get(analysis_data, 'instrumentalness'),
                     get(analysis_data, 'speechiness'), get(analysis_data, 'valence'), get(analysis_data, 'liveness'),
                     get(analysis_data, 'popularity'), j('mfcc_coefficients'), j('mfcc_bands'), j('mfcc_std'), j('mfcc_delta'), j('mfcc_delta2'),
-                    jd('embedding'), jd('tags'), j('chroma_mean'), j('chroma_std'),
+                    jd('embedding'), jd('embedding_std'), jd('embedding_min'), jd('embedding_max'), jd('tags'), get(analysis_data, 'musicnn_skipped', 0), j('chroma_mean'), j('chroma_std'),
                     get(metadata, 'composer'), get(metadata, 'lyricist'), get(metadata, 'band'), get(metadata, 'conductor'),
                     get(metadata, 'remixer'), get(metadata, 'subtitle'), get(metadata, 'grouping'), get(metadata, 'publisher'),
                     get(metadata, 'copyright'), get(metadata, 'encoded_by'), get(metadata, 'language'), get(metadata, 'mood'),
@@ -187,7 +187,7 @@ class DatabaseManager:
                         danceability, energy, mode,
                         acousticness, instrumentalness, speechiness, valence, liveness, popularity,
                         mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2,
-                        embedding, tags,
+                        embedding, embedding_std, embedding_min, embedding_max, tags, musicnn_skipped,
                         chroma_mean, chroma_std,
                         composer, lyricist, band, conductor, remixer, subtitle, grouping, publisher,
                         copyright, encoded_by, language, mood,
@@ -196,7 +196,7 @@ class DatabaseManager:
                         replaygain_track_gain, replaygain_album_gain, replaygain_track_peak, replaygain_album_peak,
                         analysis_type, analyzed, long_audio_category, discovery_source,
                         created_at, updated_at
-                    ) VALUES ({', '.join(['?'] * 94)})
+                    ) VALUES ({', '.join(['?'] * 98)})
                 """, values)
 
                 # Save tags if present

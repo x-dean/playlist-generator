@@ -658,6 +658,7 @@ class AudioAnalyzer:
                 features.update(musicnn_features)
             else:
                 log_universal('INFO', 'Audio', f'MusiCNN extraction skipped: extract_musicnn={self.extract_musicnn}, TENSORFLOW_AVAILABLE={TENSORFLOW_AVAILABLE}')
+                features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
             
             # Extract chroma features (always extract for sequential processing)
             if self.extract_chroma:
@@ -1054,7 +1055,7 @@ class AudioAnalyzer:
         return features
     
     def _extract_musicnn_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
-        """Extract MusiCNN features using shared model instances."""
+        """Extract MusiCNN features using shared model instances with enhanced error handling."""
         features = {}
         
         log_universal('DEBUG', 'Audio', f'MusiCNN extraction started: audio shape={audio.shape}, sample_rate={sample_rate}')
@@ -1062,16 +1063,23 @@ class AudioAnalyzer:
         try:
             if not TENSORFLOW_AVAILABLE:
                 log_universal('WARNING', 'Audio', 'TensorFlow not available - skipping MusiCNN features')
-                features.update({'embedding': [], 'tags': {}})
+                features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
                 return features
             
             # Get shared model instances from model manager
             from .model_manager import get_model_manager
             model_manager = get_model_manager(self.config)
             
+            # Check if MusicNN is suitable for this audio data
+            audio_size_bytes = len(audio) * 4  # Estimate size (4 bytes per float32 sample)
+            if not model_manager.is_file_suitable_for_musicnn(audio_size_bytes):
+                log_universal('INFO', 'Audio', 'File not suitable for MusicNN processing (size/memory limits)')
+                features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                return features
+            
             if not model_manager.is_musicnn_available():
                 log_universal('WARNING', 'Audio', 'MusicNN models not available - skipping MusiCNN features')
-                features.update({'embedding': [], 'tags': {}})
+                features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
                 return features
             
             # Get shared model instances
@@ -1079,7 +1087,7 @@ class AudioAnalyzer:
             
             if not activations_model or not embeddings_model or not tag_names:
                 log_universal('WARNING', 'Audio', 'MusicNN models not properly loaded - skipping MusiCNN features')
-                features.update({'embedding': [], 'tags': {}})
+                features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
                 return features
             
             log_universal('DEBUG', 'Audio', 'Using shared MusicNN models')
@@ -1088,62 +1096,184 @@ class AudioAnalyzer:
             try:
                 log_universal('DEBUG', 'Audio', 'Starting MusiCNN inference...')
                 
-                # Resample audio to 16kHz for MusiCNN (like old setup)
-                if sample_rate != 16000:
-                    import librosa
-                    audio_16k = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
-                else:
-                    audio_16k = audio
-                
-                log_universal('DEBUG', 'Audio', f'Resampled audio to 16kHz: {len(audio_16k)} samples')
+                # Enhanced audio preprocessing for MusiCNN
+                audio_16k = self._prepare_audio_for_musicnn(audio, sample_rate)
+                if audio_16k is None:
+                    log_universal('ERROR', 'Audio', 'Failed to prepare audio for MusiCNN')
+                    features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                    return features
                 
                 # Run activations inference using shared model
                 log_universal('DEBUG', 'Audio', 'Running MusiCNN activations inference...')
                 activations = activations_model(audio_16k)  # shape: [time, tags]
                 
-                # Handle different return types
-                if isinstance(activations, list):
-                    activations = np.array(activations)
+                # Enhanced return type handling
+                activations = self._validate_and_convert_musicnn_output(activations, 'activations')
+                if activations is None:
+                    features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                    return features
                 
-                log_universal('DEBUG', 'Audio', f'MusiCNN activations shape: {activations.shape}')
-                
-                # Calculate tag probabilities (mean across time)
-                tag_probs = activations.mean(axis=0)
-                tags = dict(zip(tag_names, [float(prob) for prob in tag_probs]))
+                # Calculate tag probabilities with enhanced validation
+                tags = self._calculate_musicnn_tags(activations, tag_names)
+                if tags is None:
+                    features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                    return features
                 
                 log_universal('DEBUG', 'Audio', f'MusiCNN tags extracted: {len(tags)} tags')
+                log_universal('DEBUG', 'Audio', f'Top 5 predicted tags: {sorted(tags.items(), key=lambda x: x[1], reverse=True)[:5]}')
                 
                 # Run embeddings inference using shared model
                 log_universal('DEBUG', 'Audio', 'Running MusiCNN embeddings inference...')
                 embeddings = embeddings_model(audio_16k)
                 
-                # Handle embeddings
-                if isinstance(embeddings, list):
-                    embeddings = np.array(embeddings)
+                # Enhanced embeddings handling
+                embeddings = self._validate_and_convert_musicnn_output(embeddings, 'embeddings')
+                if embeddings is None:
+                    features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                    return features
                 
-                log_universal('DEBUG', 'Audio', f'MusiCNN embeddings shape: {embeddings.shape}')
-                
-                # Calculate embedding statistics
-                embedding_mean = embeddings.mean(axis=0).tolist()
-                embedding_std = embeddings.std(axis=0).tolist()
+                # Calculate embedding statistics with enhanced validation
+                embedding_stats = self._calculate_musicnn_embeddings(embeddings)
+                if embedding_stats is None:
+                    features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
+                    return features
                 
                 features.update({
-                    'embedding': embedding_mean,
-                    'embedding_std': embedding_std,
-                    'tags': tags
+                    'embedding': embedding_stats['mean'],
+                    'embedding_std': embedding_stats['std'],
+                    'embedding_min': embedding_stats['min'],
+                    'embedding_max': embedding_stats['max'],
+                    'tags': tags,
+                    'musicnn_skipped': 0
                 })
                 
-                log_universal('INFO', 'Audio', f'MusiCNN extraction completed successfully: {len(tags)} tags, {len(embedding_mean)} embedding dimensions')
+                log_universal('INFO', 'Audio', f'MusiCNN extraction completed successfully: {len(tags)} tags, {len(embedding_stats["mean"])} embedding dimensions')
                 
             except Exception as e:
                 log_universal('ERROR', 'Audio', f'MusiCNN inference failed: {e}')
-                features.update({'embedding': [], 'tags': {}})
+                features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
             
         except Exception as e:
             log_universal('ERROR', 'Audio', f'MusiCNN feature extraction failed: {e}')
-            features.update({'embedding': [], 'tags': {}})
+            features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
         
         return features
+    
+    def _prepare_audio_for_musicnn(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+        """Prepare audio for MusiCNN with enhanced preprocessing."""
+        try:
+            # Resample to 16kHz if needed
+            if sample_rate != 16000:
+                if ESSENTIA_AVAILABLE:
+                    import essentia.standard as es
+                    # Use Essentia resampler for better quality
+                    resampler = es.Resample(inputSampleRate=sample_rate, outputSampleRate=16000)
+                    audio_16k = resampler(audio)
+                    log_universal('DEBUG', 'Audio', f'Resampled with Essentia: {len(audio_16k)} samples at 16kHz')
+                else:
+                    # Fallback to librosa
+                    import librosa
+                    audio_16k = librosa.resample(audio, orig_sr=sample_rate, target_sr=16000)
+                    log_universal('DEBUG', 'Audio', f'Resampled with librosa: {len(audio_16k)} samples at 16kHz')
+            else:
+                audio_16k = audio
+                log_universal('DEBUG', 'Audio', f'Using original audio: {len(audio_16k)} samples at 16kHz')
+            
+            # Validate audio quality
+            if len(audio_16k) < 16000:  # Less than 1 second
+                log_universal('WARNING', 'Audio', 'Audio too short for MusiCNN analysis')
+                return None
+            
+            # Normalize audio if needed
+            if np.max(np.abs(audio_16k)) > 1.0:
+                audio_16k = audio_16k / np.max(np.abs(audio_16k))
+                log_universal('DEBUG', 'Audio', 'Normalized audio amplitude')
+            
+            return audio_16k
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Audio preparation failed: {e}')
+            return None
+    
+    def _validate_and_convert_musicnn_output(self, output, output_type: str) -> Optional[np.ndarray]:
+        """Validate and convert MusiCNN output with enhanced error handling."""
+        try:
+            if isinstance(output, list):
+                log_universal('DEBUG', 'Audio', f'MusiCNN {output_type} returned as list with {len(output)} elements')
+                output = np.array(output)
+            elif hasattr(output, 'shape'):
+                log_universal('DEBUG', 'Audio', f'MusiCNN {output_type} shape: {output.shape}')
+            else:
+                log_universal('WARNING', 'Audio', f'Unexpected {output_type} type: {type(output)}')
+                return None
+            
+            # Validate shape
+            if len(output.shape) != 2:
+                log_universal('WARNING', 'Audio', f'Unexpected {output_type} shape: {output.shape}, expected 2D array')
+                return None
+            
+            # Check for NaN or infinite values
+            if np.any(np.isnan(output)) or np.any(np.isinf(output)):
+                log_universal('WARNING', 'Audio', f'{output_type} contains NaN or infinite values')
+                return None
+            
+            return output
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'{output_type} validation failed: {e}')
+            return None
+    
+    def _calculate_musicnn_tags(self, activations: np.ndarray, tag_names: list) -> Optional[Dict[str, float]]:
+        """Calculate MusiCNN tags with enhanced validation."""
+        try:
+            # Calculate mean across time dimension
+            tag_probs = activations.mean(axis=0)
+            
+            # Validate probabilities
+            if np.any(np.isnan(tag_probs)) or np.any(np.isinf(tag_probs)):
+                log_universal('WARNING', 'Audio', 'Tag probabilities contain invalid values')
+                return None
+            
+            # Convert to dictionary with validation
+            tags = {}
+            for i, (tag_name, prob) in enumerate(zip(tag_names, tag_probs)):
+                if isinstance(tag_name, str) and not np.isnan(prob) and not np.isinf(prob):
+                    tags[tag_name] = float(prob)
+                else:
+                    log_universal('DEBUG', 'Audio', f'Skipping invalid tag {i}: name={tag_name}, prob={prob}')
+            
+            return tags
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Tag calculation failed: {e}')
+            return None
+    
+    def _calculate_musicnn_embeddings(self, embeddings: np.ndarray) -> Optional[Dict[str, list]]:
+        """Calculate MusiCNN embedding statistics with enhanced validation."""
+        try:
+            # Calculate statistics across time dimension
+            embedding_mean = embeddings.mean(axis=0)
+            embedding_std = embeddings.std(axis=0)
+            embedding_min = embeddings.min(axis=0)
+            embedding_max = embeddings.max(axis=0)
+            
+            # Validate statistics
+            for stat_name, stat_values in [('mean', embedding_mean), ('std', embedding_std), 
+                                         ('min', embedding_min), ('max', embedding_max)]:
+                if np.any(np.isnan(stat_values)) or np.any(np.isinf(stat_values)):
+                    log_universal('WARNING', 'Audio', f'Embedding {stat_name} contains invalid values')
+                    return None
+            
+            return {
+                'mean': embedding_mean.tolist(),
+                'std': embedding_std.tolist(),
+                'min': embedding_min.tolist(),
+                'max': embedding_max.tolist()
+            }
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Embedding calculation failed: {e}')
+            return None
     
     def _extract_chroma_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
         """Extract chroma features using frame-by-frame processing."""
@@ -2032,6 +2162,7 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', 'MusiCNN features extraction returned None for all samples')
             else:
                 log_universal('INFO', 'Audio', f'MusiCNN extraction disabled: extract_musicnn={self.extract_musicnn}, TENSORFLOW_AVAILABLE={TENSORFLOW_AVAILABLE}')
+                features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
             
             # Extract chroma features (for genre classification)
             if self.extract_chroma:
@@ -2087,6 +2218,7 @@ class AudioAnalyzer:
             
             # Skip memory-intensive features for long audio tracks
             log_universal('INFO', 'Audio', 'Skipping detailed analysis (MFCC, MusiCNN, chroma) for long audio track')
+            features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
             
             # Add BPM from metadata if available
             if metadata and 'bpm_from_metadata' in metadata:
