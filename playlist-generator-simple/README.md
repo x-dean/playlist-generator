@@ -142,7 +142,6 @@ playlist-generator-simple/
 │   ├── infrastructure/    # Infrastructure layer
 │   └── main.py            # Main entry point
 ├── docs/                  # Documentation files
-├── tests/                 # Test files
 ├── scripts/               # Utility scripts
 ├── config/                # Configuration files
 ├── database/              # Database schemas
