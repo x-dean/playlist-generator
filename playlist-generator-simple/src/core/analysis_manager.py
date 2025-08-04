@@ -24,7 +24,8 @@ from .file_discovery import FileDiscovery
 logger = get_logger('playlista.analysis_manager')
 
 # Constants
-BIG_FILE_SIZE_MB = 200  # Files larger than this use sequential processing (changed from 2000MB to 200MB)
+BIG_FILE_SIZE_MB = 100  # Files larger than this use sequential processing
+HALF_TRACK_SIZE_MB = 25  # Files larger than this use half-track loading
 DEFAULT_TIMEOUT_SECONDS = 300  # 5 minutes timeout for analysis
 DEFAULT_MEMORY_THRESHOLD_PERCENT = 85
 
@@ -468,45 +469,65 @@ class AnalysisManager:
         start_time = time.time()
         
         # Categorize files by size
-        big_files, small_files = self._categorize_files_by_size(files)
+        sequential_files, parallel_half_files, parallel_full_files = self._categorize_files_by_size(files)
         
         log_universal('INFO', 'Analysis', f"File categorization:")
-        log_universal('INFO', 'Analysis', f"  Large files (>={self.big_file_size_mb}MB): {len(big_files)} (Sequential + Half-track)")
-        log_universal('INFO', 'Analysis', f"  Small files (<{self.big_file_size_mb}MB): {len(small_files)} (Parallel: 100-200MB Half-track, <100MB Full)")
+        log_universal('INFO', 'Analysis', f"  Sequential files (>100MB): {len(sequential_files)} (Sequential + Half-track + Full)")
+        log_universal('INFO', 'Analysis', f"  Parallel half files (25-100MB): {len(parallel_half_files)} (Parallel + Half-track + Full)")
+        log_universal('INFO', 'Analysis', f"  Parallel full files (<25MB): {len(parallel_full_files)} (Parallel + Full)")
         
         results = {
             'success_count': 0,
             'failed_count': 0,
             'total_time': 0,
-            'big_files_processed': 0,
-            'small_files_processed': 0
+            'sequential_files_processed': 0,
+            'parallel_half_files_processed': 0,
+            'parallel_full_files_processed': 0
         }
         
-        # Process big files sequentially
-        if big_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(big_files)} large files sequentially (Half-track loading)")
-            big_results = self.sequential_analyzer.process_files(big_files, force_reextract)
-            results['success_count'] += big_results['success_count']
-            results['failed_count'] += big_results['failed_count']
-            results['big_files_processed'] = len(big_files)
+        # Process sequential files
+        if sequential_files:
+            log_universal('INFO', 'Analysis', f"Processing {len(sequential_files)} sequential files (Half-track loading)")
+            sequential_results = self.sequential_analyzer.process_files(sequential_files, force_reextract)
+            results['success_count'] += sequential_results['success_count']
+            results['failed_count'] += sequential_results['failed_count']
+            results['sequential_files_processed'] = len(sequential_files)
         
-        # Process small files using queue manager
-        if small_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(small_files)} small files using parallel analyzer (100-200MB: Half-track, <100MB: Full)")
-            log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files < {self.big_file_size_mb}MB")
+        # Process parallel half files
+        if parallel_half_files:
+            log_universal('INFO', 'Analysis', f"Processing {len(parallel_half_files)} parallel half files (Half-track loading)")
+            log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files 25-100MB")
             
             # Use threaded processing (now the default)
-            log_universal('INFO', 'Analysis', f"Using threaded processing for small files")
+            log_universal('INFO', 'Analysis', f"Using threaded processing for parallel half files")
             
             # Use direct parallel processing (proven approach)
-            small_results = self.parallel_analyzer.process_files(
-                small_files, force_reextract, max_workers
+            parallel_half_results = self.parallel_analyzer.process_files(
+                parallel_half_files, force_reextract, max_workers
             )
-            results['success_count'] += small_results['success_count']
-            results['failed_count'] += small_results['failed_count']
-            results['small_files_processed'] = len(small_files)
+            results['success_count'] += parallel_half_results['success_count']
+            results['failed_count'] += parallel_half_results['failed_count']
+            results['parallel_half_files_processed'] = len(parallel_half_files)
             
-            log_universal('INFO', 'Analysis', f"Parallel processing completed: {small_results['success_count']} successful, {small_results['failed_count']} failed")
+            log_universal('INFO', 'Analysis', f"Parallel processing completed: {parallel_half_results['success_count']} successful, {parallel_half_results['failed_count']} failed")
+        
+        # Process parallel full files
+        if parallel_full_files:
+            log_universal('INFO', 'Analysis', f"Processing {len(parallel_full_files)} parallel full files (Full processing)")
+            log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files < 25MB")
+            
+            # Use threaded processing (now the default)
+            log_universal('INFO', 'Analysis', f"Using threaded processing for parallel full files")
+            
+            # Use direct parallel processing (proven approach)
+            parallel_full_results = self.parallel_analyzer.process_files(
+                parallel_full_files, force_reextract, max_workers
+            )
+            results['success_count'] += parallel_full_results['success_count']
+            results['failed_count'] += parallel_full_results['failed_count']
+            results['parallel_full_files_processed'] = len(parallel_full_files)
+            
+            log_universal('INFO', 'Analysis', f"Parallel processing completed: {parallel_full_results['success_count']} successful, {parallel_full_results['failed_count']} failed")
         
         total_time = time.time() - start_time
         results['total_time'] = total_time
@@ -522,7 +543,7 @@ class AnalysisManager:
         
         return results
 
-    def _categorize_files_by_size(self, files: List[str]) -> Tuple[List[str], List[str]]:
+    def _categorize_files_by_size(self, files: List[str]) -> Tuple[List[str], List[str], List[str]]:
         """
         Categorize files by size for appropriate processing.
         
@@ -530,24 +551,30 @@ class AnalysisManager:
             files: List of file paths
             
         Returns:
-            Tuple of (big_files, small_files)
+            Tuple of (sequential_files, parallel_half_files, parallel_full_files)
         """
-        big_files = []
-        small_files = []
+        sequential_files = []  # >100MB: Sequential + Half-track + Full processing
+        parallel_half_files = []  # 25-100MB: Parallel + Half-track + Full processing
+        parallel_full_files = []  # <25MB: Parallel + Full processing
         
         for file_path in files:
             try:
-                size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                if size_mb >= self.big_file_size_mb:  # > 200MB: Sequential + Half-track
-                    big_files.append(file_path)
-                else:  # < 200MB: Parallel (100-200MB: Half-track, <100MB: Full)
-                    small_files.append(file_path)
+                # Get file size from database, not filesystem
+                file_size_mb = self.db_manager.get_file_size_mb(file_path)
+                
+                if file_size_mb > 100:  # Sequential + Half-track + Full processing
+                    sequential_files.append(file_path)
+                elif file_size_mb > 25:  # Parallel + Half-track + Full processing
+                    parallel_half_files.append(file_path)
+                else:  # Parallel + Full processing
+                    parallel_full_files.append(file_path)
+                    
             except Exception as e:
                 log_universal('WARNING', 'Analysis', f"Could not determine size for {file_path}: {e}")
                 # Default to sequential for unknown sizes
-                big_files.append(file_path)
+                sequential_files.append(file_path)
         
-        return big_files, small_files
+        return sequential_files, parallel_half_files, parallel_full_files
 
     def _get_analysis_config(self, file_path: str) -> Dict[str, Any]:
         """
@@ -560,20 +587,18 @@ class AnalysisManager:
             Analysis configuration dictionary
         """
         try:
-            # Get file size for analysis type determination
-            file_size_bytes = os.path.getsize(file_path)
-            file_size_mb = file_size_bytes / (1024 * 1024)
+            # Get file size from database for analysis type determination
+            file_size_mb = self.db_manager.get_file_size_mb(file_path)
             
-            # Enhanced analysis type determination based on file size - aligned with half-track threshold
-            max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 25)  # Aligned with half-track threshold
-            if file_size_mb > max_full_analysis_size_mb:  # Files over 25MB use half-track
-                analysis_type = 'basic'
+            # Simplified analysis type determination based on file size
+            if file_size_mb > 25:  # Files over 25MB use half-track
+                analysis_type = 'half_track'
                 use_full_analysis = False
-            else:  # Files up to 2GB - use full analysis
+            else:  # Files up to 25MB use full analysis
                 analysis_type = 'full'
                 use_full_analysis = True
             
-            # Enable MusiCNN for all files (including large ones for sequential processing)
+            # Enable MusiCNN for all files
             enable_musicnn = True
             
             analysis_config = {
@@ -602,14 +627,14 @@ class AnalysisManager:
             log_universal('WARNING', 'Analysis', f"Error getting analysis config for {file_path}: {e}")
             # Return basic analysis config as fallback
             return {
-                'analysis_type': 'basic',
-                'use_full_analysis': False,
+                'analysis_type': 'full',
+                'use_full_analysis': True,
                 'EXTRACT_RHYTHM': True,
                 'EXTRACT_SPECTRAL': True,
                 'EXTRACT_LOUDNESS': True,
                 'EXTRACT_KEY': True,
                 'EXTRACT_MFCC': True,
-                'EXTRACT_MUSICNN': True,  # Enabled in fallback for parallel
+                'EXTRACT_MUSICNN': True,
                 'EXTRACT_METADATA': True,
                 'EXTRACT_DANCEABILITY': True,
                 'EXTRACT_ONSET_RATE': True,

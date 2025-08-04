@@ -240,7 +240,14 @@ class AudioAnalyzer:
     @log_function_call
     def analyze_audio_file(self, file_path: str, force_reanalysis: bool = None) -> Optional[Dict[str, Any]]:
         """
-        Analyze an audio file and extract features.
+        Analyze an audio file using simplified 5-step process.
+        
+        Steps:
+        1. Extract artist/track using mutagen with tag mapping (save to DB)
+        2. Fallback: filename pattern extraction if mutagen fails
+        3. Extract values using Essentia
+        4. Extract values using MusicNN
+        5. Ensure everything written to DB
         
         Args:
             file_path: Path to the audio file
@@ -267,67 +274,63 @@ class AudioAnalyzer:
                     log_universal('INFO', 'Audio', f'Using cached analysis for {os.path.basename(file_path)}')
                     return cached_result
             
-            # Get file size to determine loading strategy
-            file_size_bytes = os.path.getsize(file_path)
-            file_size_mb = file_size_bytes / (1024 * 1024)
+            # STEP 1: Extract artist/track using mutagen with tag mapping
+            log_universal('INFO', 'Audio', f'Step 1: Extracting metadata with mutagen for {os.path.basename(file_path)}')
+            metadata = self._extract_metadata_with_mutagen(file_path)
             
-            # Determine analysis approach based on estimated duration (not file size)
-            estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
-            estimated_duration_minutes = estimated_duration_seconds / 60
+            # Save metadata to database
+            if metadata:
+                self.db_manager.save_metadata(file_path, metadata)
+                log_universal('INFO', 'Audio', f'Metadata saved to database: {metadata.get("artist", "Unknown")} - {metadata.get("title", "Unknown")}')
             
-            # Check if analysis config was passed from parallel analyzer
-            if 'use_full_analysis' in self.config:
-                # Use the analysis decision from parallel analyzer
-                use_half_track = not self.config.get('use_full_analysis', True)
-                log_universal('DEBUG', 'Audio', f'Using analysis config from parallel analyzer: use_half_track={use_half_track}')
-            else:
-                # Use half-track loading for files larger than threshold
-                half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 25)
-                use_half_track = file_size_mb > half_track_threshold_mb
-                log_universal('DEBUG', 'Audio', f'Using local threshold decision: use_half_track={use_half_track}')
-            
-            if use_half_track:
-                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for memory efficiency')
+            # STEP 2: Fallback - filename pattern extraction if mutagen fails
+            if not metadata or not metadata.get('artist') or not metadata.get('title'):
+                log_universal('INFO', 'Audio', f'Step 2: Fallback to filename pattern extraction for {os.path.basename(file_path)}')
+                metadata = self._extract_from_filename_pattern(file_path)
+                if metadata:
+                    self.db_manager.save_metadata(file_path, metadata)
+                    log_universal('INFO', 'Audio', f'Filename pattern metadata saved: {metadata.get("artist", "Unknown")} - {metadata.get("title", "Unknown")}')
             
             # Load audio data
-            if use_half_track:
-                audio, sample_rate = load_half_track(file_path, self.sample_rate, self.config, self.processing_mode)
-            else:
-                audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
+            log_universal('INFO', 'Audio', f'Loading audio data for {os.path.basename(file_path)}')
+            audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
             
             if audio is None:
                 log_universal('ERROR', 'Audio', f'Failed to load audio: {os.path.basename(file_path)}')
                 return None
             
-            # Extract metadata
-            metadata = self._extract_metadata(file_path)
+            # STEP 3: Extract values using Essentia
+            log_universal('INFO', 'Audio', f'Step 3: Extracting Essentia features for {os.path.basename(file_path)}')
+            essentia_features = self._extract_essentia_features(audio, sample_rate)
+            if essentia_features:
+                self.db_manager.save_essentia_features(file_path, essentia_features)
+                log_universal('INFO', 'Audio', f'Essentia features saved to database')
             
-            # Extract audio features
-            features = self._extract_audio_features(audio, sample_rate, metadata, file_size_mb)
+            # STEP 4: Extract values using MusicNN
+            log_universal('INFO', 'Audio', f'Step 4: Extracting MusicNN features for {os.path.basename(file_path)}')
+            musicnn_features = self._extract_musicnn_features(audio, sample_rate)
+            if musicnn_features:
+                self.db_manager.save_musicnn_features(file_path, musicnn_features)
+                log_universal('INFO', 'Audio', f'MusicNN features saved to database')
             
-            if features is None:
-                log_universal('ERROR', 'Audio', f'Failed to extract features: {os.path.basename(file_path)}')
-                return None
-            
-            # Determine audio type/category for long tracks
-            audio_type = 'normal'
-            audio_category = None
-            if self._is_long_audio_track(file_path):
-                audio_type = 'long'
-                audio_category = self._determine_long_audio_category(file_path, metadata, features)
-                log_universal('INFO', 'Audio', f'Long audio track detected: {audio_category}')
+            # STEP 5: Ensure everything written to DB
+            log_universal('INFO', 'Audio', f'Step 5: Committing all analysis results to database for {os.path.basename(file_path)}')
+            all_features = {
+                'essentia': essentia_features,
+                'musicnn': musicnn_features,
+                'metadata': metadata
+            }
+            self.db_manager.commit_analysis_results(file_path, all_features)
             
             # Prepare result
             result = {
                 'success': True,
-                'features': features,
+                'features': all_features,
                 'metadata': metadata,
                 'file_path': file_path,
                 'sample_rate': sample_rate,
                 'audio_length': len(audio),
-                'analysis_mode': 'half_track' if use_half_track else 'full_track',
-                'audio_type': audio_type,
-                'audio_category': audio_category
+                'analysis_mode': 'simplified_5_step'
             }
             
             # Cache the result
@@ -376,56 +379,17 @@ class AudioAnalyzer:
         
         return hash_sha256.hexdigest()
     
-    def _extract_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
+    def _extract_metadata_with_mutagen(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
-        Extract metadata from audio file tags using enhanced tag mapper.
+        Extract metadata using mutagen with tag mapping.
         
         Args:
-            file_path: Path to audio file
+            file_path: Path to the audio file
             
         Returns:
             Metadata dictionary or None on failure
         """
-        if not MUTAGEN_AVAILABLE:
-            log_universal('WARNING', 'Audio', 'Mutagen not available - skipping metadata extraction')
-            return None
-        
-        # Check cache first
-        file_hash = self._calculate_file_hash(file_path)
-        cache_key = self._get_metadata_cache_key(file_path, file_hash)
-        cached_metadata = self.db_manager.get_cache(cache_key)
-        
-        if cached_metadata:
-            log_universal('DEBUG', 'Audio', f'Using cached metadata for: {os.path.basename(file_path)}')
-            return cached_metadata
-        
         try:
-            log_universal('DEBUG', 'Audio', f'Extracting metadata from: {os.path.basename(file_path)}')
-            
-            # Check file size before attempting metadata extraction
-            try:
-                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                metadata_warning_threshold = self.config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500)
-                if file_size_mb > metadata_warning_threshold:  # Files larger than threshold
-                    log_universal('WARNING', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - metadata extraction may fail')
-            except Exception:
-                pass
-            
-            # Force garbage collection before metadata extraction
-            import gc
-            gc.collect()
-            
-            # Check available memory before proceeding
-            try:
-                import psutil
-                available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
-                min_memory_mb = self.config.get('MIN_MEMORY_FOR_FULL_ANALYSIS_GB', 2.0) * 1024  # Convert GB to MB
-                if available_memory_mb < min_memory_mb:
-                    log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping metadata extraction')
-                    return None
-            except Exception:
-                pass  # Continue if memory check fails
-            
             from mutagen import File
             audio_file = File(file_path)
             if audio_file is None:
@@ -434,22 +398,15 @@ class AudioAnalyzer:
             
             metadata = {}
             
-            # Extract tags using enhanced tag mapper with memory protection
+            # Extract tags using enhanced tag mapper
             if hasattr(audio_file, 'tags') and audio_file.tags:
                 try:
                     from .tag_mapping import get_tag_mapper
                     tag_mapper = get_tag_mapper()
                     
-                    # Convert mutagen tags to dictionary format with memory protection
+                    # Convert mutagen tags to dictionary format
                     tags_dict = {}
-                    tag_count = 0
-                    max_tags = 100  # Limit number of tags to prevent memory issues
-                    
                     for key, value in audio_file.tags.items():
-                        if tag_count >= max_tags:
-                            log_universal('WARNING', 'Audio', f'Too many tags ({tag_count}) - truncating to prevent memory issues')
-                            break
-                        
                         # Limit tag value size to prevent memory issues
                         if isinstance(value, str) and len(value) > 1000:
                             value = value[:1000] + "..."
@@ -458,295 +415,174 @@ class AudioAnalyzer:
                             value = [str(item)[:500] for item in value[:10]]
                         
                         tags_dict[key] = value
-                        tag_count += 1
                     
                     # Map tags using the enhanced mapper
                     mapped_metadata = tag_mapper.map_tags(tags_dict)
                     metadata.update(mapped_metadata)
                     
-                    # Add filename for enrichment
-                    metadata['filename'] = os.path.basename(file_path)
-                    
-                    log_universal('DEBUG', 'Audio', f'Extracted {len(mapped_metadata)} metadata fields')
-                    
-                except MemoryError as me:
-                    log_universal('ERROR', 'Audio', f'Memory error during tag mapping for {os.path.basename(file_path)}: {me}')
-                    # Fall back to basic metadata
-                    metadata['filename'] = os.path.basename(file_path)
                 except Exception as e:
-                    log_universal('ERROR', 'Audio', f'Tag mapping failed for {os.path.basename(file_path)}: {e}')
-                    # Fall back to basic metadata
-                    metadata['filename'] = os.path.basename(file_path)
-            else:
-                log_universal('DEBUG', 'Audio', 'No tags found in file')
-                metadata['filename'] = os.path.basename(file_path)
+                    log_universal('WARNING', 'Audio', f'Tag mapping failed: {e}')
+                    # Fallback to basic extraction
+                    metadata = self._extract_basic_metadata(audio_file)
             
-            # Comprehensive fallback for missing artist/title
-            self._extract_missing_artist_title(metadata, file_path)
+            # Extract basic metadata if no tags
+            if not metadata:
+                metadata = self._extract_basic_metadata(audio_file)
             
-            # Extract audio properties with memory protection
-            try:
-                if hasattr(audio_file, 'info'):
-                    info = audio_file.info
-                    metadata['duration'] = getattr(info, 'length', None)
-                    metadata['bitrate'] = getattr(info, 'bitrate', None)
-                    metadata['sample_rate'] = getattr(info, 'sample_rate', None)
-                    metadata['channels'] = getattr(info, 'channels', None)
-            except MemoryError as me:
-                log_universal('ERROR', 'Audio', f'Memory error during audio property extraction for {os.path.basename(file_path)}: {me}')
-            except Exception as e:
-                log_universal('WARNING', 'Audio', f'Failed to extract audio properties for {os.path.basename(file_path)}: {e}')
-            
-            # Extract BPM from metadata if available
-            try:
-                bpm_from_metadata = self._extract_bpm_from_metadata(metadata)
-                if bpm_from_metadata:
-                    metadata['bpm_from_metadata'] = bpm_from_metadata
-            except Exception as e:
-                log_universal('WARNING', 'Audio', f'Failed to extract BPM from metadata for {os.path.basename(file_path)}: {e}')
-            
-            # Cache metadata
-            try:
-                self.db_manager.save_cache(cache_key, metadata, expires_hours=self.cache_expiry_hours)
-            except Exception as e:
-                log_universal('WARNING', 'Audio', f'Failed to cache metadata for {os.path.basename(file_path)}: {e}')
-            
-            log_universal('DEBUG', 'Audio', f'Extracted metadata: {len(metadata)} fields from {os.path.basename(file_path)}')
             return metadata
             
-        except MemoryError as me:
-            log_universal('ERROR', 'Audio', f'Memory error during metadata extraction for {os.path.basename(file_path)}: {me}')
-            return None
         except Exception as e:
-            log_universal('ERROR', 'Audio', f'Metadata extraction failed for {os.path.basename(file_path)}: {e}')
+            log_universal('WARNING', 'Audio', f'Mutagen metadata extraction failed: {e}')
             return None
-    
-    def _get_tag_value(self, tags, possible_keys):
-        """Extract tag value from multiple possible keys."""
-        for key in possible_keys:
-            try:
-                if key in tags:
-                    value = tags[key]
-                    
-                    # Handle different value types
-                    if isinstance(value, list):
-                        if len(value) > 0:
-                            return str(value[0])
-                    elif isinstance(value, str):
-                        if value.strip():  # Check if string is not empty after stripping whitespace
-                            return value.strip()
-                    else:
-                        # Convert other types to string
-                        result = str(value)
-                        if result.strip():
-                            return result
-            except Exception:
-                continue
-        return None
-    
-    def _extract_bpm_from_metadata(self, metadata: Dict[str, Any]) -> Optional[float]:
+
+    def _extract_from_filename_pattern(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
-        Extract BPM from metadata fields.
+        Extract artist and title from filename patterns.
         
         Args:
-            metadata: Metadata dictionary
+            file_path: Path to the audio file
             
         Returns:
-            BPM value or None if not found
-        """
-        # Check various BPM-related fields
-        bpm_fields = ['bpm', 'tempo', 'TBPM', 'BPM', 'Tempo']
-        
-        for field in bpm_fields:
-            if field in metadata and metadata[field]:
-                try:
-                    bpm_value = metadata[field]
-                    
-                    # Handle different formats
-                    if isinstance(bpm_value, str):
-                        # Remove non-numeric characters and convert
-                        import re
-                        numeric_match = re.search(r'(\d+(?:\.\d+)?)', str(bpm_value))
-                        if numeric_match:
-                            bpm = float(numeric_match.group(1))
-                        else:
-                            continue
-                    else:
-                        bpm = float(bpm_value)
-                    
-                    # Validate BPM range
-                    if 60 <= bpm <= 200:
-                        log_universal('DEBUG', 'Audio', f'Found BPM in metadata: {bpm} from field {field}')
-                        return bpm
-                    else:
-                        log_universal('DEBUG', 'Audio', f'BPM {bpm} from field {field} outside valid range (60-200)')
-                        
-                except (ValueError, TypeError):
-                    continue
-        
-        # Check comments field for BPM
-        if 'comment' in metadata and metadata['comment']:
-            try:
-                import re
-                comment = str(metadata['comment'])
-                # Look for BPM patterns in comments
-                bpm_patterns = [
-                    r'BPM[:\s]*(\d+(?:\.\d+)?)',
-                    r'Tempo[:\s]*(\d+(?:\.\d+)?)',
-                    r'(\d+(?:\.\d+)?)\s*BPM',
-                    r'(\d+(?:\.\d+)?)\s*Tempo'
-                ]
-                
-                for pattern in bpm_patterns:
-                    match = re.search(pattern, comment, re.IGNORECASE)
-                    if match:
-                        bpm = float(match.group(1))
-                        if 60 <= bpm <= 200:
-                            log_universal('DEBUG', 'Audio', f'Found BPM in comment: {bpm}')
-                            return bpm
-            except Exception:
-                pass
-        
-        return None
-    
-    def _enrich_metadata_with_external_apis(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Enrich metadata using enhanced external APIs service.
-        
-        Args:
-            metadata: Original metadata dictionary
-            
-        Returns:
-            Enriched metadata dictionary
+            Metadata dictionary with artist and title
         """
         try:
-            from .external_apis import get_enhanced_metadata_enrichment_service
+            filename = os.path.basename(file_path)
+            name_without_ext = os.path.splitext(filename)[0]
             
-            enrichment_service = get_enhanced_metadata_enrichment_service()
-            if enrichment_service.is_available():
-                log_universal('DEBUG', 'Audio', 'Enriching metadata with enhanced external APIs')
-                return enrichment_service.enrich_metadata(metadata)
-            else:
-                log_universal('DEBUG', 'Audio', 'No external APIs available for enrichment')
+            metadata = {}
+            
+            # Method 1: Try "Artist - Title" format (most common)
+            if ' - ' in name_without_ext:
+                parts = name_without_ext.split(' - ', 1)
+                if len(parts) == 2:
+                    metadata['artist'] = parts[0].strip()
+                    metadata['title'] = parts[1].strip()
+                    log_universal('INFO', 'Audio', f'Extracted from filename pattern: {metadata["artist"]} - {metadata["title"]}')
+                    return metadata
+            
+            # Method 2: Try "Artist_-_Title" format (underscore separator)
+            if '_-_' in name_without_ext:
+                parts = name_without_ext.split('_-_', 1)
+                if len(parts) == 2:
+                    metadata['artist'] = parts[0].strip()
+                    metadata['title'] = parts[1].strip()
+                    log_universal('INFO', 'Audio', f'Extracted from filename pattern: {metadata["artist"]} - {metadata["title"]}')
+                    return metadata
+            
+            # Method 3: Try "Artist__Title" format (double underscore)
+            if '__' in name_without_ext:
+                parts = name_without_ext.split('__', 1)
+                if len(parts) == 2:
+                    metadata['artist'] = parts[0].strip()
+                    metadata['title'] = parts[1].strip()
+                    log_universal('INFO', 'Audio', f'Extracted from filename pattern: {metadata["artist"]} - {metadata["title"]}')
+                    return metadata
+            
+            # Method 4: Try directory name as artist if no artist found
+            dir_name = os.path.basename(os.path.dirname(file_path))
+            if dir_name and dir_name not in ['', '.', '..']:
+                metadata['artist'] = dir_name
+                metadata['title'] = name_without_ext
+                log_universal('INFO', 'Audio', f'Using directory name as artist: {dir_name}')
                 return metadata
-                
-        except Exception as e:
-            log_universal('WARNING', 'Audio', f'External API enrichment failed: {e}')
+            
+            # Method 5: Use filename as title if no pattern found
+            metadata['artist'] = 'Unknown Artist'
+            metadata['title'] = name_without_ext
+            log_universal('INFO', 'Audio', f'Using filename as title: {name_without_ext}')
             return metadata
-    
-    def _extract_audio_features(self, audio: np.ndarray, sample_rate: int, metadata: Dict[str, Any] = None, file_size_mb: float = None) -> Optional[Dict[str, Any]]:
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Filename pattern extraction failed: {e}')
+            return None
+
+    def _extract_essentia_features(self, audio: np.ndarray, sample_rate: int) -> Optional[Dict[str, Any]]:
         """
-        Extract comprehensive audio features.
-        Uses original skip logic for extremely large files to prevent RAM saturation.
-        Also uses simplified analysis for long audio tracks based on configuration.
+        Extract features using Essentia.
         
         Args:
             audio: Audio data as numpy array
             sample_rate: Sample rate in Hz
-            metadata: Optional metadata dictionary
-            file_size_mb: Actual file size in MB (for consistent 3-tier decisions)
             
         Returns:
-            Features dictionary or None on failure
+            Essentia features dictionary or None on failure
         """
-        features = {}
-        
-        # Check if file is extremely large (original logic)
-        is_extremely_large_for_processing = self._is_extremely_large_for_processing(audio)
-        
-        # Check if this is a long audio track that should use simplified analysis
-        is_long_audio = metadata.get('is_long_audio', False) if metadata else False
-        long_audio_simplified = self.config.get('LONG_AUDIO_SIMPLIFIED_FEATURES', True)
-        long_audio_skip_detailed = self.config.get('LONG_AUDIO_SKIP_DETAILED_ANALYSIS', True)
-        
-        # For sequential processing of long audio tracks, use optimized analysis for categorization
-        if self.processing_mode == 'sequential' and is_long_audio:
-            log_universal('INFO', 'Audio', 'Sequential processing: using optimized analysis for long audio categorization')
-            return self._extract_optimized_features_for_categorization(audio, sample_rate, metadata)
-        # Use simplified analysis for long audio tracks if configured (only for parallel processing)
-        elif is_long_audio and long_audio_simplified and long_audio_skip_detailed:
-            log_universal('INFO', 'Audio', 'Using simplified analysis for long audio track')
-            return self._extract_simplified_features(audio, sample_rate, metadata)
-        
         try:
-            # Extract rhythm features (always extract for sequential processing)
+            features = {}
+            
+            # Extract rhythm features
             if self.extract_rhythm:
-                rhythm_features = self._extract_rhythm_features(audio, sample_rate, file_size_mb)
+                rhythm_features = self._extract_rhythm_features(audio, sample_rate)
                 features.update(rhythm_features)
             
-            # Extract spectral features (always extract for sequential processing)
+            # Extract spectral features
             if self.extract_spectral:
                 spectral_features = self._extract_spectral_features(audio, sample_rate)
                 features.update(spectral_features)
             
-            # Extract loudness features (always extract for sequential processing)
+            # Extract loudness features
             if self.extract_loudness:
                 loudness_features = self._extract_loudness_features(audio, sample_rate)
                 features.update(loudness_features)
             
-            # Extract key and mode (always extract - not memory intensive)
+            # Extract key and mode
             if self.extract_key:
                 key_features = self._extract_key_features(audio, sample_rate)
                 features.update(key_features)
             
-            # Extract MFCC features (always extract for sequential processing)
+            # Extract MFCC features
             if self.extract_mfcc:
-                mfcc_features = self._extract_mfcc_features(audio, sample_rate, file_size_mb)
+                mfcc_features = self._extract_mfcc_features(audio, sample_rate)
                 features.update(mfcc_features)
             
-            # Extract MusiCNN features (always extract for sequential processing)
-            if self.extract_musicnn and TENSORFLOW_AVAILABLE:
-                log_universal('INFO', 'Audio', 'Starting MusiCNN feature extraction')
-                musicnn_features = self._extract_musicnn_features(audio, sample_rate)
-                log_universal('INFO', 'Audio', f'MusiCNN extraction completed: {len(musicnn_features)} features')
-                features.update(musicnn_features)
-            else:
-                log_universal('INFO', 'Audio', f'MusiCNN extraction skipped: extract_musicnn={self.extract_musicnn}, TENSORFLOW_AVAILABLE={TENSORFLOW_AVAILABLE}')
-                features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
-            
-            # Extract chroma features (always extract for sequential processing)
-            if self.extract_chroma:
-                chroma_features = self._extract_chroma_features(audio, sample_rate, file_size_mb)
+            # Extract chroma features
+            if hasattr(self, 'extract_chroma'):
+                chroma_features = self._extract_chroma_features(audio, sample_rate)
                 features.update(chroma_features)
-            
-            # Add BPM from metadata if available
-            if metadata and 'bpm_from_metadata' in metadata:
-                features['external_bpm'] = metadata['bpm_from_metadata']
-            
-            # Extract Spotify-style features for playlist generation
-            # These are derived from the extracted features above
-            try:
-                spotify_features = self._extract_spotify_style_features(
-                    audio, sample_rate,
-                    rhythm_features=features,
-                    spectral_features=features,
-                    loudness_features=features,
-                    key_features=features,
-                    mfcc_features=features,
-                    musicnn_features=features,
-                    chroma_features=features
-                )
-                features.update(spotify_features)
-            except Exception as e:
-                log_universal('WARNING', 'Audio', f'Failed to extract Spotify-style features: {e}')
-                # Add default values
-                features.update({
-                    'danceability': 0.5,
-                    'energy': 0.5,
-                    'mode': 0.0,
-                    'acousticness': 0.5,
-                    'instrumentalness': 0.5,
-                    'speechiness': 0.5,
-                    'valence': 0.5,
-                    'liveness': 0.5,
-                    'popularity': 0.5
-                })
             
             return features
             
         except Exception as e:
-            log_universal('ERROR', 'Audio', f'Feature extraction failed: {e}')
+            log_universal('WARNING', 'Audio', f'Essentia feature extraction failed: {e}')
             return None
+
+    def _extract_basic_metadata(self, audio_file) -> Dict[str, Any]:
+        """
+        Extract basic metadata from audio file.
+        
+        Args:
+            audio_file: Mutagen audio file object
+            
+        Returns:
+            Basic metadata dictionary
+        """
+        metadata = {}
+        
+        try:
+            # Extract basic info
+            if hasattr(audio_file, 'info'):
+                info = audio_file.info
+                if hasattr(info, 'length'):
+                    metadata['duration'] = info.length
+                if hasattr(info, 'bitrate'):
+                    metadata['bitrate'] = info.bitrate
+                if hasattr(info, 'sample_rate'):
+                    metadata['sample_rate'] = info.sample_rate
+            
+            # Extract tags if available
+            if hasattr(audio_file, 'tags') and audio_file.tags:
+                for tag_type in audio_file.tags:
+                    if tag_type in audio_file.tags:
+                        tags = audio_file.tags[tag_type]
+                        for key, value in tags.items():
+                            if isinstance(value, list):
+                                value = value[0] if value else ''
+                            metadata[key] = str(value)
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Basic metadata extraction failed: {e}')
+        
+        return metadata
     
     def _extract_rhythm_features(self, audio: np.ndarray, sample_rate: int, file_size_mb: float = None) -> Dict[str, Any]:
         """Extract rhythm-related features using lightweight approach for large files."""

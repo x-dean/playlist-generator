@@ -898,6 +898,179 @@ class DatabaseManager:
         except Exception:
             return {'size_bytes': 0, 'size_mb': 0, 'exists': False}
 
+    @log_function_call
+    def get_file_size_mb(self, file_path: str) -> float:
+        """
+        Get file size in MB from database.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            File size in MB, or 0 if not found
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT file_size_bytes FROM audio_files 
+                    WHERE file_path = ?
+                """, (file_path,))
+                row = cursor.fetchone()
+                
+                if row and row[0]:
+                    return row[0] / (1024 * 1024)
+                else:
+                    # Fallback to filesystem if not in database
+                    if os.path.exists(file_path):
+                        return os.path.getsize(file_path) / (1024 * 1024)
+                    return 0.0
+                    
+        except Exception as e:
+            log_universal('WARNING', 'Database', f"Error getting file size for {file_path}: {e}")
+            # Fallback to filesystem
+            try:
+                if os.path.exists(file_path):
+                    return os.path.getsize(file_path) / (1024 * 1024)
+            except Exception:
+                pass
+            return 0.0
+
+    @log_function_call
+    def save_metadata(self, file_path: str, metadata: Dict[str, Any]) -> bool:
+        """
+        Save metadata to database.
+        
+        Args:
+            file_path: Path to the file
+            metadata: Metadata dictionary
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Extract basic metadata fields
+                artist = metadata.get('artist', 'Unknown')
+                title = metadata.get('title', 'Unknown')
+                album = metadata.get('album')
+                year = metadata.get('year')
+                genre = metadata.get('genre')
+                duration = metadata.get('duration')
+                
+                # Update existing record or create new one
+                cursor.execute("""
+                    INSERT OR REPLACE INTO audio_files 
+                    (file_path, filename, artist, title, album, year, genre, duration, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (file_path, os.path.basename(file_path), artist, title, album, year, genre, duration))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to save metadata: {e}')
+            return False
+
+    @log_function_call
+    def save_essentia_features(self, file_path: str, features: Dict[str, Any]) -> bool:
+        """
+        Save Essentia features to database.
+        
+        Args:
+            file_path: Path to the file
+            features: Essentia features dictionary
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Convert features to JSON
+                features_json = json.dumps(features)
+                
+                # Update existing record
+                cursor.execute("""
+                    UPDATE audio_files 
+                    SET essentia_features = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE file_path = ?
+                """, (features_json, file_path))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to save Essentia features: {e}')
+            return False
+
+    @log_function_call
+    def save_musicnn_features(self, file_path: str, features: Dict[str, Any]) -> bool:
+        """
+        Save MusicNN features to database.
+        
+        Args:
+            file_path: Path to the file
+            features: MusicNN features dictionary
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Convert features to JSON
+                features_json = json.dumps(features)
+                
+                # Update existing record
+                cursor.execute("""
+                    UPDATE audio_files 
+                    SET musicnn_features = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE file_path = ?
+                """, (features_json, file_path))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to save MusicNN features: {e}')
+            return False
+
+    @log_function_call
+    def commit_analysis_results(self, file_path: str, all_features: Dict[str, Any]) -> bool:
+        """
+        Commit all analysis results to database.
+        
+        Args:
+            file_path: Path to the file
+            all_features: Dictionary containing all analysis results
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Mark analysis as completed
+                cursor.execute("""
+                    UPDATE audio_files 
+                    SET analyzed = 1, analysis_date = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                    WHERE file_path = ?
+                """, (file_path,))
+                
+                conn.commit()
+                log_universal('INFO', 'Database', f'Analysis results committed for {os.path.basename(file_path)}')
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to commit analysis results: {e}')
+            return False
+
 
 # Global database manager instance
 _db_manager = None
