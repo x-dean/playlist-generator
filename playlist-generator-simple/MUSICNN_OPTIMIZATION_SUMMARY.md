@@ -14,6 +14,22 @@ Implemented optimizations to address three key issues:
 - **Added config loading** to global instance creation
 - **Updated test files** to pass config parameter
 
+### Conservative Resource Management
+- **Reduced worker count** to maximum half CPU cores with minimum 2 workers
+- **Increased memory thresholds** to prevent 8GB+ memory usage
+- **More conservative memory allocation** per worker (1.2GB vs 0.8GB)
+- **Lowered system memory threshold** to 75% (from 85%) for earlier intervention
+- **Increased minimum available memory** to 2GB (from 0.5GB)
+- **Reduced file size limits** to prevent large file memory issues
+
+### Half-Track Loading Optimization
+- **Memory-efficient audio loading** - loads only middle 50% of large tracks
+- **Reduces memory usage by ~50%** for large audio files
+- **Maintains analysis quality** by using most representative portion (25%-75%)
+- **Configurable threshold** - files >50MB use half-track loading
+- **Fallback support** - uses full track for smaller files
+- **Detailed logging** - shows which portion of track is analyzed
+
 ## Changes Made
 
 ### 1. Shared Model Manager (`model_manager.py`)
@@ -71,30 +87,39 @@ Implemented optimizations to address three key issues:
 
 ## Configuration Changes
 
-### Memory Thresholds
+### Memory Thresholds (Conservative)
 ```python
-# Before
-MIN_MEMORY_FOR_FULL_ANALYSIS_GB = 2.0
-PARALLEL_MAX_FILE_SIZE_MB = 100
-SEQUENTIAL_MAX_FILE_SIZE_MB = 2000
-
-# After
+# Before (Optimized)
 MIN_MEMORY_FOR_FULL_ANALYSIS_GB = 1.5
 PARALLEL_MAX_FILE_SIZE_MB = 200
 SEQUENTIAL_MAX_FILE_SIZE_MB = 5000
+
+# After (Conservative)
+MIN_MEMORY_FOR_FULL_ANALYSIS_GB = 2.5
+PARALLEL_MAX_FILE_SIZE_MB = 100
+SEQUENTIAL_MAX_FILE_SIZE_MB = 2000
 ```
 
-### Resource Management
+### Half-Track Loading Configuration
 ```python
-# Before
-reserved_memory_gb = min(2.0, total_memory_gb * 0.1)
-memory_per_worker_gb = 1.0
-system_memory_threshold = 80%
+# New configuration for memory-efficient loading
+HALF_TRACK_THRESHOLD_MB = 50  # Files >50MB use half-track loading
+MIN_MEMORY_FOR_HALF_TRACK_GB = 1.0  # Reduced memory requirement for half-track
+```
 
-# After
+### Resource Management (Conservative)
+```python
+# Before (Optimized)
 reserved_memory_gb = min(1.5, total_memory_gb * 0.08)
 memory_per_worker_gb = 0.8
 system_memory_threshold = 85%
+max_workers = cpu_count
+
+# After (Conservative)
+reserved_memory_gb = min(2.0, total_memory_gb * 0.15)
+memory_per_worker_gb = 1.2
+system_memory_threshold = 75%
+max_workers = max(2, cpu_count // 2)  # Half CPU cores, minimum 2
 ```
 
 ## Thread Safety
@@ -125,4 +150,6 @@ result = analyzer.analyze_audio_file(file_path)
 3. **Better resource utilization** - optimized memory thresholds
 4. **Improved throughput** - more workers on systems with sufficient memory
 5. **Thread safety** - proper locking for concurrent access
-6. **Maintainability** - centralized model management 
+6. **Maintainability** - centralized model management
+7. **Memory-efficient audio loading** - half-track loading reduces memory by ~50% for large files
+8. **Conservative resource management** - prevents 8GB+ memory usage with half CPU cores limit 

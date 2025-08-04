@@ -71,12 +71,12 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
             log_universal('ERROR', 'Audio', f'File not found: {audio_path}')
             return None, None
         
-        # Check available memory before loading - OPTIMIZED THRESHOLDS
+        # Check available memory before loading - CONSERVATIVE THRESHOLDS
         try:
             import psutil
             available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
-            # Reduced minimum memory requirement from 2GB to 1.5GB
-            min_memory_mb = config.get('MIN_MEMORY_FOR_FULL_ANALYSIS_GB', 1.5) * 1024 if config else 1536  # Convert GB to MB
+            # Increased minimum memory requirement from 1.5GB to 2.5GB for safety
+            min_memory_mb = config.get('MIN_MEMORY_FOR_FULL_ANALYSIS_GB', 2.5) * 1024 if config else 2560  # Convert GB to MB
             if available_memory_mb < min_memory_mb:
                 log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(audio_path)}')
                 return None, None
@@ -93,13 +93,13 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
                 log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
                 return None, None
             
-            # Configurable limits based on processing mode - OPTIMIZED THRESHOLDS
+            # Configurable limits based on processing mode - CONSERVATIVE THRESHOLDS
             if processing_mode == 'sequential':
-                max_file_size_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 5000) if config else 5000  # Increased from 2000
-                warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 1000) if config else 1000  # Increased from 500
+                max_file_size_mb = config.get('SEQUENTIAL_MAX_FILE_SIZE_MB', 2000) if config else 2000  # Reduced from 5000
+                warning_threshold_mb = config.get('LARGE_FILE_WARNING_THRESHOLD_MB', 500) if config else 500  # Reduced from 1000
             else:  # parallel
-                max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 200) if config else 200  # Increased from 100
-                warning_threshold_mb = config.get('PARALLEL_LARGE_FILE_WARNING_THRESHOLD_MB', 100) if config else 100  # Increased from 50
+                max_file_size_mb = config.get('PARALLEL_MAX_FILE_SIZE_MB', 100) if config else 100  # Reduced from 200
+                warning_threshold_mb = config.get('PARALLEL_LARGE_FILE_WARNING_THRESHOLD_MB', 50) if config else 50  # Reduced from 100
             
             if file_size_mb > max_file_size_mb:
                 log_universal('WARNING', 'Audio', f'File too large ({file_size_mb:.1f}MB > {max_file_size_mb}MB): {os.path.basename(audio_path)}')
@@ -216,147 +216,82 @@ class AudioAnalyzer:
     @log_function_call
     def analyze_audio_file(self, file_path: str, force_reanalysis: bool = None) -> Optional[Dict[str, Any]]:
         """
-        Analyze audio file with comprehensive feature extraction and caching.
+        Analyze an audio file and extract features.
         
         Args:
-            file_path: Path to audio file
-            force_reanalysis: Force re-analysis even if cached (uses config if None)
+            file_path: Path to the audio file
+            force_reanalysis: If True, bypass cache and re-analyze
             
         Returns:
-            Analysis results dictionary or None on failure
+            Analysis result dictionary or None on failure
         """
-        if force_reanalysis is None:
-            force_reanalysis = self.force_reanalysis
-        
-        log_universal('INFO', 'Audio', f'Starting analysis of: {os.path.basename(file_path)}')
-        start_time = time.time()
+        if not os.path.exists(file_path):
+            log_universal('ERROR', 'Audio', f'File not found: {file_path}')
+            return None
         
         try:
-            # Check if file exists
-            if not os.path.exists(file_path):
-                log_universal('ERROR', 'Audio', f'File not found: {file_path}')
-                return None
+            # Calculate file hash for caching
+            file_hash = self._calculate_file_hash(file_path)
             
-            # Calculate file hash for change detection
-            try:
-                file_hash = self._calculate_file_hash(file_path)
-                file_size = os.path.getsize(file_path)
-                log_universal('DEBUG', 'Audio', f'File size: {file_size} bytes, Hash: {file_hash[:8]}...')
-            except Exception as e:
-                log_universal('ERROR', 'Audio', f'Failed to calculate file hash: {e}')
-                return None
+            # Check cache unless force reanalysis
+            if force_reanalysis is None:
+                force_reanalysis = self.config.get('FORCE_REANALYSIS', False)
             
-            # Check cache first (unless forced)
-            if self.cache_enabled and not force_reanalysis:
+            if not force_reanalysis:
                 cached_result = self._get_cached_analysis(file_path, file_hash)
                 if cached_result:
-                    analysis_time = time.time() - start_time
-                    log_universal('INFO', 'Audio', f'Using cached analysis for {os.path.basename(file_path)} ({analysis_time:.2f}s)')
+                    log_universal('INFO', 'Audio', f'Using cached analysis for {os.path.basename(file_path)}')
                     return cached_result
             
-            # Extract metadata first
-            log_universal('DEBUG', 'Audio', f'Extracting metadata for: {os.path.basename(file_path)}')
-            metadata = self._extract_metadata(file_path)
+            # Get file size to determine loading strategy
+            file_size_bytes = os.path.getsize(file_path)
+            file_size_mb = file_size_bytes / (1024 * 1024)
             
-            # Enrich metadata with external APIs FIRST (before audio analysis)
-            if metadata:
-                # Add filename to metadata for fallback extraction
-                metadata['filename'] = os.path.basename(file_path)
-                log_universal('DEBUG', 'Audio', f'Enriching metadata for: {os.path.basename(file_path)}')
-                enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
-                metadata = enriched_metadata
-            
-            # Check if we should skip audio loading for large files
-            if self._should_skip_audio_loading(file_path):
-                log_universal('WARNING', 'Audio', f'Skipping audio analysis for large file: {os.path.basename(file_path)}')
-                # Return basic analysis with enriched metadata
-                return self._create_basic_analysis_for_large_file(file_path, file_size, file_hash, metadata)
+            # Determine if we should use half-track loading for memory efficiency
+            use_half_track = False
+            if file_size_mb > self.config.get('HALF_TRACK_THRESHOLD_MB', 50):  # Files >50MB use half-track
+                use_half_track = True
+                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for memory efficiency')
             
             # Load audio data
-            log_universal('DEBUG', 'Audio', f'Loading audio data for: {os.path.basename(file_path)}')
-            audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
+            if use_half_track:
+                audio, sample_rate = load_half_track(file_path, self.sample_rate, self.config, self.processing_mode)
+            else:
+                audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
+            
             if audio is None:
                 log_universal('ERROR', 'Audio', f'Failed to load audio: {os.path.basename(file_path)}')
                 return None
             
-            log_universal('DEBUG', 'Audio', f'Successfully loaded audio: {len(audio)} samples at {sample_rate}Hz')
+            # Extract metadata
+            metadata = self._extract_metadata(file_path)
             
-            # Check if this is a long audio track
-            is_long_audio = self._is_long_audio_track(file_path)
+            # Extract audio features
+            features = self._extract_audio_features(audio, sample_rate, metadata)
             
-            # Add long audio flag to metadata for feature extraction
-            if metadata:
-                metadata['is_long_audio'] = is_long_audio
-            else:
-                metadata = {'is_long_audio': is_long_audio}
-            
-            # Perform audio analysis with enriched metadata
-            log_universal('DEBUG', 'Audio', f'Extracting audio features for: {os.path.basename(file_path)}')
-            analysis_result = self._extract_audio_features(audio, sample_rate, metadata)
-            if analysis_result is None:
-                log_universal('ERROR', 'Audio', f'Feature extraction failed: {os.path.basename(file_path)}')
+            if features is None:
+                log_universal('ERROR', 'Audio', f'Failed to extract features: {os.path.basename(file_path)}')
                 return None
             
-            # Set the enriched metadata in results
-            analysis_result['metadata'] = metadata or {}
-            
-            # Determine audio type and add file information
-            audio_type = self._get_audio_type(file_path, audio)
-            is_long_audio = self._is_long_audio_track(file_path)
-            
-            # Determine long audio category if it's a long audio track
-            long_audio_category = None
-            if is_long_audio:
-                log_universal('INFO', 'Audio', f'Long audio track detected: {os.path.basename(file_path)}')
-                # For now, determine category without audio features (will be updated after analysis)
-                long_audio_category = self._determine_long_audio_category(file_path, metadata, None)
-                log_universal('INFO', 'Audio', f'Long audio category determined: {long_audio_category}')
-            
-            analysis_result.update({
+            # Prepare result
+            result = {
+                'success': True,
+                'features': features,
+                'metadata': metadata,
                 'file_path': file_path,
-                'filename': os.path.basename(file_path),
-                'file_size_bytes': file_size,
-                'file_hash': file_hash,
-                'analysis_date': datetime.now().isoformat(),
-                'analysis_version': '1.0.0',
-                'audio_type': audio_type,
-                'is_long_audio': is_long_audio,
-                'is_extremely_large': self._is_extremely_large_for_processing(audio),
-                'long_audio_category': long_audio_category
-            })
+                'sample_rate': sample_rate,
+                'audio_length': len(audio),
+                'analysis_mode': 'half_track' if use_half_track else 'full_track'
+            }
             
-            # Update long audio category with actual audio features if available
-            if is_long_audio and analysis_result:
-                # Re-determine category with actual audio features
-                updated_category = self._determine_long_audio_category(file_path, metadata, analysis_result)
-                if updated_category != long_audio_category:
-                    log_universal('INFO', 'Audio', f'Updated long audio category: {long_audio_category} -> {updated_category}')
-                    long_audio_category = updated_category
-                    analysis_result['long_audio_category'] = long_audio_category
+            # Cache the result
+            self._cache_analysis_result(file_path, file_hash, result)
             
-            # Update metadata with long audio category
-            if metadata and long_audio_category:
-                metadata['long_audio_category'] = long_audio_category
-                log_universal('DEBUG', 'Audio', f'Set long_audio_category in metadata: {long_audio_category}')
-            
-            # Also update the analysis result's metadata
-            if analysis_result and 'metadata' in analysis_result and long_audio_category:
-                analysis_result['metadata']['long_audio_category'] = long_audio_category
-                log_universal('DEBUG', 'Audio', f'Set long_audio_category in analysis_result metadata: {long_audio_category}')
-            
-            # Cache results
-            if self.cache_enabled:
-                self._cache_analysis_result(file_path, file_hash, analysis_result)
-            
-            analysis_time = time.time() - start_time
-            log_universal('INFO', 'Audio', f'Analysis completed for {os.path.basename(file_path)} ({analysis_time:.2f}s)')
-            
-            return analysis_result
+            log_universal('INFO', 'Audio', f'Analysis completed: {os.path.basename(file_path)} ({len(audio)} samples, {sample_rate}Hz)')
+            return result
             
         except Exception as e:
-            log_universal('ERROR', 'Audio', f'Unexpected error during analysis of {os.path.basename(file_path)}: {e}')
-            import traceback
-            log_universal('ERROR', 'Audio', f'Traceback: {traceback.format_exc()}')
+            log_universal('ERROR', 'Audio', f'Analysis failed for {os.path.basename(file_path)}: {e}')
             return None
     
     def _get_cached_analysis(self, file_path: str, file_hash: str) -> Optional[Dict[str, Any]]:
@@ -2704,3 +2639,118 @@ class AudioAnalyzer:
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':
     """Get a configured audio analyzer instance."""
     return AudioAnalyzer(config)
+
+def load_half_track(audio_path: str, sample_rate: int = 44100, config: Dict[str, Any] = None, processing_mode: str = 'parallel') -> Tuple[Optional[np.ndarray], Optional[int]]:
+    """
+    Load only half of the audio track for memory efficiency.
+    This provides sufficient data for accurate feature extraction while reducing memory usage.
+    
+    Args:
+        audio_path: Path to audio file
+        sample_rate: Target sample rate
+        config: Configuration dictionary
+        processing_mode: Processing mode ('parallel' or 'sequential')
+        
+    Returns:
+        Tuple of (audio_data, sample_rate) or (None, None) on failure
+    """
+    try:
+        if not os.path.exists(audio_path):
+            log_universal('ERROR', 'Audio', f'File not found: {audio_path}')
+            return None, None
+        
+        # Check available memory before loading
+        try:
+            import psutil
+            available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
+            min_memory_mb = config.get('MIN_MEMORY_FOR_HALF_TRACK_GB', 1.0) * 1024 if config else 1024  # Reduced requirement
+            if available_memory_mb < min_memory_mb:
+                log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(audio_path)}')
+                return None, None
+        except Exception:
+            pass  # Continue if memory check fails
+        
+        # Check file size
+        file_size_mb = 0
+        try:
+            file_size = os.path.getsize(audio_path)
+            file_size_mb = file_size / (1024 * 1024)
+            
+            if file_size < 1024:  # Less than 1KB
+                log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
+                return None, None
+                
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Could not check file size: {e}')
+        
+        # Load audio using Essentia if available
+        if ESSENTIA_AVAILABLE:
+            try:
+                import essentia.standard as es
+                
+                # Load full audio first to get duration
+                loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
+                full_audio = loader()
+                
+                if full_audio is None or len(full_audio) == 0:
+                    log_universal('WARNING', 'Audio', f'Empty audio file: {os.path.basename(audio_path)}')
+                    return None, None
+                
+                # Calculate half duration
+                total_samples = len(full_audio)
+                half_samples = total_samples // 2
+                
+                # Take the middle half of the track (most representative)
+                start_sample = total_samples // 4  # Start at 25%
+                end_sample = start_sample + half_samples  # End at 75%
+                
+                # Ensure we don't go out of bounds
+                end_sample = min(end_sample, total_samples)
+                start_sample = max(0, end_sample - half_samples)
+                
+                # Extract half track
+                half_audio = full_audio[start_sample:end_sample]
+                
+                log_universal('DEBUG', 'Audio', f'Loaded half track: {os.path.basename(audio_path)} ({len(half_audio)}/{total_samples} samples, {sample_rate}Hz)')
+                log_universal('DEBUG', 'Audio', f'  Half track duration: {len(half_audio)/sample_rate:.1f}s (from {start_sample/sample_rate:.1f}s to {end_sample/sample_rate:.1f}s)')
+                
+                return half_audio, sample_rate
+                
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f'Essentia half-track loading failed for {os.path.basename(audio_path)}: {e}')
+                # Fall through to librosa
+        
+        # Fallback to librosa
+        if LIBROSA_AVAILABLE:
+            try:
+                import librosa
+                
+                # Get audio duration first
+                duration = librosa.get_duration(path=audio_path)
+                half_duration = duration / 2
+                start_time = duration / 4  # Start at 25%
+                
+                # Load half track with librosa
+                half_audio, sr = librosa.load(
+                    audio_path, 
+                    sr=sample_rate, 
+                    mono=True,
+                    offset=start_time,
+                    duration=half_duration
+                )
+                
+                log_universal('DEBUG', 'Audio', f'Loaded half track with librosa: {os.path.basename(audio_path)} ({len(half_audio)} samples, {sr}Hz)')
+                log_universal('DEBUG', 'Audio', f'  Half track duration: {len(half_audio)/sr:.1f}s (from {start_time:.1f}s to {start_time + half_duration:.1f}s)')
+                
+                return half_audio, sr
+                
+            except Exception as e:
+                log_universal('ERROR', 'Audio', f'Librosa half-track loading failed for {os.path.basename(audio_path)}: {e}')
+                return None, None
+        
+        log_universal('ERROR', 'Audio', f'No audio loading library available for {os.path.basename(audio_path)}')
+        return None, None
+        
+    except Exception as e:
+        log_universal('ERROR', 'Audio', f'Unexpected error loading half track {os.path.basename(audio_path)}: {e}')
+        return None, None
