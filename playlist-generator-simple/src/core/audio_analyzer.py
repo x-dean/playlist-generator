@@ -594,130 +594,84 @@ class AudioAnalyzer:
         return metadata
     
     def _extract_rhythm_features(self, audio: np.ndarray, sample_rate: int, file_size_mb: float = None) -> Dict[str, Any]:
-        """Extract rhythm-related features using lightweight approach for large files."""
+        """Extract rhythm features including BPM and confidence."""
         features = {}
-        
-        log_universal('DEBUG', 'Audio', f'Starting rhythm extraction: audio_length={len(audio)}, sample_rate={sample_rate}')
-        
+
         try:
             if ESSENTIA_AVAILABLE:
+                # Use lazy import for essentia
+                essentia = get_essentia()
+                if essentia is None:
+                    raise ImportError("Essentia not available")
+                
                 import essentia.standard as es
-                # Use 3-tier system for rhythm analysis: align with file size thresholds
-                # Files < 100MB: Full processing, Files 100-200MB: Half-track, Files > 200MB: Half-track
+                essentia.log.setLevel(essentia.log.Error)
+
+                # Validate audio parameters
+                if len(audio) < self.frame_size:
+                    log_universal('WARNING', 'Audio', f'Audio too short for rhythm extraction: {len(audio)} samples')
+                    features['bpm'] = 120.0
+                    features['rhythm_confidence'] = 0.0
+                    features['bpm_estimates'] = [120.0]
+                    features['bpm_intervals'] = []
+                    return features
+
+                # Ensure audio is mono
+                if len(audio.shape) > 1:
+                    audio = np.mean(audio, axis=1)
+
+                # 3-tier system based on file size
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
-                
+
                 if file_size_mb is not None:
-                    # Use actual file size for consistent decisions
                     if file_size_mb > half_track_threshold_mb:
-                        # Use half-track loading for large files (middle 50%)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
-                        audio_sample = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for rhythm analysis')
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for rhythm extraction')
                     else:
-                        # Use full audio for small files
-                        audio_sample = audio
-                        log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for rhythm analysis')
+                        log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for rhythm extraction')
                 else:
-                    # Fallback to estimated size if actual size not provided
-                    estimated_size_mb = (len(audio) * 4) / (1024 * 1024)  # Rough estimate
+                    estimated_size_mb = (len(audio) * 4) / (1024 * 1024)
                     if estimated_size_mb > half_track_threshold_mb:
-                        # Use half-track loading for large files (middle 50%)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
-                        audio_sample = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB estimated) - using half-track loading for rhythm analysis')
+                        audio = audio[start_sample:end_sample]
+                        log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB estimated) - using half-track loading for rhythm extraction')
                     else:
-                        # Use full audio for small files
-                        audio_sample = audio
-                        log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for rhythm analysis')
-                
-                # Try a simpler approach first - use TempoTapDegara which is more reliable
-                try:
-                    tempo_tap = es.TempoTapDegara()
-                    ticks = tempo_tap(audio_sample)
-                    if len(ticks) > 0:
-                        # Calculate BPM from ticks
-                        intervals = np.diff(ticks)
-                        if len(intervals) > 0:
-                            mean_interval = np.mean(intervals)
-                            bpm = 60.0 / mean_interval if mean_interval > 0 else 120.0
-                            features['bpm'] = float(bpm)
-                            features['rhythm_confidence'] = 0.7
-                            features['bpm_estimates'] = [bpm]
-                            features['bpm_intervals'] = intervals.tolist()
-                        else:
-                            features['bpm'] = -1  # Out of range for failed extraction
-                            features['rhythm_confidence'] = 0.0
-                            features['bpm_estimates'] = []
-                            features['bpm_intervals'] = []
-                    else:
-                        features['bpm'] = -1  # Out of range for failed extraction
-                        features['rhythm_confidence'] = 0.0
-                        features['bpm_estimates'] = []
-                        features['bpm_intervals'] = []
-                        
-                except Exception as e:
-                    log_universal('DEBUG', 'Audio', f'TempoTapDegara failed, trying RhythmExtractor2013: {e}')
-                    
-                    # Fallback to RhythmExtractor2013 with better error handling
-                    rhythm_extractor = es.RhythmExtractor2013()
-                    rhythm_result = rhythm_extractor(audio_sample)
-                    
-                    # Handle the result more carefully
-                    try:
-                        if hasattr(rhythm_result, '__len__') and len(rhythm_result) > 0:
-                            # It's an array-like object
-                            if hasattr(rhythm_result[0], '__len__'):
-                                # First element is also an array, take its first element
-                                features['bpm'] = float(rhythm_result[0][0]) if len(rhythm_result[0]) > 0 else -1
-                            else:
-                                features['bpm'] = float(rhythm_result[0])
-                            
-                            if len(rhythm_result) > 1:
-                                if hasattr(rhythm_result[1], '__len__'):
-                                    features['rhythm_confidence'] = float(rhythm_result[1][0]) if len(rhythm_result[1]) > 0 else 0.0
-                                else:
-                                    features['rhythm_confidence'] = float(rhythm_result[1])
-                            else:
-                                features['rhythm_confidence'] = 0.0
-                        else:
-                            # Single value
-                            features['bpm'] = float(rhythm_result)
-                            features['rhythm_confidence'] = 0.0
-                            
-                        features['bpm_estimates'] = [features['bpm']] if features['bpm'] > 0 else []
-                        features['bpm_intervals'] = []
-                        
-                    except Exception as e2:
-                        log_universal('DEBUG', 'Audio', f'RhythmExtractor2013 also failed: {e2}')
-                        features['bpm'] = -1  # Out of range for failed extraction
-                        features['rhythm_confidence'] = 0.0
-                        features['bpm_estimates'] = []
-                        features['bpm_intervals'] = []
+                        log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for rhythm extraction')
+
+                # Extract rhythm features
+                rhythm_extractor = es.RhythmExtractor2013(
+                    method='multifeature',
+                    maxTempo=200,
+                    minTempo=40
+                )
+
+                bpm, confidence, estimates, intervals = rhythm_extractor(audio)
+
+                features['bpm'] = float(bpm) if bpm is not None else 120.0
+                features['rhythm_confidence'] = float(confidence) if confidence is not None else 0.0
+                features['bpm_estimates'] = [float(x) for x in estimates] if estimates is not None else [120.0]
+                features['bpm_intervals'] = [float(x) for x in intervals] if intervals is not None else []
+
             elif LIBROSA_AVAILABLE:
-                # Use librosa as fallback
+                # Fallback to librosa for rhythm extraction
                 tempo, beats = librosa.beat.beat_track(y=audio, sr=sample_rate)
                 features['bpm'] = float(tempo)
-                features['rhythm_confidence'] = 0.5  # Default confidence for librosa
-                features['bpm_estimates'] = [tempo]
+                features['rhythm_confidence'] = 0.8  # Default confidence for librosa
+                features['bpm_estimates'] = [float(tempo)]
                 features['bpm_intervals'] = []
-            else:
-                # No rhythm extraction available
-                features['bpm'] = -1  # Out of range for failed extraction
-                features['rhythm_confidence'] = 0.0
-                features['bpm_estimates'] = []
-                features['bpm_intervals'] = []
-            
-            log_universal('DEBUG', 'Audio', f'Extracted rhythm features: BPM={features.get("bpm")}')
-            
+
+            log_universal('DEBUG', 'Audio', f'Extracted rhythm features: BPM={features.get("bpm", 0):.1f}')
+
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Rhythm feature extraction failed: {e}')
-            features['bpm'] = -1  # Out of range for failed extraction
+            features['bpm'] = 120.0
             features['rhythm_confidence'] = 0.0
-            features['bpm_estimates'] = []
+            features['bpm_estimates'] = [120.0]
             features['bpm_intervals'] = []
-        
+
         return features
     
     def _extract_spectral_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
@@ -726,47 +680,66 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                # Use lazy import for essentia
+                essentia = get_essentia()
+                if essentia is None:
+                    raise ImportError("Essentia not available")
+                
                 import essentia.standard as es
-                # Use SpectralCentroidTime like the old working version
-                log_universal('DEBUG', 'Audio', "Initializing Essentia SpectralCentroidTime algorithm")
-                centroid_algo = es.SpectralCentroidTime()
-                log_universal('DEBUG', 'Audio', "Running spectral centroid analysis on audio")
-                centroid_values = centroid_algo(audio)
-                log_universal('DEBUG', 'Audio', "Spectral analysis completed successfully")
+                essentia.log.setLevel(essentia.log.Error)
                 
-                centroid_mean = float(np.nanmean(centroid_values)) if isinstance(
-                    centroid_values, (list, np.ndarray)) else float(centroid_values)
-                log_universal('DEBUG', 'Audio', f"Calculated mean spectral centroid: {centroid_mean:.1f}")
-                log_universal('INFO', 'Audio', f"Spectral features completed: centroid = {centroid_mean:.1f}Hz")
+                # Validate audio parameters before spectral extraction
+                if len(audio) < self.frame_size:
+                    log_universal('WARNING', 'Audio', f'Audio too short for spectral extraction: {len(audio)} samples')
+                    features.update({
+                        'spectral_centroid': 0.0,
+                        'spectral_rolloff': 0.0,
+                        'spectral_flatness': 0.0,
+                        'spectral_bandwidth': 0.0,
+                        'spectral_contrast_mean': 0.0,
+                        'spectral_contrast_std': 0.0
+                    })
+                    return features
+
+                # Ensure audio is mono
+                if len(audio.shape) > 1:
+                    audio = np.mean(audio, axis=1)
+
+                # Extract spectral features using the old working approach
+                spectral_centroid_algo = es.SpectralCentroid()
+                spectral_rolloff_algo = es.SpectralRolloff()
+                spectral_flatness_algo = es.SpectralFlatness()
+                spectral_bandwidth_algo = es.SpectralBandwidth()
+                spectral_contrast_algo = es.SpectralContrast()
+
+                # Process audio in frames
+                centroid_values = []
+                rolloff_values = []
+                flatness_values = []
+                bandwidth_values = []
+                contrast_values = []
+
+                for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                    centroid_values.append(spectral_centroid_algo(frame))
+                    rolloff_values.append(spectral_rolloff_algo(frame))
+                    flatness_values.append(spectral_flatness_algo(frame))
+                    bandwidth_values.append(spectral_bandwidth_algo(frame))
+                    contrast_values.append(spectral_contrast_algo(frame))
+
+                # Calculate statistics
+                features['spectral_centroid'] = float(np.nanmean(centroid_values)) if centroid_values else 0.0
+                features['spectral_rolloff'] = float(np.nanmean(rolloff_values)) if rolloff_values else 0.0
+                features['spectral_flatness'] = float(np.nanmean(flatness_values)) if flatness_values else 0.0
+                features['spectral_bandwidth'] = float(np.nanmean(bandwidth_values)) if bandwidth_values else 0.0
                 
-                features['spectral_centroid'] = centroid_mean
-                
-                # Add spectral flatness for better categorization
-                try:
-                    # Use FlatnessSFX which is available in Essentia
-                    flatness_algo = es.FlatnessSFX()
-                    flatness_values = flatness_algo(audio)
-                    flatness_mean = float(np.nanmean(flatness_values)) if isinstance(
-                        flatness_values, (list, np.ndarray)) else float(flatness_values)
-                    features['spectral_flatness'] = flatness_mean
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f'Spectral flatness extraction failed: {e}')
-                    features['spectral_flatness'] = 0.5  # Default value
-                
-                features['spectral_rolloff'] = 0.0  # Not available in old version
-                features['spectral_bandwidth'] = 0.0  # Not available in old version
-                features['spectral_contrast_mean'] = 0.0  # Not available in old version
-                features['spectral_contrast_std'] = 0.0  # Not available in old version
-                
-            elif LIBROSA_AVAILABLE:
-                # Use librosa as fallback
-                spectral_centroids = librosa.feature.spectral_centroid(y=audio, sr=sample_rate)
-                features['spectral_centroid'] = float(np.mean(spectral_centroids))
-                features['spectral_rolloff'] = 0.0
-                features['spectral_flatness'] = 0.0
-                features['spectral_bandwidth'] = 0.0
-                features['spectral_contrast_mean'] = 0.0
-                features['spectral_contrast_std'] = 0.0
+                # Handle spectral contrast (returns multiple values)
+                if contrast_values:
+                    contrast_array = np.array(contrast_values)
+                    features['spectral_contrast_mean'] = float(np.nanmean(contrast_array))
+                    features['spectral_contrast_std'] = float(np.nanstd(contrast_array))
+                else:
+                    features['spectral_contrast_mean'] = 0.0
+                    features['spectral_contrast_std'] = 0.0
             
             log_universal('DEBUG', 'Audio', f'Extracted spectral features')
             
@@ -790,7 +763,14 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                # Use lazy import for essentia
+                essentia = get_essentia()
+                if essentia is None:
+                    raise ImportError("Essentia not available")
+                
                 import essentia.standard as es
+                essentia.log.setLevel(essentia.log.Error)
+                
                 # Use RMS like the old working version
                 log_universal('DEBUG', 'Audio', "Initializing Essentia RMS algorithm")
                 rms_algo = es.RMS()
@@ -851,7 +831,14 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                # Use lazy import for essentia
+                essentia = get_essentia()
+                if essentia is None:
+                    raise ImportError("Essentia not available")
+                
                 import essentia.standard as es
+                essentia.log.setLevel(essentia.log.Error)
+                
                 # Validate audio parameters before key extraction
                 if len(audio) < 1024:
                     log_universal('WARNING', 'Audio', f'Audio too short for key extraction: {len(audio)} samples')
@@ -918,7 +905,14 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                # Use lazy import for essentia
+                essentia = get_essentia()
+                if essentia is None:
+                    raise ImportError("Essentia not available")
+                
                 import essentia.standard as es
+                essentia.log.setLevel(essentia.log.Error)
+                
                 # Validate audio parameters before MFCC extraction
                 if len(audio) < 512:
                     log_universal('WARNING', 'Audio', f'Audio too short for MFCC extraction: {len(audio)} samples')
@@ -1025,7 +1019,7 @@ class AudioAnalyzer:
             # Check if we need to use half-track loading for large files
             audio_size_bytes = len(audio) * 4  # Estimate size (4 bytes per float32 sample)
             file_size_mb = audio_size_bytes / (1024 * 1024)
-            half_track_threshold_mb = self.config.get('MUSICNN_HALF_TRACK_THRESHOLD_MB', 50)
+            half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 25)  # Align with main analysis threshold
             print(f"MUSICNN_DEBUG: threshold={half_track_threshold_mb}MB, file_size={file_size_mb:.1f}MB")  # Direct print for debugging
             log_universal('DEBUG', 'Audio', f'MusicNN half-track threshold: {half_track_threshold_mb}MB, file size: {file_size_mb:.1f}MB')
             
@@ -1122,7 +1116,14 @@ class AudioAnalyzer:
             # Resample to 16kHz if needed
             if sample_rate != 16000:
                 if ESSENTIA_AVAILABLE:
+                    # Use lazy import for essentia
+                    essentia = get_essentia()
+                    if essentia is None:
+                        raise ImportError("Essentia not available")
+                    
                     import essentia.standard as es
+                    essentia.log.setLevel(essentia.log.Error)
+                    
                     # Use Essentia resampler for better quality
                     resampler = es.Resample(inputSampleRate=sample_rate, outputSampleRate=16000)
                     audio_16k = resampler(audio)
@@ -1238,6 +1239,11 @@ class AudioAnalyzer:
 
         try:
             if ESSENTIA_AVAILABLE:
+                # Use lazy import for essentia
+                essentia = get_essentia()
+                if essentia is None:
+                    raise ImportError("Essentia not available")
+                
                 import essentia.standard as es
                 essentia.log.setLevel(essentia.log.Error)
 
@@ -2450,20 +2456,30 @@ class AudioAnalyzer:
             
             # Try using Essentia with sample loading
             try:
-                import essentia.standard as es
-                log_universal('DEBUG', 'Audio', f'Loading {duration_seconds}s sample with Essentia')
-                
-                # Use MonoLoader with sample size limit
-                loader = es.MonoLoader(filename=file_path, sampleRate=self.sample_rate)
-                audio = loader()
-                
-                # Take only the first N samples
-                if audio is not None and len(audio) > 0:
-                    sample_end = min(sample_size, len(audio))
-                    audio_sample = audio[:sample_end]
+                if ESSENTIA_AVAILABLE:
+                    # Use lazy import for essentia
+                    essentia = get_essentia()
+                    if essentia is None:
+                        raise ImportError("Essentia not available")
                     
-                    log_universal('DEBUG', 'Audio', f'Loaded sample: {len(audio_sample)} samples ({len(audio_sample)/self.sample_rate:.1f}s)')
-                    return audio_sample, self.sample_rate
+                    import essentia.standard as es
+                    essentia.log.setLevel(essentia.log.Error)
+                    
+                    log_universal('DEBUG', 'Audio', f'Loading {duration_seconds}s sample with Essentia')
+                    
+                    # Use MonoLoader with sample size limit
+                    loader = es.MonoLoader(filename=file_path, sampleRate=self.sample_rate)
+                    audio = loader()
+                    
+                    # Take only the first N samples
+                    if audio is not None and len(audio) > 0:
+                        sample_end = min(sample_size, len(audio))
+                        audio_sample = audio[:sample_end]
+                        
+                        log_universal('DEBUG', 'Audio', f'Loaded sample: {len(audio_sample)} samples ({len(audio_sample)/self.sample_rate:.1f}s)')
+                        return audio_sample, self.sample_rate
+                else:
+                    raise ImportError("Essentia not available")
                     
             except Exception as e:
                 log_universal('WARNING', 'Audio', f'Essentia sample loading failed: {e}')
@@ -3045,7 +3061,13 @@ def load_half_track(audio_path: str, sample_rate: int = 44100, config: Dict[str,
         # Load audio using Essentia if available
         if ESSENTIA_AVAILABLE:
             try:
+                # Use lazy import for essentia
+                essentia = get_essentia()
+                if essentia is None:
+                    raise ImportError("Essentia not available")
+                
                 import essentia.standard as es
+                essentia.log.setLevel(essentia.log.Error)
                 
                 # Load full audio first to get duration
                 loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
