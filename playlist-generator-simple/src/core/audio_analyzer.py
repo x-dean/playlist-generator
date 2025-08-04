@@ -1097,7 +1097,7 @@ class AudioAnalyzer:
         """Extract MusiCNN features using shared model instances with enhanced error handling."""
         features = {}
         
-        log_universal('DEBUG', 'Audio', f'MusiCNN extraction started: audio shape={audio.shape}, sample_rate={sample_rate}')
+        log_universal('INFO', 'Audio', f'MusiCNN extraction started: audio shape={audio.shape}, sample_rate={sample_rate}')
         
         try:
             if not TENSORFLOW_AVAILABLE:
@@ -1123,7 +1123,7 @@ class AudioAnalyzer:
                 features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
                 return features
             
-            log_universal('DEBUG', 'Audio', 'Using shared MusicNN models')
+            log_universal('INFO', 'Audio', 'Using shared MusicNN models')
             
             # Check if we need to use half-track loading for large files
             audio_size_bytes = len(audio) * 4  # Estimate size (4 bytes per float32 sample)
@@ -1135,11 +1135,11 @@ class AudioAnalyzer:
                 start_sample = len(audio) // 4
                 end_sample = 3 * len(audio) // 4
                 audio = audio[start_sample:end_sample]
-                log_universal('DEBUG', 'Audio', f'Half-track loaded: {len(audio)} samples for MusiCNN analysis')
+                log_universal('INFO', 'Audio', f'Half-track loaded: {len(audio)} samples for MusiCNN analysis')
             
             # Use shared models for inference
             try:
-                log_universal('DEBUG', 'Audio', 'Starting MusiCNN inference...')
+                log_universal('INFO', 'Audio', 'Starting MusiCNN inference...')
                 
                 # Enhanced audio preprocessing for MusiCNN
                 audio_16k = self._prepare_audio_for_musicnn(audio, sample_rate)
@@ -1149,7 +1149,7 @@ class AudioAnalyzer:
                     return features
                 
                 # Run activations inference using shared model
-                log_universal('DEBUG', 'Audio', 'Running MusiCNN activations inference...')
+                log_universal('INFO', 'Audio', 'Running MusiCNN activations inference...')
                 activations = activations_model(audio_16k)  # shape: [time, tags]
                 
                 # Enhanced return type handling
@@ -1164,11 +1164,11 @@ class AudioAnalyzer:
                     features.update({'embedding': [], 'tags': {}, 'musicnn_skipped': 1})
                     return features
                 
-                log_universal('DEBUG', 'Audio', f'MusiCNN tags extracted: {len(tags)} tags')
-                log_universal('DEBUG', 'Audio', f'Top 5 predicted tags: {sorted(tags.items(), key=lambda x: x[1], reverse=True)[:5]}')
+                log_universal('INFO', 'Audio', f'MusiCNN tags extracted: {len(tags)} tags')
+                log_universal('INFO', 'Audio', f'Top 5 predicted tags: {sorted(tags.items(), key=lambda x: x[1], reverse=True)[:5]}')
                 
                 # Run embeddings inference using shared model
-                log_universal('DEBUG', 'Audio', 'Running MusiCNN embeddings inference...')
+                log_universal('INFO', 'Audio', 'Running MusiCNN embeddings inference...')
                 embeddings = embeddings_model(audio_16k)
                 
                 # Enhanced embeddings handling
