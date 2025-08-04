@@ -54,7 +54,13 @@ class ModelManager:
         """
         # Load configuration
         if config is None:
-            config = config_loader.get_audio_analysis_config()
+            try:
+                config = config_loader.get_audio_analysis_config()
+            except NameError:
+                # Handle case where config_loader is not available (e.g., in multiprocessing)
+                from .config_loader import ConfigLoader
+                local_config_loader = ConfigLoader()
+                config = local_config_loader.get_audio_analysis_config()
         
         self.config = config
         
