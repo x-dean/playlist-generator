@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from datetime import datetime
 
 from .models import *
+from .performance_routes import router as performance_router
 from ..application.commands import AnalyzeTrackCommand, ImportTracksCommand, GeneratePlaylistCommand
 from ..application.queries import GetAnalysisStatsQuery, SearchTracksQuery
 from ..application.use_cases import AnalyzeTrackUseCase, ImportTracksUseCase, GeneratePlaylistUseCase, GetAnalysisStatsUseCase
@@ -20,9 +21,13 @@ from ..infrastructure.logging import get_logger
 from ..infrastructure.monitoring import get_metrics_collector, get_performance_monitor
 from ..domain.exceptions import DomainException, TrackNotFoundException, AnalysisFailedException
 from ..core.database import DatabaseManager
+from ..core.async_audio_processor import get_async_audio_processor
 
 
 router = APIRouter(prefix="/api/v1", tags=["playlist-generator"])
+
+# Include performance monitoring routes
+router.include_router(performance_router)
 
 
 def get_container_dependency():
@@ -61,17 +66,18 @@ async def analyze_track(
     """Analyze a track and return analysis results."""
     try:
         with monitor.time_operation("analyze_track"):
-            # Get use case from container
-            use_case = container.resolve(AnalyzeTrackUseCase)
+            # Get async audio processor
+            processor = get_async_audio_processor()
             
-            # Create command
-            command = AnalyzeTrackCommand(
+            # Execute async analysis
+            result = await processor.analyze_track_async(
                 file_path=request.file_path,
-                force_reanalysis=request.force_reanalysis
+                force_reanalysis=request.force_reanalysis,
+                timeout=300  # 5 minute timeout
             )
             
-            # Execute use case
-            result = use_case.execute(command)
+            if not result:
+                raise AnalysisFailedException(f"Failed to analyze track: {request.file_path}")
             
             # Log success
             logger.log_use_case_execution("analyze_track", "success", monitor.get_timing("analyze_track"))
@@ -79,16 +85,16 @@ async def analyze_track(
             # Record metrics
             metrics.record_track_analysis(
                 status="success",
-                format=result.features.get("format", "unknown"),
+                format=result.get("format", "unknown"),
                 duration=monitor.get_timing("analyze_track"),
-                confidence=result.confidence
+                confidence=result.get("confidence", 0.0)
             )
             
             return AnalysisResultResponse(
-                features=result.features,
-                confidence=result.confidence,
-                analysis_date=result.analysis_date,
-                processing_time=result.processing_time
+                features=result,
+                confidence=result.get("confidence", 0.0),
+                analysis_date=result.get("analysis_date", datetime.now().isoformat()),
+                processing_time=monitor.get_timing("analyze_track")
             )
             
     except TrackNotFoundException as e:

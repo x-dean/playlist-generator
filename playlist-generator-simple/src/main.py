@@ -13,13 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
-# Suppress TensorFlow logging after import
-try:
-    import tensorflow as tf
-    tf.get_logger().setLevel('ERROR')
-    tf.autograph.set_verbosity(0)
-except ImportError:
-    pass
+# Use lazy imports for heavy libraries to improve startup time
+from .core.lazy_imports import get_tensorflow
 
 from .api.routes import router
 from .infrastructure.container import configure_container
