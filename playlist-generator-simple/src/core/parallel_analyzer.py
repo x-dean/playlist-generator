@@ -11,6 +11,14 @@ from typing import List, Dict, Any, Optional, Tuple, Iterator
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# Suppress TensorFlow warnings
+try:
+    import tensorflow as tf
+    tf.get_logger().setLevel('ERROR')
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+except ImportError:
+    pass
+
 # Import local modules
 from .database import DatabaseManager
 from .logging_setup import get_logger, log_function_call, log_universal

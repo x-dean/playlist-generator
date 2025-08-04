@@ -1,20 +1,26 @@
 """
-Audio analysis module for Playlist Generator Simple.
-Handles audio feature extraction, metadata parsing, and analysis caching.
+Audio Analyzer for Playlist Generator Simple.
+Extracts audio features including MusicNN embeddings and auto-tags.
 """
 
 import os
 import time
+import json
 import hashlib
-import numpy as np
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
-import json
 
-# Import configuration and logging
-from .config_loader import config_loader
+# Suppress TensorFlow warnings
+try:
+    import tensorflow as tf
+    tf.get_logger().setLevel('ERROR')
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+except ImportError:
+    pass
+
+# Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
-from .database import get_db_manager
+from .database import DatabaseManager
 
 logger = get_logger('playlista.audio_analyzer')
 

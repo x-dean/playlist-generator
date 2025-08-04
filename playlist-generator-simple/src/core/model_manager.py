@@ -1,12 +1,14 @@
 """
 Model Manager for Playlist Generator Simple.
-Provides thread-safe shared model instances for MusicNN and other ML models.
+Provides thread-safe, shared instances of machine learning models.
 """
 
 import os
-import threading
 import time
+import json
+import threading
 from typing import Dict, Any, Optional, Tuple
+from threading import RLock
 from datetime import datetime
 
 # Import local modules
@@ -101,80 +103,99 @@ class ModelManager:
             )
 
     def _initialize_musicnn_models(self):
-        """Initialize MusicNN models (called once, thread-safe)."""
-        with self._initialization_lock:
-            if self._models_initialized:
-                return
+        """Initialize MusicNN models with proper TensorFlow session management."""
+        if self._models_initialized:
+            return
             
-            log_universal('INFO', 'Model', 'Initializing MusicNN models...')
+        with self._model_lock:
+            if self._models_initialized:  # Double-check after acquiring lock
+                return
+                
             start_time = time.time()
+            log_universal('INFO', 'Model', 'Initializing MusicNN models...')
             
             try:
+                # Check if TensorFlow and Essentia are available
                 if not TENSORFLOW_AVAILABLE:
                     log_universal('WARNING', 'Model', 'TensorFlow not available - MusicNN models disabled')
                     self._models_initialized = True
                     return
-                
+                    
                 if not ESSENTIA_AVAILABLE:
                     log_universal('WARNING', 'Model', 'Essentia not available - MusicNN models disabled')
                     self._models_initialized = True
                     return
                 
-                # Check model files exist
+                # Check if model files exist
                 if not os.path.exists(self.musicnn_model_path):
-                    log_universal('WARNING', 'Model', f'MusicNN model not found: {self.musicnn_model_path}')
+                    log_universal('WARNING', 'Model', f'MusicNN model file not found: {self.musicnn_model_path}')
                     self._models_initialized = True
                     return
-                
+                    
                 if not os.path.exists(self.musicnn_json_path):
                     log_universal('WARNING', 'Model', f'MusicNN JSON config not found: {self.musicnn_json_path}')
                     self._models_initialized = True
                     return
                 
-                # Load tag names from JSON
-                try:
-                    import json
-                    with open(self.musicnn_json_path, 'r') as f:
-                        metadata = json.load(f)
-                    self._musicnn_tag_names = metadata.get('classes', [])
-                    self._musicnn_metadata = metadata
-                    log_universal('DEBUG', 'Model', f'Loaded {len(self._musicnn_tag_names)} tag names from MusicNN config')
-                except Exception as e:
-                    log_universal('WARNING', 'Model', f'Failed to load MusicNN JSON config: {e}')
-                    self._models_initialized = True
-                    return
+                # Import TensorFlow and Essentia
+                import essentia.standard as es
+                import tensorflow as tf
                 
-                # Load MusicNN models
-                try:
-                    log_universal('DEBUG', 'Model', 'Loading MusicNN activations model...')
+                # Configure TensorFlow to suppress warnings
+                tf.get_logger().setLevel('ERROR')
+                os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+                
+                # Create a new TensorFlow session for model loading
+                with tf.compat.v1.Session() as session:
+                    # Load MusicNN JSON configuration
+                    try:
+                        with open(self.musicnn_json_path, 'r') as f:
+                            self._musicnn_metadata = json.load(f)
+                        
+                        self._musicnn_tag_names = self._musicnn_metadata.get('classes', [])
+                        if not self._musicnn_tag_names:
+                            log_universal('WARNING', 'Model', 'No tag names found in MusicNN config')
+                            self._models_initialized = True
+                            return
+                            
+                        self._musicnn_metadata = self._musicnn_metadata
+                        log_universal('DEBUG', 'Model', f'Loaded {len(self._musicnn_tag_names)} tag names from MusicNN config')
+                    except Exception as e:
+                        log_universal('WARNING', 'Model', f'Failed to load MusicNN JSON config: {e}')
+                        self._models_initialized = True
+                        return
                     
-                    # Initialize MusiCNN for activations (auto-tagging)
-                    self._musicnn_activations_model = es.TensorflowPredictMusiCNN(graphFilename=self.musicnn_model_path)
-                    log_universal('INFO', 'Model', 'Loaded MusicNN activations model')
-                    
-                    # Get embeddings using different output layer
-                    output_layer = 'model/dense_1/BiasAdd'
-                    if 'schema' in self._musicnn_metadata and 'outputs' in self._musicnn_metadata['schema']:
-                        for output in self._musicnn_metadata['schema']['outputs']:
-                            if 'description' in output and output['description'] == 'embeddings':
-                                output_layer = output['name']
-                                break
-                    
-                    log_universal('DEBUG', 'Model', f'Loading MusicNN embeddings model with output layer: {output_layer}')
-                    
-                    self._musicnn_embeddings_model = es.TensorflowPredictMusiCNN(
-                        graphFilename=self.musicnn_model_path,
-                        output=output_layer
-                    )
-                    log_universal('INFO', 'Model', 'Loaded MusicNN embeddings model')
-                    
-                    initialization_time = time.time() - start_time
-                    log_universal('INFO', 'Model', f'MusicNN models initialized successfully in {initialization_time:.2f}s')
-                    
-                except Exception as e:
-                    log_universal('ERROR', 'Model', f'Failed to load MusicNN models: {e}')
-                    self._musicnn_activations_model = None
-                    self._musicnn_embeddings_model = None
+                    # Load MusicNN models within TensorFlow session
+                    try:
+                        log_universal('DEBUG', 'Model', 'Loading MusicNN activations model...')
+                        
+                        # Initialize MusiCNN for activations (auto-tagging)
+                        self._musicnn_activations_model = es.TensorflowPredictMusiCNN(graphFilename=self.musicnn_model_path)
+                        log_universal('INFO', 'Model', 'Loaded MusicNN activations model')
+                        
+                        # Get embeddings using different output layer
+                        output_layer = 'model/dense_1/BiasAdd'
+                        if 'schema' in self._musicnn_metadata and 'outputs' in self._musicnn_metadata['schema']:
+                            for output in self._musicnn_metadata['schema']['outputs']:
+                                if 'description' in output and output['description'] == 'embeddings':
+                                    output_layer = output['name']
+                                    break
+                        
+                        log_universal('DEBUG', 'Model', f'Loading MusicNN embeddings model with output layer: {output_layer}')
+                        
+                        self._musicnn_embeddings_model = es.TensorflowPredictMusiCNN(
+                            graphFilename=self.musicnn_model_path,
+                            output=output_layer
+                        )
+                        log_universal('INFO', 'Model', 'Loaded MusicNN embeddings model')
+                        
+                        initialization_time = time.time() - start_time
+                        log_universal('INFO', 'Model', f'MusicNN models initialized successfully in {initialization_time:.2f}s')
+                        
+                    except Exception as e:
+                        log_universal('ERROR', 'Model', f'Failed to load MusicNN models: {e}')
+                        self._musicnn_activations_model = None
+                        self._musicnn_embeddings_model = None
                 
                 self._models_initialized = True
                 
