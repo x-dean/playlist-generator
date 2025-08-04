@@ -141,7 +141,7 @@ playlist-generator-simple/
 │   ├── domain/            # Domain models
 │   ├── infrastructure/    # Infrastructure layer
 │   └── main.py            # Main entry point
-├── docs/                  # Documentation files
+├── documentation/         # All documentation files
 ├── scripts/               # Utility scripts
 ├── config/                # Configuration files
 ├── database/              # Database schemas
@@ -181,15 +181,9 @@ LIMIT 10;
 
 ## Development
 
-### Testing
+### Development
 
-```bash
-# Run database tests
-python test_database.py
-
-# Run analysis tests
-python -m pytest tests/
-```
+The project follows a clean architecture pattern with separated layers for domain, application, infrastructure, and API concerns.
 
 ### Building
 

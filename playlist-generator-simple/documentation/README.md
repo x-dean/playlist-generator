@@ -49,3 +49,7 @@ This directory contains comprehensive documentation for the Playlist Generator S
 - [Load Balancing Answer](LOAD_BALANCING_ANSWER.md) - Load balancing Q&A
 
 For the main project documentation, see the [main README](../README.md) in the project root.
+
+## Documentation Location
+
+All technical documentation has been consolidated in this `documentation/` directory for better organization and easier navigation.
