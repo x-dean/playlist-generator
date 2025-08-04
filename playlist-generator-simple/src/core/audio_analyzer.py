@@ -316,6 +316,9 @@ class AudioAnalyzer:
                 log_universal('INFO', 'Audio', f'Essentia features saved to database')
             
             # STEP 4.5: Extract Spotify-style features (danceability, energy, etc.)
+            if essentia_features is None:
+                essentia_features = {}
+            
             spotify_features = self._extract_spotify_style_features(
                 audio, sample_rate,
                 rhythm_features=essentia_features.get('rhythm', {}) if isinstance(essentia_features, dict) else {},
@@ -1379,7 +1382,7 @@ class AudioAnalyzer:
                     else:
                         log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for chroma extraction')
 
-                # Initialize Chromagram with configured frameSize/hopSize
+                # Initialize Chromagram with configured hopSize
                 chroma_algo = es.Chromagram(
                     hopSize=self.hop_size,
                     sampleRate=sample_rate
@@ -2684,6 +2687,22 @@ class AudioAnalyzer:
         These are derived from existing features and MusiCNN tags.
         """
         try:
+            # Ensure all inputs are dictionaries
+            if not isinstance(rhythm_features, dict):
+                rhythm_features = {}
+            if not isinstance(spectral_features, dict):
+                spectral_features = {}
+            if not isinstance(loudness_features, dict):
+                loudness_features = {}
+            if not isinstance(key_features, dict):
+                key_features = {}
+            if not isinstance(mfcc_features, dict):
+                mfcc_features = {}
+            if not isinstance(musicnn_features, dict):
+                musicnn_features = {}
+            if not isinstance(chroma_features, dict):
+                chroma_features = {}
+            
             # Extract base features
             bpm = rhythm_features.get('bpm', 0)
             rhythm_confidence = rhythm_features.get('rhythm_confidence', 0)
@@ -3140,23 +3159,26 @@ class AudioAnalyzer:
 
                 # 2. HARMONIC FEATURES - Use SpectralPeaks as fallback
                 try:
-                    # Try HarmonicPeaks first
-                    harmonic_peaks_algo = es.HarmonicPeaks()
-                    peaks, peak_values = harmonic_peaks_algo(audio)
-                    features['harmonic_peaks_count'] = len(peaks) if peaks is not None else 0
-                    features['harmonic_peak_strength'] = float(np.mean(peak_values)) if peak_values is not None else 0.0
-                except Exception as e:
-                    log_universal('WARNING', 'Audio', f'Harmonic peaks extraction failed: {e}')
-                    # Fallback to SpectralPeaks
+                    # First get spectral peaks, then try harmonic peaks
+                    spectral_peaks_algo = es.SpectralPeaks()
+                    peaks, peak_values = spectral_peaks_algo(audio)
+                    
+                    # Try HarmonicPeaks with the spectral peaks
                     try:
-                        spectral_peaks_algo = es.SpectralPeaks()
-                        peaks, peak_values = spectral_peaks_algo(audio)
+                        harmonic_peaks_algo = es.HarmonicPeaks()
+                        harmonic_peaks, harmonic_values = harmonic_peaks_algo(peaks, peak_values)
+                        features['harmonic_peaks_count'] = len(harmonic_peaks) if harmonic_peaks is not None else 0
+                        features['harmonic_peak_strength'] = float(np.mean(harmonic_values)) if harmonic_values is not None else 0.0
+                    except Exception as e_harmonic:
+                        log_universal('WARNING', 'Audio', f'Harmonic peaks extraction failed: {e_harmonic}')
+                        # Use spectral peaks as fallback
                         features['harmonic_peaks_count'] = len(peaks) if peaks is not None else 0
                         features['harmonic_peak_strength'] = float(np.mean(peak_values)) if peak_values is not None else 0.0
-                    except Exception as e2:
-                        log_universal('WARNING', 'Audio', f'Spectral peaks fallback also failed: {e2}')
-                        features['harmonic_peaks_count'] = 0
-                        features['harmonic_peak_strength'] = 0.0
+                        
+                except Exception as e:
+                    log_universal('WARNING', 'Audio', f'Spectral peaks extraction failed: {e}')
+                    features['harmonic_peaks_count'] = 0
+                    features['harmonic_peak_strength'] = 0.0
 
                 # 3. INHARMONICITY (useful for electronic vs acoustic)
                 try:
