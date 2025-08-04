@@ -62,9 +62,29 @@ class ResourceManager:
         self.monitoring_interval = config.get('MONITORING_INTERVAL_SECONDS', DEFAULT_MONITORING_INTERVAL_SECONDS)
         
         # Container/Environment memory limit (overrides host memory detection)
-        self.container_memory_limit_gb = config.get('CONTAINER_MEMORY_LIMIT_GB', None)
-        if self.container_memory_limit_gb == '':
+        container_memory_limit_raw = config.get('CONTAINER_MEMORY_LIMIT_GB', None)
+        if container_memory_limit_raw == '' or container_memory_limit_raw is None:
             self.container_memory_limit_gb = None  # Empty string means use host detection
+        else:
+            # Parse memory limit string (e.g., "4GB", "6.5GB", "2MB")
+            import re
+            match = re.match(r'(\d+(?:\.\d+)?)\s*([GMK])?B?', str(container_memory_limit_raw).upper())
+            if match:
+                value = float(match.group(1))
+                unit = match.group(2) or 'G'
+                if unit == 'M':
+                    self.container_memory_limit_gb = value / 1024
+                elif unit == 'K':
+                    self.container_memory_limit_gb = value / (1024 * 1024)
+                else:
+                    self.container_memory_limit_gb = value
+            else:
+                # Try to convert to float directly (assume GB)
+                try:
+                    self.container_memory_limit_gb = float(container_memory_limit_raw)
+                except (ValueError, TypeError):
+                    log_universal('WARNING', 'Resource', f'Invalid CONTAINER_MEMORY_LIMIT_GB value: {container_memory_limit_raw}, using host memory detection')
+                    self.container_memory_limit_gb = None
         
         # Advanced resource settings
         self.resource_history_size = config.get('RESOURCE_HISTORY_SIZE', DEFAULT_RESOURCE_HISTORY_SIZE)
