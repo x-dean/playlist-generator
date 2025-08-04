@@ -1065,6 +1065,108 @@ class DatabaseManager:
             return False
 
     @log_function_call
+    def save_advanced_categorization_features(self, file_path: str, features: Dict[str, Any]) -> bool:
+        """
+        Save advanced categorization features to database.
+        
+        Args:
+            file_path: Path to the file
+            features: Advanced categorization features dictionary
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Update the tracks table with advanced features
+                cursor.execute("""
+                    UPDATE tracks SET
+                        danceability = ?,
+                        energy = ?,
+                        acousticness = ?,
+                        instrumentalness = ?,
+                        speechiness = ?,
+                        valence = ?,
+                        liveness = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE file_path = ?
+                """, (
+                    features.get('danceability', 0.0),
+                    features.get('energy', 0.0),
+                    features.get('acousticness', 0.0),
+                    features.get('instrumentalness', 0.0),
+                    features.get('speechiness', 0.0),
+                    features.get('valence', 0.0),
+                    features.get('liveness', 0.0),
+                    file_path
+                ))
+                
+                if cursor.rowcount > 0:
+                    log_universal('DEBUG', 'Database', f'Saved advanced categorization features for {os.path.basename(file_path)}')
+                    return True
+                else:
+                    log_universal('WARNING', 'Database', f'No track found for {os.path.basename(file_path)}')
+                    return False
+                    
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to save advanced categorization features: {e}')
+            return False
+
+    @log_function_call
+    def save_spotify_features(self, file_path: str, features: Dict[str, Any]) -> bool:
+        """
+        Save Spotify-style features to database.
+        
+        Args:
+            file_path: Path to the file
+            features: Spotify-style features dictionary
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Update the tracks table with Spotify-style features
+                cursor.execute("""
+                    UPDATE tracks SET
+                        danceability = ?,
+                        energy = ?,
+                        mode = ?,
+                        acousticness = ?,
+                        instrumentalness = ?,
+                        speechiness = ?,
+                        valence = ?,
+                        liveness = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE file_path = ?
+                """, (
+                    features.get('danceability', 0.0),
+                    features.get('energy', 0.0),
+                    features.get('mode', 0.0),
+                    features.get('acousticness', 0.0),
+                    features.get('instrumentalness', 0.0),
+                    features.get('speechiness', 0.0),
+                    features.get('valence', 0.0),
+                    features.get('liveness', 0.0),
+                    file_path
+                ))
+                
+                if cursor.rowcount > 0:
+                    log_universal('DEBUG', 'Database', f'Saved Spotify-style features for {os.path.basename(file_path)}')
+                    return True
+                else:
+                    log_universal('WARNING', 'Database', f'No track found for {os.path.basename(file_path)}')
+                    return False
+                    
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to save Spotify-style features: {e}')
+            return False
+
+    @log_function_call
     def commit_analysis_results(self, file_path: str, all_features: Dict[str, Any]) -> bool:
         """
         Commit all analysis results to database.
