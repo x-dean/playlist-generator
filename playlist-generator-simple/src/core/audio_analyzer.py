@@ -1369,74 +1369,76 @@ class AudioAnalyzer:
     def _extract_chroma_features(self, audio: np.ndarray, sample_rate: int, file_size_mb: float = None) -> Dict[str, Any]:
         """Extract chroma features using frame-by-frame processing."""
         features = {}
-        
+
         try:
             if ESSENTIA_AVAILABLE:
                 import essentia.standard as es
+
                 # Validate audio parameters before chroma extraction
-                if len(audio) < 512:
+                if len(audio) < self.frame_size:
                     log_universal('WARNING', 'Audio', f'Audio too short for chroma extraction: {len(audio)} samples')
-                    features.update({
-                        'chroma': [],
-                        'chroma_std': []
-                    })
+                    features['chroma_mean'] = [0.0] * 12
+                    features['chroma_std']  = [0.0] * 12
                     return features
-                
+
                 # Ensure audio is mono
                 if len(audio.shape) > 1:
                     audio = np.mean(audio, axis=1)
-                
-                # Use 3-tier system for chroma extraction instead of hardcoded 60s limit
-                # Files < 100MB: Full processing, Files 100-200MB: Half-track, Files > 200MB: Half-track
+
+                # 3-tier system based on file size
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
-                
+
                 if file_size_mb is not None:
-                    # Use actual file size for consistent decisions
                     if file_size_mb > half_track_threshold_mb:
-                        # Use half-track loading for large files (middle 50%)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
                         log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for chroma extraction')
                     else:
-                        # Use full audio for small files
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for chroma extraction')
                 else:
-                    # Fallback to estimated size if actual size not provided
-                    estimated_size_mb = (len(audio) * 4) / (1024 * 1024)  # Rough estimate
+                    estimated_size_mb = (len(audio) * 4) / (1024 * 1024)
                     if estimated_size_mb > half_track_threshold_mb:
-                        # Use half-track loading for large files (middle 50%)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
                         log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB estimated) - using half-track loading for chroma extraction')
                     else:
-                        # Use full audio for small files
                         log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for chroma extraction')
-                
-                # Chroma
-                chroma = es.Chromagram()
-                chroma_result = chroma(audio)
-                
-                features['chroma'] = chroma_result.tolist()
-                features['chroma_std'] = np.std(chroma_result, axis=1).tolist()
-            
+
+                # Initialize Chromagram with configured frameSize/hopSize
+                chroma_algo = es.Chromagram(
+                    frameSize=self.frame_size,
+                    hopSize=self.hop_size,
+                    sampleRate=sample_rate
+                )
+
+                chroma_frames = []
+                for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                    chroma_frames.append(chroma_algo(frame))
+
+                if chroma_frames:
+                    chroma_matrix = np.stack(chroma_frames, axis=1)
+                    features['chroma_mean'] = np.mean(chroma_matrix, axis=1).tolist()
+                    features['chroma_std']  = np.std(chroma_matrix, axis=1).tolist()
+                else:
+                    features['chroma_mean'] = [0.0] * 12
+                    features['chroma_std']  = [0.0] * 12
+
             elif LIBROSA_AVAILABLE:
-                # Use librosa as fallback
-                chroma = librosa.feature.chroma_cqt(y=audio, sr=sample_rate)
+                chroma = librosa.feature.chroma_cqt(y=audio, sr=sample_rate, hop_length=self.hop_size)
                 features['chroma_mean'] = np.mean(chroma, axis=1).tolist()
-                features['chroma_std'] = np.std(chroma, axis=1).tolist()
-            
+                features['chroma_std']  = np.std(chroma, axis=1).tolist()
+
             log_universal('DEBUG', 'Audio', f'Extracted chroma features')
-            
+
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Chroma feature extraction failed: {e}')
-            features.update({
-                'chroma_mean': [0.0] * 12,
-                'chroma_std': [0.0] * 12
-            })
-        
+            features['chroma_mean'] = [0.0] * 12
+            features['chroma_std']  = [0.0] * 12
+
         return features
+
     
     def _is_long_audio_track(self, file_path: str) -> bool:
         """
