@@ -321,27 +321,38 @@ WHERE analyzed = TRUE;
 -- Failed analysis summary
 CREATE VIEW failed_analysis_summary AS
 SELECT 
-    file_path, filename, error_message, retry_count, last_retry_date,
-    status, analysis_status
-FROM tracks 
-WHERE status = 'failed' OR analysis_status = 'failed'
+    json_extract(cache_value, '$.file_path') as file_path,
+    json_extract(cache_value, '$.filename') as filename,
+    json_extract(cache_value, '$.error_message') as error_message,
+    json_extract(cache_value, '$.retry_count') as retry_count,
+    json_extract(cache_value, '$.last_retry_date') as last_retry_date,
+    json_extract(cache_value, '$.status') as status,
+    'failed' as analysis_status
+FROM cache 
+WHERE cache_type = 'failed_analysis'
 UNION
 SELECT 
     file_path, filename, error_message, retry_count, last_retry_date,
     status, 'failed' as analysis_status
-FROM failed_analysis;
+FROM tracks 
+WHERE status = 'failed' OR analysis_status = 'failed';
 
 -- Discovery summary
 CREATE VIEW discovery_summary AS
 SELECT 
-    directory_path,
-    file_count,
-    scan_duration,
-    status,
+    json_extract(cache_value, '$.directory_path') as directory_path,
+    json_extract(cache_value, '$.file_count') as file_count,
+    json_extract(cache_value, '$.scan_duration') as scan_duration,
+    json_extract(cache_value, '$.status') as status,
     created_at,
     COUNT(*) as scan_count
-FROM discovery_cache
-GROUP BY directory_path, file_count, scan_duration, status, created_at;
+FROM cache
+WHERE cache_type = 'discovery'
+GROUP BY json_extract(cache_value, '$.directory_path'), 
+         json_extract(cache_value, '$.file_count'), 
+         json_extract(cache_value, '$.scan_duration'), 
+         json_extract(cache_value, '$.status'), 
+         created_at;
 
 -- Playlist features for generation
 CREATE VIEW playlist_features AS
@@ -406,11 +417,12 @@ CREATE VIEW analysis_performance AS
 SELECT 
     analysis_status,
     COUNT(*) as file_count,
-    AVG(analysis_duration) as avg_duration,
-    AVG(memory_usage_mb) as avg_memory_mb,
-    AVG(cpu_usage_percent) as avg_cpu_percent,
-    MAX(created_at) as last_analysis
-FROM analysis_statistics
+    AVG(metric_value) as avg_duration,
+    AVG(CASE WHEN metric_name = 'memory_usage_mb' THEN metric_value ELSE NULL END) as avg_memory_mb,
+    AVG(CASE WHEN metric_name = 'cpu_usage_percent' THEN metric_value ELSE NULL END) as avg_cpu_percent,
+    MAX(date_recorded) as last_analysis
+FROM statistics
+WHERE category = 'analysis'
 GROUP BY analysis_status;
 
 -- =============================================================================

@@ -243,33 +243,45 @@ class DatabaseManager:
     @log_function_call
     def mark_analysis_failed(self, file_path: str, filename: str, error_message: str, file_hash: str = None) -> bool:
         """
-        Mark an analysis as failed in the database.
+        Mark an analysis as failed in the cache table.
         
         Args:
             file_path: Path to the failed file
-            filename: Name of the failed file
-            error_message: Error message describing the failure
-            file_hash: File hash (calculated if not provided)
+            filename: Name of the file
+            error_message: Error message
+            file_hash: File hash (optional)
             
         Returns:
             True if successful, False otherwise
         """
         try:
-            # Calculate file hash if not provided
-            if file_hash is None:
-                file_hash = self._calculate_file_hash_for_failed(file_path)
-            
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
+                
+                # Use cache table for failed analysis with cache_type='failed_analysis'
+                cache_key = f"failed_analysis:{file_path}"
+                cache_value = json.dumps({
+                    'file_path': file_path,
+                    'filename': filename,
+                    'file_hash': file_hash,
+                    'error_message': error_message,
+                    'retry_count': 0,
+                    'last_retry_date': datetime.now().isoformat(),
+                    'status': 'failed'
+                })
+                
                 cursor.execute("""
-                    INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, file_hash, error_message, status, retry_count, last_retry_date)
-                    VALUES (?, ?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                """, (file_path, filename, file_hash, error_message))
+                    INSERT OR REPLACE INTO cache 
+                    (cache_key, cache_value, cache_type, created_at)
+                    VALUES (?, ?, 'failed_analysis', CURRENT_TIMESTAMP)
+                """, (cache_key, cache_value))
+                
                 conn.commit()
+                log_universal('INFO', 'Database', f'Marked analysis as failed: {filename}')
                 return True
+                
         except Exception as e:
-            log_universal('ERROR', 'Database', f"Mark failed analysis error: {e}")
+            log_universal('ERROR', 'Database', f'Failed to mark analysis as failed: {e}')
             return False
 
     def _calculate_file_hash_for_failed(self, file_path: str) -> str:
@@ -348,12 +360,42 @@ class DatabaseManager:
             # Update database to reflect the move
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE analysis_cache 
-                    SET file_path = ?, error_message = ? 
-                    WHERE file_path = ?
-                """, (failed_path, f"Moved to failed directory: {failed_path}", file_path))
-                conn.commit()
+                
+                # Get existing cache data
+                cursor.execute("SELECT cache_value FROM cache WHERE cache_key = ?", (f"failed_analysis:{file_path}",))
+                row = cursor.fetchone()
+                
+                if row:
+                    try:
+                        cache_data = json.loads(row[0])
+                        cache_data['file_path'] = failed_path
+                        cache_data['error_message'] = f"Moved to failed directory: {failed_path}"
+                        
+                        # Update cache with new path
+                        cursor.execute("""
+                            UPDATE cache 
+                            SET cache_value = ? 
+                            WHERE cache_key = ?
+                        """, (json.dumps(cache_data), f"failed_analysis:{file_path}"))
+                        conn.commit()
+                        
+                    except json.JSONDecodeError:
+                        log_universal('WARNING', 'Database', f'Invalid JSON in cache for failed analysis')
+                        # Create new cache entry
+                        cache_data = {
+                            'file_path': failed_path,
+                            'filename': os.path.basename(file_path),
+                            'error_message': f"Moved to failed directory: {failed_path}",
+                            'retry_count': 0,
+                            'last_retry_date': datetime.now().isoformat(),
+                            'status': 'failed'
+                        }
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO cache 
+                            (cache_key, cache_value, cache_type, created_at)
+                            VALUES (?, ?, 'failed_analysis', CURRENT_TIMESTAMP)
+                        """, (f"failed_analysis:{file_path}", json.dumps(cache_data)))
+                        conn.commit()
             
             return True
             
@@ -411,18 +453,49 @@ class DatabaseManager:
     # 🧾 Get failed analysis files
     @log_function_call
     def get_failed_analysis_files(self, max_retries: int = 3) -> List[Dict[str, Any]]:
+        """
+        Get list of failed analysis files from cache table.
+        
+        Args:
+            max_retries: Maximum retry count to include
+            
+        Returns:
+            List of failed analysis file dictionaries
+        """
         try:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT file_path, filename, error_message, retry_count, last_retry_date
-                    FROM analysis_cache
-                    WHERE status = 'failed' AND retry_count < ?
-                    ORDER BY last_retry_date DESC
-                """, (max_retries,))
-                return [dict(row) for row in cursor.fetchall()]
+                    SELECT cache_value
+                    FROM cache
+                    WHERE cache_type = 'failed_analysis'
+                    ORDER BY created_at DESC
+                """)
+                
+                failed_files = []
+                for row in cursor.fetchall():
+                    try:
+                        cache_data = json.loads(row[0])
+                        retry_count = cache_data.get('retry_count', 0)
+                        
+                        if retry_count < max_retries:
+                            failed_files.append({
+                                'file_path': cache_data.get('file_path'),
+                                'filename': cache_data.get('filename'),
+                                'file_hash': cache_data.get('file_hash'),
+                                'error_message': cache_data.get('error_message'),
+                                'retry_count': retry_count,
+                                'last_retry_date': cache_data.get('last_retry_date'),
+                                'status': cache_data.get('status', 'failed')
+                            })
+                    except json.JSONDecodeError:
+                        log_universal('WARNING', 'Database', f'Invalid JSON in cache for failed analysis')
+                        continue
+                
+                return failed_files
+                
         except Exception as e:
-            log_universal('ERROR', 'Database', f"Fetch failed analysis error: {e}")
+            log_universal('ERROR', 'Database', f'Fetch failed analysis error: {e}')
             return []
 
     # 📀 Save playlist and track positions
@@ -688,13 +761,23 @@ class DatabaseManager:
     # 🗑️ Delete failed analysis entry
     @log_function_call
     def delete_failed_analysis(self, file_path: str) -> bool:
+        """
+        Delete a failed analysis entry from cache table.
+        
+        Args:
+            file_path: Path to the file to remove from failed analysis
+            
+        Returns:
+            True if successful, False otherwise
+        """
         try:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("DELETE FROM analysis_cache WHERE file_path = ?", (file_path,))
+                cursor.execute("DELETE FROM cache WHERE cache_key = ?", (f"failed_analysis:{file_path}",))
                 conn.commit()
                 return True
-        except Exception:
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Delete failed analysis error: {e}')
             return False
 
     # 🧮 Database statistics snapshot
@@ -707,10 +790,10 @@ class DatabaseManager:
                 queries = {
                     'total_tracks': "SELECT COUNT(*) FROM tracks",
                     'playlists': "SELECT COUNT(*) FROM playlists",
-                    'failed_analyses': "SELECT COUNT(*) FROM analysis_cache WHERE status = 'failed'",
-                    'discovery_entries': "SELECT COUNT(*) FROM discovery_cache",
+                    'failed_analyses': "SELECT COUNT(*) FROM cache WHERE cache_type = 'failed_analysis'",
+                    'discovery_entries': "SELECT COUNT(*) FROM cache WHERE cache_type = 'discovery'",
                     'cache_entries': "SELECT COUNT(*) FROM cache",
-                    'total_tags': "SELECT COUNT(*) FROM tags"
+                    'statistics_entries': "SELECT COUNT(*) FROM statistics"
                 }
                 for key, q in queries.items():
                     cursor.execute(q)
@@ -751,7 +834,13 @@ class DatabaseManager:
                 cursor.execute("DELETE FROM cache WHERE expires_at IS NOT NULL AND expires_at < ?", (cutoff,))
                 cache_deleted = cursor.rowcount
 
-                cursor.execute("DELETE FROM analysis_cache WHERE last_retry_date IS NOT NULL AND last_retry_date < ?", (cutoff,))
+                # Clean up old failed analysis entries
+                cutoff = datetime.now() - timedelta(days=days_to_keep)
+                cursor.execute("""
+                    DELETE FROM cache 
+                    WHERE cache_type = 'failed_analysis' 
+                    AND created_at < ?
+                """, (cutoff,))
                 failed_deleted = cursor.rowcount
 
                 cursor.execute("DELETE FROM statistics WHERE date_recorded < ?", (cutoff,))

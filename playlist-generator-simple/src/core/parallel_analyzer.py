@@ -365,15 +365,9 @@ class ParallelAnalyzer:
                 # Mark as failed
                 filename = os.path.basename(file_path)
                 
-                # Use analysis_cache table for failed analysis
-                with self.db_manager._get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO analysis_cache 
-                        (file_path, filename, error_message, status, retry_count, last_retry_date)
-                        VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                    """, (file_path, filename, "Analysis failed"))
-                    conn.commit()
+                # Use cache table for failed analysis
+                db_manager = get_db_manager()
+                db_manager.mark_analysis_failed(file_path, os.path.basename(file_path), str(e))
                 
                 # Log failed worker performance
                 log_universal('ERROR', 'Parallel', f"Worker {worker_id} file analysis failed: {os.path.basename(file_path)}")
@@ -385,15 +379,9 @@ class ParallelAnalyzer:
             log_universal('ERROR', 'Parallel', f"⏰ Analysis timed out for {os.path.basename(file_path)}")
             filename = os.path.basename(file_path)
             
-            # Use analysis_cache table for failed analysis
-            with self.db_manager._get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count, last_retry_date)
-                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                """, (file_path, filename, "Analysis timed out"))
-                conn.commit()
+            # Use cache table for failed analysis
+            db_manager = get_db_manager()
+            db_manager.mark_analysis_failed(file_path, os.path.basename(file_path), "Analysis timed out")
             
             # Log timeout worker performance
             log_universal('ERROR', 'Parallel', f"Worker {worker_id} file analysis timeout: {os.path.basename(file_path)}")
@@ -404,15 +392,9 @@ class ParallelAnalyzer:
             log_universal('ERROR', 'Parallel', f"Worker error for {os.path.basename(file_path)}: {e}")
             filename = os.path.basename(file_path)
             
-            # Use analysis_cache table for failed analysis
-            with self.db_manager._get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count, last_retry_date)
-                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                """, (file_path, filename, str(e)))
-                conn.commit()
+            # Use cache table for failed analysis
+            db_manager = get_db_manager()
+            db_manager.mark_analysis_failed(file_path, os.path.basename(file_path), str(e))
             
             # Log error worker performance
             log_universal('ERROR', 'Parallel', f"Worker {worker_id} file analysis error: {os.path.basename(file_path)}")

@@ -400,28 +400,17 @@ class FileDiscovery:
     @log_function_call
     def get_failed_files(self) -> Set[str]:
         """
-        Get all files marked as failed in the database.
+        Get set of failed files from cache table.
         
         Returns:
-            Set of failed file paths from database
+            Set of failed file paths
         """
-        log_universal('DEBUG', 'FileDiscovery', "Retrieving failed files from database...")
-        
         try:
-            # Get files from analysis_cache table
             db_manager = get_db_manager()
-            with db_manager._get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT file_path FROM analysis_cache WHERE status = 'failed'
-                """)
-                failed_paths = {row['file_path'] for row in cursor.fetchall()}
-            
-            log_universal('DEBUG', 'FileDiscovery', f"Retrieved {len(failed_paths)} failed files from database")
-            return failed_paths
-            
+            failed_files = db_manager.get_failed_analysis_files()
+            return {f['file_path'] for f in failed_files if f.get('file_path')}
         except Exception as e:
-            log_universal('ERROR', 'FileDiscovery', f"Error reading failed files from database: {e}")
+            log_universal('ERROR', 'FileDiscovery', f'Error getting failed files: {e}')
             return set()
 
     @log_function_call
@@ -437,15 +426,7 @@ class FileDiscovery:
         
         try:
             db_manager = get_db_manager()
-            with db_manager._get_db_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT OR REPLACE INTO analysis_cache 
-                    (file_path, filename, error_message, status, retry_count, last_retry_date)
-                    VALUES (?, ?, ?, 'failed', 0, CURRENT_TIMESTAMP)
-                """, (filepath, os.path.basename(filepath), error_message))
-                conn.commit()
-            
+            db_manager.mark_analysis_failed(filepath, os.path.basename(filepath), error_message)
             log_universal('INFO', 'FileDiscovery', f"File marked as failed: {filepath}")
             
         except Exception as e:
@@ -489,13 +470,12 @@ class FileDiscovery:
                         # Remove from failed analysis
                         get_db_manager().delete_failed_analysis(filepath)
                         
-                        # Remove from analysis_cache table directly
-                        db_manager = get_db_manager()
-                        with db_manager._get_db_connection() as conn:
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                DELETE FROM analysis_cache WHERE file_path = ?
-                            """, (filepath,))
+                        # Remove from cache table directly
+                        for filepath in removed_files:
+                            try:
+                                get_db_manager().delete_failed_analysis(filepath)
+                            except Exception as e:
+                                log_universal('WARNING', 'FileDiscovery', f'Error removing failed file from cache: {e}')
                             
                             # Also clean up any related metadata or statistics
                             cursor.execute("""
