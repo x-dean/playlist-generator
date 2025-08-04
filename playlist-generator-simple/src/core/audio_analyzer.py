@@ -1174,9 +1174,11 @@ class AudioAnalyzer:
             audio_size_bytes = len(audio) * 4  # Estimate size (4 bytes per float32 sample)
             file_size_mb = audio_size_bytes / (1024 * 1024)
             half_track_threshold_mb = self.config.get('MUSICNN_HALF_TRACK_THRESHOLD_MB', 50)
+            log_universal('DEBUG', 'Audio', f'MusicNN half-track threshold: {half_track_threshold_mb}MB, file size: {file_size_mb:.1f}MB')
             
             # Use half-track for files larger than threshold, but only if MusicNN is suitable
             use_half_track = file_size_mb > half_track_threshold_mb and model_manager.is_file_suitable_for_musicnn(audio_size_bytes)
+            log_universal('DEBUG', 'Audio', f'MusicNN decision: file_size_mb({file_size_mb:.1f}) > threshold({half_track_threshold_mb}) = {file_size_mb > half_track_threshold_mb}, suitable = {model_manager.is_file_suitable_for_musicnn(audio_size_bytes)}, use_half_track = {use_half_track}')
             
             if use_half_track:
                 log_universal('INFO', 'Audio', f'Large audio detected ({file_size_mb:.1f}MB, {len(audio)} samples) - using half-track loading for MusiCNN')
