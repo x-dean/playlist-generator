@@ -952,6 +952,11 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Calculate required fields
+                filename = os.path.basename(file_path)
+                file_size_bytes = os.path.getsize(file_path)
+                file_hash = self._calculate_file_hash_for_failed(file_path)
+                
                 # Extract basic metadata fields
                 artist = metadata.get('artist', 'Unknown')
                 title = metadata.get('title', 'Unknown')
@@ -960,12 +965,12 @@ class DatabaseManager:
                 genre = metadata.get('genre')
                 duration = metadata.get('duration')
                 
-                # Update existing record or create new one
+                # Update existing record or create new one with all required fields
                 cursor.execute("""
                     INSERT OR REPLACE INTO tracks 
-                    (file_path, filename, artist, title, album, year, genre, duration, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (file_path, os.path.basename(file_path), artist, title, album, year, genre, duration))
+                    (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration))
                 
                 conn.commit()
                 return True
