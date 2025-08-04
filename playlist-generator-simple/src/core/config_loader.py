@@ -324,7 +324,10 @@ class ConfigLoader:
             file_config = self._load_config_file(config_path)
             if file_config:
                 config.update(file_config)
-                log_universal('DEBUG', 'Config', f'Applied config from: {config_path}')
+                log_universal('INFO', 'Config', f'Applied config from: {config_path}')
+                # Log the MUSICNN_HALF_TRACK_THRESHOLD_MB value for debugging
+                if 'MUSICNN_HALF_TRACK_THRESHOLD_MB' in file_config:
+                    log_universal('INFO', 'Config', f'  MUSICNN_HALF_TRACK_THRESHOLD_MB = {file_config["MUSICNN_HALF_TRACK_THRESHOLD_MB"]}')
         
         # Apply environment overrides (highest priority)
         env_config = self._load_environment_overrides()
@@ -391,6 +394,11 @@ class ConfigLoader:
         }
         
         self._update_cache(cache_key, audio_config)
+        
+        # Log the final MUSICNN_HALF_TRACK_THRESHOLD_MB value for debugging
+        if 'MUSICNN_HALF_TRACK_THRESHOLD_MB' in audio_config:
+            log_universal('INFO', 'Config', f'Audio analysis config: MUSICNN_HALF_TRACK_THRESHOLD_MB = {audio_config["MUSICNN_HALF_TRACK_THRESHOLD_MB"]}')
+        
         return audio_config
     
     def get_file_discovery_config(self) -> Dict[str, Any]:
