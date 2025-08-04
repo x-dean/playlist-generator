@@ -564,9 +564,9 @@ class AnalysisManager:
             file_size_bytes = os.path.getsize(file_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
             
-            # Enhanced analysis type determination based on file size - much higher thresholds for sequential processing
-                    max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 25)  # Aligned with half-track threshold
-        if file_size_mb > max_full_analysis_size_mb:  # Files over 25MB use half-track
+            # Enhanced analysis type determination based on file size - aligned with half-track threshold
+            max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 25)  # Aligned with half-track threshold
+            if file_size_mb > max_full_analysis_size_mb:  # Files over 25MB use half-track
                 analysis_type = 'basic'
                 use_full_analysis = False
             else:  # Files up to 2GB - use full analysis
