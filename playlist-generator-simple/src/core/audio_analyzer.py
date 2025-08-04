@@ -2709,7 +2709,7 @@ class AudioAnalyzer:
             if isinstance(tags, str):
                 try:
                     tags = json.loads(tags)
-                except:
+                except (json.JSONDecodeError, ValueError):
                     tags = {}
             
             # Extract MFCC and chroma features

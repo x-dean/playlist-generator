@@ -108,8 +108,8 @@ def _worker_process_function(file_path: str, force_reextract: bool, timeout_seco
     except Exception as e:
         try:
             signal.alarm(0)  # Cancel timeout
-        except:
-            pass
+        except OSError:
+            pass  # alarm() not available on this platform
         return {'success': False, 'error': str(e)}
 
 

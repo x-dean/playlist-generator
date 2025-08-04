@@ -29,7 +29,7 @@ docker-compose up --build
 pip install -r requirements.txt
 
 # Initialize database with complete schema
-python init_database.py cache/playlista.db
+python scripts/init_database.py cache/playlista.db
 
 # Analyze your music library
 playlista analyze --music-path /path/to/music
@@ -122,7 +122,7 @@ playlista web --port 8500
 
 ## Configuration
 
-Edit `playlista.conf` to customize:
+Edit `config/playlista.conf` to customize:
 
 - Database settings
 - Analysis parameters
@@ -137,10 +137,14 @@ playlist-generator-simple/
 ├── src/                    # Source code
 │   ├── core/              # Core functionality
 │   ├── api/               # Web API
+│   ├── application/       # Application layer
+│   ├── domain/            # Domain models
+│   ├── infrastructure/    # Infrastructure layer
 │   └── main.py            # Main entry point
-├── database_schema_complete.sql  # Complete database schema
-├── init_database.py       # Database initialization
-├── test_database.py       # Database testing
+├── documentation/         # All documentation files
+├── scripts/               # Utility scripts
+├── config/                # Configuration files
+├── database/              # Database schemas
 ├── Dockerfile             # Docker configuration
 ├── docker-compose.yml     # Docker Compose setup
 └── README.md             # This file
@@ -177,15 +181,9 @@ LIMIT 10;
 
 ## Development
 
-### Testing
+### Development
 
-```bash
-# Run database tests
-python test_database.py
-
-# Run analysis tests
-python -m pytest tests/
-```
+The project follows a clean architecture pattern with separated layers for domain, application, infrastructure, and API concerns.
 
 ### Building
 
@@ -201,7 +199,7 @@ docker run -v /music:/app/music -p 8500:8500 playlist-generator
 
 ### Common Issues
 
-1. **Database not found**: Run `python init_database.py cache/playlista.db`
+1. **Database not found**: Run `python scripts/init_database.py cache/playlista.db`
 2. **Analysis fails**: Check file permissions and audio format support
 3. **Web UI not accessible**: Verify port 8500 is available
 4. **Performance issues**: Check database indexes and WAL mode
