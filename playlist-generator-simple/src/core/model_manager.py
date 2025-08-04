@@ -222,25 +222,33 @@ class ModelManager:
             import essentia.standard as es
             import tensorflow as tf
             
-            # Configure TensorFlow for better performance
+            # Configure TensorFlow to suppress warnings
             tf.get_logger().setLevel('ERROR')
-            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+            os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress all warnings including GPU
             
-            # Set memory growth to prevent GPU memory issues
+            # Configure GPU memory growth to prevent warnings
             try:
                 gpus = tf.config.experimental.list_physical_devices('GPU')
                 if gpus:
                     for gpu in gpus:
                         tf.config.experimental.set_memory_growth(gpu, True)
                     log_universal('DEBUG', 'Model', 'GPU memory growth enabled')
+                else:
+                    # Disable GPU logging when no GPU is available
+                    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+                    log_universal('DEBUG', 'Model', 'No GPU detected, using CPU only')
             except Exception as e:
                 log_universal('DEBUG', 'Model', f'GPU configuration failed: {e}')
+                # Ensure GPU warnings are suppressed
+                os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
             
             # Create TensorFlow session with optimized settings
             config = tf.compat.v1.ConfigProto()
             config.gpu_options.allow_growth = True
             config.intra_op_parallelism_threads = 1
             config.inter_op_parallelism_threads = 1
+            # Suppress GPU warnings in session config
+            config.log_device_placement = False
             
             with tf.compat.v1.Session(config=config) as session:
                 # Load MusicNN JSON configuration
