@@ -25,7 +25,7 @@ def test_threaded_processing_main():
     print(f"✓ Configuration loaded")
     
     # Initialize parallel analyzer
-    parallel_analyzer = ParallelAnalyzer()
+    parallel_analyzer = ParallelAnalyzer(config=config)
     print(f"✓ ParallelAnalyzer initialized")
     
     # Initialize analysis manager

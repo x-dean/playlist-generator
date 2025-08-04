@@ -59,7 +59,8 @@ class ParallelAnalyzer:
                  resource_manager: ResourceManager = None,
                  timeout_seconds: int = None,
                  memory_threshold_percent: int = None,
-                 max_workers: int = None):
+                 max_workers: int = None,
+                 config: Dict[str, Any] = None):
         """
         Initialize the parallel analyzer.
         
@@ -69,7 +70,14 @@ class ParallelAnalyzer:
             timeout_seconds: Timeout for analysis in seconds
             memory_threshold_percent: Memory threshold percentage
             max_workers: Maximum number of workers (auto-determined if None)
+            config: Configuration dictionary (uses global config if None)
         """
+        # Load configuration
+        if config is None:
+            from .config_loader import config_loader
+            config = config_loader.get_audio_analysis_config()
+        
+        self.config = config
         self.db_manager = db_manager or DatabaseManager()
         self.resource_manager = resource_manager or ResourceManager()
         
@@ -545,5 +553,8 @@ def get_parallel_analyzer() -> 'ParallelAnalyzer':
     """Get the global parallel analyzer instance, creating it if necessary."""
     global _parallel_analyzer_instance
     if _parallel_analyzer_instance is None:
-        _parallel_analyzer_instance = ParallelAnalyzer()
+        # Load config for the global instance
+        from .config_loader import config_loader
+        config = config_loader.get_audio_analysis_config()
+        _parallel_analyzer_instance = ParallelAnalyzer(config=config)
     return _parallel_analyzer_instance 

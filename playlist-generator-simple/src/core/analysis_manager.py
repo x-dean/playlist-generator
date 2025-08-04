@@ -130,7 +130,8 @@ class AnalysisManager:
             self.parallel_analyzer = ParallelAnalyzer(
                 db_manager=self.db_manager,
                 timeout_seconds=self.timeout_seconds,
-                memory_threshold_percent=self.memory_threshold_percent
+                memory_threshold_percent=self.memory_threshold_percent,
+                config=self.config
             )
             
             log_universal('DEBUG', 'Analysis', "Analyzers initialized successfully")

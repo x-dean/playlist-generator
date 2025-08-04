@@ -51,9 +51,15 @@ def test_threaded_processing():
         print("Initializing components...")
         db_manager = DatabaseManager()
         resource_manager = ResourceManager()
+        
+        # Load config for testing
+        from core.config_loader import config_loader
+        config = config_loader.get_audio_analysis_config()
+        
         parallel_analyzer = ParallelAnalyzer(
             db_manager=db_manager,
-            resource_manager=resource_manager
+            resource_manager=resource_manager,
+            config=config
         )
         print("✓ Components initialized")
         
