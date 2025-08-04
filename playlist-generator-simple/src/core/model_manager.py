@@ -53,7 +53,8 @@ class ModelManager:
         """
         # Load configuration
         if config is None:
-            from .config_loader import config_loader
+            from .config_loader import ConfigLoader
+            config_loader = ConfigLoader()
             config = config_loader.get_audio_analysis_config()
         
         self.config = config
