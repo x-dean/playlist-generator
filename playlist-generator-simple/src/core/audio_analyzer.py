@@ -344,6 +344,17 @@ class AudioAnalyzer:
             if spotify_features:
                 self.db_manager.save_spotify_features(file_path, spotify_features)
                 log_universal('INFO', 'Audio', f'Spotify-style features saved to database')
+                
+                # Log key Spotify-style features
+                energy = spotify_features.get('energy', 0)
+                valence = spotify_features.get('valence', 0)
+                acousticness = spotify_features.get('acousticness', 0)
+                instrumentalness = spotify_features.get('instrumentalness', 0)
+                speechiness = spotify_features.get('speechiness', 0)
+                liveness = spotify_features.get('liveness', 0)
+                
+                log_universal('INFO', 'Audio', f'Spotify-style features: Energy={energy:.2f}, Valence={valence:.2f}, Acousticness={acousticness:.2f}')
+                log_universal('INFO', 'Audio', f'Spotify-style features: Instrumentalness={instrumentalness:.2f}, Speechiness={speechiness:.2f}, Liveness={liveness:.2f}')
             
             # STEP 4.6: Extract advanced categorization features (optimized for performance)
             file_size_mb = self.db_manager.get_file_size_mb(file_path)
@@ -389,6 +400,9 @@ class AudioAnalyzer:
                         log_universal('INFO', 'Audio', f'Created lightweight category for very large file: {lightweight_category}')
                         # Store category in metadata
                         metadata['lightweight_category'] = lightweight_category
+                        # Log category details
+                        log_universal('INFO', 'Audio', f'Lightweight category assigned: {lightweight_category}')
+                        log_universal('INFO', 'Audio', f'Category based on: {advanced_features.get("danceability", 0):.2f} danceability, {advanced_features.get("dynamic_complexity", 0):.2f} complexity')
             else:
                 log_universal('INFO', 'Audio', f'Step 5: Extracting MusicNN features for {os.path.basename(file_path)}')
                 musicnn_features = self._extract_musicnn_features(audio, sample_rate, file_path)
@@ -3271,51 +3285,8 @@ class AudioAnalyzer:
             title = metadata.get('title', '').lower()
             genre = metadata.get('genre', '').lower()
             
-            # Category determination logic
-            category = None
-            
-            # 1. Check for specific keywords in metadata
-            if any(word in artist or word in title for word in ['podcast', 'radio', 'show', 'episode']):
-                category = 'Podcast/Radio'
-            elif any(word in artist or word in title for word in ['mix', 'compilation', 'various']):
-                category = 'Mix/Compilation'
-            elif any(word in artist or word in title for word in ['interview', 'talk', 'speech']):
-                category = 'Speech/Interview'
-            elif any(word in artist or word in title for word in ['ambient', 'chill', 'relax']):
-                category = 'Ambient/Chill'
-            elif any(word in artist or word in title for word in ['classical', 'orchestra', 'symphony']):
-                category = 'Classical/Orchestral'
-            elif any(word in artist or word in title for word in ['jazz', 'blues', 'smooth']):
-                category = 'Jazz/Blues'
-            elif any(word in artist or word in title for word in ['electronic', 'techno', 'trance', 'house']):
-                category = 'Electronic/Dance'
-            elif any(word in artist or word in title for word in ['rock', 'metal', 'punk']):
-                category = 'Rock/Metal'
-            elif any(word in artist or word in title for word in ['pop', 'indie', 'alternative']):
-                category = 'Pop/Indie'
-            elif any(word in artist or word in title for word in ['hip', 'rap', 'urban']):
-                category = 'Hip-Hop/Rap'
-            elif any(word in artist or word in title for word in ['country', 'folk', 'acoustic']):
-                category = 'Country/Folk'
-            elif any(word in artist or word in title for word in ['reggae', 'latin', 'world']):
-                category = 'World/Latin'
-            
-            # 2. If no metadata-based category, use audio features
-            if not category:
-                if danceability > 0.7:
-                    category = 'High Energy/Dance'
-                elif danceability < 0.3:
-                    category = 'Low Energy/Ambient'
-                elif dynamic_complexity > 0.8:
-                    category = 'Dynamic/Complex'
-                elif silence_rate > 0.5:
-                    category = 'Speech/Spoken'
-                elif zero_crossing_rate > 0.1:
-                    category = 'Noisy/Experimental'
-                elif harmonic_peaks_count > 100:
-                    category = 'Harmonic/Rich'
-                else:
-                    category = 'Mixed/General'
+            # Smart categorization with genre detection
+            category = self._smart_categorize_with_genre(artist, title, genre, features)
             
             log_universal('DEBUG', 'Audio', f'Lightweight category created: {category} (danceability: {danceability:.2f}, complexity: {dynamic_complexity:.2f})')
             return category
@@ -3323,6 +3294,209 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Failed to create lightweight category: {e}')
             return None
+
+    def _smart_categorize_with_genre(self, artist: str, title: str, genre: str, features: Dict[str, Any]) -> str:
+        """
+        Smart categorization that combines metadata analysis with audio features.
+        
+        Args:
+            artist: Artist name (lowercase)
+            title: Title (lowercase)
+            genre: Genre (lowercase)
+            features: Audio features
+            
+        Returns:
+            Category string
+        """
+        # Extract audio features for decision making
+        danceability = features.get('danceability', 0.0)
+        dynamic_complexity = features.get('dynamic_complexity', 0.0)
+        silence_rate = features.get('silence_rate', 0.0)
+        
+        # Step 1: Detect if this is a radio show, podcast, or mix
+        is_radio_show = self._is_radio_show(artist, title)
+        is_podcast = self._is_podcast(artist, title)
+        is_mix = self._is_mix(artist, title)
+        
+        # Step 2: Detect the music genre/content type
+        music_genre = self._detect_music_genre(artist, title, genre, features)
+        
+        # Step 3: Combine radio/podcast/mix with music genre
+        if is_radio_show:
+            if music_genre:
+                category = f"Radio/{music_genre}"
+            else:
+                category = "Radio/General"
+        elif is_podcast:
+            if music_genre:
+                category = f"Podcast/{music_genre}"
+            else:
+                category = "Podcast/General"
+        elif is_mix:
+            if music_genre:
+                category = f"Mix/{music_genre}"
+            else:
+                category = "Mix/General"
+        else:
+            # Regular music file
+            category = music_genre if music_genre else self._fallback_category(features)
+        
+        # Log the categorization process
+        log_universal('DEBUG', 'Audio', f'Smart categorization: Radio={is_radio_show}, Podcast={is_podcast}, Mix={is_mix}, Genre={music_genre}, Final={category}')
+        
+        return category
+
+    def _is_radio_show(self, artist: str, title: str) -> bool:
+        """Detect if this is a radio show."""
+        radio_indicators = [
+            'radio', 'fm', 'am', 'broadcast', 'station', 'dj', 'disc jockey',
+            'state of trance', 'asot', 'essential mix', 'bbc radio',
+            'radio 1', 'radio 2', 'kiss fm', 'capital fm'
+        ]
+        
+        # Check for radio show patterns
+        for indicator in radio_indicators:
+            if indicator in artist or indicator in title:
+                return True
+        
+        # Check for episode patterns that suggest radio
+        if 'episode' in title and any(word in artist for word in ['dj', 'radio', 'fm']):
+            return True
+            
+        return False
+
+    def _is_podcast(self, artist: str, title: str) -> bool:
+        """Detect if this is a podcast."""
+        podcast_indicators = [
+            'podcast', 'episode', 'show', 'series', 'season',
+            'interview', 'talk', 'speech', 'discussion', 'conversation'
+        ]
+        
+        # Check for podcast patterns
+        for indicator in podcast_indicators:
+            if indicator in artist or indicator in title:
+                return True
+        
+        # Check for episode patterns that suggest podcast (not radio)
+        if 'episode' in title and not self._is_radio_show(artist, title):
+            return True
+            
+        return False
+
+    def _is_mix(self, artist: str, title: str) -> bool:
+        """Detect if this is a mix."""
+        mix_indicators = [
+            'mix', 'compilation', 'various', 'various artists',
+            'best of', 'greatest hits', 'collection'
+        ]
+        
+        for indicator in mix_indicators:
+            if indicator in artist or indicator in title:
+                return True
+                
+        return False
+
+    def _detect_music_genre(self, artist: str, title: str, genre: str, features: Dict[str, Any]) -> str:
+        """Detect the music genre from metadata and audio features."""
+        danceability = features.get('danceability', 0.0)
+        dynamic_complexity = features.get('dynamic_complexity', 0.0)
+        
+        # Electronic/Dance genres (high priority)
+        electronic_keywords = {
+            'trance': ['trance', 'asot', 'state of trance'],
+            'techno': ['techno', 'tech house', 'minimal'],
+            'house': ['house', 'deep house', 'progressive house'],
+            'drum_bass': ['drum', 'bass', 'dnb', 'jungle'],
+            'dubstep': ['dubstep', 'bass', 'wobble'],
+            'electronic': ['electronic', 'edm', 'synth', 'electro']
+        }
+        
+        # Check for electronic genres first
+        for genre_name, keywords in electronic_keywords.items():
+            for keyword in keywords:
+                if keyword in artist or keyword in title:
+                    return 'Electronic/Dance'
+        
+        # Rock/Metal genres
+        rock_keywords = ['rock', 'metal', 'punk', 'grunge', 'hardcore', 'alternative']
+        for keyword in rock_keywords:
+            if keyword in artist or keyword in title:
+                return 'Rock/Metal'
+        
+        # Hip-Hop/Rap genres
+        hiphop_keywords = ['hip', 'rap', 'urban', 'trap', 'r&b', 'soul']
+        for keyword in hiphop_keywords:
+            if keyword in artist or keyword in title:
+                return 'Hip-Hop/Rap'
+        
+        # Jazz/Blues genres
+        jazz_keywords = ['jazz', 'blues', 'smooth', 'fusion', 'bebop']
+        for keyword in jazz_keywords:
+            if keyword in artist or keyword in title:
+                return 'Jazz/Blues'
+        
+        # Classical/Orchestral
+        classical_keywords = ['classical', 'orchestra', 'symphony', 'concerto', 'sonata']
+        for keyword in classical_keywords:
+            if keyword in artist or keyword in title:
+                return 'Classical/Orchestral'
+        
+        # Country/Folk
+        country_keywords = ['country', 'folk', 'acoustic', 'bluegrass', 'americana']
+        for keyword in country_keywords:
+            if keyword in artist or keyword in title:
+                return 'Country/Folk'
+        
+        # World/Latin
+        world_keywords = ['reggae', 'latin', 'world', 'african', 'caribbean']
+        for keyword in world_keywords:
+            if keyword in artist or keyword in title:
+                return 'World/Latin'
+        
+        # Ambient/Chill
+        ambient_keywords = ['ambient', 'chill', 'relax', 'lounge', 'downtempo']
+        for keyword in ambient_keywords:
+            if keyword in artist or keyword in title:
+                return 'Ambient/Chill'
+        
+        # Pop/Indie (catch-all for modern music)
+        pop_keywords = ['pop', 'indie', 'alternative', 'indie pop', 'indie rock']
+        for keyword in pop_keywords:
+            if keyword in artist or keyword in title:
+                return 'Pop/Indie'
+        
+        # Use audio features to determine genre if no metadata clues
+        if danceability > 0.7:
+            return 'Electronic/Dance'
+        elif danceability < 0.3:
+            return 'Ambient/Chill'
+        elif dynamic_complexity > 0.8:
+            return 'Rock/Metal'
+        else:
+            return 'Pop/Indie'  # Default for modern music
+
+    def _fallback_category(self, features: Dict[str, Any]) -> str:
+        """Fallback categorization based on audio features only."""
+        danceability = features.get('danceability', 0.0)
+        dynamic_complexity = features.get('dynamic_complexity', 0.0)
+        silence_rate = features.get('silence_rate', 0.0)
+        zero_crossing_rate = features.get('zero_crossing_rate', 0.0)
+        harmonic_peaks_count = features.get('harmonic_peaks_count', 0)
+        
+        if danceability > 0.7:
+            return 'High Energy/Dance'
+        elif danceability < 0.3:
+            return 'Low Energy/Ambient'
+        elif dynamic_complexity > 0.8:
+            return 'Dynamic/Complex'
+        elif silence_rate > 0.5:
+            return 'Speech/Spoken'
+        elif zero_crossing_rate > 0.1:
+            return 'Noisy/Experimental'
+        elif harmonic_peaks_count > 100:
+            return 'Harmonic/Rich'
+        else:
+            return 'Mixed/General'
 
     def _extract_advanced_categorization_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
         """Extract advanced features for music categorization (optimized for performance)."""
