@@ -605,9 +605,8 @@ class AudioAnalyzer:
                     raise ImportError("Essentia not available")
                 
                 import essentia.standard as es
-                essentia.log.setLevel(essentia.log.Error)
-
-                # Validate audio parameters
+                
+                # Validate audio parameters before rhythm extraction
                 if len(audio) < self.frame_size:
                     log_universal('WARNING', 'Audio', f'Audio too short for rhythm extraction: {len(audio)} samples')
                     features['bpm'] = 120.0
@@ -686,7 +685,6 @@ class AudioAnalyzer:
                     raise ImportError("Essentia not available")
                 
                 import essentia.standard as es
-                essentia.log.setLevel(essentia.log.Error)
                 
                 # Validate audio parameters before spectral extraction
                 if len(audio) < self.frame_size:
@@ -769,7 +767,6 @@ class AudioAnalyzer:
                     raise ImportError("Essentia not available")
                 
                 import essentia.standard as es
-                essentia.log.setLevel(essentia.log.Error)
                 
                 # Use RMS like the old working version
                 log_universal('DEBUG', 'Audio', "Initializing Essentia RMS algorithm")
@@ -837,7 +834,6 @@ class AudioAnalyzer:
                     raise ImportError("Essentia not available")
                 
                 import essentia.standard as es
-                essentia.log.setLevel(essentia.log.Error)
                 
                 # Validate audio parameters before key extraction
                 if len(audio) < 1024:
@@ -911,7 +907,6 @@ class AudioAnalyzer:
                     raise ImportError("Essentia not available")
                 
                 import essentia.standard as es
-                essentia.log.setLevel(essentia.log.Error)
                 
                 # Validate audio parameters before MFCC extraction
                 if len(audio) < 512:
@@ -1122,7 +1117,6 @@ class AudioAnalyzer:
                         raise ImportError("Essentia not available")
                     
                     import essentia.standard as es
-                    essentia.log.setLevel(essentia.log.Error)
                     
                     # Use Essentia resampler for better quality
                     resampler = es.Resample(inputSampleRate=sample_rate, outputSampleRate=16000)
@@ -1245,7 +1239,6 @@ class AudioAnalyzer:
                     raise ImportError("Essentia not available")
                 
                 import essentia.standard as es
-                essentia.log.setLevel(essentia.log.Error)
 
                 # Validate audio parameters before chroma extraction
                 if len(audio) < self.frame_size:
@@ -3067,7 +3060,6 @@ def load_half_track(audio_path: str, sample_rate: int = 44100, config: Dict[str,
                     raise ImportError("Essentia not available")
                 
                 import essentia.standard as es
-                essentia.log.setLevel(essentia.log.Error)
                 
                 # Load full audio first to get duration
                 loader = es.MonoLoader(filename=audio_path, sampleRate=sample_rate)
