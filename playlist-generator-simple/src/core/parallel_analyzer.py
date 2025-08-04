@@ -420,19 +420,16 @@ class ParallelAnalyzer:
             file_size_bytes = os.path.getsize(file_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
             
-            # 3-tier system: <100MB full, 100-200MB half-track, >200MB sequential
-            if file_size_mb < 100:  # Small files: Full processing
+            # Use configurable thresholds aligned with half-track settings
+            half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 25)
+            if file_size_mb < half_track_threshold_mb:  # Small files: Full processing
                 analysis_type = 'full'
                 use_full_analysis = True
                 log_universal('DEBUG', 'Parallel', f'File {file_size_mb:.1f}MB: Full processing')
-            elif file_size_mb < 200:  # Medium files: Half-track processing
+            else:  # Files >= threshold: Half-track processing
                 analysis_type = 'basic'
                 use_full_analysis = False
                 log_universal('DEBUG', 'Parallel', f'File {file_size_mb:.1f}MB: Half-track processing')
-            else:  # Large files: Should be handled by sequential
-                analysis_type = 'basic'
-                use_full_analysis = False
-                log_universal('DEBUG', 'Parallel', f'File {file_size_mb:.1f}MB: Basic processing (should be sequential)')
             
             # Enable MusiCNN for all files (half-track loading handles large files)
             enable_musicnn = True

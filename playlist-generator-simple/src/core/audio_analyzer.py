@@ -275,9 +275,16 @@ class AudioAnalyzer:
             estimated_duration_seconds = (file_size_bytes * 8) / (320 * 1000)
             estimated_duration_minutes = estimated_duration_seconds / 60
             
-            # Use half-track loading for files larger than 100MB (3-tier system)
-            half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
-            use_half_track = file_size_mb > half_track_threshold_mb
+            # Check if analysis config was passed from parallel analyzer
+            if 'use_full_analysis' in self.config:
+                # Use the analysis decision from parallel analyzer
+                use_half_track = not self.config.get('use_full_analysis', True)
+                log_universal('DEBUG', 'Audio', f'Using analysis config from parallel analyzer: use_half_track={use_half_track}')
+            else:
+                # Use half-track loading for files larger than threshold
+                half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 25)
+                use_half_track = file_size_mb > half_track_threshold_mb
+                log_universal('DEBUG', 'Audio', f'Using local threshold decision: use_half_track={use_half_track}')
             
             if use_half_track:
                 log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for memory efficiency')
