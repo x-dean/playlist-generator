@@ -1382,9 +1382,8 @@ class AudioAnalyzer:
                     else:
                         log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for chroma extraction')
 
-                # Initialize Chromagram with configured hopSize
+                # Initialize Chromagram with correct parameters
                 chroma_algo = es.Chromagram(
-                    hopSize=self.hop_size,
                     sampleRate=sample_rate
                 )
 
@@ -3148,25 +3147,31 @@ class AudioAnalyzer:
                 # 1. DANCEABILITY FEATURES
                 try:
                     danceability_algo = es.Danceability()
-                    danceability = danceability_algo(audio)
-                    # Handle tuple return
-                    if isinstance(danceability, tuple):
-                        danceability = danceability[0]
+                    danceability_result = danceability_algo(audio)
+                    # Handle tuple return - Danceability returns (danceability,)
+                    if isinstance(danceability_result, tuple):
+                        danceability = danceability_result[0]
+                    else:
+                        danceability = danceability_result
                     features['danceability'] = float(danceability) if danceability is not None else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Danceability extraction failed: {e}')
                     features['danceability'] = 0.0
 
-                # 2. HARMONIC FEATURES - Use SpectralPeaks as fallback
+                # 2. HARMONIC FEATURES - Use SpectralPeaks first, then HarmonicPeaks
                 try:
-                    # First get spectral peaks, then try harmonic peaks
+                    # First get spectral peaks
                     spectral_peaks_algo = es.SpectralPeaks()
                     peaks, peak_values = spectral_peaks_algo(audio)
                     
-                    # Try HarmonicPeaks with the spectral peaks
+                    # Get pitch estimate for HarmonicPeaks
+                    pitch_algo = es.PitchYin()
+                    pitch, pitch_confidence = pitch_algo(audio)
+                    
+                    # Try HarmonicPeaks with the spectral peaks and pitch
                     try:
                         harmonic_peaks_algo = es.HarmonicPeaks()
-                        harmonic_peaks, harmonic_values = harmonic_peaks_algo(peaks, peak_values)
+                        harmonic_peaks, harmonic_values = harmonic_peaks_algo(peaks, peak_values, pitch)
                         features['harmonic_peaks_count'] = len(harmonic_peaks) if harmonic_peaks is not None else 0
                         features['harmonic_peak_strength'] = float(np.mean(harmonic_values)) if harmonic_values is not None else 0.0
                     except Exception as e_harmonic:
@@ -3182,11 +3187,21 @@ class AudioAnalyzer:
 
                 # 3. INHARMONICITY (useful for electronic vs acoustic)
                 try:
-                    inharmonicity_algo = es.Inharmonicity()
-                    # Inharmonicity needs peaks as input
+                    # First get spectral peaks
                     spectral_peaks_algo = es.SpectralPeaks()
                     peaks, peak_values = spectral_peaks_algo(audio)
-                    inharmonicity = inharmonicity_algo(peaks, peak_values)
+                    
+                    # Get pitch estimate
+                    pitch_algo = es.PitchYin()
+                    pitch, pitch_confidence = pitch_algo(audio)
+                    
+                    # Get harmonic peaks for Inharmonicity
+                    harmonic_peaks_algo = es.HarmonicPeaks()
+                    harmonic_peaks, harmonic_values = harmonic_peaks_algo(peaks, peak_values, pitch)
+                    
+                    # Calculate inharmonicity using harmonic peaks
+                    inharmonicity_algo = es.Inharmonicity()
+                    inharmonicity = inharmonicity_algo(harmonic_peaks, harmonic_values)
                     features['inharmonicity'] = float(inharmonicity) if inharmonicity is not None else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Inharmonicity extraction failed: {e}')
@@ -3195,10 +3210,12 @@ class AudioAnalyzer:
                 # 4. DYNAMIC COMPLEXITY (energy variations)
                 try:
                     dynamic_complexity_algo = es.DynamicComplexity()
-                    dynamic_complexity = dynamic_complexity_algo(audio)
-                    # Handle tuple return
-                    if isinstance(dynamic_complexity, tuple):
-                        dynamic_complexity = dynamic_complexity[0]
+                    dynamic_complexity_result = dynamic_complexity_algo(audio)
+                    # Handle tuple return - DynamicComplexity returns (complexity,)
+                    if isinstance(dynamic_complexity_result, tuple):
+                        dynamic_complexity = dynamic_complexity_result[0]
+                    else:
+                        dynamic_complexity = dynamic_complexity_result
                     features['dynamic_complexity'] = float(dynamic_complexity) if dynamic_complexity is not None else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Dynamic complexity extraction failed: {e}')
@@ -3244,13 +3261,23 @@ class AudioAnalyzer:
                     log_universal('WARNING', 'Audio', f'Trillimus extraction failed: {e}')
                     features['trillimus'] = 0.0
 
-                # 9. ODD TO EVEN HARMONIC ENERGY RATIO (useful for timbre analysis) - might not exist
+                # 9. ODD TO EVEN HARMONIC ENERGY RATIO (useful for timbre analysis)
                 try:
-                    odd_even_algo = es.OddToEvenHarmonicEnergyRatio()
-                    # This algorithm needs peaks as input
+                    # First get spectral peaks
                     spectral_peaks_algo = es.SpectralPeaks()
                     peaks, peak_values = spectral_peaks_algo(audio)
-                    odd_even_ratio = odd_even_algo(peaks, peak_values)
+                    
+                    # Get pitch estimate
+                    pitch_algo = es.PitchYin()
+                    pitch, pitch_confidence = pitch_algo(audio)
+                    
+                    # Get harmonic peaks for OddToEvenHarmonicEnergyRatio
+                    harmonic_peaks_algo = es.HarmonicPeaks()
+                    harmonic_peaks, harmonic_values = harmonic_peaks_algo(peaks, peak_values, pitch)
+                    
+                    # Calculate odd to even harmonic ratio
+                    odd_even_algo = es.OddToEvenHarmonicEnergyRatio()
+                    odd_even_ratio = odd_even_algo(harmonic_peaks, harmonic_values)
                     features['odd_to_even_harmonic_ratio'] = float(odd_even_ratio) if odd_even_ratio is not None else 0.0
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Odd to even harmonic ratio extraction failed: {e}')
