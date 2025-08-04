@@ -322,7 +322,7 @@ class AudioAnalyzer:
             
             # STEP 4: Extract values using Essentia
             log_universal('INFO', 'Audio', f'Step 4: Extracting Essentia features for {os.path.basename(file_path)}')
-            essentia_features = self._extract_essentia_features(audio, sample_rate)
+            essentia_features = self._extract_essentia_features(audio, sample_rate, file_path)
             if essentia_features:
                 self.db_manager.save_essentia_features(file_path, essentia_features)
                 log_universal('INFO', 'Audio', f'Essentia features saved to database')
@@ -346,9 +346,9 @@ class AudioAnalyzer:
                 log_universal('INFO', 'Audio', f'Spotify-style features saved to database')
             
             # STEP 4.6: Extract advanced categorization features (optimized for performance)
-            file_size_mb = len(audio) * 4 / (1024 * 1024)  # Estimate file size
+            file_size_mb = self.db_manager.get_file_size_mb(file_path)
             if file_size_mb > 50:  # For large files, use a sample
-                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using sample for advanced features')
+                log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using sample for advanced features')
                 # Use middle 30 seconds for large files
                 sample_duration = 30
                 sample_size = int(sample_duration * sample_rate)
@@ -553,13 +553,14 @@ class AudioAnalyzer:
             log_universal('WARNING', 'Audio', f'Filename pattern extraction failed: {e}')
             return None
 
-    def _extract_essentia_features(self, audio: np.ndarray, sample_rate: int) -> Optional[Dict[str, Any]]:
+    def _extract_essentia_features(self, audio: np.ndarray, sample_rate: int, file_path: str = None) -> Optional[Dict[str, Any]]:
         """
         Extract features using Essentia.
         
         Args:
             audio: Audio data as numpy array
             sample_rate: Sample rate in Hz
+            file_path: Path to audio file
             
         Returns:
             Essentia features dictionary or None on failure
@@ -569,7 +570,7 @@ class AudioAnalyzer:
             
             # Extract rhythm features
             if self.extract_rhythm:
-                rhythm_features = self._extract_rhythm_features(audio, sample_rate)
+                rhythm_features = self._extract_rhythm_features(audio, sample_rate, file_path)
                 features.update(rhythm_features)
             
             # Extract spectral features
@@ -589,12 +590,12 @@ class AudioAnalyzer:
             
             # Extract MFCC features
             if self.extract_mfcc:
-                mfcc_features = self._extract_mfcc_features(audio, sample_rate)
+                mfcc_features = self._extract_mfcc_features(audio, sample_rate, file_path)
                 features.update(mfcc_features)
             
             # Extract chroma features
             if hasattr(self, 'extract_chroma'):
-                chroma_features = self._extract_chroma_features(audio, sample_rate)
+                chroma_features = self._extract_chroma_features(audio, sample_rate, file_path)
                 features.update(chroma_features)
             
             return features
@@ -641,7 +642,7 @@ class AudioAnalyzer:
         
         return metadata
     
-    def _extract_rhythm_features(self, audio: np.ndarray, sample_rate: int, file_size_mb: float = None) -> Dict[str, Any]:
+    def _extract_rhythm_features(self, audio: np.ndarray, sample_rate: int, file_path: str = None, file_size_mb: float = None) -> Dict[str, Any]:
         """Extract rhythm features including BPM and confidence."""
         features = {}
 
@@ -1039,7 +1040,7 @@ class AudioAnalyzer:
         
         return features
     
-    def _extract_mfcc_features(self, audio: np.ndarray, sample_rate: int, file_size_mb: float = None) -> Dict[str, Any]:
+    def _extract_mfcc_features(self, audio: np.ndarray, sample_rate: int, file_path: str = None, file_size_mb: float = None) -> Dict[str, Any]:
         """Extract MFCC features."""
         features = {}
         
@@ -1371,7 +1372,7 @@ class AudioAnalyzer:
             log_universal('ERROR', 'Audio', f'Embedding calculation failed: {e}')
             return None
     
-    def _extract_chroma_features(self, audio: np.ndarray, sample_rate: int, file_size_mb: float = None) -> Dict[str, Any]:
+    def _extract_chroma_features(self, audio: np.ndarray, sample_rate: int, file_path: str = None, file_size_mb: float = None) -> Dict[str, Any]:
         """Extract chroma features using frame-by-frame processing."""
         features = {}
 
@@ -2139,7 +2140,7 @@ class AudioAnalyzer:
                 
                 for i, sample in enumerate(audio_samples):
                     log_universal('DEBUG', 'Audio', f'Analyzing rhythm sample {i+1}/4')
-                    sample_rhythm = self._extract_rhythm_features(sample, sample_rate)
+                    sample_rhythm = self._extract_rhythm_features(sample, sample_rate, None)
                     if sample_rhythm and 'bpm' in sample_rhythm:
                         all_rhythm_features.append(sample_rhythm)
                         all_bpms.append(sample_rhythm['bpm'])
@@ -2262,7 +2263,7 @@ class AudioAnalyzer:
                 all_mfcc_features = []
                 for i, sample in enumerate(audio_samples):
                     log_universal('DEBUG', 'Audio', f'Analyzing MFCC sample {i+1}/4')
-                    sample_mfcc = self._extract_mfcc_features(sample, sample_rate)
+                    sample_mfcc = self._extract_mfcc_features(sample, sample_rate, None)
                     if sample_mfcc:
                         all_mfcc_features.append(sample_mfcc)
                 
@@ -2365,7 +2366,7 @@ class AudioAnalyzer:
                 all_chroma_features = []
                 for i, sample in enumerate(audio_samples):
                     log_universal('DEBUG', 'Audio', f'Analyzing chroma sample {i+1}/4')
-                    sample_chroma = self._extract_chroma_features(sample, sample_rate)
+                    sample_chroma = self._extract_chroma_features(sample, sample_rate, None)
                     if sample_chroma:
                         all_chroma_features.append(sample_chroma)
                 
@@ -2422,7 +2423,7 @@ class AudioAnalyzer:
         try:
             # Basic rhythm features (essential for categorization)
             if self.extract_rhythm:
-                rhythm_features = self._extract_rhythm_features(audio, sample_rate)
+                rhythm_features = self._extract_rhythm_features(audio, sample_rate, None)
                 features.update(rhythm_features)
             
             # Basic loudness features (essential for categorization)
@@ -2549,7 +2550,7 @@ class AudioAnalyzer:
                     
                     # Extract essential features for categorization
                     if self.extract_rhythm:
-                        rhythm_features = self._extract_rhythm_features(audio_sample, sample_rate)
+                        rhythm_features = self._extract_rhythm_features(audio_sample, sample_rate, file_path)
                         features.update(rhythm_features)
                         log_universal('DEBUG', 'Audio', f'Extracted rhythm features: {list(rhythm_features.keys())}')
                     
