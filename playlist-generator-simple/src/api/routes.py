@@ -22,7 +22,7 @@ from .models import (
     TrackResponse, PlaylistResponse, AnalysisStatsResponse,
     ImportResultResponse, SearchResultResponse, DatabaseManagementResponse,
     DatabaseInfoResponse, ErrorResponse, HealthResponse, MetricsResponse,
-    StatusResponse
+    StatusResponse, AnalysisResultResponse
 )
 from .performance_routes import router as performance_router
 from ..application.commands import AnalyzeTrackCommand, ImportTracksCommand, GeneratePlaylistCommand

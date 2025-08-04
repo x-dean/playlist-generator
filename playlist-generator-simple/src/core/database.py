@@ -913,7 +913,7 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT file_size_bytes FROM audio_files 
+                    SELECT file_size_bytes FROM tracks 
                     WHERE file_path = ?
                 """, (file_path,))
                 row = cursor.fetchone()
@@ -962,7 +962,7 @@ class DatabaseManager:
                 
                 # Update existing record or create new one
                 cursor.execute("""
-                    INSERT OR REPLACE INTO audio_files 
+                    INSERT OR REPLACE INTO tracks 
                     (file_path, filename, artist, title, album, year, genre, duration, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (file_path, os.path.basename(file_path), artist, title, album, year, genre, duration))
@@ -990,15 +990,27 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Convert features to JSON
-                features_json = json.dumps(features)
-                
-                # Update existing record
+                # Extract key features and update tracks table
                 cursor.execute("""
-                    UPDATE audio_files 
-                    SET essentia_features = ?, updated_at = CURRENT_TIMESTAMP
+                    UPDATE tracks 
+                    SET bpm = ?, rhythm_confidence = ?, spectral_centroid = ?, 
+                        spectral_flatness = ?, spectral_rolloff = ?, loudness = ?,
+                        key = ?, scale = ?, danceability = ?, energy = ?,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE file_path = ?
-                """, (features_json, file_path))
+                """, (
+                    features.get('bpm'),
+                    features.get('rhythm_confidence'),
+                    features.get('spectral_centroid'),
+                    features.get('spectral_flatness'),
+                    features.get('spectral_rolloff'),
+                    features.get('loudness'),
+                    features.get('key'),
+                    features.get('scale'),
+                    features.get('danceability'),
+                    features.get('energy'),
+                    file_path
+                ))
                 
                 conn.commit()
                 return True
@@ -1023,15 +1035,22 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Convert features to JSON
-                features_json = json.dumps(features)
+                # Convert features to JSON for storage
+                embedding_json = json.dumps(features.get('embedding', []))
+                tags_json = json.dumps(features.get('tags', {}))
                 
-                # Update existing record
+                # Update tracks table with MusicNN features
                 cursor.execute("""
-                    UPDATE audio_files 
-                    SET musicnn_features = ?, updated_at = CURRENT_TIMESTAMP
+                    UPDATE tracks 
+                    SET embedding = ?, tags = ?, musicnn_skipped = ?,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE file_path = ?
-                """, (features_json, file_path))
+                """, (
+                    embedding_json,
+                    tags_json,
+                    features.get('musicnn_skipped', 0),
+                    file_path
+                ))
                 
                 conn.commit()
                 return True
@@ -1058,8 +1077,9 @@ class DatabaseManager:
                 
                 # Mark analysis as completed
                 cursor.execute("""
-                    UPDATE audio_files 
-                    SET analyzed = 1, analysis_date = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                    UPDATE tracks 
+                    SET status = 'analyzed', analysis_status = 'completed', 
+                        analysis_date = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                     WHERE file_path = ?
                 """, (file_path,))
                 
