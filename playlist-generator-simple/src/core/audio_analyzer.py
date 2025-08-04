@@ -1049,11 +1049,20 @@ class AudioAnalyzer:
                 if len(audio.shape) > 1:
                     audio = np.mean(audio, axis=1)
                 
-                # Limit audio length to prevent spectrum size issues
-                max_audio_length = 60 * sample_rate  # 60 seconds max
-                if len(audio) > max_audio_length:
-                    log_universal('WARNING', 'Audio', f'Audio too long for MFCC extraction, truncating to 60s')
-                    audio = audio[:max_audio_length]
+                # Use 3-tier system for MFCC extraction instead of hardcoded 60s limit
+                # Files < 100MB: Full processing, Files 100-200MB: Half-track, Files > 200MB: Half-track
+                half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
+                estimated_size_mb = (len(audio) * 4) / (1024 * 1024)  # Rough estimate
+                
+                if estimated_size_mb > half_track_threshold_mb:
+                    # Use half-track loading for large files (middle 50%)
+                    start_sample = len(audio) // 4
+                    end_sample = 3 * len(audio) // 4
+                    audio = audio[start_sample:end_sample]
+                    log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB) - using half-track loading for MFCC extraction')
+                else:
+                    # Use full audio for small files
+                    log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB) - using full audio for MFCC extraction')
                 
                 # MFCC
                 mfcc = es.MFCC()
@@ -1321,11 +1330,20 @@ class AudioAnalyzer:
                 frame_size = 2048
                 hop_size = 1024
                 
-                # Limit audio length to prevent spectrum size issues
-                max_audio_length = 60 * sample_rate  # 60 seconds max
-                if len(audio) > max_audio_length:
-                    log_universal('WARNING', 'Audio', f'Audio too long for chroma extraction, truncating to 60s')
-                    audio = audio[:max_audio_length]
+                # Use 3-tier system for chroma extraction instead of hardcoded 60s limit
+                # Files < 100MB: Full processing, Files 100-200MB: Half-track, Files > 200MB: Half-track
+                half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
+                estimated_size_mb = (len(audio) * 4) / (1024 * 1024)  # Rough estimate
+                
+                if estimated_size_mb > half_track_threshold_mb:
+                    # Use half-track loading for large files (middle 50%)
+                    start_sample = len(audio) // 4
+                    end_sample = 3 * len(audio) // 4
+                    audio = audio[start_sample:end_sample]
+                    log_universal('INFO', 'Audio', f'Large file detected ({estimated_size_mb:.1f}MB) - using half-track loading for chroma extraction')
+                else:
+                    # Use full audio for small files
+                    log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB) - using full audio for chroma extraction')
                 
                 # Initialize algorithms
                 window = es.Windowing(type='blackmanharris62')
