@@ -242,6 +242,8 @@ class AudioAnalyzer:
         
         log_universal('INFO', 'Audio', 'AudioAnalyzer initialized')
         log_universal('DEBUG', 'Audio', f'Feature extraction flags: rhythm={self.extract_rhythm}, spectral={self.extract_spectral}, loudness={self.extract_loudness}, key={self.extract_key}, mfcc={self.extract_mfcc}, musicnn={self.extract_musicnn}, chroma={self.extract_chroma}')
+        log_universal('DEBUG', 'Audio', f'Processing mode: {self.processing_mode}')
+        log_universal('DEBUG', 'Audio', f'TensorFlow available: {TENSORFLOW_AVAILABLE}')
     
     def _get_analysis_cache_key(self, file_path: str, file_hash: str) -> str:
         """Generate cache key for analysis results."""
@@ -752,8 +754,12 @@ class AudioAnalyzer:
             
             # Extract MusiCNN features (always extract for sequential processing)
             if self.extract_musicnn and TENSORFLOW_AVAILABLE:
+                log_universal('INFO', 'Audio', 'Starting MusiCNN feature extraction')
                 musicnn_features = self._extract_musicnn_features(audio, sample_rate)
+                log_universal('INFO', 'Audio', f'MusiCNN extraction completed: {len(musicnn_features)} features')
                 features.update(musicnn_features)
+            else:
+                log_universal('INFO', 'Audio', f'MusiCNN extraction skipped: extract_musicnn={self.extract_musicnn}, TENSORFLOW_AVAILABLE={TENSORFLOW_AVAILABLE}')
             
             # Extract chroma features (always extract for sequential processing)
             if self.extract_chroma:
@@ -1153,6 +1159,8 @@ class AudioAnalyzer:
         """Extract MusiCNN features using Essentia's TensorflowPredictMusiCNN."""
         features = {}
         
+        log_universal('DEBUG', 'Audio', f'MusiCNN extraction started: audio shape={audio.shape}, sample_rate={sample_rate}')
+        
         try:
             if not TENSORFLOW_AVAILABLE:
                 log_universal('WARNING', 'Audio', 'TensorFlow not available - skipping MusiCNN features')
@@ -1163,6 +1171,9 @@ class AudioAnalyzer:
             model_path = self.config.get('MUSICNN_MODEL_PATH', '/app/models/msd-musicnn-1.pb')
             json_path = self.config.get('MUSICNN_JSON_PATH', '/app/models/msd-musicnn-1.json')
             
+            log_universal('DEBUG', 'Audio', f'MusiCNN model path: {model_path}')
+            log_universal('DEBUG', 'Audio', f'MusiCNN JSON path: {json_path}')
+            
             if not os.path.exists(model_path):
                 log_universal('WARNING', 'Audio', f'MusiCNN model not found: {model_path}')
                 features.update({'embedding': [], 'tags': {}})
@@ -1172,6 +1183,8 @@ class AudioAnalyzer:
                 log_universal('WARNING', 'Audio', f'MusiCNN JSON config not found: {json_path}')
                 features.update({'embedding': [], 'tags': {}})
                 return features
+            
+            log_universal('DEBUG', 'Audio', 'MusiCNN model files found')
             
             # Load tag names from JSON (only once)
             if not hasattr(self, '_musicnn_tag_names'):
@@ -1192,6 +1205,8 @@ class AudioAnalyzer:
                 try:
                     import essentia.standard as es
                     
+                    log_universal('DEBUG', 'Audio', 'Loading MusiCNN activations model...')
+                    
                     # Initialize MusiCNN for activations (auto-tagging)
                     self._musicnn_activations_model = es.TensorflowPredictMusiCNN(graphFilename=model_path)
                     log_universal('INFO', 'Audio', 'Loaded MusiCNN activations model')
@@ -1203,6 +1218,8 @@ class AudioAnalyzer:
                             if 'description' in output and output['description'] == 'embeddings':
                                 output_layer = output['name']
                                 break
+                    
+                    log_universal('DEBUG', 'Audio', f'Loading MusiCNN embeddings model with output layer: {output_layer}')
                     
                     self._musicnn_embeddings_model = es.TensorflowPredictMusiCNN(
                         graphFilename=model_path,
@@ -1217,6 +1234,8 @@ class AudioAnalyzer:
             
             # Use loaded models for inference
             try:
+                log_universal('DEBUG', 'Audio', 'Starting MusiCNN inference...')
+                
                 # Resample audio to 16kHz for MusiCNN (like old setup)
                 if sample_rate != 16000:
                     import librosa
@@ -1227,41 +1246,49 @@ class AudioAnalyzer:
                 log_universal('DEBUG', 'Audio', f'Resampled audio to 16kHz: {len(audio_16k)} samples')
                 
                 # Run activations inference using loaded model
+                log_universal('DEBUG', 'Audio', 'Running MusiCNN activations inference...')
                 activations = self._musicnn_activations_model(audio_16k)  # shape: [time, tags]
                 
                 # Handle different return types
                 if isinstance(activations, list):
                     activations = np.array(activations)
                 
+                log_universal('DEBUG', 'Audio', f'MusiCNN activations shape: {activations.shape}')
+                
                 # Calculate tag probabilities (mean across time)
                 tag_probs = activations.mean(axis=0)
                 tags = dict(zip(self._musicnn_tag_names, [float(prob) for prob in tag_probs]))
                 
+                log_universal('DEBUG', 'Audio', f'MusiCNN tags extracted: {len(tags)} tags')
+                
                 # Run embeddings inference using loaded model
+                log_universal('DEBUG', 'Audio', 'Running MusiCNN embeddings inference...')
                 embeddings = self._musicnn_embeddings_model(audio_16k)
                 
                 # Handle embeddings
                 if isinstance(embeddings, list):
                     embeddings = np.array(embeddings)
                 
-                # Convert to 200-dimensional format
-                embedding_flat = embeddings.flatten()
-                if len(embedding_flat) > 200:
-                    features['embedding'] = embedding_flat[:200].tolist()
-                else:
-                    embedding_list = embedding_flat.tolist()
-                    features['embedding'] = embedding_list + [0.0] * (200 - len(embedding_list))
+                log_universal('DEBUG', 'Audio', f'MusiCNN embeddings shape: {embeddings.shape}')
                 
-                features['tags'] = tags
+                # Calculate embedding statistics
+                embedding_mean = embeddings.mean(axis=0).tolist()
+                embedding_std = embeddings.std(axis=0).tolist()
                 
-                log_universal('INFO', 'Audio', f'MusiCNN analysis completed: {len(features["embedding"])} dimensions, {len(features["tags"])} tags')
+                features.update({
+                    'embedding': embedding_mean,
+                    'embedding_std': embedding_std,
+                    'tags': tags
+                })
+                
+                log_universal('INFO', 'Audio', f'MusiCNN extraction completed successfully: {len(tags)} tags, {len(embedding_mean)} embedding dimensions')
                 
             except Exception as e:
-                log_universal('WARNING', 'Audio', f'MusiCNN extraction failed: {e}')
+                log_universal('ERROR', 'Audio', f'MusiCNN inference failed: {e}')
                 features.update({'embedding': [], 'tags': {}})
-                
+            
         except Exception as e:
-            log_universal('WARNING', 'Audio', f'MusiCNN feature extraction failed: {e}')
+            log_universal('ERROR', 'Audio', f'MusiCNN feature extraction failed: {e}')
             features.update({'embedding': [], 'tags': {}})
         
         return features
