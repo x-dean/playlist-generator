@@ -1374,18 +1374,18 @@ class AudioAnalyzer:
             if ESSENTIA_AVAILABLE:
                 import essentia.standard as es
 
-                # Validate audio parameters before chroma extraction
-                if len(audio) < self.frame_size:
+                # Validate audio
+                if len(audio) < 32768:
                     log_universal('WARNING', 'Audio', f'Audio too short for chroma extraction: {len(audio)} samples')
                     features['chroma_mean'] = [0.0] * 12
                     features['chroma_std']  = [0.0] * 12
                     return features
 
-                # Ensure audio is mono
+                # Ensure mono signal
                 if len(audio.shape) > 1:
                     audio = np.mean(audio, axis=1)
 
-                # 3-tier system based on file size
+                # File trimming logic for large audio
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
 
                 if file_size_mb is not None:
@@ -1406,15 +1406,10 @@ class AudioAnalyzer:
                     else:
                         log_universal('DEBUG', 'Audio', f'Small file ({estimated_size_mb:.1f}MB estimated) - using full audio for chroma extraction')
 
-                # Initialize Chromagram with configured frameSize/hopSize
-                chroma_algo = es.Chromagram(
-                    frameSize=self.frame_size,
-                    hopSize=self.hop_size,
-                    sampleRate=sample_rate
-                )
-
+                # Frame-by-frame chroma with hardcoded 32768
+                chroma_algo = es.Chromagram()
                 chroma_frames = []
-                for frame in es.FrameGenerator(audio, frameSize=self.frame_size, hopSize=self.hop_size, startFromZero=True):
+                for frame in es.FrameGenerator(audio, 32768, self.hop_size, startFromZero=True):
                     chroma_frames.append(chroma_algo(frame))
 
                 if chroma_frames:
