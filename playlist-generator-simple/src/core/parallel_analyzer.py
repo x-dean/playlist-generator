@@ -333,11 +333,11 @@ class ParallelAnalyzer:
                 # Prepare analysis data with status
                 analysis_data = analysis_result.get('features', {})
                 analysis_data['status'] = 'analyzed'
-                analysis_data['analysis_type'] = 'full'
+                analysis_data['analysis_type'] = analysis_result.get('analysis_mode', 'full')
                 
-                # Add audio type and category
+                # Add audio type and category (map to database fields)
                 analysis_data['audio_type'] = analysis_result.get('audio_type', 'normal')
-                analysis_data['audio_category'] = analysis_result.get('audio_category')
+                analysis_data['long_audio_category'] = analysis_result.get('audio_category')
                 
                 # Extract metadata
                 metadata = analysis_result.get('metadata', {})

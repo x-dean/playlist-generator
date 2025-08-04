@@ -169,7 +169,7 @@ class DatabaseManager:
                     get(metadata, 'recording_time'), get(metadata, 'tempo'), get(metadata, 'length'),
                     get(metadata, 'replaygain_track_gain'), get(metadata, 'replaygain_album_gain'),
                     get(metadata, 'replaygain_track_peak'), get(metadata, 'replaygain_album_peak'),
-                    get(analysis_data, 'analysis_type', 'full'), True, get(analysis_data, 'long_audio_category'),
+                    get(analysis_data, 'analysis_type', 'full'), True, get(analysis_data, 'audio_type', 'normal'), get(analysis_data, 'audio_category', get(analysis_data, 'long_audio_category')),
                     discovery_source, now, now
                 ]
 
@@ -194,9 +194,9 @@ class DatabaseManager:
                         style, quality, original_artist, original_album, original_year, original_filename,
                         content_group, encoder, file_type, playlist_delay, recording_time, tempo, length,
                         replaygain_track_gain, replaygain_album_gain, replaygain_track_peak, replaygain_album_peak,
-                        analysis_type, analyzed, long_audio_category, discovery_source,
+                        analysis_type, analyzed, audio_type, long_audio_category, discovery_source,
                         created_at, updated_at
-                    ) VALUES ({', '.join(['?'] * 98)})
+                    ) VALUES ({', '.join(['?'] * 99)})
                 """, values)
 
                 # Save tags if present

@@ -468,6 +468,9 @@ class AudioAnalyzer:
                 log_universal('DEBUG', 'Audio', 'No tags found in file')
                 metadata['filename'] = os.path.basename(file_path)
             
+            # Comprehensive fallback for missing artist/title
+            self._extract_missing_artist_title(metadata, file_path)
+            
             # Extract audio properties with memory protection
             try:
                 if hasattr(audio_file, 'info'):
@@ -2919,6 +2922,117 @@ class AudioAnalyzer:
                 'liveness': 0.5,
                 'popularity': 0.5
             }
+
+    def _extract_missing_artist_title(self, metadata: Dict[str, Any], file_path: str):
+        """
+        Comprehensive fallback for missing artist/title extraction.
+        
+        Args:
+            metadata: Metadata dictionary to update
+            file_path: Path to audio file
+        """
+        try:
+            # Check if we already have artist and title
+            artist = metadata.get('artist', '').strip()
+            title = metadata.get('title', '').strip()
+            
+            if artist and title:
+                log_universal('DEBUG', 'Audio', f'Artist and title already present: {artist} - {title}')
+                return
+            
+            filename = os.path.basename(file_path)
+            name_without_ext = os.path.splitext(filename)[0]
+            
+            log_universal('DEBUG', 'Audio', f'Attempting to extract artist/title from filename: {name_without_ext}')
+            
+            # Method 1: Try "Artist - Title" format (most common)
+            if ' - ' in name_without_ext:
+                parts = name_without_ext.split(' - ', 1)
+                if len(parts) == 2:
+                    extracted_artist = parts[0].strip()
+                    extracted_title = parts[1].strip()
+                    
+                    if extracted_artist and extracted_title:
+                        if not artist:
+                            metadata['artist'] = extracted_artist
+                            log_universal('INFO', 'Audio', f'Extracted artist from filename: {extracted_artist}')
+                        if not title:
+                            metadata['title'] = extracted_title
+                            log_universal('INFO', 'Audio', f'Extracted title from filename: {extracted_title}')
+                        return
+            
+            # Method 2: Try "Artist_-_Title" format (underscore separator)
+            if '_-_' in name_without_ext:
+                parts = name_without_ext.split('_-_', 1)
+                if len(parts) == 2:
+                    extracted_artist = parts[0].strip()
+                    extracted_title = parts[1].strip()
+                    
+                    if extracted_artist and extracted_title:
+                        if not artist:
+                            metadata['artist'] = extracted_artist
+                            log_universal('INFO', 'Audio', f'Extracted artist from filename: {extracted_artist}')
+                        if not title:
+                            metadata['title'] = extracted_title
+                            log_universal('INFO', 'Audio', f'Extracted title from filename: {extracted_title}')
+                        return
+            
+            # Method 3: Try "Artist__Title" format (double underscore)
+            if '__' in name_without_ext:
+                parts = name_without_ext.split('__', 1)
+                if len(parts) == 2:
+                    extracted_artist = parts[0].strip()
+                    extracted_title = parts[1].strip()
+                    
+                    if extracted_artist and extracted_title:
+                        if not artist:
+                            metadata['artist'] = extracted_artist
+                            log_universal('INFO', 'Audio', f'Extracted artist from filename: {extracted_artist}')
+                        if not title:
+                            metadata['title'] = extracted_title
+                            log_universal('INFO', 'Audio', f'Extracted title from filename: {extracted_title}')
+                        return
+            
+            # Method 4: Try directory name as artist if no artist found
+            if not artist:
+                dir_name = os.path.basename(os.path.dirname(file_path))
+                if dir_name and dir_name not in ['', '.', '..']:
+                    metadata['artist'] = dir_name
+                    log_universal('INFO', 'Audio', f'Using directory name as artist: {dir_name}')
+            
+            # Method 5: Use filename as title if no title found
+            if not title:
+                # Clean up filename for title
+                clean_title = name_without_ext
+                # Remove common prefixes/suffixes
+                for prefix in ['track', 'song', 'audio', 'music']:
+                    if clean_title.lower().startswith(prefix):
+                        clean_title = clean_title[len(prefix):].strip(' -_')
+                
+                if clean_title:
+                    metadata['title'] = clean_title
+                    log_universal('INFO', 'Audio', f'Using cleaned filename as title: {clean_title}')
+            
+            # Final check and logging
+            final_artist = metadata.get('artist', '').strip()
+            final_title = metadata.get('title', '').strip()
+            
+            if final_artist and final_title:
+                log_universal('INFO', 'Audio', f'Final metadata: {final_artist} - {final_title}')
+            else:
+                log_universal('WARNING', 'Audio', f'Could not extract artist/title from: {filename}')
+                if not final_artist:
+                    metadata['artist'] = 'Unknown Artist'
+                if not final_title:
+                    metadata['title'] = name_without_ext or 'Unknown Title'
+                
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Error extracting artist/title from filename: {e}')
+            # Set defaults
+            if not metadata.get('artist'):
+                metadata['artist'] = 'Unknown Artist'
+            if not metadata.get('title'):
+                metadata['title'] = os.path.basename(file_path) or 'Unknown Title'
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':

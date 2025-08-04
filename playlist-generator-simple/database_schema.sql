@@ -1,8 +1,9 @@
--- Actual Database Schema for Playlist Generator Simple
--- Based on real data extraction from audio_analyzer.py and database.py
--- This schema includes ALL fields and tables that are actually being used
+-- =============================================================================
+-- OPTIMIZED DATABASE SCHEMA
+-- =============================================================================
+-- Removed redundant tables and merged functionality for better performance
 
--- Main tracks table with actual extracted data
+-- Main tracks table with all audio features and metadata
 CREATE TABLE tracks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     
@@ -18,15 +19,15 @@ CREATE TABLE tracks (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    -- Status and control fields (from discovery and analysis)
+    -- Status and control fields
     status TEXT DEFAULT 'discovered', -- 'discovered', 'analyzed', 'failed'
     analysis_status TEXT DEFAULT 'pending', -- 'pending', 'in_progress', 'completed', 'failed'
-    modified_time REAL, -- File modification time from discovery
+    modified_time REAL, -- File modification time
     retry_count INTEGER DEFAULT 0,
     last_retry_date TIMESTAMP,
     error_message TEXT,
     
-    -- Core metadata (from mutagen + external APIs)
+    -- Core metadata (from mutagen + external APIs + filename fallback)
     title TEXT NOT NULL,
     artist TEXT NOT NULL,
     album TEXT,
@@ -72,52 +73,52 @@ CREATE TABLE tracks (
     replaygain_album_peak TEXT,
     
     -- =============================================================================
-    -- ACTUAL EXTRACTED AUDIO FEATURES
+    -- EXTRACTED AUDIO FEATURES
     -- =============================================================================
     
-    -- Rhythm features (from _extract_rhythm_features)
+    -- Rhythm features
     bpm REAL,
     rhythm_confidence REAL,
-    bpm_estimates TEXT, -- JSON array of BPM estimates
-    bpm_intervals TEXT, -- JSON array of BPM intervals
+    bpm_estimates TEXT, -- JSON array
+    bpm_intervals TEXT, -- JSON array
     external_bpm REAL, -- BPM from metadata
     
-    -- Spectral features (from _extract_spectral_features)
+    -- Spectral features
     spectral_centroid REAL,
     spectral_flatness REAL,
-    spectral_rolloff REAL, -- Default 0.0
-    spectral_bandwidth REAL, -- Default 0.0
-    spectral_contrast_mean REAL, -- Default 0.0
-    spectral_contrast_std REAL, -- Default 0.0
+    spectral_rolloff REAL,
+    spectral_bandwidth REAL,
+    spectral_contrast_mean REAL,
+    spectral_contrast_std REAL,
     
-    -- Loudness features (from _extract_loudness_features)
+    -- Loudness features
     loudness REAL,
     dynamic_complexity REAL,
-    loudness_range REAL, -- Default 0.0
-    dynamic_range REAL, -- Default 0.0
+    loudness_range REAL,
+    dynamic_range REAL,
     
-    -- Key features (from _extract_key_features)
+    -- Key features
     key TEXT,
     scale TEXT, -- 'major', 'minor'
     key_strength REAL,
-    key_confidence REAL, -- Default 0.0
+    key_confidence REAL,
     
-    -- MFCC features (from _extract_mfcc_features)
-    mfcc_coefficients TEXT, -- JSON array of MFCC coefficients
-    mfcc_bands TEXT, -- JSON array of MFCC bands
-    mfcc_std TEXT, -- JSON array of MFCC standard deviations
-    mfcc_delta TEXT, -- JSON array of MFCC delta coefficients (default [])
-    mfcc_delta2 TEXT, -- JSON array of MFCC delta-delta coefficients (default [])
+    -- MFCC features
+    mfcc_coefficients TEXT, -- JSON array
+    mfcc_bands TEXT, -- JSON array
+    mfcc_std TEXT, -- JSON array
+    mfcc_delta TEXT, -- JSON array
+    mfcc_delta2 TEXT, -- JSON array
     
-    -- MusiCNN features (from _extract_musicnn_features)
-    embedding TEXT, -- JSON array of 200-dimensional MusiCNN embedding
-    embedding_std TEXT, -- JSON array of embedding standard deviations
-    embedding_min TEXT, -- JSON array of embedding minimum values
-    embedding_max TEXT, -- JSON array of embedding maximum values
+    -- MusiCNN features
+    embedding TEXT, -- JSON array of 200-dimensional embedding
+    embedding_std TEXT, -- JSON array
+    embedding_min TEXT, -- JSON array
+    embedding_max TEXT, -- JSON array
     tags TEXT, -- JSON object of MusiCNN tag names to confidence scores
-    musicnn_skipped INTEGER DEFAULT 0, -- Track if MusicNN was skipped (0=no, 1=yes)
+    musicnn_skipped INTEGER DEFAULT 0,
     
-    -- Chroma features (from _extract_chroma_features)
+    -- Chroma features
     chroma_mean TEXT, -- JSON array of 12-dimensional chroma means
     chroma_std TEXT, -- JSON array of 12-dimensional chroma standard deviations
     
@@ -126,63 +127,25 @@ CREATE TABLE tracks (
     -- =============================================================================
     analysis_type TEXT DEFAULT 'full', -- 'full', 'simplified', 'categorization_optimized'
     analyzed BOOLEAN DEFAULT FALSE,
-    long_audio_category TEXT, -- 'radio', 'podcast', 'electronic_mix', 'rock_mix', 'acoustic_mix'
-    discovery_source TEXT DEFAULT 'file_system', -- 'file_system', 'user_input', 'api'
+    audio_type TEXT DEFAULT 'normal', -- 'normal', 'long', 'large_file'
+    long_audio_category TEXT, -- 'radio', 'podcast', 'mix', etc.
+    discovery_source TEXT DEFAULT 'file_system',
     
     -- =============================================================================
     -- SPOTIFY-STYLE FEATURES FOR PLAYLIST GENERATION
     -- =============================================================================
-    -- These features are calculated from the extracted audio features above
-    -- They provide Spotify-compatible metrics for playlist generation
-    
-    -- Basic audio features (for playlist generation)
-    danceability REAL, -- Calculated from BPM, rhythm confidence, spectral characteristics, MusiCNN tags
-    energy REAL, -- Calculated from loudness, dynamic complexity, spectral centroid, BPM
-    mode REAL, -- 0.0 = minor, 1.0 = major (derived from key scale)
-    
-    -- Perceptual features (Spotify-style)
-    acousticness REAL, -- Calculated from MusiCNN acoustic tags, spectral characteristics
-    instrumentalness REAL, -- Calculated from MusiCNN instrumental tags, inverse of speechiness
-    speechiness REAL, -- Calculated from MusiCNN vocal tags
-    valence REAL, -- Calculated from key, BPM, MusiCNN mood tags (positivity/happiness)
-    liveness REAL, -- Calculated from dynamic complexity, spectral characteristics
-    popularity REAL -- Placeholder for external API integration (LastFM, Spotify, etc.)
+    danceability REAL,
+    energy REAL,
+    mode REAL, -- 0.0 = minor, 1.0 = major
+    acousticness REAL,
+    instrumentalness REAL,
+    speechiness REAL,
+    valence REAL,
+    liveness REAL,
+    popularity REAL
 );
 
--- File metadata table (referenced in cleanup code)
-CREATE TABLE file_metadata (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    file_path TEXT UNIQUE NOT NULL,
-    modified_time REAL,
-    discovered_date TIMESTAMP,
-    status TEXT DEFAULT 'discovered',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Analysis statistics table (referenced in cleanup code)
-CREATE TABLE analysis_statistics (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    file_path TEXT NOT NULL,
-    analysis_duration REAL,
-    memory_usage_mb REAL,
-    cpu_usage_percent REAL,
-    analysis_status TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Failed analysis table (separate from analysis_cache)
-CREATE TABLE failed_analysis (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    file_path TEXT UNIQUE NOT NULL,
-    filename TEXT NOT NULL,
-    file_hash TEXT NOT NULL,
-    error_message TEXT,
-    retry_count INTEGER DEFAULT 0,
-    last_retry_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Tags table for external API tags
+-- Tags table for external API tags (MusicBrainz, LastFM, etc.)
 CREATE TABLE tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     track_id INTEGER NOT NULL,
@@ -219,47 +182,25 @@ CREATE TABLE playlist_tracks (
     UNIQUE(playlist_id, track_id)
 );
 
--- Analysis cache table for failed/skipped analysis
-CREATE TABLE analysis_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    file_path TEXT UNIQUE NOT NULL,
-    filename TEXT NOT NULL,
-    file_hash TEXT NOT NULL,
-    error_message TEXT,
-    status TEXT DEFAULT 'failed', -- 'failed', 'skipped', 'pending'
-    retry_count INTEGER DEFAULT 0,
-    last_retry_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Discovery cache table (updated with missing fields)
-CREATE TABLE discovery_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    directory_path TEXT NOT NULL,
-    file_count INTEGER NOT NULL,
-    scan_duration REAL NOT NULL,
-    status TEXT DEFAULT 'completed', -- 'completed', 'failed', 'in_progress'
-    error_message TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- General cache table
+-- General cache table (merged analysis_cache, discovery_cache, cache)
 CREATE TABLE cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cache_key TEXT UNIQUE NOT NULL,
     cache_value TEXT NOT NULL,
-    cache_type TEXT DEFAULT 'general', -- 'general', 'analysis', 'discovery', 'api'
+    cache_type TEXT DEFAULT 'general', -- 'general', 'analysis', 'discovery', 'api', 'failed_analysis'
     expires_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Statistics table for web UI dashboards
+-- Statistics table for web UI dashboards (merged analysis_statistics, statistics)
 CREATE TABLE statistics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category TEXT NOT NULL, -- 'analysis', 'discovery', 'playlists', 'performance'
     metric_name TEXT NOT NULL,
     metric_value REAL NOT NULL,
     metric_data TEXT, -- JSON object of additional data
+    file_path TEXT, -- For analysis-specific statistics
+    analysis_status TEXT, -- For analysis-specific statistics
     date_recorded TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -298,27 +239,13 @@ CREATE INDEX idx_tracks_duration ON tracks(duration);
 CREATE INDEX idx_tracks_rhythm_confidence ON tracks(rhythm_confidence);
 CREATE INDEX idx_tracks_spectral_centroid ON tracks(spectral_centroid);
 CREATE INDEX idx_tracks_long_audio_category ON tracks(long_audio_category);
+CREATE INDEX idx_tracks_audio_type ON tracks(audio_type);
 
 -- Composite indexes for common queries
 CREATE INDEX idx_tracks_artist_album ON tracks(artist, album);
 CREATE INDEX idx_tracks_genre_year ON tracks(genre, year);
 CREATE INDEX idx_tracks_bpm_energy ON tracks(bpm, energy);
 CREATE INDEX idx_tracks_key_mode ON tracks(key, mode);
-
--- File metadata indexes
-CREATE INDEX idx_file_metadata_file_path ON file_metadata(file_path);
-CREATE INDEX idx_file_metadata_status ON file_metadata(status);
-CREATE INDEX idx_file_metadata_modified_time ON file_metadata(modified_time);
-
--- Analysis statistics indexes
-CREATE INDEX idx_analysis_statistics_file_path ON analysis_statistics(file_path);
-CREATE INDEX idx_analysis_statistics_status ON analysis_statistics(analysis_status);
-CREATE INDEX idx_analysis_statistics_created_at ON analysis_statistics(created_at);
-
--- Failed analysis indexes
-CREATE INDEX idx_failed_analysis_file_path ON failed_analysis(file_path);
-CREATE INDEX idx_failed_analysis_retry_count ON failed_analysis(retry_count);
-CREATE INDEX idx_failed_analysis_last_retry_date ON failed_analysis(last_retry_date);
 
 -- Tags indexes
 CREATE INDEX idx_tags_track_id ON tags(track_id);
