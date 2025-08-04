@@ -415,6 +415,7 @@ class AudioAnalyzer:
             except Exception:
                 pass  # Continue if memory check fails
             
+            from mutagen import File
             audio_file = File(file_path)
             if audio_file is None:
                 log_universal('WARNING', 'Audio', f'Could not open file for metadata: {os.path.basename(file_path)}')
@@ -744,6 +745,7 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                import essentia.standard as es
                 # Use 3-tier system for rhythm analysis: align with file size thresholds
                 # Files < 100MB: Full processing, Files 100-200MB: Half-track, Files > 200MB: Half-track
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
@@ -868,6 +870,7 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                import essentia.standard as es
                 # Use SpectralCentroidTime like the old working version
                 log_universal('DEBUG', 'Audio', "Initializing Essentia SpectralCentroidTime algorithm")
                 centroid_algo = es.SpectralCentroidTime()
@@ -931,6 +934,7 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                import essentia.standard as es
                 # Use RMS like the old working version
                 log_universal('DEBUG', 'Audio', "Initializing Essentia RMS algorithm")
                 rms_algo = es.RMS()
@@ -991,6 +995,7 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                import essentia.standard as es
                 # Validate audio parameters before key extraction
                 if len(audio) < 1024:
                     log_universal('WARNING', 'Audio', f'Audio too short for key extraction: {len(audio)} samples')
@@ -1057,6 +1062,7 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                import essentia.standard as es
                 # Validate audio parameters before MFCC extraction
                 if len(audio) < 512:
                     log_universal('WARNING', 'Audio', f'Audio too short for MFCC extraction: {len(audio)} samples')
@@ -1366,6 +1372,7 @@ class AudioAnalyzer:
         
         try:
             if ESSENTIA_AVAILABLE:
+                import essentia.standard as es
                 # Validate audio parameters before chroma extraction
                 if len(audio) < 512:
                     log_universal('WARNING', 'Audio', f'Audio too short for chroma extraction: {len(audio)} samples')
