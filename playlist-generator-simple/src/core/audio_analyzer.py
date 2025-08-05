@@ -449,16 +449,6 @@ class AudioAnalyzer:
                 'long_audio_category': long_audio_category
             }
             
-            # Consolidate all cached data into tracks table with dynamic columns
-            success = self.db_manager.consolidate_cache_to_tracks(file_path)
-            if success:
-                log_universal('INFO', 'Audio', f'Successfully consolidated all analysis data to tracks table: {os.path.basename(file_path)}')
-            else:
-                log_universal('WARNING', 'Audio', f'Failed to consolidate analysis data to tracks table: {os.path.basename(file_path)}')
-            
-            # Keep the old commit method as fallback
-            self.db_manager.commit_analysis_results(file_path, all_features)
-            
             # Prepare result
             result = {
                 'success': True,
@@ -471,8 +461,18 @@ class AudioAnalyzer:
                 'long_audio_category': long_audio_category
             }
             
-            # Cache the result
+            # Cache the result FIRST
             self._cache_analysis_result(file_path, file_hash, result)
+            
+            # THEN consolidate all cached data into tracks table with dynamic columns
+            success = self.db_manager.consolidate_cache_to_tracks(file_path)
+            if success:
+                log_universal('INFO', 'Audio', f'Successfully consolidated all analysis data to tracks table: {os.path.basename(file_path)}')
+            else:
+                log_universal('WARNING', 'Audio', f'Failed to consolidate analysis data to tracks table: {os.path.basename(file_path)}')
+            
+            # Keep the old commit method as fallback
+            self.db_manager.commit_analysis_results(file_path, all_features)
             
             log_universal('INFO', 'Audio', f'Analysis completed: {os.path.basename(file_path)} ({len(audio)} samples, {sample_rate}Hz)')
             return result
