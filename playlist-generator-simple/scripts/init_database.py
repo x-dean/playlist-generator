@@ -40,17 +40,38 @@ def init_database(db_path: str) -> bool:
             print("Database schema already exists.")
             return True
         
-        # Read the schema
-        schema_path = "database_schema.sql"
-        if not os.path.exists(schema_path):
-            print(f"Schema file not found: {schema_path}")
+        # Look for schema files in multiple locations
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        candidate_paths = [
+            # Schema file
+            os.path.join(script_dir, '..', 'database', 'database_schema.sql'),
+            os.path.join(script_dir, '..', 'database_schema.sql'),
+            os.path.join(script_dir, 'database_schema.sql'),
+        ]
+        
+        schema_sql = None
+        schema_path = None
+        
+        for path in candidate_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        schema_sql = f.read()
+                    schema_path = path
+                    print(f"Found schema file: {path}")
+                    break
+                except Exception as e:
+                    print(f"Failed to read schema from {path}: {e}")
+                    continue
+        
+        if not schema_sql:
+            print("No schema file found in any of these locations:")
+            for path in candidate_paths:
+                print(f"  - {path}")
             return False
         
-        with open(schema_path, 'r') as f:
-            schema_sql = f.read()
-        
         # Execute schema creation
-        print("Creating database schema...")
+        print(f"Creating database schema from {schema_path}...")
         cursor.executescript(schema_sql)
         
         # Enable WAL mode for better performance
@@ -65,6 +86,9 @@ def init_database(db_path: str) -> bool:
         
         # Set temp store to memory for better performance
         cursor.execute("PRAGMA temp_store=MEMORY")
+        
+        # Enable foreign keys
+        cursor.execute("PRAGMA foreign_keys=ON")
         
         # Create initial statistics
         print("Creating initial statistics...")

@@ -394,21 +394,19 @@ Examples:
                                   help='Reload configuration')
         
         # Database commands
-        db_parser = subparsers.add_parser('db', help='Database management')
-        db_parser.add_argument('--init', action='store_true',
-                              help='Initialize database schema')
-        db_parser.add_argument('--migrate', action='store_true',
-                              help='Migrate existing database')
-        db_parser.add_argument('--backup', action='store_true',
-                              help='Create database backup')
-        db_parser.add_argument('--restore', action='store_true',
-                              help='Restore database from backup')
-        db_parser.add_argument('--integrity-check', action='store_true',
-                              help='Check database integrity')
-        db_parser.add_argument('--vacuum', action='store_true',
-                              help='Vacuum database to reclaim space')
-        db_parser.add_argument('--db-path', default='/app/cache/playlista.db',
-                              help='Database file path')
+        db_parser = subparsers.add_parser('db', help='Database management commands')
+        db_parser.add_argument('--init', action='store_true', help='Initialize database schema')
+        db_parser.add_argument('--migrate', action='store_true', help='Migrate existing database')
+        db_parser.add_argument('--backup', action='store_true', help='Create database backup')
+        db_parser.add_argument('--restore', action='store_true', help='Restore database from backup')
+        db_parser.add_argument('--db-path', type=str, help='Database path for restore')
+        db_parser.add_argument('--integrity-check', action='store_true', help='Check database integrity')
+        db_parser.add_argument('--vacuum', action='store_true', help='Vacuum database')
+        db_parser.add_argument('--maintenance', action='store_true', help='Perform comprehensive database maintenance')
+        db_parser.add_argument('--health', action='store_true', help='Check database health status')
+        db_parser.add_argument('--validate-schema', action='store_true', help='Validate database schema')
+        db_parser.add_argument('--fix-schema', action='store_true', help='Fix database schema issues')
+        db_parser.add_argument('--repair', action='store_true', help='Repair database issues')
         
         # Global options
         for subparser in [analyze_parser, stats_parser, test_parser, monitor_parser, 
@@ -1052,6 +1050,52 @@ Examples:
                 log_universal('INFO', 'CLI', 'Vacuuming database...')
                 self.db_manager.vacuum_database()
                 log_universal('INFO', 'CLI', 'Database vacuumed.')
+            elif args.maintenance:
+                log_universal('INFO', 'CLI', 'Performing comprehensive database maintenance...')
+                maintenance_results = self.db_manager.perform_maintenance()
+                if maintenance_results['errors']:
+                    log_universal('WARNING', 'CLI', f'Maintenance completed with {len(maintenance_results["errors"])} errors')
+                else:
+                    log_universal('INFO', 'CLI', 'Database maintenance completed successfully.')
+            elif args.health:
+                log_universal('INFO', 'CLI', 'Checking database health status...')
+                health_status = self.db_manager.get_database_health()
+                if health_status['issues']:
+                    log_universal('WARNING', 'CLI', f'Database health check found {len(health_status["issues"])} issues')
+                    for issue in health_status['issues']:
+                        log_universal('WARNING', 'CLI', f'  - {issue}')
+                else:
+                    log_universal('INFO', 'CLI', 'Database health check passed.')
+            elif args.validate_schema:
+                log_universal('INFO', 'CLI', 'Validating database schema...')
+                schema_validation = self.db_manager.validate_schema()
+                if schema_validation['schema_valid']:
+                    log_universal('INFO', 'CLI', 'Database schema validation passed.')
+                else:
+                    log_universal('WARNING', 'CLI', 'Database schema validation found issues:')
+                    for issue in schema_validation.get('missing_tables', []):
+                        log_universal('WARNING', 'CLI', f'  - Missing table: {issue}')
+                    for issue in schema_validation.get('missing_columns', []):
+                        log_universal('WARNING', 'CLI', f'  - Missing column: {issue}')
+                    for issue in schema_validation.get('index_issues', []):
+                        log_universal('WARNING', 'CLI', f'  - {issue}')
+                    for issue in schema_validation.get('view_issues', []):
+                        log_universal('WARNING', 'CLI', f'  - {issue}')
+                    return 1
+            elif args.fix_schema:
+                log_universal('INFO', 'CLI', 'Attempting to fix database schema issues...')
+                fix_results = self.db_manager.fix_schema_issues()
+                if fix_results['errors']:
+                    log_universal('WARNING', 'CLI', f'Schema fixes completed with {len(fix_results["errors"])} errors')
+                else:
+                    log_universal('INFO', 'CLI', 'Database schema fixes completed successfully.')
+            elif args.repair:
+                log_universal('INFO', 'CLI', 'Attempting to repair database issues...')
+                repair_results = self.db_manager.repair_database()
+                if repair_results['errors']:
+                    log_universal('WARNING', 'CLI', f'Database repair completed with {len(repair_results["errors"])} errors')
+                else:
+                    log_universal('INFO', 'CLI', 'Database repair completed successfully.')
             else:
                 log_universal('INFO', 'CLI', 'No specific database command provided. Use --help for details.')
             

@@ -1,9 +1,9 @@
 -- =============================================================================
--- OPTIMIZED DATABASE SCHEMA
+-- OPTIMIZED DATABASE SCHEMA FOR WEB UI PERFORMANCE
 -- =============================================================================
--- Removed redundant tables and merged functionality for better performance
+-- Streamlined schema with only essential tables and fields for fast web UI queries
 
--- Main tracks table with all audio features and metadata
+-- Main tracks table with essential fields only
 CREATE TABLE tracks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     
@@ -15,19 +15,16 @@ CREATE TABLE tracks (
     
     -- Timestamps
     analysis_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    discovery_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    -- Status and control fields
+    -- Status fields
     status TEXT DEFAULT 'discovered', -- 'discovered', 'analyzed', 'failed'
     analysis_status TEXT DEFAULT 'pending', -- 'pending', 'in_progress', 'completed', 'failed'
-    modified_time REAL, -- File modification time
     retry_count INTEGER DEFAULT 0,
-    last_retry_date TIMESTAMP,
     error_message TEXT,
     
-    -- Core metadata (from mutagen + external APIs + filename fallback)
+    -- Core metadata (essential for web UI)
     title TEXT NOT NULL,
     artist TEXT NOT NULL,
     album TEXT,
@@ -36,54 +33,29 @@ CREATE TABLE tracks (
     year INTEGER,
     duration REAL,
     
-    -- Audio properties (from mutagen)
+    -- Audio properties
     bitrate INTEGER,
     sample_rate INTEGER,
     channels INTEGER,
     
-    -- Additional metadata (from mutagen)
-    composer TEXT,
-    lyricist TEXT,
-    band TEXT,
-    conductor TEXT,
-    remixer TEXT,
-    subtitle TEXT,
-    grouping TEXT,
-    publisher TEXT,
-    copyright TEXT,
-    encoded_by TEXT,
-    language TEXT,
-    mood TEXT,
-    style TEXT,
-    quality TEXT,
-    original_artist TEXT,
-    original_album TEXT,
-    original_year INTEGER,
-    original_filename TEXT,
-    content_group TEXT,
-    encoder TEXT,
-    file_type TEXT,
-    playlist_delay TEXT,
-    recording_time TEXT,
-    tempo TEXT,
-    length TEXT,
-    replaygain_track_gain TEXT,
-    replaygain_album_gain TEXT,
-    replaygain_track_peak TEXT,
-    replaygain_album_peak TEXT,
-    
-    -- =============================================================================
-    -- EXTRACTED AUDIO FEATURES
-    -- =============================================================================
-    
-    -- Rhythm features
+    -- Essential audio features for playlist generation
     bpm REAL,
+    key TEXT,
+    mode TEXT,
+    loudness REAL,
+    energy REAL,
+    danceability REAL,
+    valence REAL,
+    acousticness REAL,
+    instrumentalness REAL,
+    
+    -- Rhythm features (Essentia)
     rhythm_confidence REAL,
     bpm_estimates TEXT, -- JSON array
     bpm_intervals TEXT, -- JSON array
     external_bpm REAL, -- BPM from metadata
     
-    -- Spectral features
+    -- Spectral features (Essentia)
     spectral_centroid REAL,
     spectral_flatness REAL,
     spectral_rolloff REAL,
@@ -91,19 +63,26 @@ CREATE TABLE tracks (
     spectral_contrast_mean REAL,
     spectral_contrast_std REAL,
     
-    -- Loudness features
-    loudness REAL,
+    -- Loudness features (Essentia)
     dynamic_complexity REAL,
     loudness_range REAL,
     dynamic_range REAL,
     
-    -- Key features
-    key TEXT,
+    -- Key features (Essentia)
     scale TEXT, -- 'major', 'minor'
     key_strength REAL,
     key_confidence REAL,
     
-    -- MFCC features
+    -- Additional metadata (optional)
+    composer TEXT,
+    mood TEXT,
+    style TEXT,
+    
+    -- Analysis metadata
+    analysis_type TEXT DEFAULT 'full', -- 'full', 'basic', 'discovery_only'
+    long_audio_category TEXT, -- For long audio files
+    
+    -- MFCC features (Essentia)
     mfcc_coefficients TEXT, -- JSON array
     mfcc_bands TEXT, -- JSON array
     mfcc_std TEXT, -- JSON array
@@ -118,40 +97,25 @@ CREATE TABLE tracks (
     tags TEXT, -- JSON object of MusiCNN tag names to confidence scores
     musicnn_skipped INTEGER DEFAULT 0,
     
-    -- Chroma features
+    -- Chroma features (Essentia)
     chroma_mean TEXT, -- JSON array of 12-dimensional chroma means
     chroma_std TEXT, -- JSON array of 12-dimensional chroma standard deviations
     
-    -- =============================================================================
-    -- ANALYSIS METADATA
-    -- =============================================================================
-    analysis_type TEXT DEFAULT 'full', -- 'full', 'simplified', 'categorization_optimized'
-    analyzed BOOLEAN DEFAULT FALSE,
-    audio_type TEXT DEFAULT 'normal', -- 'normal', 'long', 'large_file'
-    long_audio_category TEXT, -- 'radio', 'podcast', 'mix', etc.
-    discovery_source TEXT DEFAULT 'file_system',
-    
-    -- =============================================================================
-    -- SPOTIFY-STYLE FEATURES FOR PLAYLIST GENERATION
-    -- =============================================================================
-    danceability REAL,
-    energy REAL,
-    mode REAL, -- 0.0 = minor, 1.0 = major
-    acousticness REAL,
-    instrumentalness REAL,
-    speechiness REAL,
-    valence REAL,
-    liveness REAL,
-    popularity REAL
+    -- Extended features (JSON for flexibility)
+    rhythm_features TEXT, -- JSON
+    spectral_features TEXT, -- JSON
+    mfcc_features TEXT, -- JSON
+    musicnn_features TEXT, -- JSON
+    spotify_features TEXT -- JSON
 );
 
--- Tags table for external API tags (MusicBrainz, LastFM, etc.)
+-- Tags table for external API data
 CREATE TABLE tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     track_id INTEGER NOT NULL,
     tag_name TEXT NOT NULL,
     tag_value TEXT,
-    source TEXT NOT NULL, -- 'musicbrainz', 'lastfm', 'mutagen', 'musicnn'
+    source TEXT NOT NULL, -- 'musicbrainz', 'lastfm', 'spotify', 'musicnn'
     confidence REAL DEFAULT 1.0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
@@ -176,76 +140,56 @@ CREATE TABLE playlist_tracks (
     playlist_id INTEGER NOT NULL,
     track_id INTEGER NOT NULL,
     position INTEGER NOT NULL,
-    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
     FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
-    UNIQUE(playlist_id, track_id)
+    UNIQUE(playlist_id, track_id, position)
 );
 
--- General cache table (merged analysis_cache, discovery_cache, cache)
+-- Unified cache table (replaces multiple cache tables)
 CREATE TABLE cache (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cache_key TEXT UNIQUE NOT NULL,
-    cache_value TEXT NOT NULL,
-    cache_type TEXT DEFAULT 'general', -- 'general', 'analysis', 'discovery', 'api', 'failed_analysis'
+    cache_value TEXT NOT NULL, -- JSON
+    cache_type TEXT NOT NULL, -- 'general', 'failed_analysis', 'discovery', 'api_response'
     expires_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Statistics table for web UI dashboards (merged analysis_statistics, statistics)
+-- Statistics table for dashboard
 CREATE TABLE statistics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT NOT NULL, -- 'analysis', 'discovery', 'playlists', 'performance'
+    category TEXT NOT NULL, -- 'analysis', 'discovery', 'playlist', 'system'
     metric_name TEXT NOT NULL,
     metric_value REAL NOT NULL,
-    metric_data TEXT, -- JSON object of additional data
-    file_path TEXT, -- For analysis-specific statistics
-    analysis_status TEXT, -- For analysis-specific statistics
+    metric_data TEXT, -- JSON for additional data
     date_recorded TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- =============================================================================
--- INDEXES FOR PERFORMANCE
+-- INDEXES FOR WEB UI PERFORMANCE
 -- =============================================================================
 
--- Core lookup indexes
+-- Essential indexes for fast queries
 CREATE INDEX idx_tracks_file_path ON tracks(file_path);
-CREATE INDEX idx_tracks_file_hash ON tracks(file_hash);
-CREATE INDEX idx_tracks_filename ON tracks(filename);
-
--- Status and control indexes
 CREATE INDEX idx_tracks_status ON tracks(status);
 CREATE INDEX idx_tracks_analysis_status ON tracks(analysis_status);
-CREATE INDEX idx_tracks_retry_count ON tracks(retry_count);
-CREATE INDEX idx_tracks_modified_time ON tracks(modified_time);
-
--- Metadata lookup indexes
 CREATE INDEX idx_tracks_artist ON tracks(artist);
 CREATE INDEX idx_tracks_title ON tracks(title);
 CREATE INDEX idx_tracks_artist_title ON tracks(artist, title);
-CREATE INDEX idx_tracks_album ON tracks(album);
 CREATE INDEX idx_tracks_genre ON tracks(genre);
 CREATE INDEX idx_tracks_year ON tracks(year);
-
--- Analysis date indexes
-CREATE INDEX idx_tracks_analysis_date ON tracks(analysis_date);
-CREATE INDEX idx_tracks_discovery_date ON tracks(discovery_date);
-
--- Audio feature indexes (for playlist generation)
 CREATE INDEX idx_tracks_bpm ON tracks(bpm);
 CREATE INDEX idx_tracks_key ON tracks(key);
-CREATE INDEX idx_tracks_loudness ON tracks(loudness);
-CREATE INDEX idx_tracks_duration ON tracks(duration);
-CREATE INDEX idx_tracks_rhythm_confidence ON tracks(rhythm_confidence);
-CREATE INDEX idx_tracks_spectral_centroid ON tracks(spectral_centroid);
-CREATE INDEX idx_tracks_long_audio_category ON tracks(long_audio_category);
-CREATE INDEX idx_tracks_audio_type ON tracks(audio_type);
+CREATE INDEX idx_tracks_energy ON tracks(energy);
+CREATE INDEX idx_tracks_danceability ON tracks(danceability);
+CREATE INDEX idx_tracks_analysis_date ON tracks(analysis_date);
 
 -- Composite indexes for common queries
-CREATE INDEX idx_tracks_artist_album ON tracks(artist, album);
 CREATE INDEX idx_tracks_genre_year ON tracks(genre, year);
 CREATE INDEX idx_tracks_bpm_energy ON tracks(bpm, energy);
 CREATE INDEX idx_tracks_key_mode ON tracks(key, mode);
+CREATE INDEX idx_tracks_artist_album ON tracks(artist, album);
 
 -- Tags indexes
 CREATE INDEX idx_tags_track_id ON tags(track_id);
@@ -255,7 +199,6 @@ CREATE INDEX idx_tags_source_name ON tags(source, tag_name);
 
 -- Playlist indexes
 CREATE INDEX idx_playlists_name ON playlists(name);
-CREATE INDEX idx_playlists_created_at ON playlists(created_at);
 CREATE INDEX idx_playlist_tracks_playlist_id ON playlist_tracks(playlist_id);
 CREATE INDEX idx_playlist_tracks_track_id ON playlist_tracks(track_id);
 CREATE INDEX idx_playlist_tracks_position ON playlist_tracks(position);
@@ -268,118 +211,62 @@ CREATE INDEX idx_cache_expires_at ON cache(expires_at);
 -- Statistics indexes
 CREATE INDEX idx_statistics_category ON statistics(category);
 CREATE INDEX idx_statistics_date ON statistics(date_recorded);
-CREATE INDEX idx_statistics_category_date ON statistics(category, date_recorded);
 
 -- =============================================================================
--- VIEWS FOR COMMON QUERIES
+-- VIEWS FOR WEB UI OPTIMIZATION
 -- =============================================================================
 
--- Complete track information with tags
+-- Complete track data with tags
 CREATE VIEW track_complete AS
 SELECT 
     t.*,
-    GROUP_CONCAT(tag.tag_name || ':' || tag.tag_value) as all_tags
+    GROUP_CONCAT(DISTINCT tg.tag_name || ':' || tg.tag_value) as all_tags
 FROM tracks t
-LEFT JOIN tags tag ON t.id = tag.track_id
+LEFT JOIN tags tg ON t.id = tg.track_id
 GROUP BY t.id;
 
--- Track summary for web UI
+-- Track summary for lists
 CREATE VIEW track_summary AS
 SELECT 
     id, file_path, filename, title, artist, album, genre, year, duration,
-    bpm, key, scale, loudness, rhythm_confidence, spectral_centroid,
-    long_audio_category, analysis_type, analyzed, analysis_date,
-    status, analysis_status, retry_count
-FROM tracks;
+    bpm, key, mode, energy, danceability, status, analysis_date
+FROM tracks
+WHERE status = 'analyzed';
 
--- Audio analysis features for playlist generation
+-- Audio analysis features
 CREATE VIEW audio_analysis_complete AS
 SELECT 
-    id, file_path, title, artist, album, genre, year, duration,
-    -- Rhythm features
-    bpm, rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm,
-    -- Spectral features
-    spectral_centroid, spectral_flatness, spectral_rolloff, spectral_bandwidth,
-    spectral_contrast_mean, spectral_contrast_std,
-    -- Loudness features
-    loudness, dynamic_complexity, loudness_range, dynamic_range,
-    -- Key features
-    key, scale, key_strength, key_confidence,
-    -- MFCC features
-    mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2,
-    -- MusiCNN features
-    embedding, tags,
-    -- Chroma features
-    chroma_mean, chroma_std,
-    -- Analysis metadata
-    analysis_type, long_audio_category, analyzed, analysis_date,
-    -- Status fields
-    status, analysis_status, retry_count
+    id, file_path, title, artist,
+    bpm, key, mode, loudness, energy, danceability, valence, acousticness, instrumentalness,
+    rhythm_features, spectral_features, mfcc_features, musicnn_features, spotify_features
 FROM tracks
-WHERE analyzed = TRUE;
+WHERE status = 'analyzed';
 
 -- Failed analysis summary
 CREATE VIEW failed_analysis_summary AS
 SELECT 
-    json_extract(cache_value, '$.file_path') as file_path,
-    json_extract(cache_value, '$.filename') as filename,
-    json_extract(cache_value, '$.error_message') as error_message,
-    json_extract(cache_value, '$.retry_count') as retry_count,
-    json_extract(cache_value, '$.last_retry_date') as last_retry_date,
-    json_extract(cache_value, '$.status') as status,
-    'failed' as analysis_status
-FROM cache 
-WHERE cache_type = 'failed_analysis'
-UNION
-SELECT 
-    file_path, filename, error_message, retry_count, last_retry_date,
-    status, 'failed' as analysis_status
-FROM tracks 
-WHERE status = 'failed' OR analysis_status = 'failed';
-
--- Discovery summary
-CREATE VIEW discovery_summary AS
-SELECT 
-    json_extract(cache_value, '$.directory_path') as directory_path,
-    json_extract(cache_value, '$.file_count') as file_count,
-    json_extract(cache_value, '$.scan_duration') as scan_duration,
-    json_extract(cache_value, '$.status') as status,
-    created_at,
-    COUNT(*) as scan_count
+    cache_key, cache_value, created_at
 FROM cache
-WHERE cache_type = 'discovery'
-GROUP BY json_extract(cache_value, '$.directory_path'), 
-         json_extract(cache_value, '$.file_count'), 
-         json_extract(cache_value, '$.scan_duration'), 
-         json_extract(cache_value, '$.status'), 
-         created_at;
+WHERE cache_type = 'failed_analysis';
 
 -- Playlist features for generation
 CREATE VIEW playlist_features AS
 SELECT 
-    p.id as playlist_id, p.name as playlist_name, p.generation_method,
-    p.generation_params, p.track_count, p.created_at,
-    pt.position, pt.track_id,
-    t.title, t.artist, t.album, t.genre, t.year, t.duration,
-    t.bpm, t.key, t.scale, t.loudness, t.rhythm_confidence,
-    t.spectral_centroid, t.long_audio_category
-FROM playlists p
-JOIN playlist_tracks pt ON p.id = pt.playlist_id
-JOIN tracks t ON pt.track_id = t.id
-ORDER BY p.id, pt.position;
+    t.id, t.title, t.artist, t.album, t.genre, t.year,
+    t.bpm, t.key, t.mode, t.energy, t.danceability, t.valence, t.acousticness,
+    pt.position
+FROM tracks t
+JOIN playlist_tracks pt ON t.id = pt.track_id
+WHERE t.status = 'analyzed';
 
 -- Playlist summary
 CREATE VIEW playlist_summary AS
 SELECT 
-    p.id, p.name, p.description, p.generation_method,
-    p.track_count, p.created_at, p.updated_at,
-    COUNT(pt.track_id) as actual_track_count,
-    AVG(t.duration) as avg_duration,
-    AVG(t.bpm) as avg_bpm,
-    GROUP_CONCAT(DISTINCT t.genre) as genres
+    p.id, p.name, p.description, p.generation_method, p.track_count,
+    p.created_at, p.updated_at,
+    COUNT(pt.track_id) as actual_track_count
 FROM playlists p
 LEFT JOIN playlist_tracks pt ON p.id = pt.playlist_id
-LEFT JOIN tracks t ON pt.track_id = t.id
 GROUP BY p.id;
 
 -- Genre analysis
@@ -387,16 +274,13 @@ CREATE VIEW genre_analysis AS
 SELECT 
     genre,
     COUNT(*) as track_count,
-    AVG(duration) as avg_duration,
     AVG(bpm) as avg_bpm,
-    AVG(loudness) as avg_loudness,
-    AVG(rhythm_confidence) as avg_rhythm_confidence,
-    AVG(spectral_centroid) as avg_spectral_centroid,
-    GROUP_CONCAT(DISTINCT long_audio_category) as categories
+    AVG(energy) as avg_energy,
+    AVG(danceability) as avg_danceability,
+    AVG(duration) as avg_duration
 FROM tracks
-WHERE genre IS NOT NULL AND analyzed = TRUE
-GROUP BY genre
-ORDER BY track_count DESC;
+WHERE status = 'analyzed' AND genre IS NOT NULL
+GROUP BY genre;
 
 -- Statistics summary
 CREATE VIEW statistics_summary AS
@@ -406,68 +290,47 @@ SELECT
     AVG(metric_value) as avg_value,
     MAX(metric_value) as max_value,
     MIN(metric_value) as min_value,
-    COUNT(*) as record_count,
-    MAX(date_recorded) as last_recorded
+    COUNT(*) as record_count
 FROM statistics
-GROUP BY category, metric_name
-ORDER BY category, metric_name;
-
--- Analysis performance summary
-CREATE VIEW analysis_performance AS
-SELECT 
-    analysis_status,
-    COUNT(*) as file_count,
-    AVG(metric_value) as avg_duration,
-    AVG(CASE WHEN metric_name = 'memory_usage_mb' THEN metric_value ELSE NULL END) as avg_memory_mb,
-    AVG(CASE WHEN metric_name = 'cpu_usage_percent' THEN metric_value ELSE NULL END) as avg_cpu_percent,
-    MAX(date_recorded) as last_analysis
-FROM statistics
-WHERE category = 'analysis'
-GROUP BY analysis_status;
+GROUP BY category, metric_name;
 
 -- =============================================================================
--- COMMENTS AND DOCUMENTATION
+-- TRIGGERS FOR DATA INTEGRITY
 -- =============================================================================
 
-/*
-DATABASE SCHEMA DOCUMENTATION
+-- Update playlist track count
+CREATE TRIGGER update_playlist_track_count_insert
+AFTER INSERT ON playlist_tracks
+BEGIN
+    UPDATE playlists 
+    SET track_count = (
+        SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = NEW.playlist_id
+    ),
+    updated_at = CURRENT_TIMESTAMP
+    WHERE id = NEW.playlist_id;
+END;
 
-This schema is based on ACTUAL data extraction and usage from:
-1. audio_analyzer.py - Audio feature extraction
-2. database.py - Database storage methods
-3. file_discovery.py - File discovery and tracking
-4. mutagen - Metadata extraction
-5. External APIs - MusicBrainz, LastFM
+CREATE TRIGGER update_playlist_track_count_delete
+AFTER DELETE ON playlist_tracks
+BEGIN
+    UPDATE playlists 
+    SET track_count = (
+        SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = OLD.playlist_id
+    ),
+    updated_at = CURRENT_TIMESTAMP
+    WHERE id = OLD.playlist_id;
+END;
 
-EXTRACTED FEATURES:
-- Rhythm: bpm, rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm
-- Spectral: spectral_centroid, spectral_flatness (others default to 0.0)
-- Loudness: loudness, dynamic_complexity (others default to 0.0)
-- Key: key, scale, key_strength (key_confidence defaults to 0.0)
-- MFCC: mfcc_coefficients, mfcc_bands, mfcc_std (delta fields default to [])
-- MusiCNN: embedding (200-dim), tags (dict of tag names to scores)
-- Chroma: chroma_mean (12-dim), chroma_std (12-dim)
+-- Update track updated_at timestamp
+CREATE TRIGGER update_track_timestamp
+AFTER UPDATE ON tracks
+BEGIN
+    UPDATE tracks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
 
-CONTROL FIELDS:
-- status: 'discovered', 'analyzed', 'failed'
-- analysis_status: 'pending', 'in_progress', 'completed', 'failed'
-- retry_count, last_retry_date, error_message
-- modified_time, discovered_date
-
-ADDITIONAL TABLES:
-- file_metadata: File discovery tracking
-- analysis_statistics: Performance metrics
-- failed_analysis: Failed analysis tracking
-- analysis_cache: Cache for failed/skipped analysis
-- discovery_cache: Discovery process tracking
-
-PLACEHOLDER FIELDS:
-- danceability, energy, mode (for future playlist generation features)
-- acousticness, instrumentalness, speechiness, valence, liveness, popularity (Spotify-style features)
-
-USAGE:
-1. Run this schema to create a new database
-2. All extracted features will be properly stored
-3. All control fields and tracking will work correctly
-4. Placeholder fields can be populated when feature extraction is implemented
-*/ 
+-- Update playlist updated_at timestamp
+CREATE TRIGGER update_playlist_timestamp
+AFTER UPDATE ON playlists
+BEGIN
+    UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END; 

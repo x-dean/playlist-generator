@@ -481,14 +481,10 @@ class FileDiscovery:
                             except Exception as e:
                                 log_universal('WARNING', 'FileDiscovery', f'Error removing failed file from cache: {e}')
                             
-                            # Also clean up any related metadata or statistics
+                            # Clean up from cache table (unified cache)
                             cursor.execute("""
-                                DELETE FROM file_metadata WHERE file_path = ?
-                            """, (filepath,))
-                            
-                            cursor.execute("""
-                                DELETE FROM analysis_statistics WHERE file_path = ?
-                            """, (filepath,))
+                                DELETE FROM cache WHERE cache_key LIKE ?
+                            """, (f"%{filepath}%",))
                             
                             conn.commit()
                         

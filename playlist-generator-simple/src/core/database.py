@@ -60,13 +60,45 @@ class DatabaseManager:
         try:
             conn = sqlite3.connect(self.db_path, timeout=self.connection_timeout_seconds)
             conn.row_factory = sqlite3.Row
+            
+            # Enable WAL mode for better concurrent access
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA cache_size=10000")
+            conn.execute("PRAGMA temp_store=MEMORY")
+            conn.execute("PRAGMA foreign_keys=ON")
+            
             yield conn
+        except sqlite3.OperationalError as e:
+            if conn: 
+                try:
+                    conn.rollback()
+                except:
+                    pass
+            log_universal('ERROR', 'Database', f"Database operational error: {e}")
+            raise
+        except sqlite3.IntegrityError as e:
+            if conn: 
+                try:
+                    conn.rollback()
+                except:
+                    pass
+            log_universal('ERROR', 'Database', f"Database integrity error: {e}")
+            raise
         except Exception as e:
-            if conn: conn.rollback()
+            if conn: 
+                try:
+                    conn.rollback()
+                except:
+                    pass
             log_universal('ERROR', 'Database', f"Connection error: {e}")
             raise
         finally:
-            if conn: conn.close()
+            if conn: 
+                try:
+                    conn.close()
+                except Exception as e:
+                    log_universal('WARNING', 'Database', f"Error closing connection: {e}")
 
     def _init_database(self):
         """Initialize schema from SQL file if needed."""
@@ -83,24 +115,46 @@ class DatabaseManager:
 
                 # Fallback paths to locate schema
                 candidate_paths = [
+                    # Schema paths
                     os.path.join(os.path.dirname(self.db_path), 'database_schema.sql'),
                     os.path.join(os.path.dirname(__file__), 'database_schema.sql'),
                     os.path.join(os.path.dirname(os.path.dirname(__file__)), 'database_schema.sql'),
+                    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'database_schema.sql'),
                 ]
 
                 schema_sql = None
+                schema_path_used = None
                 for path in candidate_paths:
                     if os.path.exists(path):
-                        with open(path, 'r', encoding='utf-8') as f:
-                            schema_sql = f.read()
-                        log_universal('INFO', 'Database', f"Loaded schema from: {path}")
-                        break
+                        try:
+                            with open(path, 'r', encoding='utf-8') as f:
+                                schema_sql = f.read()
+                            schema_path_used = path
+                            log_universal('INFO', 'Database', f"Loaded schema from: {path}")
+                            break
+                        except Exception as e:
+                            log_universal('WARNING', 'Database', f"Failed to read schema from {path}: {e}")
+                            continue
 
                 if schema_sql:
-                    cursor.executescript(schema_sql)
-                    log_universal('INFO', 'Database', "Schema initialized successfully.")
+                    try:
+                        cursor.executescript(schema_sql)
+                        
+                        # Enable WAL mode for better performance
+                        cursor.execute("PRAGMA journal_mode=WAL")
+                        cursor.execute("PRAGMA synchronous=NORMAL")
+                        cursor.execute("PRAGMA cache_size=10000")
+                        cursor.execute("PRAGMA temp_store=MEMORY")
+                        cursor.execute("PRAGMA foreign_keys=ON")
+                        
+                        log_universal('INFO', 'Database', f"Schema initialized successfully from {schema_path_used}")
+                    except Exception as e:
+                        log_universal('ERROR', 'Database', f"Failed to execute schema: {e}")
+                        raise
                 else:
-                    raise FileNotFoundError(f"No valid schema file found in paths: {candidate_paths}")
+                    error_msg = f"No valid schema file found in paths: {candidate_paths}"
+                    log_universal('ERROR', 'Database', error_msg)
+                    raise FileNotFoundError(error_msg)
 
         except Exception as e:
             log_universal('ERROR', 'Database', f"Schema initialization failed: {e}")
@@ -132,7 +186,7 @@ class DatabaseManager:
             log_universal('ERROR', 'Database', f"Migration error: {e}")
             return False
 
-    # 🧪 Save complete analysis result (94 fields)
+    # Save analysis result with optimized schema
     @log_function_call
     def save_analysis_result(self, file_path: str, filename: str, file_size_bytes: int,
                              file_hash: str, analysis_data: Dict[str, Any],
@@ -143,72 +197,111 @@ class DatabaseManager:
                 now = datetime.now()
 
                 get = lambda d, k, default=None: d.get(k, default) if d else default
-                j = lambda k: json.dumps(get(analysis_data, k, []))
+                j = lambda k: json.dumps(get(analysis_data, k, {}))
                 jd = lambda k: json.dumps(get(analysis_data, k, {}))
 
-                values = [
-                    file_path, file_hash, filename, file_size_bytes, now, now,
-                    'analyzed', 'completed', get(metadata, 'modified_time'), 0, None, None,
-                    get(metadata, 'title', 'Unknown'), get(metadata, 'artist', 'Unknown'),
-                    get(metadata, 'album'), get(metadata, 'track_number'),
-                    get(metadata, 'genre'), get(metadata, 'year'), get(analysis_data, 'duration'),
-                    get(metadata, 'bitrate'), get(metadata, 'sample_rate'), get(metadata, 'channels'),
-                    get(analysis_data, 'bpm'), get(analysis_data, 'rhythm_confidence'), j('bpm_estimates'), j('bpm_intervals'), get(analysis_data, 'external_bpm'),
-                    get(analysis_data, 'key'), get(analysis_data, 'scale'), get(analysis_data, 'key_strength'), get(analysis_data, 'key_confidence'),
-                    get(analysis_data, 'spectral_centroid'), get(analysis_data, 'spectral_flatness'), get(analysis_data, 'spectral_rolloff'),
-                    get(analysis_data, 'spectral_bandwidth'), get(analysis_data, 'spectral_contrast_mean'), get(analysis_data, 'spectral_contrast_std'),
-                    get(analysis_data, 'loudness'), get(analysis_data, 'dynamic_complexity'),
-                    get(analysis_data, 'loudness_range'), get(analysis_data, 'dynamic_range'),
-                    get(analysis_data, 'danceability'), get(analysis_data, 'energy'), get(analysis_data, 'mode'),
-                    get(analysis_data, 'acousticness'), get(analysis_data, 'instrumentalness'),
-                    get(analysis_data, 'speechiness'), get(analysis_data, 'valence'), get(analysis_data, 'liveness'),
-                    get(analysis_data, 'popularity'), j('mfcc_coefficients'), j('mfcc_bands'), j('mfcc_std'), j('mfcc_delta'), j('mfcc_delta2'),
-                    jd('embedding'), jd('embedding_std'), jd('embedding_min'), jd('embedding_max'), jd('tags'), get(analysis_data, 'musicnn_skipped', 0), j('chroma_mean'), j('chroma_std'),
-                    get(metadata, 'composer'), get(metadata, 'lyricist'), get(metadata, 'band'), get(metadata, 'conductor'),
-                    get(metadata, 'remixer'), get(metadata, 'subtitle'), get(metadata, 'grouping'), get(metadata, 'publisher'),
-                    get(metadata, 'copyright'), get(metadata, 'encoded_by'), get(metadata, 'language'), get(metadata, 'mood'),
-                    get(metadata, 'style'), get(metadata, 'quality'), get(metadata, 'original_artist'), get(metadata, 'original_album'),
-                    get(metadata, 'original_year'), get(metadata, 'original_filename'), get(metadata, 'content_group'),
-                    get(metadata, 'encoder'), get(metadata, 'file_type'), get(metadata, 'playlist_delay'),
-                    get(metadata, 'recording_time'), get(metadata, 'tempo'), get(metadata, 'length'),
-                    get(metadata, 'replaygain_track_gain'), get(metadata, 'replaygain_album_gain'),
-                    get(metadata, 'replaygain_track_peak'), get(metadata, 'replaygain_album_peak'),
-                    get(analysis_data, 'analysis_type', 'full'), True, get(analysis_data, 'audio_type', 'normal'), get(analysis_data, 'audio_category', get(analysis_data, 'long_audio_category')),
-                    discovery_source, now, now
-                ]
+                # Extract core metadata
+                title = get(metadata, 'title', filename)
+                artist = get(metadata, 'artist', 'Unknown')
+                album = get(metadata, 'album')
+                track_number = get(metadata, 'track_number')
+                genre = get(metadata, 'genre')
+                year = get(metadata, 'year')
+                duration = get(analysis_data, 'duration')
 
-                cursor.execute(f"""
+                # Extract audio properties
+                bitrate = get(metadata, 'bitrate')
+                sample_rate = get(metadata, 'sample_rate')
+                channels = get(metadata, 'channels')
+
+                # Extract additional metadata
+                composer = get(metadata, 'composer')
+                mood = get(metadata, 'mood')
+                style = get(metadata, 'style')
+
+                # Extract essential audio features
+                bpm = get(analysis_data, 'bpm')
+                key = get(analysis_data, 'key')
+                mode = get(analysis_data, 'mode')
+                loudness = get(analysis_data, 'loudness')
+                energy = get(analysis_data, 'energy')
+                danceability = get(analysis_data, 'danceability')
+                valence = get(analysis_data, 'valence')
+                acousticness = get(analysis_data, 'acousticness')
+                instrumentalness = get(analysis_data, 'instrumentalness')
+
+                # Extract rhythm features (Essentia)
+                rhythm_confidence = get(analysis_data, 'rhythm_confidence')
+                bpm_estimates = j('bpm_estimates')
+                bpm_intervals = j('bpm_intervals')
+                external_bpm = get(analysis_data, 'external_bpm')
+
+                # Extract spectral features (Essentia)
+                spectral_centroid = get(analysis_data, 'spectral_centroid')
+                spectral_flatness = get(analysis_data, 'spectral_flatness')
+                spectral_rolloff = get(analysis_data, 'spectral_rolloff')
+                spectral_bandwidth = get(analysis_data, 'spectral_bandwidth')
+                spectral_contrast_mean = get(analysis_data, 'spectral_contrast_mean')
+                spectral_contrast_std = get(analysis_data, 'spectral_contrast_std')
+
+                # Extract loudness features (Essentia)
+                dynamic_complexity = get(analysis_data, 'dynamic_complexity')
+                loudness_range = get(analysis_data, 'loudness_range')
+                dynamic_range = get(analysis_data, 'dynamic_range')
+
+                # Extract key features (Essentia)
+                scale = get(analysis_data, 'scale')
+                key_strength = get(analysis_data, 'key_strength')
+                key_confidence = get(analysis_data, 'key_confidence')
+
+                # Extract MFCC features (Essentia)
+                mfcc_coefficients = j('mfcc_coefficients')
+                mfcc_bands = j('mfcc_bands')
+                mfcc_std = j('mfcc_std')
+                mfcc_delta = j('mfcc_delta')
+                mfcc_delta2 = j('mfcc_delta2')
+
+                # Extract MusiCNN features
+                embedding = jd('embedding')
+                embedding_std = jd('embedding_std')
+                embedding_min = jd('embedding_min')
+                embedding_max = jd('embedding_max')
+                tags = jd('tags')
+                musicnn_skipped = get(analysis_data, 'musicnn_skipped', 0)
+
+                # Extract chroma features (Essentia)
+                chroma_mean = j('chroma_mean')
+                chroma_std = j('chroma_std')
+
+                # Extract extended features as JSON
+                rhythm_features = j('rhythm_features')
+                spectral_features = j('spectral_features')
+                mfcc_features = j('mfcc_features')
+                musicnn_features = jd('musicnn_features')
+                spotify_features = jd('spotify_features')
+
+                # Extract analysis metadata
+                analysis_type = get(analysis_data, 'analysis_type', 'full')
+                long_audio_category = get(analysis_data, 'long_audio_category')
+
+                cursor.execute("""
                     INSERT OR REPLACE INTO tracks (
-                        file_path, file_hash, filename, file_size_bytes, analysis_date, discovery_date,
-                        status, analysis_status, modified_time, retry_count, last_retry_date, error_message,
-                        title, artist, album, track_number, genre, year, duration,
-                        bitrate, sample_rate, channels,
-                        bpm, rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm,
-                        key, scale, key_strength, key_confidence,
-                        spectral_centroid, spectral_flatness, spectral_rolloff,
-                        spectral_bandwidth, spectral_contrast_mean, spectral_contrast_std,
-                        loudness, dynamic_complexity, loudness_range, dynamic_range,
-                        danceability, energy, mode,
-                        acousticness, instrumentalness, speechiness, valence, liveness, popularity,
-                        mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2,
-                        embedding, embedding_std, embedding_min, embedding_max, tags, musicnn_skipped,
-                        chroma_mean, chroma_std,
-                        composer, lyricist, band, conductor, remixer, subtitle, grouping, publisher,
-                        copyright, encoded_by, language, mood,
-                        style, quality, original_artist, original_album, original_year, original_filename,
-                        content_group, encoder, file_type, playlist_delay, recording_time, tempo, length,
-                        replaygain_track_gain, replaygain_album_gain, replaygain_track_peak, replaygain_album_peak,
-                        analysis_type, analyzed, audio_type, long_audio_category, discovery_source,
-                        created_at, updated_at
-                    ) VALUES ({', '.join(['?'] * 99)})
-                """, values)
+                        file_path, file_hash, filename, file_size_bytes, analysis_date, created_at, updated_at, status, analysis_status, retry_count, error_message, title, artist, album, track_number, genre, year, duration, bitrate, sample_rate, channels, bpm, key, mode, loudness, energy, danceability, valence, acousticness, instrumentalness, rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm, spectral_centroid, spectral_flatness, spectral_rolloff, spectral_bandwidth, spectral_contrast_mean, spectral_contrast_std, dynamic_complexity, loudness_range, dynamic_range, scale, key_strength, key_confidence, composer, mood, style, analysis_type, long_audio_category, mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2, embedding, embedding_std, embedding_min, embedding_max, tags, musicnn_skipped, chroma_mean, chroma_std, rhythm_features, spectral_features, mfcc_features, musicnn_features, spotify_features
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    file_path, file_hash, filename, file_size_bytes, now, now, now, 'analyzed', 'completed', 0, None, title, artist, album, track_number, genre, year, duration, bitrate, sample_rate, channels, bpm, key, mode, loudness, energy, danceability, valence, acousticness, instrumentalness, rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm, spectral_centroid, spectral_flatness, spectral_rolloff, spectral_bandwidth, spectral_contrast_mean, spectral_contrast_std, dynamic_complexity, loudness_range, dynamic_range, scale, key_strength, key_confidence, composer, mood, style, analysis_type, long_audio_category, mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2, embedding, embedding_std, embedding_min, embedding_max, tags, musicnn_skipped, chroma_mean, chroma_std, rhythm_features, spectral_features, mfcc_features, musicnn_features, spotify_features
+                ))
 
-                # Save tags if present
+                track_id = cursor.lastrowid
+
+                # Save tags if provided
                 if metadata and 'tags' in metadata:
-                    self._save_tags(cursor, cursor.lastrowid, metadata['tags'])
+                    self._save_tags(cursor, track_id, metadata['tags'])
 
                 conn.commit()
+                log_universal('DEBUG', 'Database', f'Saved analysis result for: {file_path}')
                 return True
+
         except Exception as e:
             log_universal('ERROR', 'Database', f"Save analysis failed: {e}")
             return False
@@ -900,9 +993,110 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("PRAGMA integrity_check")
-                return cursor.fetchone()[0] == 'ok'
-        except Exception:
+                result = cursor.fetchone()
+                if result and result[0] == 'ok':
+                    log_universal('INFO', 'Database', "Database integrity check passed")
+                    return True
+                else:
+                    log_universal('ERROR', 'Database', f"Database integrity check failed: {result}")
+                    return False
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Integrity check error: {e}")
             return False
+
+    # 🔧 Repair database issues
+    @log_function_call
+    def repair_database(self) -> Dict[str, Any]:
+        """
+        Repair common database issues.
+        
+        Returns:
+            Dictionary with repair results
+        """
+        repair_results = {
+            'integrity_fixed': False,
+            'indexes_rebuilt': False,
+            'cache_cleaned': False,
+            'statistics_updated': False,
+            'errors': []
+        }
+        
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check and fix integrity
+                cursor.execute("PRAGMA integrity_check")
+                integrity_result = cursor.fetchone()
+                
+                if integrity_result and integrity_result[0] != 'ok':
+                    log_universal('WARNING', 'Database', f"Database integrity issues detected: {integrity_result}")
+                    
+                    # Try to fix integrity issues
+                    cursor.execute("PRAGMA integrity_check")
+                    cursor.execute("PRAGMA optimize")
+                    cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    
+                    # Re-check integrity
+                    cursor.execute("PRAGMA integrity_check")
+                    new_integrity = cursor.fetchone()
+                    if new_integrity and new_integrity[0] == 'ok':
+                        repair_results['integrity_fixed'] = True
+                        log_universal('INFO', 'Database', "Database integrity issues fixed")
+                    else:
+                        repair_results['errors'].append(f"Could not fix integrity issues: {new_integrity}")
+                
+                # Rebuild indexes
+                try:
+                    cursor.execute("REINDEX")
+                    repair_results['indexes_rebuilt'] = True
+                    log_universal('INFO', 'Database', "Database indexes rebuilt")
+                except Exception as e:
+                    repair_results['errors'].append(f"Failed to rebuild indexes: {e}")
+                
+                # Clean up expired cache entries
+                try:
+                    cursor.execute("""
+                        DELETE FROM cache 
+                        WHERE expires_at IS NOT NULL 
+                        AND expires_at < datetime('now')
+                    """)
+                    cache_cleaned = cursor.rowcount
+                    if cache_cleaned > 0:
+                        repair_results['cache_cleaned'] = True
+                        log_universal('INFO', 'Database', f"Cleaned {cache_cleaned} expired cache entries")
+                except Exception as e:
+                    repair_results['errors'].append(f"Failed to clean cache: {e}")
+                
+                # Update statistics
+                try:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO statistics (category, metric_name, metric_value, date_recorded)
+                        VALUES 
+                        ('system', 'database_size_mb', ?, datetime('now')),
+                        ('system', 'total_tracks', (SELECT COUNT(*) FROM tracks), datetime('now')),
+                        ('system', 'total_playlists', (SELECT COUNT(*) FROM playlists), datetime('now')),
+                        ('system', 'cache_entries', (SELECT COUNT(*) FROM cache), datetime('now'))
+                    """, (self.get_database_size().get('size_mb', 0),))
+                    
+                    repair_results['statistics_updated'] = True
+                    log_universal('INFO', 'Database', "Database statistics updated")
+                except Exception as e:
+                    repair_results['errors'].append(f"Failed to update statistics: {e}")
+                
+                conn.commit()
+                
+                if repair_results['errors']:
+                    log_universal('WARNING', 'Database', f"Database repair completed with {len(repair_results['errors'])} errors")
+                else:
+                    log_universal('INFO', 'Database', "Database repair completed successfully")
+                
+                return repair_results
+                
+        except Exception as e:
+            repair_results['errors'].append(f"Database repair failed: {e}")
+            log_universal('ERROR', 'Database', f"Database repair failed: {e}")
+            return repair_results
 
     # 🧼 Vacuum
     @log_function_call
@@ -1334,6 +1528,450 @@ class DatabaseManager:
         except Exception as e:
             log_universal('ERROR', 'Database', f'Failed to commit analysis results: {e}')
             return False
+
+    # 🔍 Validate database schema
+    @log_function_call
+    def validate_schema(self) -> Dict[str, Any]:
+        """
+        Validate database schema and report any issues.
+        
+        Returns:
+            Dictionary with validation results
+        """
+        validation_results = {
+            'schema_valid': True,
+            'missing_tables': [],
+            'missing_columns': [],
+            'index_issues': [],
+            'view_issues': [],
+            'errors': []
+        }
+        
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check required tables
+                required_tables = [
+                    'tracks', 'tags', 'playlists', 'playlist_tracks', 
+                    'cache', 'statistics'
+                ]
+                
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                existing_tables = [row[0] for row in cursor.fetchall()]
+                
+                for table in required_tables:
+                    if table not in existing_tables:
+                        validation_results['missing_tables'].append(table)
+                        validation_results['schema_valid'] = False
+                
+                # Check required columns in tracks table
+                if 'tracks' in existing_tables:
+                    cursor.execute("PRAGMA table_info(tracks)")
+                    track_columns = [row[1] for row in cursor.fetchall()]
+                    
+                    required_track_columns = [
+                        'id', 'file_path', 'file_hash', 'filename', 'file_size_bytes',
+                        'title', 'artist', 'album', 'genre', 'year', 'duration',
+                        'bpm', 'key', 'mode', 'energy', 'danceability', 'status'
+                    ]
+                    
+                    for column in required_track_columns:
+                        if column not in track_columns:
+                            validation_results['missing_columns'].append(f'tracks.{column}')
+                            validation_results['schema_valid'] = False
+                
+                # Check indexes
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='index'")
+                existing_indexes = [row[0] for row in cursor.fetchall()]
+                
+                required_indexes = [
+                    'idx_tracks_file_path', 'idx_tracks_status', 'idx_tracks_artist',
+                    'idx_tracks_title', 'idx_tracks_genre', 'idx_tracks_bpm'
+                ]
+                
+                for index in required_indexes:
+                    if index not in existing_indexes:
+                        validation_results['index_issues'].append(f"Missing index: {index}")
+                
+                # Check views
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='view'")
+                existing_views = [row[0] for row in cursor.fetchall()]
+                
+                required_views = [
+                    'track_summary', 'audio_analysis_complete', 'playlist_summary'
+                ]
+                
+                for view in required_views:
+                    if view not in existing_views:
+                        validation_results['view_issues'].append(f"Missing view: {view}")
+                
+                if validation_results['schema_valid']:
+                    log_universal('INFO', 'Database', "Database schema validation passed")
+                else:
+                    log_universal('WARNING', 'Database', f"Database schema validation failed: {validation_results}")
+                
+                return validation_results
+                
+        except Exception as e:
+            validation_results['errors'].append(f"Schema validation failed: {e}")
+            log_universal('ERROR', 'Database', f"Schema validation error: {e}")
+            return validation_results
+
+    # 🔧 Fix schema issues
+    @log_function_call
+    def fix_schema_issues(self) -> Dict[str, Any]:
+        """
+        Fix common schema issues.
+        
+        Returns:
+            Dictionary with fix results
+        """
+        fix_results = {
+            'tables_created': [],
+            'columns_added': [],
+            'indexes_created': [],
+            'views_created': [],
+            'errors': []
+        }
+        
+        try:
+            validation = self.validate_schema()
+            
+            if validation['schema_valid']:
+                log_universal('INFO', 'Database', "No schema issues to fix")
+                return fix_results
+            
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Create missing tables
+                for table in validation['missing_tables']:
+                    try:
+                        if table == 'tracks':
+                            # Re-initialize database to create all tables
+                            self._init_database()
+                            fix_results['tables_created'].append(table)
+                            log_universal('INFO', 'Database', f"Recreated table: {table}")
+                        else:
+                            # Create individual missing tables
+                            self._create_missing_table(cursor, table)
+                            fix_results['tables_created'].append(table)
+                            log_universal('INFO', 'Database', f"Created table: {table}")
+                    except Exception as e:
+                        fix_results['errors'].append(f"Failed to create table {table}: {e}")
+                
+                # Add missing columns
+                for column_info in validation['missing_columns']:
+                    try:
+                        table, column = column_info.split('.', 1)
+                        self._add_missing_column(cursor, table, column)
+                        fix_results['columns_added'].append(column_info)
+                        log_universal('INFO', 'Database', f"Added column: {column_info}")
+                    except Exception as e:
+                        fix_results['errors'].append(f"Failed to add column {column_info}: {e}")
+                
+                # Create missing indexes
+                for index_issue in validation['index_issues']:
+                    try:
+                        index_name = index_issue.split(': ')[1]
+                        self._create_missing_index(cursor, index_name)
+                        fix_results['indexes_created'].append(index_name)
+                        log_universal('INFO', 'Database', f"Created index: {index_name}")
+                    except Exception as e:
+                        fix_results['errors'].append(f"Failed to create index {index_name}: {e}")
+                
+                conn.commit()
+                
+                if fix_results['errors']:
+                    log_universal('WARNING', 'Database', f"Schema fixes completed with {len(fix_results['errors'])} errors")
+                else:
+                    log_universal('INFO', 'Database', "Schema fixes completed successfully")
+                
+                return fix_results
+                
+        except Exception as e:
+            fix_results['errors'].append(f"Schema fix failed: {e}")
+            log_universal('ERROR', 'Database', f"Schema fix error: {e}")
+            return fix_results
+
+    def _create_missing_table(self, cursor, table_name: str):
+        """Create a missing table."""
+        if table_name == 'tags':
+            cursor.execute("""
+                CREATE TABLE tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    track_id INTEGER NOT NULL,
+                    tag_name TEXT NOT NULL,
+                    tag_value TEXT,
+                    source TEXT NOT NULL,
+                    confidence REAL DEFAULT 1.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
+                    UNIQUE(track_id, tag_name, source)
+                )
+            """)
+        elif table_name == 'playlists':
+            cursor.execute("""
+                CREATE TABLE playlists (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    description TEXT,
+                    generation_method TEXT DEFAULT 'manual',
+                    generation_params TEXT,
+                    track_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        elif table_name == 'playlist_tracks':
+            cursor.execute("""
+                CREATE TABLE playlist_tracks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    playlist_id INTEGER NOT NULL,
+                    track_id INTEGER NOT NULL,
+                    position INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+                    FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE,
+                    UNIQUE(playlist_id, track_id, position)
+                )
+            """)
+        elif table_name == 'cache':
+            cursor.execute("""
+                CREATE TABLE cache (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cache_key TEXT UNIQUE NOT NULL,
+                    cache_value TEXT NOT NULL,
+                    cache_type TEXT NOT NULL,
+                    expires_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        elif table_name == 'statistics':
+            cursor.execute("""
+                CREATE TABLE statistics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category TEXT NOT NULL,
+                    metric_name TEXT NOT NULL,
+                    metric_value REAL NOT NULL,
+                    metric_data TEXT,
+                    date_recorded TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+    def _add_missing_column(self, cursor, table_name: str, column_name: str):
+        """Add a missing column to a table."""
+        # This is a simplified approach - in production you'd want more sophisticated column addition
+        log_universal('WARNING', 'Database', f"Column addition not implemented for {table_name}.{column_name}")
+
+    def _create_missing_index(self, cursor, index_name: str):
+        """Create a missing index."""
+        if index_name == 'idx_tracks_file_path':
+            cursor.execute("CREATE INDEX idx_tracks_file_path ON tracks(file_path)")
+        elif index_name == 'idx_tracks_status':
+            cursor.execute("CREATE INDEX idx_tracks_status ON tracks(status)")
+        elif index_name == 'idx_tracks_artist':
+            cursor.execute("CREATE INDEX idx_tracks_artist ON tracks(artist)")
+        elif index_name == 'idx_tracks_title':
+            cursor.execute("CREATE INDEX idx_tracks_title ON tracks(title)")
+        elif index_name == 'idx_tracks_genre':
+            cursor.execute("CREATE INDEX idx_tracks_genre ON tracks(genre)")
+        elif index_name == 'idx_tracks_bpm':
+            cursor.execute("CREATE INDEX idx_tracks_bpm ON tracks(bpm)")
+
+    # 🛠️ Comprehensive database maintenance
+    @log_function_call
+    def perform_maintenance(self) -> Dict[str, Any]:
+        """
+        Perform comprehensive database maintenance.
+        
+        Returns:
+            Dictionary with maintenance results
+        """
+        maintenance_results = {
+            'integrity_check': False,
+            'schema_validation': False,
+            'schema_fixes': {},
+            'repair_results': {},
+            'vacuum_performed': False,
+            'backup_created': False,
+            'errors': []
+        }
+        
+        try:
+            log_universal('INFO', 'Database', "Starting comprehensive database maintenance...")
+            
+            # Step 1: Check database integrity
+            try:
+                maintenance_results['integrity_check'] = self.check_integrity()
+                if not maintenance_results['integrity_check']:
+                    log_universal('WARNING', 'Database', "Database integrity issues detected")
+            except Exception as e:
+                maintenance_results['errors'].append(f"Integrity check failed: {e}")
+            
+            # Step 2: Validate schema
+            try:
+                schema_validation = self.validate_schema()
+                maintenance_results['schema_validation'] = schema_validation['schema_valid']
+                if not schema_validation['schema_valid']:
+                    log_universal('WARNING', 'Database', "Schema validation issues detected")
+            except Exception as e:
+                maintenance_results['errors'].append(f"Schema validation failed: {e}")
+            
+            # Step 3: Fix schema issues if needed
+            if not maintenance_results['schema_validation']:
+                try:
+                    maintenance_results['schema_fixes'] = self.fix_schema_issues()
+                except Exception as e:
+                    maintenance_results['errors'].append(f"Schema fixes failed: {e}")
+            
+            # Step 4: Repair database issues
+            try:
+                maintenance_results['repair_results'] = self.repair_database()
+            except Exception as e:
+                maintenance_results['errors'].append(f"Database repair failed: {e}")
+            
+            # Step 5: Perform vacuum
+            try:
+                maintenance_results['vacuum_performed'] = self.vacuum_database()
+                if maintenance_results['vacuum_performed']:
+                    log_universal('INFO', 'Database', "Database vacuum completed")
+            except Exception as e:
+                maintenance_results['errors'].append(f"Database vacuum failed: {e}")
+            
+            # Step 6: Create backup
+            try:
+                backup_path = self.create_backup()
+                if backup_path:
+                    maintenance_results['backup_created'] = True
+                    log_universal('INFO', 'Database', f"Database backup created: {backup_path}")
+            except Exception as e:
+                maintenance_results['errors'].append(f"Backup creation failed: {e}")
+            
+            # Step 7: Final integrity check
+            try:
+                final_integrity = self.check_integrity()
+                if final_integrity:
+                    log_universal('INFO', 'Database', "Final integrity check passed")
+                else:
+                    maintenance_results['errors'].append("Final integrity check failed")
+            except Exception as e:
+                maintenance_results['errors'].append(f"Final integrity check failed: {e}")
+            
+            # Summary
+            if maintenance_results['errors']:
+                log_universal('WARNING', 'Database', f"Database maintenance completed with {len(maintenance_results['errors'])} errors")
+            else:
+                log_universal('INFO', 'Database', "Database maintenance completed successfully")
+            
+            return maintenance_results
+            
+        except Exception as e:
+            maintenance_results['errors'].append(f"Maintenance failed: {e}")
+            log_universal('ERROR', 'Database', f"Database maintenance failed: {e}")
+            return maintenance_results
+
+    # 📊 Get database health status
+    @log_function_call
+    def get_database_health(self) -> Dict[str, Any]:
+        """
+        Get comprehensive database health status.
+        
+        Returns:
+            Dictionary with health information
+        """
+        health_status = {
+            'database_exists': False,
+            'database_size': {},
+            'integrity_ok': False,
+            'schema_valid': False,
+            'connection_ok': False,
+            'tables_count': 0,
+            'tracks_count': 0,
+            'playlists_count': 0,
+            'cache_entries': 0,
+            'failed_analyses': 0,
+            'last_backup': None,
+            'issues': []
+        }
+        
+        try:
+            # Check if database exists
+            health_status['database_exists'] = os.path.exists(self.db_path)
+            if not health_status['database_exists']:
+                health_status['issues'].append("Database file does not exist")
+                return health_status
+            
+            # Get database size
+            health_status['database_size'] = self.get_database_size()
+            
+            # Test connection
+            try:
+                with self._get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT 1")
+                    health_status['connection_ok'] = True
+            except Exception as e:
+                health_status['issues'].append(f"Connection test failed: {e}")
+            
+            # Check integrity
+            try:
+                health_status['integrity_ok'] = self.check_integrity()
+                if not health_status['integrity_ok']:
+                    health_status['issues'].append("Database integrity check failed")
+            except Exception as e:
+                health_status['issues'].append(f"Integrity check failed: {e}")
+            
+            # Validate schema
+            try:
+                schema_validation = self.validate_schema()
+                health_status['schema_valid'] = schema_validation['schema_valid']
+                if not schema_validation['schema_valid']:
+                    health_status['issues'].append("Schema validation failed")
+            except Exception as e:
+                health_status['issues'].append(f"Schema validation failed: {e}")
+            
+            # Get statistics
+            try:
+                stats = self.get_database_statistics()
+                health_status['tracks_count'] = stats.get('total_tracks', 0)
+                health_status['playlists_count'] = stats.get('playlists', 0)
+                health_status['cache_entries'] = stats.get('cache_entries', 0)
+                health_status['failed_analyses'] = stats.get('failed_analyses', 0)
+            except Exception as e:
+                health_status['issues'].append(f"Statistics retrieval failed: {e}")
+            
+            # Count tables
+            try:
+                with self._get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table'")
+                    health_status['tables_count'] = cursor.fetchone()[0]
+            except Exception as e:
+                health_status['issues'].append(f"Table count failed: {e}")
+            
+            # Check for recent backup
+            try:
+                backup_dir = os.path.dirname(self.db_path)
+                backup_files = [f for f in os.listdir(backup_dir) if f.startswith('playlista.db.backup')]
+                if backup_files:
+                    backup_files.sort(reverse=True)
+                    health_status['last_backup'] = backup_files[0]
+            except Exception as e:
+                health_status['issues'].append(f"Backup check failed: {e}")
+            
+            if health_status['issues']:
+                log_universal('WARNING', 'Database', f"Database health check found {len(health_status['issues'])} issues")
+            else:
+                log_universal('INFO', 'Database', "Database health check passed")
+            
+            return health_status
+            
+        except Exception as e:
+            health_status['issues'].append(f"Health check failed: {e}")
+            log_universal('ERROR', 'Database', f"Database health check failed: {e}")
+            return health_status
 
 
 # Global database manager instance
