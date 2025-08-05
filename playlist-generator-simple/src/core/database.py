@@ -1807,26 +1807,90 @@ class DatabaseManager:
                 conductor = metadata.get('conductor') if metadata else None
                 remixer = metadata.get('remixer') if metadata else None
                 
-                # Update existing record or create new one with all required fields including technical metadata, external API data, and mutagen metadata
-                cursor.execute("""
-                    INSERT OR REPLACE INTO tracks 
-                    (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration, 
-                     bitrate, sample_rate, channels, musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id,
-                     discogs_id, spotify_id, release_date, disc_number, duration_ms, play_count, listeners,
-                     rating, popularity, url, image_url, enrichment_sources, encoded_by, language, copyright,
-                     publisher, original_artist, original_album, original_year, original_filename, content_group,
-                     encoder, file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain,
-                     replaygain_album_gain, replaygain_track_peak, replaygain_album_peak, lyricist, band, conductor,
-                     remixer, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration,
-                      bitrate, sample_rate, channels, musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id,
-                      discogs_id, spotify_id, release_date, disc_number, duration_ms, play_count, listeners,
-                      rating, popularity, url, image_url, enrichment_sources, encoded_by, language, copyright,
-                      publisher, original_artist, original_album, original_year, original_filename, content_group,
-                      encoder, file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain,
-                      replaygain_album_gain, replaygain_track_peak, replaygain_album_peak, lyricist, band, conductor,
-                      remixer))
+                # Prepare metadata for dynamic insertion
+                metadata_dict = {
+                    'file_path': file_path,
+                    'file_hash': file_hash,
+                    'filename': filename,
+                    'file_size_bytes': file_size_bytes,
+                    'artist': artist,
+                    'title': title,
+                    'album': album,
+                    'year': year,
+                    'genre': genre,
+                    'duration': duration,
+                    'bitrate': bitrate,
+                    'sample_rate': sample_rate,
+                    'channels': channels,
+                    'musicbrainz_id': musicbrainz_id,
+                    'musicbrainz_artist_id': musicbrainz_artist_id,
+                    'musicbrainz_album_id': musicbrainz_album_id,
+                    'discogs_id': discogs_id,
+                    'spotify_id': spotify_id,
+                    'release_date': release_date,
+                    'disc_number': disc_number,
+                    'duration_ms': duration_ms,
+                    'play_count': play_count,
+                    'listeners': listeners,
+                    'rating': rating,
+                    'popularity': popularity,
+                    'url': url,
+                    'image_url': image_url,
+                    'enrichment_sources': enrichment_sources,
+                    'encoded_by': encoded_by,
+                    'language': language,
+                    'copyright': copyright,
+                    'publisher': publisher,
+                    'original_artist': original_artist,
+                    'original_album': original_album,
+                    'original_year': original_year,
+                    'original_filename': original_filename,
+                    'content_group': content_group,
+                    'encoder': encoder,
+                    'file_type': file_type,
+                    'playlist_delay': playlist_delay,
+                    'recording_time': recording_time,
+                    'tempo': tempo,
+                    'length': length,
+                    'replaygain_track_gain': replaygain_track_gain,
+                    'replaygain_album_gain': replaygain_album_gain,
+                    'replaygain_track_peak': replaygain_track_peak,
+                    'replaygain_album_peak': replaygain_album_peak,
+                    'lyricist': lyricist,
+                    'band': band,
+                    'conductor': conductor,
+                    'remixer': remixer
+                }
+                
+                # Remove None values to avoid inserting NULLs
+                metadata_dict = {k: v for k, v in metadata_dict.items() if v is not None}
+                
+                # Ensure all columns exist
+                available_columns = self._ensure_dynamic_columns(cursor, metadata_dict)
+                
+                # Prepare values dynamically
+                column_names, values = self._prepare_dynamic_values(metadata_dict, available_columns)
+                
+                if column_names:
+                    # Build dynamic INSERT statement
+                    all_columns = ['file_path'] + column_names + ['updated_at']
+                    all_values = [file_path] + values + [datetime.now()]
+                    all_placeholders = ', '.join(['?' for _ in all_values])
+                    all_column_list = ', '.join(all_columns)
+                    
+                    cursor.execute(f"""
+                        INSERT OR REPLACE INTO tracks ({all_column_list})
+                        VALUES ({all_placeholders})
+                    """, all_values)
+                    
+                    log_universal('DEBUG', 'Database', f'Saved metadata with {len(column_names)} dynamic columns')
+                else:
+                    # Fallback to basic insert if no dynamic columns
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO tracks 
+                        (file_path, filename, file_size_bytes, artist, title, updated_at)
+                        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """, (file_path, filename, file_size_bytes, artist, title))
                 
                 conn.commit()
                 return True
