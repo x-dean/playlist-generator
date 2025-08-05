@@ -4776,7 +4776,7 @@ class AudioAnalyzer:
                 features['spectral_flux'] = float(spectral_flux)
                 
                 # Spectral entropy
-                spectral_entropy = librosa.feature.spectral_flatness(y=audio, S=magnitude)
+                spectral_entropy = librosa.feature.spectral_flatness(y=audio)
                 features['spectral_entropy'] = float(np.mean(spectral_entropy))
                 
                 # Spectral crest (peak-to-average ratio)
@@ -4903,7 +4903,7 @@ class AudioAnalyzer:
                 features['timbre_warmth'] = float(timbre_warmth)
                 
                 # Timbre hardness (based on spectral flatness)
-                spectral_flatness = librosa.feature.spectral_flatness(y=audio, sr=sample_rate)
+                spectral_flatness = librosa.feature.spectral_flatness(y=audio)
                 timbre_hardness = np.mean(spectral_flatness)
                 features['timbre_hardness'] = float(timbre_hardness)
                 
