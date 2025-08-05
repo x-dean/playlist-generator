@@ -45,11 +45,15 @@ WORKDIR /app
 COPY src /app/src
 COPY playlista /app/playlista
 COPY entrypoint.sh /app/entrypoint.sh
-COPY database_schema.sql /app/src/database_schema.sql
+COPY database/database_schema.sql /app/database/database_schema.sql
+COPY scripts /app/scripts
 COPY playlista.conf /app/playlista.conf
 
 # Create directories with proper permissions
-RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/music
+RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/music /app/database
+
+# Initialize database during build
+RUN python /app/scripts/init_database.py /app/cache/playlista.db
 
 # Make scripts executable
 RUN chmod +x /app/playlista /app/entrypoint.sh

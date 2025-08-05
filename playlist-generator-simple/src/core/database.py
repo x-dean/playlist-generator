@@ -114,28 +114,25 @@ class DatabaseManager:
                     log_universal('INFO', 'Database', "Schema already initialized.")
                     return
 
-                # Fallback paths to locate schema
-                candidate_paths = [
-                    # Schema paths
-                    os.path.join(os.path.dirname(self.db_path), 'database_schema.sql'),
-                    os.path.join(os.path.dirname(__file__), 'database_schema.sql'),
-                    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'database_schema.sql'),
-                    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'database', 'database_schema.sql'),
-                ]
+                # Schema path (Docker internal only)
+                schema_path = '/app/database/database_schema.sql'
 
                 schema_sql = None
                 schema_path_used = None
-                for path in candidate_paths:
-                    if os.path.exists(path):
-                        try:
-                            with open(path, 'r', encoding='utf-8') as f:
-                                schema_sql = f.read()
-                            schema_path_used = path
-                            log_universal('INFO', 'Database', f"Loaded schema from: {path}")
-                            break
-                        except Exception as e:
-                            log_universal('WARNING', 'Database', f"Failed to read schema from {path}: {e}")
-                            continue
+                
+                if os.path.exists(schema_path):
+                    try:
+                        with open(schema_path, 'r', encoding='utf-8') as f:
+                            schema_sql = f.read()
+                        schema_path_used = schema_path
+                        log_universal('INFO', 'Database', f"Loaded schema from: {schema_path}")
+                    except Exception as e:
+                        log_universal('ERROR', 'Database', f"Failed to read schema from {schema_path}: {e}")
+                        raise
+                else:
+                    error_msg = f"Schema file not found at: {schema_path}"
+                    log_universal('ERROR', 'Database', error_msg)
+                    raise FileNotFoundError(error_msg)
 
                 if schema_sql:
                     try:
@@ -153,7 +150,7 @@ class DatabaseManager:
                         log_universal('ERROR', 'Database', f"Failed to execute schema: {e}")
                         raise
                 else:
-                    error_msg = f"No valid schema file found in paths: {candidate_paths}"
+                    error_msg = f"No valid schema file found in paths: {schema_path}"
                     log_universal('ERROR', 'Database', error_msg)
                     raise FileNotFoundError(error_msg)
 
@@ -1555,7 +1552,7 @@ class DatabaseManager:
                 # Check required tables
                 required_tables = [
                     'tracks', 'tags', 'playlists', 'playlist_tracks', 
-                    'cache', 'statistics'
+                    'cache', 'statistics', 'discovery_cache'
                 ]
                 
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")

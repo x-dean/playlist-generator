@@ -40,34 +40,23 @@ def init_database(db_path: str) -> bool:
             print("Database schema already exists.")
             return True
         
-        # Look for schema files in multiple locations
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        candidate_paths = [
-            # Schema file
-            os.path.join(script_dir, '..', 'database', 'database_schema.sql'),
-            os.path.join(script_dir, '..', 'database_schema.sql'),
-            os.path.join(script_dir, 'database_schema.sql'),
-        ]
+        # Schema path (Docker internal only)
+        schema_path = '/app/database/database_schema.sql'
         
         schema_sql = None
         schema_path = None
         
-        for path in candidate_paths:
-            if os.path.exists(path):
-                try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        schema_sql = f.read()
-                    schema_path = path
-                    print(f"Found schema file: {path}")
-                    break
-                except Exception as e:
-                    print(f"Failed to read schema from {path}: {e}")
-                    continue
-        
-        if not schema_sql:
-            print("No schema file found in any of these locations:")
-            for path in candidate_paths:
-                print(f"  - {path}")
+        if os.path.exists(schema_path):
+            try:
+                with open(schema_path, 'r', encoding='utf-8') as f:
+                    schema_sql = f.read()
+                schema_path = schema_path
+                print(f"Found schema file: {schema_path}")
+            except Exception as e:
+                print(f"Failed to read schema from {schema_path}: {e}")
+                return False
+        else:
+            print(f"Schema file not found at: {schema_path}")
             return False
         
         # Execute schema creation
