@@ -474,6 +474,9 @@ class AudioAnalyzer:
             # Keep the old commit method as fallback
             self.db_manager.commit_analysis_results(file_path, all_features)
             
+            # Cache the analysis result for future use
+            self._cache_analysis_result(file_path, file_hash, result)
+            
             log_universal('INFO', 'Audio', f'Analysis completed: {os.path.basename(file_path)} ({len(audio)} samples, {sample_rate}Hz)')
             return result
             
@@ -483,6 +486,7 @@ class AudioAnalyzer:
     
     def _get_cached_analysis(self, file_path: str, file_hash: str) -> Optional[Dict[str, Any]]:
         """Get cached analysis results if available and valid."""
+        # First check the cache table
         cache_key = self._get_analysis_cache_key(file_path, file_hash)
         cached_result = self.db_manager.get_cache(cache_key)
         
@@ -495,12 +499,26 @@ class AudioAnalyzer:
             else:
                 log_universal('DEBUG', 'Audio', f'Cached analysis invalid for: {os.path.basename(file_path)}')
         
+        # Also check if analysis result exists in main database
+        db_result = self.db_manager.get_analysis_result(file_path)
+        if db_result:
+            # Check if the file hasn't changed (using file size as indicator)
+            current_size = os.path.getsize(file_path)
+            if db_result.get('file_size_bytes') == current_size:
+                log_universal('DEBUG', 'Audio', f'Found existing analysis in database for: {os.path.basename(file_path)}')
+                return db_result
+        
         return None
     
     def _cache_analysis_result(self, file_path: str, file_hash: str, analysis_result: Dict[str, Any]):
         """Cache analysis results."""
+        # Add file information to cache for validation
+        cache_data = analysis_result.copy()
+        cache_data['file_path'] = file_path
+        cache_data['file_hash'] = file_hash
+        
         cache_key = self._get_analysis_cache_key(file_path, file_hash)
-        success = self.db_manager.save_cache(cache_key, analysis_result, expires_hours=self.cache_expiry_hours)
+        success = self.db_manager.save_cache(cache_key, cache_data, expires_hours=self.cache_expiry_hours)
         
         if success:
             log_universal('DEBUG', 'Audio', f'Cached analysis result for: {os.path.basename(file_path)}')
@@ -4785,7 +4803,9 @@ class AudioAnalyzer:
                 
                 # Spectral decrease
                 freqs = librosa.fft_frequencies(sr=sample_rate)
-                spectral_decrease = np.sum(freqs * magnitude) / np.sum(magnitude)
+                # Ensure freqs has the same shape as magnitude for broadcasting
+                freqs_reshaped = freqs.reshape(-1, 1)  # Make it 2D to match magnitude shape
+                spectral_decrease = np.sum(freqs_reshaped * magnitude) / np.sum(magnitude)
                 features['spectral_decrease'] = float(spectral_decrease)
                 
                 # Spectral kurtosis and skewness
