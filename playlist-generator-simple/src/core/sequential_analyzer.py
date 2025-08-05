@@ -557,23 +557,26 @@ if __name__ == "__main__":
             file_size_bytes = os.path.getsize(file_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
             
-            # 3-tier system: >200MB files use sequential with half-track loading
-            if file_size_mb >= 200:  # Large files: Sequential + Half-track
+            # Sequential processing is for files >= 200MB
+            # These files should use multi-segment loading and lightweight features
+            if file_size_mb >= 200:  # Large files: Sequential + Multi-segment
                 analysis_type = 'basic'
                 use_full_analysis = False
-                log_universal('DEBUG', 'Sequential', f'File {file_size_mb:.1f}MB: Sequential + Half-track processing')
-            else:  # Should not reach here (should be handled by parallel)
+                log_universal('DEBUG', 'Sequential', f'File {file_size_mb:.1f}MB: Sequential + Multi-segment processing')
+            else:
+                # This should not happen in sequential analyzer - files should be >= 200MB
+                log_universal('WARNING', 'Sequential', f'File {file_size_mb:.1f}MB: Should be handled by parallel analyzer')
                 analysis_type = 'basic'
                 use_full_analysis = False
-                log_universal('DEBUG', 'Sequential', f'File {file_size_mb:.1f}MB: Basic processing (should be parallel)')
             
-            # Check if this is a long audio track (20+ minutes)
+            # Check if this is a long audio track (45+ minutes)
             from .audio_analyzer import AudioAnalyzer
             temp_analyzer = AudioAnalyzer()
             is_long_audio = temp_analyzer._is_long_audio_track(file_path)
             
-            # Enable MusiCNN for all tracks in sequential processing (half-track loading handles large files)
-            enable_musicnn = True
+            # For sequential processing, enable lightweight categorization
+            # MusicNN is disabled for very large files to save memory
+            enable_musicnn = file_size_mb < 200  # Disable for files >= 200MB
             
             analysis_config = {
                 'analysis_type': analysis_type,
@@ -589,11 +592,14 @@ if __name__ == "__main__":
                 'EXTRACT_ONSET_RATE': True,
                 'EXTRACT_ZCR': True,
                 'EXTRACT_SPECTRAL_CONTRAST': True,
-                'EXTRACT_CHROMA': True
+                'EXTRACT_CHROMA': True,
+                'ENABLE_LIGHTWEIGHT_CATEGORIZATION': True,
+                'SKIP_MUSICNN_FOR_VERY_LARGE_FILES': True
             }
             
             log_universal('DEBUG', 'Sequential', f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
-            log_universal('DEBUG', 'Sequential', f"MusiCNN enabled: {enable_musicnn} (half-track loading for large files)")
+            log_universal('DEBUG', 'Sequential', f"MusiCNN enabled: {enable_musicnn} (disabled for files >= 200MB)")
+            log_universal('DEBUG', 'Sequential', f"Lightweight categorization enabled: {analysis_config['ENABLE_LIGHTWEIGHT_CATEGORIZATION']}")
             
             return analysis_config
             
@@ -608,13 +614,15 @@ if __name__ == "__main__":
                 'EXTRACT_LOUDNESS': True,
                 'EXTRACT_KEY': True,
                 'EXTRACT_MFCC': True,
-                'EXTRACT_MUSICNN': True,  # Enabled since we handle large files with half-track loading
+                'EXTRACT_MUSICNN': False,  # Disabled for sequential processing
                 'EXTRACT_METADATA': True,
                 'EXTRACT_DANCEABILITY': True,
                 'EXTRACT_ONSET_RATE': True,
                 'EXTRACT_ZCR': True,
                 'EXTRACT_SPECTRAL_CONTRAST': True,
-                'EXTRACT_CHROMA': True
+                'EXTRACT_CHROMA': True,
+                'ENABLE_LIGHTWEIGHT_CATEGORIZATION': True,
+                'SKIP_MUSICNN_FOR_VERY_LARGE_FILES': True
             }
 
     def _calculate_file_hash(self, file_path: str) -> str:
@@ -647,11 +655,23 @@ if __name__ == "__main__":
             # Force garbage collection
             gc.collect()
             
+            # Clear TensorFlow/Keras memory if available
+            try:
+                import tensorflow as tf
+                tf.keras.backend.clear_session()
+                log_universal('DEBUG', 'Sequential', 'Cleared TensorFlow session')
+            except ImportError:
+                pass
+            
             # Log memory after cleanup
             import psutil
             memory = psutil.virtual_memory()
             memory_used_gb = memory.used / (1024**3)
             log_universal('DEBUG', 'Sequential', f"Memory cleanup completed: {memory_used_gb:.2f}GB used")
+            
+            # Check if memory usage is too high
+            if memory_used_gb > self.rss_limit_gb:
+                log_universal('WARNING', 'Sequential', f'Memory usage high: {memory_used_gb:.2f}GB (limit: {self.rss_limit_gb:.1f}GB)')
             
         except Exception as e:
             log_universal('ERROR', 'Sequential', f"Error during memory cleanup: {e}")

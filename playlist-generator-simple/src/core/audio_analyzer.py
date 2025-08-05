@@ -390,16 +390,25 @@ class AudioAnalyzer:
                 log_universal('INFO', 'Audio', f'Step 5: Skipping MusicNN for very large file ({file_size_mb:.1f}MB) - using lightweight categorization only')
                 musicnn_features = {}
                 
-                # Create lightweight category for very large files
+                                # Create comprehensive category for very large files
                 if advanced_features and enable_lightweight_categorization:
-                    lightweight_category = self._create_lightweight_category(advanced_features, metadata)
-                    if lightweight_category:
-                        log_universal('INFO', 'Audio', f'Created lightweight category for very large file: {lightweight_category}')
-                        # Store category in metadata
-                        metadata['lightweight_category'] = lightweight_category
+                    # Add file_path to metadata for comprehensive analysis
+                    metadata_with_path = metadata.copy()
+                    metadata_with_path['file_path'] = file_path
+                    
+                    comprehensive_category = self._create_lightweight_category(advanced_features, metadata_with_path)
+                    if comprehensive_category:
+                        log_universal('INFO', 'Audio', f'Created comprehensive category for very large file: {comprehensive_category}')
+                        # Store category in metadata and database
+                        metadata['lightweight_category'] = comprehensive_category
+                        metadata['long_audio_category'] = comprehensive_category
+                        # Save to database
+                        self.db_manager.save_metadata(file_path, metadata)
                         # Log category details
-                        log_universal('INFO', 'Audio', f'Lightweight category assigned: {lightweight_category}')
-                        log_universal('INFO', 'Audio', f'Category based on: {advanced_features.get("danceability", 0):.2f} danceability, {advanced_features.get("dynamic_complexity", 0):.2f} complexity')
+                        log_universal('INFO', 'Audio', f'Comprehensive category assigned: {comprehensive_category}')
+                        log_universal('INFO', 'Audio', f'Category based on comprehensive metadata analysis')
+                    else:
+                        log_universal('WARNING', 'Audio', f'Could not create comprehensive category - missing advanced features or categorization disabled')
             else:
                 log_universal('INFO', 'Audio', f'Step 5: Extracting MusicNN features for {os.path.basename(file_path)}')
                 musicnn_features = self._extract_musicnn_features(audio, sample_rate, file_path)
@@ -514,14 +523,22 @@ class AudioAnalyzer:
                     mapped_metadata = tag_mapper.map_tags(tags_dict)
                     metadata.update(mapped_metadata)
                     
+                    # Log successful extraction
+                    if metadata.get('artist') and metadata.get('title'):
+                        log_universal('INFO', 'Audio', f'Successfully extracted metadata: {metadata.get("artist")} - {metadata.get("title")}')
+                    elif metadata.get('artist') or metadata.get('title'):
+                        log_universal('INFO', 'Audio', f'Partially extracted metadata: artist={metadata.get("artist", "Unknown")}, title={metadata.get("title", "Unknown")}')
+                    else:
+                        log_universal('WARNING', 'Audio', f'No artist/title found in mapped metadata')
+                    
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Tag mapping failed: {e}')
-                    # Fallback to basic extraction
-                    metadata = self._extract_basic_metadata(audio_file)
+                    # Fallback to basic extraction with manual mapping
+                    metadata = self._extract_basic_metadata_with_mapping(audio_file)
             
             # Extract basic metadata if no tags
             if not metadata:
-                metadata = self._extract_basic_metadata(audio_file)
+                metadata = self._extract_basic_metadata_with_mapping(audio_file)
             
             return metadata
             
@@ -706,6 +723,102 @@ class AudioAnalyzer:
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Basic metadata extraction failed: {e}')
+        
+        return metadata
+
+    def _extract_basic_metadata_with_mapping(self, audio_file) -> Dict[str, Any]:
+        """
+        Extract basic metadata from audio file with manual tag mapping.
+        
+        Args:
+            audio_file: Mutagen audio file object
+            
+        Returns:
+            Basic metadata dictionary with mapped fields
+        """
+        metadata = {}
+        
+        try:
+            # Extract basic info
+            if hasattr(audio_file, 'info'):
+                info = audio_file.info
+                if hasattr(info, 'length'):
+                    metadata['duration'] = info.length
+                if hasattr(info, 'bitrate'):
+                    metadata['bitrate'] = info.bitrate
+                if hasattr(info, 'sample_rate'):
+                    metadata['sample_rate'] = info.sample_rate
+            
+            # Extract and map tags if available
+            if hasattr(audio_file, 'tags') and audio_file.tags:
+                raw_tags = {}
+                
+                # Collect all raw tags first
+                for tag_type in audio_file.tags:
+                    if tag_type in audio_file.tags:
+                        tags = audio_file.tags[tag_type]
+                        # Handle different tag formats
+                        if hasattr(tags, 'items'):
+                            # Dictionary-like tags
+                            for key, value in tags.items():
+                                if isinstance(value, list):
+                                    value = value[0] if value else ''
+                                raw_tags[key] = str(value)
+                        elif isinstance(tags, list):
+                            # List-like tags
+                            for i, value in enumerate(tags):
+                                if isinstance(value, list):
+                                    value = value[0] if value else ''
+                                raw_tags[f'tag_{i}'] = str(value)
+                        else:
+                            # Single value or other format
+                            raw_tags[str(tag_type)] = str(tags)
+                
+                # Manual mapping of common tag formats
+                # Title mappings
+                for title_key in ['TIT2', 'TITLE', 'title', 'Title', 'TIT1', 'TIT3']:
+                    if title_key in raw_tags and raw_tags[title_key]:
+                        metadata['title'] = raw_tags[title_key]
+                        break
+                
+                # Artist mappings
+                for artist_key in ['TPE1', 'ARTIST', 'artist', 'Artist', 'TPE2', 'ALBUMARTIST']:
+                    if artist_key in raw_tags and raw_tags[artist_key]:
+                        metadata['artist'] = raw_tags[artist_key]
+                        break
+                
+                # Album mappings
+                for album_key in ['TALB', 'ALBUM', 'album', 'Album']:
+                    if album_key in raw_tags and raw_tags[album_key]:
+                        metadata['album'] = raw_tags[album_key]
+                        break
+                
+                # Year mappings
+                for year_key in ['TDRC', 'TYER', 'YEAR', 'year', 'Year']:
+                    if year_key in raw_tags and raw_tags[year_key]:
+                        metadata['year'] = raw_tags[year_key]
+                        break
+                
+                # Genre mappings
+                for genre_key in ['TCON', 'GENRE', 'genre', 'Genre']:
+                    if genre_key in raw_tags and raw_tags[genre_key]:
+                        metadata['genre'] = raw_tags[genre_key]
+                        break
+                
+                # Track number mappings
+                for track_key in ['TRCK', 'TRACK', 'track_number', 'Track']:
+                    if track_key in raw_tags and raw_tags[track_key]:
+                        metadata['track_number'] = raw_tags[track_key]
+                        break
+                
+                # Log what was found
+                if metadata.get('artist') or metadata.get('title'):
+                    log_universal('INFO', 'Audio', f'Manual mapping found: artist={metadata.get("artist", "Unknown")}, title={metadata.get("title", "Unknown")}')
+                else:
+                    log_universal('WARNING', 'Audio', f'No artist/title found in manual mapping')
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Basic metadata extraction with mapping failed: {e}')
         
         return metadata
     
@@ -1145,7 +1258,7 @@ class AudioAnalyzer:
                     audio = np.mean(audio, axis=1)
                 
                 # Use 3-tier system for MFCC extraction instead of hardcoded 60s limit
-                # Files < 100MB: Full processing, Files 100-200MB: Half-track, Files > 200MB: Half-track
+                # Files < 100MB: Full processing, Files 100-200MB: Multi-segment, Files > 200MB: Multi-segment
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
                 
                 if file_size_mb is not None:
@@ -1156,7 +1269,7 @@ class AudioAnalyzer:
                         audio = audio[start_sample:end_sample]
                         log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB) - using 10% sample for MFCC extraction')
                     elif file_size_mb > half_track_threshold_mb:
-                        # Use half-track loading for large files (middle 50%)
+                        # Use multi-segment loading for large files (3x30s from start, middle, end)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
@@ -1173,7 +1286,7 @@ class AudioAnalyzer:
                         audio = audio[start_sample:end_sample]
                         log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB from DB) - using 10% sample for MFCC extraction')
                     elif file_size_mb > half_track_threshold_mb:
-                        # Use half-track loading for large files (middle 50%)
+                        # Use multi-segment loading for large files (3x30s from start, middle, end)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
@@ -1253,9 +1366,9 @@ class AudioAnalyzer:
                 file_size_mb = audio_size_bytes / (1024 * 1024)
             
             half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 25)  # Align with main analysis threshold
-            log_universal('DEBUG', 'Audio', f'MusicNN half-track threshold: {half_track_threshold_mb}MB, file size: {file_size_mb:.1f}MB')
+            log_universal('DEBUG', 'Audio', f'MusicNN multi-segment threshold: {half_track_threshold_mb}MB, file size: {file_size_mb:.1f}MB')
             
-            # Use half-track for files larger than threshold, but only if MusicNN is suitable
+            # Use multi-segment for files larger than threshold, but only if MusicNN is suitable
             use_half_track = file_size_mb > half_track_threshold_mb and model_manager.is_file_suitable_for_musicnn(len(audio) * 4)
             log_universal('DEBUG', 'Audio', f'MusicNN decision: file_size_mb({file_size_mb:.1f}) > threshold({half_track_threshold_mb}) = {file_size_mb > half_track_threshold_mb}, suitable = {model_manager.is_file_suitable_for_musicnn(len(audio) * 4)}, use_half_track = {use_half_track}')
             
@@ -1265,7 +1378,7 @@ class AudioAnalyzer:
                 start_sample = len(audio) // 4
                 end_sample = 3 * len(audio) // 4
                 audio = audio[start_sample:end_sample]
-                log_universal('INFO', 'Audio', f'Half-track loaded: {len(audio)} samples for MusiCNN analysis')
+                log_universal('INFO', 'Audio', f'Multi-segment loaded: {len(audio)} samples for MusiCNN analysis')
             else:
                 log_universal('DEBUG', 'Audio', f'Using full track for MusiCNN analysis ({file_size_mb:.1f}MB, {len(audio)} samples)')
             
@@ -3278,41 +3391,39 @@ class AudioAnalyzer:
 
     def _create_lightweight_category(self, features: Dict[str, Any], metadata: Dict[str, Any]) -> Optional[str]:
         """
-        Create a lightweight category for very large files based on basic features.
+        Create a comprehensive category using ALL available metadata sources.
+        
+        Uses:
+        - Mutagen metadata (artist, title, genre, album, etc.)
+        - External API enrichment (MusicBrainz, Last.fm, etc.)
+        - Audio analysis features (BPM, danceability, etc.)
+        - Database stored metadata
+        - File path and directory structure
         
         Args:
             features: Advanced categorization features
-            metadata: File metadata
+            metadata: Complete metadata dictionary
             
         Returns:
             Category string or None
         """
         try:
-            # Extract key features for categorization
-            danceability = features.get('danceability', 0.0)
-            dynamic_complexity = features.get('dynamic_complexity', 0.0)
-            silence_rate = features.get('silence_rate', 0.0)
-            zero_crossing_rate = features.get('zero_crossing_rate', 0.0)
-            harmonic_peaks_count = features.get('harmonic_peaks_count', 0)
+            # Get file path from metadata if available
+            file_path = metadata.get('file_path', '')
             
-            # Get metadata hints
-            artist = metadata.get('artist', '').lower()
-            title = metadata.get('title', '').lower()
-            genre = metadata.get('genre', '').lower()
+            # Use comprehensive categorization that utilizes all metadata sources
+            category = self._create_comprehensive_category(file_path, metadata, features)
             
-            # Smart categorization with genre detection
-            category = self._smart_categorize_with_genre(artist, title, genre, features)
-            
-            log_universal('DEBUG', 'Audio', f'Lightweight category created: {category} (danceability: {danceability:.2f}, complexity: {dynamic_complexity:.2f})')
+            log_universal('DEBUG', 'Audio', f'Comprehensive category created: {category}')
             return category
             
         except Exception as e:
-            log_universal('WARNING', 'Audio', f'Failed to create lightweight category: {e}')
-            return None
+            log_universal('WARNING', 'Audio', f'Failed to create comprehensive category: {e}')
+            return 'Unknown'
 
-    def _smart_categorize_with_genre(self, artist: str, title: str, genre: str, features: Dict[str, Any]) -> str:
+    def _simplified_categorization(self, artist: str, title: str, genre: str, features: Dict[str, Any]) -> str:
         """
-        Smart categorization that combines metadata analysis with audio features.
+        Simplified categorization that prioritizes reliability over complexity.
         
         Args:
             artist: Artist name (lowercase)
@@ -3328,38 +3439,30 @@ class AudioAnalyzer:
         dynamic_complexity = features.get('dynamic_complexity', 0.0)
         silence_rate = features.get('silence_rate', 0.0)
         
-        # Step 1: Detect if this is a radio show, podcast, or mix
-        is_radio_show = self._is_radio_show(artist, title)
-        is_podcast = self._is_podcast(artist, title)
-        is_mix = self._is_mix(artist, title)
+        # Step 1: Check for obvious content types first
+        if self._is_radio_show(artist, title):
+            return 'Radio/General'
+        elif self._is_podcast(artist, title):
+            return 'Podcast/General'
+        elif self._is_mix(artist, title):
+            return 'Mix/General'
         
-        # Step 2: Detect the music genre/content type
-        music_genre = self._detect_music_genre(artist, title, genre, features)
+        # Step 2: Use genre detection from metadata and audio features
+        detected_genre = self._detect_music_genre(artist, title, genre, features)
+        if detected_genre:
+            return detected_genre
         
-        # Step 3: Combine radio/podcast/mix with music genre
-        if is_radio_show:
-            if music_genre:
-                category = f"Radio/{music_genre}"
-            else:
-                category = "Radio/General"
-        elif is_podcast:
-            if music_genre:
-                category = f"Podcast/{music_genre}"
-            else:
-                category = "Podcast/General"
-        elif is_mix:
-            if music_genre:
-                category = f"Mix/{music_genre}"
-            else:
-                category = "Mix/General"
+        # Step 3: Fallback to audio features only
+        if danceability > 0.7:
+            return 'Electronic/Dance'
+        elif danceability < 0.3:
+            return 'Ambient/Chill'
+        elif dynamic_complexity > 0.8:
+            return 'Rock/Metal'
+        elif silence_rate > 0.5:
+            return 'Speech/Spoken'
         else:
-            # Regular music file
-            category = music_genre if music_genre else self._fallback_category(features)
-        
-        # Log the categorization process
-        log_universal('DEBUG', 'Audio', f'Smart categorization: Radio={is_radio_show}, Podcast={is_podcast}, Mix={is_mix}, Genre={music_genre}, Final={category}')
-        
-        return category
+            return 'Pop/Indie'  # Default for modern music
 
     def _is_radio_show(self, artist: str, title: str) -> bool:
         """Detect if this is a radio show."""
@@ -3418,12 +3521,12 @@ class AudioAnalyzer:
         
         # Electronic/Dance genres (high priority)
         electronic_keywords = {
-            'trance': ['trance', 'asot', 'state of trance'],
-            'techno': ['techno', 'tech house', 'minimal'],
-            'house': ['house', 'deep house', 'progressive house'],
-            'drum_bass': ['drum', 'bass', 'dnb', 'jungle'],
-            'dubstep': ['dubstep', 'bass', 'wobble'],
-            'electronic': ['electronic', 'edm', 'synth', 'electro']
+            'trance': ['trance', 'asot', 'state of trance', 'armin', 'tiesto', 'paul van dyk'],
+            'techno': ['techno', 'tech house', 'minimal', 'berlin techno', 'detroit techno'],
+            'house': ['house', 'deep house', 'progressive house', 'acid house', 'chicago house'],
+            'drum_bass': ['drum', 'bass', 'dnb', 'jungle', 'drum and bass'],
+            'dubstep': ['dubstep', 'bass', 'wobble', 'uk dubstep'],
+            'electronic': ['electronic', 'edm', 'synth', 'electro', 'ambient', 'idm']
         }
         
         # Check for electronic genres first
@@ -3481,6 +3584,17 @@ class AudioAnalyzer:
                 return 'Pop/Indie'
         
         # Use audio features to determine genre if no metadata clues
+        # Check BPM for electronic music detection
+        bpm = features.get('bpm', 0.0)
+        if bpm > 0:
+            # Trance: 125-150 BPM, Techno: 120-140 BPM, House: 115-130 BPM
+            if 115 <= bpm <= 150 and danceability > 0.6:
+                return 'Electronic/Dance'
+            # Drum & Bass: 160-180 BPM
+            elif 160 <= bpm <= 180:
+                return 'Electronic/Dance'
+        
+        # Fallback to danceability
         if danceability > 0.7:
             return 'Electronic/Dance'
         elif danceability < 0.3:
@@ -3678,6 +3792,623 @@ class AudioAnalyzer:
             })
         
         return features
+
+    def _create_comprehensive_category(self, file_path: str, metadata: Dict[str, Any], features: Dict[str, Any]) -> Optional[str]:
+        """
+        Create a comprehensive category using ALL available metadata sources and multiple classifiers.
+        
+        Uses multiple classification methods:
+        1. Content Type Detection (Radio/Podcast/Mix)
+        2. Comprehensive Genre Detection (all metadata fields)
+        3. Audio Feature Classification (BPM, danceability, etc.)
+        4. MusicNN Tag Classification (if available)
+        5. External API Classification (Last.fm, MusicBrainz tags)
+        6. File Path Analysis
+        7. Duration-based Classification
+        8. Energy-based Classification
+        
+        Args:
+            file_path: Path to the audio file
+            metadata: Complete metadata dictionary
+            features: Audio analysis features
+            
+        Returns:
+            Category string or None
+        """
+        try:
+            log_universal('DEBUG', 'Audio', f'Creating comprehensive category for {os.path.basename(file_path)}')
+            
+            # Collect ALL classification results
+            classifications = []
+            
+            # Classifier 1: Content Type Detection
+            content_type = self._detect_content_type(file_path, metadata)
+            if content_type:
+                classifications.append(('content_type', content_type))
+                log_universal('DEBUG', 'Audio', f'Content type classifier: {content_type}')
+            
+            # Classifier 2: Comprehensive Genre Detection
+            genre_category = self._detect_comprehensive_genre(file_path, metadata, features)
+            if genre_category:
+                classifications.append(('genre', genre_category))
+                log_universal('DEBUG', 'Audio', f'Genre classifier: {genre_category}')
+            
+            # Classifier 3: Audio Feature Classification
+            audio_category = self._classify_by_audio_features(features)
+            if audio_category:
+                classifications.append(('audio_features', audio_category))
+                log_universal('DEBUG', 'Audio', f'Audio features classifier: {audio_category}')
+            
+            # Classifier 4: MusicNN Tag Classification
+            musicnn_category = self._classify_by_musicnn_tags(metadata, features)
+            if musicnn_category:
+                classifications.append(('musicnn', musicnn_category))
+                log_universal('DEBUG', 'Audio', f'MusicNN classifier: {musicnn_category}')
+            
+            # Classifier 5: External API Classification
+            external_category = self._classify_by_external_apis(metadata)
+            if external_category:
+                classifications.append(('external_api', external_category))
+                log_universal('DEBUG', 'Audio', f'External API classifier: {external_category}')
+            
+            # Classifier 6: File Path Analysis
+            path_category = self._classify_by_file_path(file_path)
+            if path_category:
+                classifications.append(('file_path', path_category))
+                log_universal('DEBUG', 'Audio', f'File path classifier: {path_category}')
+            
+            # Classifier 7: Duration-based Classification
+            duration_category = self._classify_by_duration(metadata, features)
+            if duration_category:
+                classifications.append(('duration', duration_category))
+                log_universal('DEBUG', 'Audio', f'Duration classifier: {duration_category}')
+            
+            # Classifier 8: Energy-based Classification
+            energy_category = self._classify_by_energy(features)
+            if energy_category:
+                classifications.append(('energy', energy_category))
+                log_universal('DEBUG', 'Audio', f'Energy classifier: {energy_category}')
+            
+            # Use voting system to determine final category
+            final_category = self._voting_classification(classifications)
+            log_universal('DEBUG', 'Audio', f'Final category from {len(classifications)} classifiers: {final_category}')
+            
+            return final_category
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to create comprehensive category: {e}')
+            return 'Unknown'
+
+    def _detect_content_type(self, file_path: str, metadata: Dict[str, Any]) -> Optional[str]:
+        """
+        Detect content type (radio, podcast, mix) using multiple metadata sources.
+        
+        Args:
+            file_path: Path to the audio file
+            metadata: Complete metadata dictionary
+            
+        Returns:
+            Content type string or None
+        """
+        # Extract all possible text fields
+        artist = metadata.get('artist', '').lower()
+        title = metadata.get('title', '').lower()
+        album = metadata.get('album', '').lower()
+        genre = metadata.get('genre', '').lower()
+        composer = metadata.get('composer', '').lower()
+        lyricist = metadata.get('lyricist', '').lower()
+        band = metadata.get('band', '').lower()
+        conductor = metadata.get('conductor', '').lower()
+        remixer = metadata.get('remixer', '').lower()
+        subtitle = metadata.get('subtitle', '').lower()
+        grouping = metadata.get('grouping', '').lower()
+        publisher = metadata.get('publisher', '').lower()
+        copyright = metadata.get('copyright', '').lower()
+        encoded_by = metadata.get('encoded_by', '').lower()
+        language = metadata.get('language', '').lower()
+        mood = metadata.get('mood', '').lower()
+        style = metadata.get('style', '').lower()
+        quality = metadata.get('quality', '').lower()
+        original_artist = metadata.get('original_artist', '').lower()
+        original_album = metadata.get('original_album', '').lower()
+        content_group = metadata.get('content_group', '').lower()
+        encoder = metadata.get('encoder', '').lower()
+        playlist_delay = metadata.get('playlist_delay', '').lower()
+        recording_time = metadata.get('recording_time', '').lower()
+        tempo = metadata.get('tempo', '').lower()
+        length = metadata.get('length', '').lower()
+        
+        # Combine all text fields for comprehensive analysis
+        all_text = f"{artist} {title} {album} {genre} {composer} {lyricist} {band} {conductor} {remixer} {subtitle} {grouping} {publisher} {copyright} {encoded_by} {language} {mood} {style} {quality} {original_artist} {original_album} {content_group} {encoder} {playlist_delay} {recording_time} {tempo} {length}"
+        
+        # Check for radio show indicators
+        radio_indicators = [
+            'radio', 'fm', 'am', 'broadcast', 'station', 'dj', 'disc jockey',
+            'state of trance', 'asot', 'essential mix', 'bbc radio',
+            'radio 1', 'radio 2', 'kiss fm', 'capital fm', 'episode',
+            'live', 'broadcast', 'show', 'program', 'session'
+        ]
+        
+        for indicator in radio_indicators:
+            if indicator in all_text:
+                return 'Radio/General'
+        
+        # Check for podcast indicators
+        podcast_indicators = [
+            'podcast', 'episode', 'show', 'series', 'season',
+            'interview', 'talk', 'speech', 'discussion', 'conversation',
+            'podcast', 'episode', 'show', 'series', 'season'
+        ]
+        
+        for indicator in podcast_indicators:
+            if indicator in all_text:
+                return 'Podcast/General'
+        
+        # Check for mix indicators
+        mix_indicators = [
+            'mix', 'compilation', 'various', 'various artists',
+            'best of', 'greatest hits', 'collection', 'mix',
+            'compilation', 'various', 'various artists'
+        ]
+        
+        for indicator in mix_indicators:
+            if indicator in all_text:
+                return 'Mix/General'
+        
+        return None
+
+    def _detect_comprehensive_genre(self, file_path: str, metadata: Dict[str, Any], features: Dict[str, Any]) -> Optional[str]:
+        """
+        Detect genre using comprehensive metadata analysis.
+        
+        Args:
+            file_path: Path to the audio file
+            metadata: Complete metadata dictionary
+            features: Audio analysis features
+            
+        Returns:
+            Genre category string or None
+        """
+        # Extract all metadata fields
+        artist = metadata.get('artist', '').lower()
+        title = metadata.get('title', '').lower()
+        album = metadata.get('album', '').lower()
+        genre = metadata.get('genre', '').lower()
+        composer = metadata.get('composer', '').lower()
+        lyricist = metadata.get('lyricist', '').lower()
+        band = metadata.get('band', '').lower()
+        conductor = metadata.get('conductor', '').lower()
+        remixer = metadata.get('remixer', '').lower()
+        subtitle = metadata.get('subtitle', '').lower()
+        grouping = metadata.get('grouping', '').lower()
+        publisher = metadata.get('publisher', '').lower()
+        copyright = metadata.get('copyright', '').lower()
+        encoded_by = metadata.get('encoded_by', '').lower()
+        language = metadata.get('language', '').lower()
+        mood = metadata.get('mood', '').lower()
+        style = metadata.get('style', '').lower()
+        quality = metadata.get('quality', '').lower()
+        original_artist = metadata.get('original_artist', '').lower()
+        original_album = metadata.get('original_album', '').lower()
+        content_group = metadata.get('content_group', '').lower()
+        encoder = metadata.get('encoder', '').lower()
+        playlist_delay = metadata.get('playlist_delay', '').lower()
+        recording_time = metadata.get('recording_time', '').lower()
+        tempo = metadata.get('tempo', '').lower()
+        length = metadata.get('length', '').lower()
+        
+        # Combine all text fields
+        all_text = f"{artist} {title} {album} {genre} {composer} {lyricist} {band} {conductor} {remixer} {subtitle} {grouping} {publisher} {copyright} {encoded_by} {language} {mood} {style} {quality} {original_artist} {original_album} {content_group} {encoder} {playlist_delay} {recording_time} {tempo} {length}"
+        
+        # Electronic/Dance genres (high priority)
+        electronic_keywords = {
+            'trance': ['trance', 'asot', 'state of trance', 'armin', 'tiesto', 'paul van dyk', 'trance'],
+            'techno': ['techno', 'tech house', 'minimal', 'berlin techno', 'detroit techno', 'techno'],
+            'house': ['house', 'deep house', 'progressive house', 'acid house', 'chicago house', 'house'],
+            'drum_bass': ['drum', 'bass', 'dnb', 'jungle', 'drum and bass', 'drum & bass'],
+            'dubstep': ['dubstep', 'bass', 'wobble', 'uk dubstep', 'dubstep'],
+            'electronic': ['electronic', 'edm', 'synth', 'electro', 'ambient', 'idm', 'electronic']
+        }
+        
+        # Check for electronic genres first
+        for genre_name, keywords in electronic_keywords.items():
+            for keyword in keywords:
+                if keyword in all_text:
+                    return 'Electronic/Dance'
+        
+        # Rock/Metal genres
+        rock_keywords = ['rock', 'metal', 'punk', 'grunge', 'hardcore', 'alternative', 'rock', 'metal']
+        for keyword in rock_keywords:
+            if keyword in all_text:
+                return 'Rock/Metal'
+        
+        # Hip-Hop/Rap genres
+        hiphop_keywords = ['hip', 'rap', 'urban', 'trap', 'r&b', 'soul', 'hip-hop', 'hip hop']
+        for keyword in hiphop_keywords:
+            if keyword in all_text:
+                return 'Hip-Hop/Rap'
+        
+        # Jazz/Blues genres
+        jazz_keywords = ['jazz', 'blues', 'smooth', 'fusion', 'bebop', 'jazz', 'blues']
+        for keyword in jazz_keywords:
+            if keyword in all_text:
+                return 'Jazz/Blues'
+        
+        # Classical/Orchestral
+        classical_keywords = ['classical', 'orchestra', 'symphony', 'concerto', 'sonata', 'classical']
+        for keyword in classical_keywords:
+            if keyword in all_text:
+                return 'Classical/Orchestral'
+        
+        # Country/Folk
+        country_keywords = ['country', 'folk', 'acoustic', 'bluegrass', 'americana', 'country', 'folk']
+        for keyword in country_keywords:
+            if keyword in all_text:
+                return 'Country/Folk'
+        
+        # World/Latin
+        world_keywords = ['reggae', 'latin', 'world', 'african', 'caribbean', 'reggae', 'latin']
+        for keyword in world_keywords:
+            if keyword in all_text:
+                return 'World/Latin'
+        
+        # Ambient/Chill
+        ambient_keywords = ['ambient', 'chill', 'relax', 'lounge', 'downtempo', 'ambient']
+        for keyword in ambient_keywords:
+            if keyword in all_text:
+                return 'Ambient/Chill'
+        
+        # Pop/Indie (catch-all for modern music)
+        pop_keywords = ['pop', 'indie', 'alternative', 'indie pop', 'indie rock', 'pop']
+        for keyword in pop_keywords:
+            if keyword in all_text:
+                return 'Pop/Indie'
+        
+        # Use audio features to determine genre if no metadata clues
+        bpm = features.get('bpm', 0.0)
+        danceability = features.get('danceability', 0.0)
+        
+        # Check BPM for electronic music detection
+        if bpm > 0:
+            # Trance: 125-150 BPM, Techno: 120-140 BPM, House: 115-130 BPM
+            if 115 <= bpm <= 150 and danceability > 0.6:
+                return 'Electronic/Dance'
+            # Drum & Bass: 160-180 BPM
+            elif 160 <= bpm <= 180:
+                return 'Electronic/Dance'
+        
+        # Fallback to danceability
+        if danceability > 0.7:
+            return 'Electronic/Dance'
+        elif danceability < 0.3:
+            return 'Ambient/Chill'
+        else:
+            return 'Pop/Indie'  # Default for modern music
+
+    def _fallback_audio_features(self, features: Dict[str, Any]) -> str:
+        """Fallback categorization based on audio features only."""
+        danceability = features.get('danceability', 0.0)
+        dynamic_complexity = features.get('dynamic_complexity', 0.0)
+        silence_rate = features.get('silence_rate', 0.0)
+        zero_crossing_rate = features.get('zero_crossing_rate', 0.0)
+        harmonic_peaks_count = features.get('harmonic_peaks_count', 0)
+        
+        if danceability > 0.7:
+            return 'High Energy/Dance'
+        elif danceability < 0.3:
+            return 'Low Energy/Ambient'
+        elif dynamic_complexity > 0.8:
+            return 'Dynamic/Complex'
+        elif silence_rate > 0.5:
+            return 'Speech/Spoken'
+        elif zero_crossing_rate > 0.1:
+            return 'Noisy/Experimental'
+        elif harmonic_peaks_count > 100:
+            return 'Harmonic/Rich'
+        else:
+            return 'Mixed/General'
+
+    def _classify_by_audio_features(self, features: Dict[str, Any]) -> Optional[str]:
+        """Classify based on audio features like BPM, danceability, energy, etc."""
+        try:
+            bpm = features.get('bpm', 0.0)
+            danceability = features.get('danceability', 0.0)
+            energy = features.get('energy', 0.0)
+            valence = features.get('valence', 0.0)
+            acousticness = features.get('acousticness', 0.0)
+            instrumentalness = features.get('instrumentalness', 0.0)
+            speechiness = features.get('speechiness', 0.0)
+            dynamic_complexity = features.get('dynamic_complexity', 0.0)
+            silence_rate = features.get('silence_rate', 0.0)
+            
+            # High energy electronic music
+            if energy > 0.8 and danceability > 0.7:
+                return 'High Energy/Electronic'
+            
+            # Trance/Progressive (125-150 BPM, high danceability)
+            if 125 <= bpm <= 150 and danceability > 0.6:
+                return 'Electronic/Dance'
+            
+            # Techno (120-140 BPM)
+            if 120 <= bpm <= 140 and energy > 0.7:
+                return 'Electronic/Dance'
+            
+            # Drum & Bass (160-180 BPM)
+            if 160 <= bpm <= 180:
+                return 'Electronic/Dance'
+            
+            # House (115-130 BPM)
+            if 115 <= bpm <= 130 and danceability > 0.6:
+                return 'Electronic/Dance'
+            
+            # Ambient/Chill (low energy, low danceability)
+            if energy < 0.3 and danceability < 0.3:
+                return 'Ambient/Chill'
+            
+            # Rock/Metal (high energy, low danceability)
+            if energy > 0.7 and danceability < 0.4:
+                return 'Rock/Metal'
+            
+            # Pop/Indie (balanced features)
+            if 0.4 <= danceability <= 0.7 and 0.4 <= energy <= 0.7:
+                return 'Pop/Indie'
+            
+            # Speech/Spoken content
+            if speechiness > 0.5:
+                return 'Speech/Spoken'
+            
+            # Instrumental music
+            if instrumentalness > 0.8:
+                return 'Instrumental/Classical'
+            
+            return None
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to classify by audio features: {e}')
+            return None
+
+    def _classify_by_musicnn_tags(self, metadata: Dict[str, Any], features: Dict[str, Any]) -> Optional[str]:
+        """Classify based on MusicNN tags if available."""
+        try:
+            # Check for MusicNN tags in metadata
+            musicnn_tags = metadata.get('musicnn_tags', {})
+            if not musicnn_tags:
+                return None
+            
+            # Convert tags to categories
+            tag_categories = {
+                'electronic': 'Electronic/Dance',
+                'dance': 'Electronic/Dance',
+                'trance': 'Electronic/Dance',
+                'techno': 'Electronic/Dance',
+                'house': 'Electronic/Dance',
+                'rock': 'Rock/Metal',
+                'metal': 'Rock/Metal',
+                'punk': 'Rock/Metal',
+                'jazz': 'Jazz/Blues',
+                'blues': 'Jazz/Blues',
+                'classical': 'Classical/Orchestral',
+                'orchestra': 'Classical/Orchestral',
+                'pop': 'Pop/Indie',
+                'indie': 'Pop/Indie',
+                'hip hop': 'Hip-Hop/Rap',
+                'rap': 'Hip-Hop/Rap',
+                'r&b': 'Hip-Hop/Rap',
+                'country': 'Country/Folk',
+                'folk': 'Country/Folk',
+                'reggae': 'World/Latin',
+                'latin': 'World/Latin',
+                'ambient': 'Ambient/Chill',
+                'chill': 'Ambient/Chill'
+            }
+            
+            # Find the highest confidence tag
+            best_tag = None
+            best_confidence = 0.0
+            
+            for tag, confidence in musicnn_tags.items():
+                if confidence > best_confidence:
+                    best_confidence = confidence
+                    best_tag = tag
+            
+            if best_tag and best_confidence > 0.5:
+                # Map tag to category
+                for tag_keyword, category in tag_categories.items():
+                    if tag_keyword in best_tag.lower():
+                        return category
+            
+            return None
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to classify by MusicNN tags: {e}')
+            return None
+
+    def _classify_by_external_apis(self, metadata: Dict[str, Any]) -> Optional[str]:
+        """Classify based on external API data (Last.fm, MusicBrainz, etc.)."""
+        try:
+            # Check for external API tags
+            lastfm_tags = metadata.get('lastfm_tags', [])
+            musicbrainz_tags = metadata.get('musicbrainz_tags', [])
+            spotify_genres = metadata.get('spotify_genres', [])
+            
+            all_tags = lastfm_tags + musicbrainz_tags + spotify_genres
+            
+            if not all_tags:
+                return None
+            
+            # Convert tags to categories
+            tag_categories = {
+                'electronic': 'Electronic/Dance',
+                'dance': 'Electronic/Dance',
+                'trance': 'Electronic/Dance',
+                'techno': 'Electronic/Dance',
+                'house': 'Electronic/Dance',
+                'edm': 'Electronic/Dance',
+                'rock': 'Rock/Metal',
+                'metal': 'Rock/Metal',
+                'punk': 'Rock/Metal',
+                'jazz': 'Jazz/Blues',
+                'blues': 'Jazz/Blues',
+                'classical': 'Classical/Orchestral',
+                'orchestra': 'Classical/Orchestral',
+                'pop': 'Pop/Indie',
+                'indie': 'Pop/Indie',
+                'hip hop': 'Hip-Hop/Rap',
+                'rap': 'Hip-Hop/Rap',
+                'r&b': 'Hip-Hop/Rap',
+                'country': 'Country/Folk',
+                'folk': 'Country/Folk',
+                'reggae': 'World/Latin',
+                'latin': 'World/Latin',
+                'ambient': 'Ambient/Chill',
+                'chill': 'Ambient/Chill'
+            }
+            
+            # Check each tag
+            for tag in all_tags:
+                tag_lower = tag.lower()
+                for tag_keyword, category in tag_categories.items():
+                    if tag_keyword in tag_lower:
+                        return category
+            
+            return None
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to classify by external APIs: {e}')
+            return None
+
+    def _classify_by_file_path(self, file_path: str) -> Optional[str]:
+        """Classify based on file path and directory structure."""
+        try:
+            path_lower = file_path.lower()
+            
+            # Check for genre directories
+            genre_paths = {
+                'trance': 'Electronic/Dance',
+                'techno': 'Electronic/Dance',
+                'house': 'Electronic/Dance',
+                'electronic': 'Electronic/Dance',
+                'edm': 'Electronic/Dance',
+                'dance': 'Electronic/Dance',
+                'rock': 'Rock/Metal',
+                'metal': 'Rock/Metal',
+                'punk': 'Rock/Metal',
+                'jazz': 'Jazz/Blues',
+                'blues': 'Jazz/Blues',
+                'classical': 'Classical/Orchestral',
+                'orchestra': 'Classical/Orchestral',
+                'pop': 'Pop/Indie',
+                'indie': 'Pop/Indie',
+                'hip hop': 'Hip-Hop/Rap',
+                'hiphop': 'Hip-Hop/Rap',
+                'rap': 'Hip-Hop/Rap',
+                'country': 'Country/Folk',
+                'folk': 'Country/Folk',
+                'reggae': 'World/Latin',
+                'latin': 'World/Latin',
+                'ambient': 'Ambient/Chill',
+                'chill': 'Ambient/Chill',
+                'radio': 'Radio/General',
+                'podcast': 'Podcast/General',
+                'mix': 'Mix/General'
+            }
+            
+            for path_keyword, category in genre_paths.items():
+                if path_keyword in path_lower:
+                    return category
+            
+            return None
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to classify by file path: {e}')
+            return None
+
+    def _classify_by_duration(self, metadata: Dict[str, Any], features: Dict[str, Any]) -> Optional[str]:
+        """Classify based on track duration."""
+        try:
+            duration = metadata.get('duration', 0)
+            if duration == 0:
+                return None
+            
+            # Very long tracks (> 45 minutes) are likely radio shows or mixes
+            if duration > 2700:  # 45 minutes
+                return 'Radio/General'
+            
+            # Long tracks (20-45 minutes) could be mixes or extended versions
+            elif duration > 1200:  # 20 minutes
+                return 'Mix/General'
+            
+            # Normal tracks (3-20 minutes) - no specific classification
+            elif duration > 180:  # 3 minutes
+                return None
+            
+            # Very short tracks (< 3 minutes) might be samples or jingles
+            else:
+                return 'Short/Sample'
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to classify by duration: {e}')
+            return None
+
+    def _classify_by_energy(self, features: Dict[str, Any]) -> Optional[str]:
+        """Classify based on energy characteristics."""
+        try:
+            energy = features.get('energy', 0.0)
+            danceability = features.get('danceability', 0.0)
+            dynamic_complexity = features.get('dynamic_complexity', 0.0)
+            silence_rate = features.get('silence_rate', 0.0)
+            
+            # High energy, high danceability = Electronic/Dance
+            if energy > 0.8 and danceability > 0.7:
+                return 'Electronic/Dance'
+            
+            # High energy, low danceability = Rock/Metal
+            elif energy > 0.8 and danceability < 0.4:
+                return 'Rock/Metal'
+            
+            # Low energy, low danceability = Ambient/Chill
+            elif energy < 0.3 and danceability < 0.3:
+                return 'Ambient/Chill'
+            
+            # High dynamic complexity = Complex/Progressive
+            elif dynamic_complexity > 0.8:
+                return 'Complex/Progressive'
+            
+            # High silence rate = Speech/Spoken
+            elif silence_rate > 0.5:
+                return 'Speech/Spoken'
+            
+            return None
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to classify by energy: {e}')
+            return None
+
+    def _voting_classification(self, classifications: List[Tuple[str, str]]) -> str:
+        """Use voting system to determine final category from multiple classifiers."""
+        try:
+            if not classifications:
+                return 'Unknown'
+            
+            # Count votes for each category
+            category_votes = {}
+            for classifier_name, category in classifications:
+                if category not in category_votes:
+                    category_votes[category] = 0
+                category_votes[category] += 1
+            
+            # Find the category with the most votes
+            best_category = max(category_votes.items(), key=lambda x: x[1])
+            
+            # Log voting results
+            log_universal('DEBUG', 'Audio', f'Voting results: {category_votes}')
+            log_universal('DEBUG', 'Audio', f'Selected category: {best_category[0]} with {best_category[1]} votes')
+            
+            return best_category[0]
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to perform voting classification: {e}')
+            return 'Unknown'
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':

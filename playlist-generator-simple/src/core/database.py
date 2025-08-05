@@ -1044,12 +1044,62 @@ class DatabaseManager:
                 file_size_bytes = os.path.getsize(file_path)
                 file_hash = self._calculate_file_hash_for_failed(file_path)
                 
-                # Extract basic metadata fields
-                artist = metadata.get('artist', 'Unknown')
-                title = metadata.get('title', 'Unknown')
-                album = metadata.get('album')
-                year = metadata.get('year')
-                genre = metadata.get('genre')
+                # Debug logging for metadata
+                log_universal('DEBUG', 'Database', f'Metadata received: {metadata}')
+                if metadata is None:
+                    log_universal('WARNING', 'Database', f'Metadata is None for file: {file_path}')
+                elif not metadata:
+                    log_universal('WARNING', 'Database', f'Metadata is empty for file: {file_path}')
+                
+                # Extract core data with better fallbacks
+                title = 'Unknown'
+                artist = 'Unknown'
+                
+                if metadata:
+                    title = metadata.get('title', 'Unknown')
+                    artist = metadata.get('artist', 'Unknown')
+                
+                # If still unknown, try to extract from filename
+                if title == 'Unknown' or artist == 'Unknown':
+                    # Try to parse artist - title from filename
+                    filename_without_ext = os.path.splitext(filename)[0]
+                    if ' - ' in filename_without_ext:
+                        parts = filename_without_ext.split(' - ', 1)
+                        if len(parts) == 2:
+                            if artist == 'Unknown':
+                                artist = parts[0].strip()
+                            if title == 'Unknown':
+                                title = parts[1].strip()
+                    elif '_-_' in filename_without_ext:
+                        # Try underscore separator
+                        parts = filename_without_ext.split('_-_', 1)
+                        if len(parts) == 2:
+                            if artist == 'Unknown':
+                                artist = parts[0].strip()
+                            if title == 'Unknown':
+                                title = parts[1].strip()
+                    elif '__' in filename_without_ext:
+                        # Try double underscore separator
+                        parts = filename_without_ext.split('__', 1)
+                        if len(parts) == 2:
+                            if artist == 'Unknown':
+                                artist = parts[0].strip()
+                            if title == 'Unknown':
+                                title = parts[1].strip()
+                    else:
+                        # No separator found, use filename as title
+                        if title == 'Unknown':
+                            title = filename_without_ext
+                
+                # Final fallback - use filename as title
+                if title == 'Unknown':
+                    title = os.path.splitext(filename)[0]
+                
+                log_universal('DEBUG', 'Database', f'Final title: {title}, artist: {artist} for file: {file_path}')
+                
+                album = metadata.get('album') if metadata else None
+                year = metadata.get('year') if metadata else None
+                genre = metadata.get('genre') if metadata else None
                 duration = metadata.get('duration')
                 
                 # Update existing record or create new one with all required fields

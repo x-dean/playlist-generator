@@ -401,8 +401,8 @@ class AnalysisManager:
             )
             return self._create_basic_analysis_config(file_size_mb, reason)
         
-        # Check file size constraints - aligned with half-track threshold
-        max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 25)  # Aligned with half-track threshold
+        # Check file size constraints - aligned with multi-segment threshold
+        max_full_analysis_size_mb = self.config.get('MAX_FULL_ANALYSIS_SIZE_MB', 25)  # Aligned with multi-segment threshold
         if file_size_mb > max_full_analysis_size_mb:
             reason = f"File too large: {file_size_mb:.1f}MB > {max_full_analysis_size_mb}MB"
             log_universal(
@@ -447,7 +447,7 @@ class AnalysisManager:
             'extract_loudness': True,
             'extract_key': True,
             'extract_mfcc': True,
-            'extract_musicnn': True,  # Enabled since we handle large files with half-track loading
+            'extract_musicnn': True,  # Enabled since we handle large files with multi-segment loading
             'extract_metadata': True
         }
         
@@ -490,7 +490,7 @@ class AnalysisManager:
         
         log_universal('INFO', 'Analysis', f"File categorization:")
         log_universal('INFO', 'Analysis', f"  Sequential files (>200MB): {len(sequential_files)} (Sequential + Aggressive sampling + Lightweight categorization)")
-        log_universal('INFO', 'Analysis', f"  Parallel half files (25-200MB): {len(parallel_half_files)} (Parallel + Half-track + Full)")
+        log_universal('INFO', 'Analysis', f"  Parallel half files (25-200MB): {len(parallel_half_files)} (Parallel + Multi-segment + Full)")
         log_universal('INFO', 'Analysis', f"  Parallel full files (<25MB): {len(parallel_full_files)} (Parallel + Full)")
         
         results = {
@@ -571,7 +571,7 @@ class AnalysisManager:
             Tuple of (sequential_files, parallel_half_files, parallel_full_files)
         """
         sequential_files = []  # >200MB: Sequential + Aggressive sampling + Full processing
-        parallel_half_files = []  # 25-200MB: Parallel + Half-track + Full processing
+        parallel_half_files = []  # 25-200MB: Parallel + Multi-segment + Full processing
         parallel_full_files = []  # <25MB: Parallel + Full processing
         
         for file_path in files:
@@ -581,7 +581,7 @@ class AnalysisManager:
                 
                 if file_size_mb > 200:  # Sequential + Aggressive sampling + Full processing
                     sequential_files.append(file_path)
-                elif file_size_mb > 25:  # Parallel + Half-track + Full processing
+                elif file_size_mb > 25:  # Parallel + Multi-segment + Full processing
                     parallel_half_files.append(file_path)
                 else:  # Parallel + Full processing
                     parallel_full_files.append(file_path)
@@ -608,7 +608,7 @@ class AnalysisManager:
             file_size_mb = self.db_manager.get_file_size_mb(file_path)
             
             # Simplified analysis type determination based on file size
-            if file_size_mb > 25:  # Files over 25MB use half-track
+            if file_size_mb > 25:  # Files over 25MB use multi-segment
                 analysis_type = 'half_track'
                 use_full_analysis = False
             else:  # Files up to 25MB use full analysis
