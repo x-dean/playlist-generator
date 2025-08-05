@@ -280,12 +280,31 @@ class TagMapper:
             TagMapping('FILETYPE', 'file_type', 'File type (Vorbis)', priority=3),
             TagMapping('RECORDINGTIME', 'recording_time', 'Recording time (Vorbis)', priority=3),
             
-            # Additional Vorbis mappings for missing fields
-            TagMapping('ORIGINALARTIST', 'original_artist', 'Original artist (Vorbis)', priority=3),
-            TagMapping('ORIGINALALBUM', 'original_album', 'Original album (Vorbis)', priority=3),
-            TagMapping('LYRICIST', 'lyricist', 'Lyricist (Vorbis)', priority=3),
-            TagMapping('BAND', 'band', 'Band (Vorbis)', priority=3),
-        ]
+                         # Additional Vorbis mappings for missing fields
+             TagMapping('ORIGINALARTIST', 'original_artist', 'Original artist (Vorbis)', priority=3),
+             TagMapping('ORIGINALALBUM', 'original_album', 'Original album (Vorbis)', priority=3),
+             TagMapping('LYRICIST', 'lyricist', 'Lyricist (Vorbis)', priority=3),
+             TagMapping('BAND', 'band', 'Band (Vorbis)', priority=3),
+             
+             # iTunes/M4A specific tags
+             TagMapping('©nam', 'title', 'Title (iTunes/M4A)', priority=1),
+             TagMapping('©ART', 'artist', 'Artist (iTunes/M4A)', priority=1),
+             TagMapping('©alb', 'album', 'Album (iTunes/M4A)', priority=1),
+             TagMapping('©gen', 'genre', 'Genre (iTunes/M4A)', priority=1),
+             TagMapping('©day', 'year', 'Year (iTunes/M4A)', data_type="int", priority=1),
+             TagMapping('trkn', 'track_number', 'Track number (iTunes/M4A)', data_type="int", priority=1),
+             TagMapping('disk', 'disc_number', 'Disc number (iTunes/M4A)', data_type="int", priority=2),
+             TagMapping('tmpo', 'bpm', 'BPM (iTunes/M4A)', data_type="float", priority=2),
+             TagMapping('©wrt', 'composer', 'Composer (iTunes/M4A)', priority=2),
+             TagMapping('©too', 'encoder', 'Encoder (iTunes/M4A)', priority=3),
+             TagMapping('©too', 'encoded_by', 'Encoded by (iTunes/M4A)', priority=3),
+             
+             # iTunes custom tags (ReplayGain, etc.)
+             TagMapping('----:com.apple.iTunes:replaygain_track_gain', 'replaygain_track_gain', 'ReplayGain track gain (iTunes)', data_type="float", priority=2),
+             TagMapping('----:com.apple.iTunes:replaygain_album_gain', 'replaygain_album_gain', 'ReplayGain album gain (iTunes)', data_type="float", priority=2),
+             TagMapping('----:com.apple.iTunes:replaygain_track_peak', 'replaygain_track_peak', 'ReplayGain track peak (iTunes)', data_type="float", priority=2),
+             TagMapping('----:com.apple.iTunes:replaygain_album_peak', 'replaygain_album_peak', 'ReplayGain album peak (iTunes)', data_type="float", priority=2),
+         ]
     
     def map_tags(self, mutagen_tags: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -343,23 +362,35 @@ class TagMapper:
             # Extract ReplayGain fields from custom tags
             replaygain_mappings = {
                 'REPLAYGAIN_TRACK_GAIN': 'replaygain_track_gain',
-                'REPLAYGAIN_ALBUM_GAIN': 'replaygain_album_gain', 
+                'replaygain_track_gain': 'replaygain_track_gain',
+                'REPLAYGAIN_ALBUM_GAIN': 'replaygain_album_gain',
+                'replaygain_album_gain': 'replaygain_album_gain',
                 'REPLAYGAIN_TRACK_PEAK': 'replaygain_track_peak',
-                'REPLAYGAIN_ALBUM_PEAK': 'replaygain_album_peak'
+                'replaygain_track_peak': 'replaygain_track_peak',
+                'REPLAYGAIN_ALBUM_PEAK': 'replaygain_album_peak',
+                'replaygain_album_peak': 'replaygain_album_peak'
             }
             
             for custom_key, standard_key in replaygain_mappings.items():
                 if custom_key in custom_tags:
-                    value = custom_tags[custom_key]
-                    # Convert ReplayGain values (remove "dB" suffix for gain values)
-                    if 'GAIN' in custom_key and isinstance(value, str):
-                        value = value.replace(' dB', '').replace('dB', '')
-                    try:
-                        float_value = float(value)
-                        mapped_metadata[standard_key] = float_value
-                        log_universal('DEBUG', 'TagMapper', f'Extracted ReplayGain {custom_key} -> {standard_key}: {float_value}')
-                    except (ValueError, TypeError):
-                        log_universal('WARNING', 'TagMapper', f'Failed to convert ReplayGain {custom_key}: {value}')
+                     value = custom_tags[custom_key]
+                     log_universal('DEBUG', 'TagMapper', f'Found ReplayGain key: {custom_key}, value: "{value}"')
+                     # Convert ReplayGain values (remove "dB" suffix for gain values)
+                     if isinstance(value, str):
+                         # Handle iTunes format: "b'-1.55 dB'" -> "-1.55"
+                         if value.startswith("b'") and value.endswith("'"):
+                             value = value[2:-1]  # Remove b' and '
+                         # Remove "dB" suffix for gain values
+                         if 'GAIN' in custom_key.upper():
+                             value = value.replace(' dB', '').replace('dB', '')
+                             log_universal('DEBUG', 'TagMapper', f'Removed dB suffix from {custom_key}: "{value}"')
+                         log_universal('DEBUG', 'TagMapper', f'Processing ReplayGain {custom_key}: "{value}"')
+                     try:
+                         float_value = float(value)
+                         mapped_metadata[standard_key] = float_value
+                         log_universal('DEBUG', 'TagMapper', f'Extracted ReplayGain {custom_key} -> {standard_key}: {float_value}')
+                     except (ValueError, TypeError):
+                         log_universal('WARNING', 'TagMapper', f'Failed to convert ReplayGain {custom_key}: {value}')
         
         # Fallback: try to map unknown tags to common fields
         if not mapped_metadata:
@@ -404,14 +435,35 @@ class TagMapper:
             Processed value
         """
         try:
-            # Handle multiple values
-            if mapping.multiple and isinstance(value, list):
-                processed_values = []
-                for item in value:
-                    processed_item = self._convert_value(item, mapping.data_type)
-                    if processed_item is not None:
-                        processed_values.append(processed_item)
-                return processed_values if processed_values else None
+            # Handle lists (common in iTunes/M4A tags)
+            if isinstance(value, list):
+                if len(value) == 0:
+                    return None
+                elif len(value) == 1:
+                    # Single value in list - extract it
+                    single_value = value[0]
+                    if mapping.multiple:
+                        # Multiple values expected - return as list
+                        processed_item = self._convert_value(single_value, mapping.data_type)
+                        return [processed_item] if processed_item is not None else None
+                    else:
+                        # Single value expected - return the value
+                        return self._convert_value(single_value, mapping.data_type)
+                else:
+                    # Multiple values in list
+                    if mapping.multiple:
+                        # Multiple values expected - process all
+                        processed_values = []
+                        for item in value:
+                            processed_item = self._convert_value(item, mapping.data_type)
+                            if processed_item is not None:
+                                processed_values.append(processed_item)
+                        return processed_values if processed_values else None
+                    else:
+                        # Single value expected - take first
+                        return self._convert_value(value[0], mapping.data_type)
+            
+            # Handle multiple values in strings
             elif mapping.multiple and isinstance(value, str):
                 # Split comma-separated values
                 values = [v.strip() for v in value.split(',') if v.strip()]
@@ -421,6 +473,8 @@ class TagMapper:
                     if processed_item is not None:
                         processed_values.append(processed_item)
                 return processed_values if processed_values else None
+            
+            # Handle single values
             else:
                 return self._convert_value(value, mapping.data_type)
                 
@@ -444,6 +498,12 @@ class TagMapper:
         
         try:
             if data_type == "int":
+                # Handle iTunes track number format: "(1592, 0)" -> 1592
+                if isinstance(value, str) and value.startswith('(') and value.endswith(')'):
+                    # Extract first number from tuple format
+                    parts = value.strip('()').split(',')
+                    if parts:
+                        return int(parts[0].strip())
                 return int(value)
             elif data_type == "float":
                 return float(value)
@@ -456,7 +516,7 @@ class TagMapper:
     
     def _extract_custom_tags(self, mutagen_tags: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extract custom TXXX tags.
+        Extract custom TXXX tags and iTunes custom tags.
         
         Args:
             mutagen_tags: Raw mutagen tags
@@ -467,6 +527,7 @@ class TagMapper:
         custom_tags = {}
         
         for key, value in mutagen_tags.items():
+            # Handle TXXX tags (ID3v2.3 custom tags)
             if key.startswith('TXXX'):
                 # Extract the custom tag name from the key
                 # Format: TXXX:REPLAYGAIN_TRACK_GAIN -> REPLAYGAIN_TRACK_GAIN
@@ -490,7 +551,25 @@ class TagMapper:
                 
                 custom_tags[custom_name] = custom_value
                 
-                log_universal('DEBUG', 'TagMapper', f'Extracted custom tag: {custom_name} = {custom_value}')
+                log_universal('DEBUG', 'TagMapper', f'Extracted TXXX custom tag: {custom_name} = {custom_value}')
+            
+            # Handle iTunes custom tags (----:com.apple.iTunes:tag_name)
+            elif key.startswith('----:com.apple.iTunes:'):
+                # Extract the custom tag name from the key
+                # Format: ----:com.apple.iTunes:replaygain_track_gain -> replaygain_track_gain
+                custom_name = key.split(':', 2)[2] if key.count(':') >= 2 else key
+                
+                # Extract the value
+                if isinstance(value, list) and len(value) > 0:
+                    custom_value = str(value[0])
+                elif isinstance(value, str):
+                    custom_value = value
+                else:
+                    custom_value = str(value)
+                
+                custom_tags[custom_name] = custom_value
+                
+                log_universal('DEBUG', 'TagMapper', f'Extracted iTunes custom tag: {custom_name} = {custom_value}')
         
         return custom_tags
     

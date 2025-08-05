@@ -970,6 +970,81 @@ class EnhancedMetadataEnrichmentService:
         
         log_universal('INFO', 'Enrichment', f'Initialized {len(self.clients)} API clients')
     
+    def _is_radio_show_episode(self, title: str, artist: str) -> bool:
+        """
+        Detect if this is a radio show episode that shouldn't be enriched via external APIs.
+        
+        Args:
+            title: Track title
+            artist: Artist name
+            
+        Returns:
+            True if this appears to be a radio show episode
+        """
+        if not title or not artist:
+            return False
+        
+        title_lower = title.lower()
+        artist_lower = artist.lower()
+        
+        # Common radio show patterns
+        radio_show_indicators = [
+            'episode',
+            'show',
+            'radio',
+            'mix',
+            'podcast',
+            'broadcast',
+            'session',
+            'live',
+            'state of trance',
+            'asot',
+            'essential mix',
+            'global djmix',
+            'trance around the world',
+            'tatw',
+            'armada',
+            'di.fm',
+            'siriusxm',
+            'bbc radio',
+            'kiss fm',
+            'radio 1',
+            'radio 2'
+        ]
+        
+        # Check if title contains radio show indicators
+        for indicator in radio_show_indicators:
+            if indicator in title_lower:
+                return True
+        
+        # Check if artist is a known radio show host
+        radio_hosts = [
+            'armin van buuren',
+            'tiesto',
+            'paul van dyk',
+            'ferry corsten',
+            'markus schulz',
+            'gareth emery',
+            'above & beyond',
+            'deadmau5',
+            'skrillex',
+            'david guetta',
+            'calvin harris',
+            'avicii',
+            'martin garrix',
+            'hardwell',
+            'afrojack'
+        ]
+        
+        # Check if artist is a radio host AND title looks like an episode
+        if artist_lower in radio_hosts:
+            episode_indicators = ['episode', 'show', 'mix', 'live', 'broadcast']
+            for indicator in episode_indicators:
+                if indicator in title_lower:
+                    return True
+        
+        return False
+    
     def _get_enrichment_cache_key(self, title: str, artist: str) -> str:
         """Generate cache key for enrichment results."""
         normalized_title = title.lower().strip()
@@ -1003,6 +1078,12 @@ class EnhancedMetadataEnrichmentService:
             title = ""
         if artist == "None":
             artist = ""
+        
+        # Detect radio show episodes and handle them appropriately
+        is_radio_show = self._is_radio_show_episode(title, artist)
+        if is_radio_show:
+            log_universal('INFO', 'Enrichment', f'Detected radio show episode: "{title}" by "{artist}" - skipping external API enrichment')
+            return enriched_metadata
         
         # Try alternative field names if primary ones are empty
         if not title:
