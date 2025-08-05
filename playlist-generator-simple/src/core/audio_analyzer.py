@@ -352,6 +352,14 @@ class AudioAnalyzer:
                 
                 log_universal('INFO', 'Audio', f'Spotify-style features: Energy={energy:.2f}, Valence={valence:.2f}, Acousticness={acousticness:.2f}')
                 log_universal('INFO', 'Audio', f'Spotify-style features: Instrumentalness={instrumentalness:.2f}, Speechiness={speechiness:.2f}, Liveness={liveness:.2f}')
+                
+                # Debug: Log why features are 0.0
+                if instrumentalness == 0.0:
+                    log_universal('DEBUG', 'Audio', f'Instrumentalness is 0.0 - no instrumental/electronic tags detected')
+                if speechiness == 0.0:
+                    log_universal('DEBUG', 'Audio', f'Speechiness is 0.0 - no vocal tags detected')
+                if liveness == 0.0:
+                    log_universal('DEBUG', 'Audio', f'Liveness is 0.0 - low dynamic complexity or spectral variation')
             
             # STEP 4.6: Extract advanced categorization features (optimized for performance)
             file_size_mb = self.db_manager.get_file_size_mb(file_path)
@@ -3114,15 +3122,18 @@ class AudioAnalyzer:
                     instrumentalness += min(tags['instrumental'] * 0.5, 0.5)
                 
                 # Electronic music is often instrumental
-                electronic_tags = ['electronic', 'electronica', 'electro', 'house', 'techno']
+                electronic_tags = ['electronic', 'electronica', 'electro', 'house', 'techno', 'trance', 'dance']
                 for tag, score in tags.items():
                     if tag.lower() in electronic_tags:
                         instrumentalness += min(score * 0.3, 0.3)
+                
+                # Log available tags for debugging
+                log_universal('DEBUG', 'Audio', f'Available MusicNN tags: {list(tags.keys())}')
             
             # Inverse relationship with speechiness
             speechiness = 0.0
             if isinstance(tags, dict):
-                speech_tags = ['female vocalists', 'male vocalists', 'female vocalist', 'male vocalist']
+                speech_tags = ['female vocalists', 'male vocalists', 'female vocalist', 'male vocalist', 'vocal', 'vocals', 'singing']
                 for tag, score in tags.items():
                     if tag.lower() in speech_tags:
                         speechiness += min(score * 0.4, 0.4)
@@ -3131,12 +3142,31 @@ class AudioAnalyzer:
             if speechiness > 0.5:
                 instrumentalness = max(0.0, instrumentalness - speechiness * 0.5)
             
+            # Provide default instrumentalness based on audio characteristics
+            if instrumentalness == 0.0 and speechiness == 0.0:
+                # If no tags detected, use audio characteristics
+                if spectral_centroid > 3000:  # High frequency content = likely electronic
+                    instrumentalness = 0.3
+                elif loudness > 0.6:  # High energy = likely instrumental
+                    instrumentalness = 0.2
+                else:
+                    instrumentalness = 0.1  # Default low instrumentalness
+            
             # Cap instrumentalness at 1.0
             instrumentalness = min(instrumentalness, 1.0)
             
             # 6. SPEECHINESS (0.0 to 1.0)
             # Already calculated above, but ensure it's capped
             speechiness = min(speechiness, 1.0)
+            
+            # Provide default speechiness if no vocal tags detected
+            if speechiness == 0.0 and isinstance(tags, dict):
+                # Check for any human-like tags
+                human_tags = ['human', 'voice', 'speech', 'talk', 'conversation']
+                for tag, score in tags.items():
+                    if tag.lower() in human_tags:
+                        speechiness = min(score * 0.3, 0.3)
+                        break
             
             # 7. VALENCE (0.0 to 1.0) - Positivity/happiness
             # Based on: key (major = happier), BPM, MusiCNN mood tags
@@ -3179,12 +3209,16 @@ class AudioAnalyzer:
                 liveness += 0.3
             elif dynamic_complexity > 0.3:
                 liveness += 0.2
+            elif dynamic_complexity > 0.1:
+                liveness += 0.1  # Lower threshold for some liveness
             
             # Spectral characteristics (live music has more variation)
             if spectral_flatness > 0.4:
                 liveness += 0.2
             elif spectral_flatness > 0.2:
                 liveness += 0.1
+            elif spectral_flatness > 0.1:
+                liveness += 0.05  # Lower threshold
             
             # MFCC variance (more variation = more live)
             if mfcc_coefficients:
@@ -3193,9 +3227,28 @@ class AudioAnalyzer:
                     liveness += 0.2
                 elif mfcc_variance > 0.1:
                     liveness += 0.1
+                elif mfcc_variance > 0.05:
+                    liveness += 0.05  # Lower threshold
+            
+            # Additional liveness indicators
+            if isinstance(tags, dict):
+                live_tags = ['live', 'concert', 'performance', 'acoustic']
+                for tag, score in tags.items():
+                    if tag.lower() in live_tags:
+                        liveness += min(score * 0.3, 0.3)
             
             # Cap liveness at 1.0
             liveness = min(liveness, 1.0)
+            
+            # Provide default liveness if no live characteristics detected
+            if liveness == 0.0:
+                # Use basic audio characteristics for default liveness
+                if dynamic_complexity > 0.1:  # Any dynamic variation
+                    liveness = 0.1
+                elif spectral_flatness > 0.1:  # Any spectral variation
+                    liveness = 0.05
+                else:
+                    liveness = 0.02  # Minimal liveness for any audio
             
             # 9. POPULARITY (0.0 to 1.0) - Placeholder for now
             # This would typically come from external APIs (Spotify, LastFM, etc.)
