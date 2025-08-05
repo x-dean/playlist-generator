@@ -25,7 +25,7 @@ logger = get_logger('playlista.analysis_manager')
 
 # Constants
 BIG_FILE_SIZE_MB = 200  # Files larger than this use sequential processing
-HALF_TRACK_SIZE_MB = 25  # Files larger than this use half-track loading
+HALF_TRACK_SIZE_MB = 25  # Files larger than this use multi-segment loading
 DEFAULT_TIMEOUT_SECONDS = 300  # 5 minutes timeout for analysis
 DEFAULT_MEMORY_THRESHOLD_PERCENT = 85
 
@@ -334,7 +334,7 @@ class AnalysisManager:
                     'extract_loudness': True,
                     'extract_key': True,
                     'extract_mfcc': True,
-                    'extract_musicnn': True,  # Enabled since we handle large files with half-track loading
+                    'extract_musicnn': True,  # Enabled since we handle large files with multi-segment loading
                     'extract_metadata': True
                 },
                 'reason': 'Error determining analysis type - using basic'
@@ -351,7 +351,7 @@ class AnalysisManager:
             'extract_loudness': True,
             'extract_key': True,
             'extract_mfcc': True,
-            'extract_musicnn': True,  # Always enable MusiCNN since we handle large files with half-track loading
+            'extract_musicnn': True,  # Always enable MusiCNN since we handle large files with multi-segment loading
             'extract_metadata': True
         }
         
@@ -411,7 +411,7 @@ class AnalysisManager:
             )
             return self._create_basic_analysis_config(file_size_mb, reason)
         
-        # Check MusicNN-specific constraints - always enable MusiCNN since we handle large files with half-track loading
+        # Check MusicNN-specific constraints - always enable MusiCNN since we handle large files with multi-segment loading
         musicnn_enabled = self.musicnn_enabled  # Always enable if MusicNN is available
         
         # All checks passed - use full analysis
@@ -504,7 +504,7 @@ class AnalysisManager:
         
         # Process sequential files
         if sequential_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(sequential_files)} sequential files (Half-track loading)")
+            log_universal('INFO', 'Analysis', f"Processing {len(sequential_files)} sequential files (Multi-segment loading)")
             sequential_results = self.sequential_analyzer.process_files(sequential_files, force_reextract)
             results['success_count'] += sequential_results['success_count']
             results['failed_count'] += sequential_results['failed_count']
@@ -512,7 +512,7 @@ class AnalysisManager:
         
         # Process parallel half files
         if parallel_half_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(parallel_half_files)} parallel half files (Half-track loading)")
+            log_universal('INFO', 'Analysis', f"Processing {len(parallel_half_files)} parallel half files (Multi-segment loading)")
             log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files 25-200MB")
             
             # Use threaded processing (now the default)
@@ -812,7 +812,7 @@ class AnalysisManager:
                     'extract_spectral': False,
                     'extract_key': False,
                     'extract_mfcc': False,
-                    'extract_musicnn': True  # Enabled since we handle large files with half-track loading
+                    'extract_musicnn': True  # Enabled since we handle large files with multi-segment loading
                 }
             }
             

@@ -748,7 +748,7 @@ class AudioAnalyzer:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for rhythm extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using multi-segment loading for rhythm extraction')
                     else:
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for rhythm extraction')
                 else:
@@ -763,7 +763,7 @@ class AudioAnalyzer:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using half-track loading for rhythm extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using multi-segment loading for rhythm extraction')
                     else:
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB from DB) - using full audio for rhythm extraction')
 
@@ -1160,7 +1160,7 @@ class AudioAnalyzer:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for MFCC extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using multi-segment loading for MFCC extraction')
                     else:
                         # Use full audio for small files
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for MFCC extraction')
@@ -1177,7 +1177,7 @@ class AudioAnalyzer:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using half-track loading for MFCC extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using multi-segment loading for MFCC extraction')
                     else:
                         # Use full audio for small files
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB from DB) - using full audio for MFCC extraction')
@@ -1243,7 +1243,7 @@ class AudioAnalyzer:
             
             log_universal('INFO', 'Audio', 'Using shared MusicNN models')
             
-            # Check if we need to use half-track loading for large files
+            # Check if we need to use multi-segment loading for large files
             # Get actual file size from database if file_path is available, otherwise estimate from audio length
             if file_path:
                 file_size_mb = self.db_manager.get_file_size_mb(file_path)
@@ -1260,7 +1260,7 @@ class AudioAnalyzer:
             log_universal('DEBUG', 'Audio', f'MusicNN decision: file_size_mb({file_size_mb:.1f}) > threshold({half_track_threshold_mb}) = {file_size_mb > half_track_threshold_mb}, suitable = {model_manager.is_file_suitable_for_musicnn(len(audio) * 4)}, use_half_track = {use_half_track}')
             
             if use_half_track:
-                log_universal('INFO', 'Audio', f'Large audio detected ({file_size_mb:.1f}MB, {len(audio)} samples) - using half-track loading for MusiCNN')
+                log_universal('INFO', 'Audio', f'Large audio detected ({file_size_mb:.1f}MB, {len(audio)} samples) - using multi-segment loading for MusiCNN')
                 # Use middle 50% of the audio for MusiCNN analysis
                 start_sample = len(audio) // 4
                 end_sample = 3 * len(audio) // 4
@@ -1500,7 +1500,7 @@ class AudioAnalyzer:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using half-track loading for chroma extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using multi-segment loading for chroma extraction')
                     else:
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for chroma extraction')
                 else:
@@ -1515,7 +1515,7 @@ class AudioAnalyzer:
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using half-track loading for chroma extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using multi-segment loading for chroma extraction')
                     else:
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB from DB) - using full audio for chroma extraction')
 
