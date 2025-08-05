@@ -205,13 +205,13 @@ class CPUOptimizedAnalyzer:
     def _extract_melspectrogram_librosa(self, audio_file: str) -> Optional[np.ndarray]:
         """Extract melspectrogram using Librosa."""
         try:
-            # Load audio with newer librosa API to avoid deprecation warnings
-            audio, sr = librosa.load(
-                audio_file, 
-                sr=self.sample_rate, 
-                mono=True,
-                res_type='kaiser_best',  # Use high-quality resampling
-
+            # Use multi-segment loading for consistency
+            from .audio_analyzer import extract_multiple_segments
+            audio, sr = extract_multiple_segments(
+                audio_file,
+                self.sample_rate,
+                {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 30},
+                'cpu_optimized'
             )
             
             # Extract melspectrogram

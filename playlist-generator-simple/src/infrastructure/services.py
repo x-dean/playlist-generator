@@ -91,22 +91,29 @@ class EssentiaAudioAnalyzer(IAudioAnalyzer):
             return None, None
     
     def _load_with_essentia(self, file_path: str) -> tuple:
-        """Load audio using Essentia."""
-        import essentia.standard as es
-        
+        """Load audio using multi-segment approach for consistency."""
         try:
-            loader = es.MonoLoader(filename=file_path, sampleRate=self.sample_rate)
-            audio = loader()
-            return audio, self.sample_rate
+            from ..core.audio_analyzer import extract_multiple_segments
+            audio, sample_rate = extract_multiple_segments(
+                file_path,
+                self.sample_rate,
+                {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 30},
+                'service'
+            )
+            return audio, sample_rate
         except Exception as e:
             return None, None
     
     def _load_with_librosa(self, file_path: str) -> tuple:
-        """Load audio using Librosa."""
-        import librosa
-        
+        """Load audio using multi-segment approach for consistency."""
         try:
-            audio, sample_rate = librosa.load(file_path, sr=self.sample_rate)
+            from ..core.audio_analyzer import extract_multiple_segments
+            audio, sample_rate = extract_multiple_segments(
+                file_path,
+                self.sample_rate,
+                {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 30},
+                'service'
+            )
             return audio, sample_rate
         except Exception as e:
             return None, None

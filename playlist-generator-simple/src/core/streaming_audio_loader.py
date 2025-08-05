@@ -605,14 +605,19 @@ class StreamingAudioLoader:
                         if LIBROSA_AVAILABLE:
                             # Load only this small chunk using librosa's offset and duration
                             # Use librosa API compatible with older versions
-                            sub_chunk, sr = librosa.load(
+                            # Use multi-segment loading for consistency
+                            from .audio_analyzer import extract_multiple_segments
+                            sub_chunk, sr = extract_multiple_segments(
                                 audio_path,
-                                sr=self.sample_rate,
-                                mono=True,
-                                offset=sub_start_time,
-                                duration=sub_duration,
-                                res_type='kaiser_best'  # Use high-quality resampling
+                                self.sample_rate,
+                                {'OPTIMIZED_SEGMENT_DURATION_SECONDS': sub_duration},
+                                'streaming'
                             )
+                            if sub_chunk is not None:
+                                # Extract only the needed portion from the multi-segment result
+                                start_offset = int(sub_start_time * sr)
+                                end_offset = start_offset + int(sub_duration * sr)
+                                sub_chunk = sub_chunk[start_offset:end_offset]
                             
                             # Ensure correct sample rate
                             if sr != self.sample_rate:
@@ -900,11 +905,13 @@ class StreamingAudioLoader:
                 try:
                     log_universal('INFO', 'Streaming', "Trying Librosa audio loading...")
                     # Use librosa API compatible with older versions
-                    audio, sample_rate = librosa.load(
-                        audio_path, 
-                        sr=self.sample_rate, 
-                        mono=True,
-                        res_type='kaiser_best'  # Use high-quality resampling
+                    # Use multi-segment loading for consistency
+                    from .audio_analyzer import extract_multiple_segments
+                    audio, sample_rate = extract_multiple_segments(
+                        audio_path,
+                        self.sample_rate,
+                        {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 30},
+                        'streaming'
                     )
                     log_universal('INFO', 'Streaming', f"Audio loaded with Librosa: {len(audio)} samples, {sample_rate}Hz")
                 except Exception as e:

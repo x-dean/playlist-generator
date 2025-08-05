@@ -155,14 +155,11 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
                 log_universal('WARNING', 'Audio', f'Essentia loading failed for {os.path.basename(audio_path)}: {e}')
                 # Fall through to librosa
         
-        # Fallback to librosa
+        # Fallback to multi-segment loading
         if LIBROSA_AVAILABLE:
             try:
-                # Use librosa with optimized settings
-                audio, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
-                
-                log_universal('DEBUG', 'Audio', f'Loaded with librosa: {os.path.basename(audio_path)} ({len(audio)} samples, {sr}Hz')
-                return audio, sr
+                # Use multi-segment loading for consistency
+                return extract_multiple_segments(audio_path, sample_rate, config, processing_mode)
                 
             except Exception as e:
                 log_universal('ERROR', 'Audio', f'Librosa loading failed for {os.path.basename(audio_path)}: {e}')
@@ -2737,8 +2734,14 @@ class AudioAnalyzer:
                     import librosa
                     log_universal('DEBUG', 'Audio', f'Loading {duration_seconds}s sample with librosa')
                     
-                    # Load with duration parameter
-                    audio_sample, sr = librosa.load(file_path, sr=self.sample_rate, duration=duration_seconds, mono=True)
+                    # Use multi-segment loading for consistency
+                    from .audio_analyzer import extract_multiple_segments
+                    audio_sample, sr = extract_multiple_segments(
+                        file_path,
+                        self.sample_rate,
+                        {'OPTIMIZED_SEGMENT_DURATION_SECONDS': duration_seconds},
+                        'sample'
+                    )
                     
                     if audio_sample is not None and len(audio_sample) > 0:
                         log_universal('DEBUG', 'Audio', f'Loaded sample with librosa: {len(audio_sample)} samples ({len(audio_sample)/sr:.1f}s)')
@@ -3681,10 +3684,25 @@ def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':
     """Get a configured audio analyzer instance."""
     return AudioAnalyzer(config)
 
-def load_half_track(audio_path: str, sample_rate: int = 44100, config: Dict[str, Any] = None, processing_mode: str = 'parallel') -> Tuple[Optional[np.ndarray], Optional[int]]:
+
+
+def clean_numpy_array(arr: np.ndarray) -> np.ndarray:
+    """Clean numpy array by replacing NaN and Inf values with zeros."""
+    if arr is None:
+        return np.array([])
+    
+    # Replace NaN and Inf values with 0
+    arr_clean = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Ensure array is finite
+    if not np.all(np.isfinite(arr_clean)):
+        arr_clean = np.zeros_like(arr_clean)
+    
+    return arr_clean
+
+def extract_multiple_segments(audio_path: str, sample_rate: int = 44100, config: Dict[str, Any] = None, processing_mode: str = 'parallel') -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
-    Load only half of the audio track for memory efficiency.
-    This provides sufficient data for accurate feature extraction while reducing memory usage.
+    Extract 3 audio segments from different parts of the track for comprehensive analysis.
     
     Args:
         audio_path: Path to audio file
@@ -3704,25 +3722,17 @@ def load_half_track(audio_path: str, sample_rate: int = 44100, config: Dict[str,
         try:
             import psutil
             available_memory_mb = psutil.virtual_memory().available / (1024 * 1024)
-            min_memory_mb = config.get('MIN_MEMORY_FOR_HALF_TRACK_GB', 1.0) * 1024 if config else 1024  # Reduced requirement
+            min_memory_mb = config.get('MIN_MEMORY_FOR_HALF_TRACK_GB', 1.0) * 1024 if config else 1024
             if available_memory_mb < min_memory_mb:
                 log_universal('WARNING', 'Audio', f'Low memory available ({available_memory_mb:.1f}MB) - skipping {os.path.basename(audio_path)}')
                 return None, None
         except Exception:
             pass  # Continue if memory check fails
         
-        # Check file size
-        file_size_mb = 0
-        try:
-            file_size = os.path.getsize(audio_path)
-            file_size_mb = file_size / (1024 * 1024)
-            
-            if file_size < 1024:  # Less than 1KB
-                log_universal('WARNING', 'Audio', f'File too small ({file_size} bytes): {os.path.basename(audio_path)}')
-                return None, None
-                
-        except Exception as e:
-            log_universal('WARNING', 'Audio', f'Could not check file size: {e}')
+        # Get segment configuration from config
+        segment_duration = config.get('OPTIMIZED_SEGMENT_DURATION_SECONDS', 30) if config else 30
+        positions_str = config.get('MULTI_SEGMENT_POSITIONS', '0.0,0.5,0.9') if config else '0.0,0.5,0.9'
+        positions = tuple(float(x.strip()) for x in positions_str.split(','))
         
         # Load audio using Essentia if available
         if ESSENTIA_AVAILABLE:
@@ -3742,28 +3752,35 @@ def load_half_track(audio_path: str, sample_rate: int = 44100, config: Dict[str,
                     log_universal('WARNING', 'Audio', f'Empty audio file: {os.path.basename(audio_path)}')
                     return None, None
                 
-                # Calculate half duration
+                # Calculate segment parameters
                 total_samples = len(full_audio)
-                half_samples = total_samples // 2
+                segment_samples = int(segment_duration * sample_rate)
                 
-                # Take the middle half of the track (most representative)
-                start_sample = total_samples // 4  # Start at 25%
-                end_sample = start_sample + half_samples  # End at 75%
+                if total_samples < segment_samples:
+                    log_universal('WARNING', 'Audio', f'File too short for {segment_duration}s segments: {os.path.basename(audio_path)}')
+                    return None, None
                 
-                # Ensure we don't go out of bounds
-                end_sample = min(end_sample, total_samples)
-                start_sample = max(0, end_sample - half_samples)
+                # Extract segments from different positions
+                segments = []
+                for i, pos in enumerate(positions):
+                    start_sample = int(pos * total_samples)
+                    if start_sample + segment_samples > total_samples:
+                        start_sample = total_samples - segment_samples
+                    
+                    segment = full_audio[start_sample:start_sample + segment_samples]
+                    segments.append(segment)
                 
-                # Extract half track
-                half_audio = full_audio[start_sample:end_sample]
+                # Concatenate segments for analysis
+                combined_audio = np.concatenate(segments)
                 
-                log_universal('DEBUG', 'Audio', f'Loaded half track: {os.path.basename(audio_path)} ({len(half_audio)}/{total_samples} samples, {sample_rate}Hz)')
-                log_universal('DEBUG', 'Audio', f'  Half track duration: {len(half_audio)/sample_rate:.1f}s (from {start_sample/sample_rate:.1f}s to {end_sample/sample_rate:.1f}s)')
+                log_universal('DEBUG', 'Audio', f'Extracted 3 segments from {os.path.basename(audio_path)}: {len(combined_audio)} samples total')
+                log_universal('DEBUG', 'Audio', f'  Segment duration: {segment_duration}s each')
+                log_universal('DEBUG', 'Audio', f'  Positions: {positions}')
                 
-                return half_audio, sample_rate
+                return combined_audio, sample_rate
                 
             except Exception as e:
-                log_universal('WARNING', 'Audio', f'Essentia half-track loading failed for {os.path.basename(audio_path)}: {e}')
+                log_universal('WARNING', 'Audio', f'Essentia multi-segment loading failed for {os.path.basename(audio_path)}: {e}')
                 # Fall through to librosa
         
         # Fallback to librosa
@@ -3773,44 +3790,61 @@ def load_half_track(audio_path: str, sample_rate: int = 44100, config: Dict[str,
                 
                 # Get audio duration first
                 duration = librosa.get_duration(path=audio_path)
-                half_duration = duration / 2
-                start_time = duration / 4  # Start at 25%
                 
-                # Load half track with librosa
-                half_audio, sr = librosa.load(
-                    audio_path, 
-                    sr=sample_rate, 
-                    mono=True,
-                    offset=start_time,
-                    duration=half_duration
-                )
+                if duration < segment_duration:
+                    log_universal('WARNING', 'Audio', f'File too short for {segment_duration}s segments: {os.path.basename(audio_path)}')
+                    return None, None
                 
-                log_universal('DEBUG', 'Audio', f'Loaded half track with librosa: {os.path.basename(audio_path)} ({len(half_audio)} samples, {sr}Hz)')
-                log_universal('DEBUG', 'Audio', f'  Half track duration: {len(half_audio)/sr:.1f}s (from {start_time:.1f}s to {start_time + half_duration:.1f}s)')
+                # Extract segments from different positions
+                segments = []
+                for i, pos in enumerate(positions):
+                    start_time = pos * duration
+                    if start_time + segment_duration > duration:
+                        start_time = duration - segment_duration
+                    
+                    segment, sr = librosa.load(
+                        audio_path, 
+                        sr=sample_rate, 
+                        mono=True,
+                        offset=start_time,
+                        duration=segment_duration
+                    )
+                    segments.append(segment)
                 
-                return half_audio, sr
+                # Concatenate segments for analysis
+                combined_audio = np.concatenate(segments)
+                
+                log_universal('DEBUG', 'Audio', f'Extracted 3 segments with librosa from {os.path.basename(audio_path)}: {len(combined_audio)} samples total')
+                log_universal('DEBUG', 'Audio', f'  Segment duration: {segment_duration}s each')
+                log_universal('DEBUG', 'Audio', f'  Positions: {positions}')
+                
+                return combined_audio, sample_rate
                 
             except Exception as e:
-                log_universal('ERROR', 'Audio', f'Librosa half-track loading failed for {os.path.basename(audio_path)}: {e}')
+                log_universal('ERROR', 'Audio', f'Librosa multi-segment loading failed for {os.path.basename(audio_path)}: {e}')
                 return None, None
         
         log_universal('ERROR', 'Audio', f'No audio loading library available for {os.path.basename(audio_path)}')
         return None, None
         
     except Exception as e:
-        log_universal('ERROR', 'Audio', f'Unexpected error loading half track {os.path.basename(audio_path)}: {e}')
+        log_universal('ERROR', 'Audio', f'Unexpected error loading multi-segments {os.path.basename(audio_path)}: {e}')
         return None, None
 
-def clean_numpy_array(arr: np.ndarray) -> np.ndarray:
-    """Clean numpy array by replacing NaN and Inf values with zeros."""
-    if arr is None:
-        return np.array([])
+
+def load_optimized_segment(audio_path: str, sample_rate: int = 44100, config: Dict[str, Any] = None, processing_mode: str = 'parallel') -> Tuple[Optional[np.ndarray], Optional[int]]:
+    """
+    Load optimized audio segments (3x30 seconds) for comprehensive analysis.
+    This provides sufficient data for accurate feature extraction while reducing memory usage.
     
-    # Replace NaN and Inf values with 0
-    arr_clean = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
-    
-    # Ensure array is finite
-    if not np.all(np.isfinite(arr_clean)):
-        arr_clean = np.zeros_like(arr_clean)
-    
-    return arr_clean
+    Args:
+        audio_path: Path to audio file
+        sample_rate: Target sample rate
+        config: Configuration dictionary
+        processing_mode: Processing mode ('parallel' or 'sequential')
+        
+    Returns:
+        Tuple of (audio_data, sample_rate) or (None, None) on failure
+    """
+    # Use the new multi-segment extraction function
+    return extract_multiple_segments(audio_path, sample_rate, config, processing_mode)
