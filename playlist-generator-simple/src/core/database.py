@@ -195,7 +195,12 @@ class DatabaseManager:
                         
                     # Create column name
                     column_name = f"{prefix}_{key}" if prefix else key
-                    column_name = column_name.replace('.', '_').replace('-', '_')
+                    column_name = column_name.replace('.', '_').replace('-', '_').lower()
+                    
+                    # Skip reserved SQLite keywords
+                    reserved_keywords = {'index', 'order', 'group', 'table', 'select', 'where', 'from'}
+                    if column_name in reserved_keywords:
+                        column_name = f"feature_{column_name}"
                     
                     # Determine SQLite type
                     if isinstance(value, (int, float, str, bool)):
@@ -250,7 +255,12 @@ class DatabaseManager:
                     continue
                     
                 column_name = f"{prefix}_{key}" if prefix else key
-                column_name = column_name.replace('.', '_').replace('-', '_')
+                column_name = column_name.replace('.', '_').replace('-', '_').lower()
+                
+                # Skip reserved SQLite keywords
+                reserved_keywords = {'index', 'order', 'group', 'table', 'select', 'where', 'from'}
+                if column_name in reserved_keywords:
+                    column_name = f"feature_{column_name}"
                 
                 if isinstance(value, dict):
                     flattened.update(flatten_features(value, column_name))
@@ -320,6 +330,20 @@ class DatabaseManager:
                 if advanced_cache:
                     cache_data.update(advanced_cache)
                 
+                # Also check for analysis result cache
+                analysis_cache = self.get_cache(f"analysis_{file_path}")
+                if analysis_cache and isinstance(analysis_cache, dict):
+                    # Extract features from analysis result
+                    if 'features' in analysis_cache:
+                        features = analysis_cache['features']
+                        if isinstance(features, dict):
+                            # Flatten nested features
+                            for feature_type, feature_data in features.items():
+                                if isinstance(feature_data, dict):
+                                    cache_data.update(feature_data)
+                                else:
+                                    cache_data[f"{feature_type}_data"] = feature_data
+                
                 if not cache_data:
                     log_universal('WARNING', 'Database', f'No cached data found for {file_path}')
                     return False
@@ -352,11 +376,20 @@ class DatabaseManager:
                     """, values + [datetime.now(), file_path])
                     log_universal('INFO', 'Database', f'Updated track with {len(column_names)} dynamic columns: {file_path}')
                 else:
-                    # INSERT new track
+                    # INSERT new track with basic required fields
+                    basic_columns = ['file_path', 'filename', 'file_size_bytes', 'created_at', 'updated_at']
+                    basic_values = [file_path, os.path.basename(file_path), 0, datetime.now(), datetime.now()]
+                    
+                    # Add dynamic columns
+                    all_columns = basic_columns + column_names
+                    all_values = basic_values + values
+                    all_placeholders = ', '.join(['?' for _ in all_columns])
+                    all_column_list = ', '.join(all_columns)
+                    
                     cursor.execute(f"""
-                        INSERT INTO tracks (file_path, {column_list}, created_at, updated_at)
-                        VALUES (?, {placeholders}, ?, ?)
-                    """, [file_path] + values + [datetime.now(), datetime.now()])
+                        INSERT INTO tracks ({all_column_list})
+                        VALUES ({all_placeholders})
+                    """, all_values)
                     log_universal('INFO', 'Database', f'Inserted track with {len(column_names)} dynamic columns: {file_path}')
                 
                 conn.commit()
@@ -458,6 +491,51 @@ class DatabaseManager:
                 
         except Exception as e:
             log_universal('ERROR', 'Database', f'Migration failed: {e}')
+            return {'error': str(e)}
+
+    def get_schema_info(self) -> Dict[str, Any]:
+        """
+        Get information about the current database schema.
+        
+        Returns:
+            Dictionary with schema information
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get table information
+                cursor.execute("PRAGMA table_info(tracks)")
+                columns = cursor.fetchall()
+                
+                # Get table statistics
+                cursor.execute("SELECT COUNT(*) FROM tracks")
+                track_count = cursor.fetchone()[0]
+                
+                # Get column statistics
+                column_stats = {}
+                for col in columns:
+                    col_name = col[1]
+                    col_type = col[2]
+                    
+                    # Count non-null values
+                    cursor.execute(f"SELECT COUNT(*) FROM tracks WHERE {col_name} IS NOT NULL")
+                    non_null_count = cursor.fetchone()[0]
+                    
+                    column_stats[col_name] = {
+                        'type': col_type,
+                        'non_null_count': non_null_count,
+                        'null_percentage': ((track_count - non_null_count) / track_count * 100) if track_count > 0 else 0
+                    }
+                
+                return {
+                    'total_tracks': track_count,
+                    'total_columns': len(columns),
+                    'columns': column_stats
+                }
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to get schema info: {e}')
             return {'error': str(e)}
 
     @log_function_call
