@@ -307,9 +307,15 @@ class TagMapper:
         sorted_mappings = sorted(self.mappings, key=lambda x: x.priority, reverse=True)
         
         for mapping in sorted_mappings:
-            # Check if this mutagen key exists in the tags
-            if mapping.mutagen_key in mutagen_tags:
-                value = mutagen_tags[mapping.mutagen_key]
+            # Check if this mutagen key exists in the tags (case-insensitive)
+            found_key = None
+            for tag_key in mutagen_tags.keys():
+                if tag_key.lower() == mapping.mutagen_key.lower():
+                    found_key = tag_key
+                    break
+            
+            if found_key:
+                value = mutagen_tags[found_key]
                 
                 # Skip if already processed (higher priority mapping took precedence)
                 if mapping.standard_key in processed_keys:
@@ -322,7 +328,7 @@ class TagMapper:
                     processed_keys.add(mapping.standard_key)
                     
                     log_universal('DEBUG', 'TagMapper', 
-                                f'Mapped {mapping.mutagen_key} -> {mapping.standard_key}: {processed_value}')
+                                f'Mapped {found_key} -> {mapping.standard_key}: {processed_value}')
             else:
                 # Debug: log when a mapping key is not found
                 if mapping.priority <= 2:  # Only log high priority mappings to avoid spam
@@ -354,6 +360,34 @@ class TagMapper:
                         log_universal('DEBUG', 'TagMapper', f'Extracted ReplayGain {custom_key} -> {standard_key}: {float_value}')
                     except (ValueError, TypeError):
                         log_universal('WARNING', 'TagMapper', f'Failed to convert ReplayGain {custom_key}: {value}')
+        
+        # Fallback: try to map unknown tags to common fields
+        if not mapped_metadata:
+            log_universal('DEBUG', 'TagMapper', 'No standard mappings found, trying fallback mappings')
+            fallback_mappings = {
+                'artist': ['artist', 'ARTIST', 'Artist', 'ARTISTNAME', 'PERFORMER'],
+                'title': ['title', 'TITLE', 'Title', 'TRACKNAME', 'NAME'],
+                'album': ['album', 'ALBUM', 'Album', 'ALBUMNAME'],
+                'year': ['year', 'YEAR', 'Year', 'DATE', 'date'],
+                'genre': ['genre', 'GENRE', 'Genre', 'STYLE', 'style'],
+                'track_number': ['track', 'TRACK', 'Track', 'TRACKNUMBER', 'tracknumber'],
+                'disc_number': ['disc', 'DISC', 'Disc', 'DISCNUMBER', 'discnumber'],
+                'composer': ['composer', 'COMPOSER', 'Composer', 'WRITER'],
+                'bpm': ['bpm', 'BPM', 'Bpm', 'TEMPO', 'tempo'],
+                'key': ['key', 'KEY', 'Key', 'MUSICALKEY'],
+                'rating': ['rating', 'RATING', 'Rating', 'SCORE']
+            }
+            
+            for standard_key, possible_keys in fallback_mappings.items():
+                if standard_key not in mapped_metadata:
+                    for possible_key in possible_keys:
+                        if possible_key in mutagen_tags:
+                            value = mutagen_tags[possible_key]
+                            processed_value = self._process_value(value, TagMapping(possible_key, standard_key, 'Fallback mapping'))
+                            if processed_value is not None:
+                                mapped_metadata[standard_key] = processed_value
+                                log_universal('DEBUG', 'TagMapper', f'Fallback mapped {possible_key} -> {standard_key}: {processed_value}')
+                                break
         
         log_universal('INFO', 'TagMapper', f'Mapped {len(mapped_metadata)} standard fields from {len(mutagen_tags)} raw tags')
         return mapped_metadata

@@ -290,6 +290,11 @@ class AudioAnalyzer:
             
             # Save metadata to database
             if metadata:
+                # Debug: Log final metadata before saving
+                log_universal('DEBUG', 'Audio', '=== FINAL METADATA BEFORE SAVING ===')
+                for key, value in metadata.items():
+                    log_universal('DEBUG', 'Audio', f'Final metadata: {key} = "{value}"')
+                
                 self.db_manager.save_metadata(file_path, metadata)
                 log_universal('INFO', 'Audio', f'Metadata saved to database: {metadata.get("artist", "Unknown")} - {metadata.get("title", "Unknown")}')
             
@@ -570,6 +575,8 @@ class AudioAnalyzer:
                     tags_dict = {}
                     log_universal('DEBUG', 'Audio', f'Processing {len(audio_file.tags)} raw mutagen tags')
                     
+                    # Log all raw mutagen tags for debugging
+                    log_universal('DEBUG', 'Audio', '=== RAW MUTAGEN TAGS ===')
                     for key, value in audio_file.tags.items():
                         # Limit tag value size to prevent memory issues
                         if isinstance(value, str) and len(value) > 1000:
@@ -586,6 +593,11 @@ class AudioAnalyzer:
                     # Map tags using the enhanced mapper
                     mapped_metadata = tag_mapper.map_tags(tags_dict)
                     metadata.update(mapped_metadata)
+                    
+                    # Debug: Log what was extracted
+                    log_universal('DEBUG', 'Audio', '=== EXTRACTED METADATA ===')
+                    for key, value in metadata.items():
+                        log_universal('DEBUG', 'Audio', f'Extracted: {key} = {value}')
                     
                     # Log successful extraction
                     if metadata.get('artist') and metadata.get('title'):
@@ -626,6 +638,10 @@ class AudioAnalyzer:
             filename = os.path.basename(file_path)
             name_without_ext = os.path.splitext(filename)[0]
             
+            log_universal('DEBUG', 'Audio', f'=== FILENAME EXTRACTION ===')
+            log_universal('DEBUG', 'Audio', f'Filename: "{filename}"')
+            log_universal('DEBUG', 'Audio', f'Name without extension: "{name_without_ext}"')
+            
             metadata = {}
             
             # Method 1: Try "Artist - Title" format (most common)
@@ -634,6 +650,8 @@ class AudioAnalyzer:
                 if len(parts) == 2:
                     metadata['artist'] = parts[0].strip()
                     metadata['title'] = parts[1].strip()
+                    log_universal('DEBUG', 'Audio', f'Extracted artist: "{metadata["artist"]}"')
+                    log_universal('DEBUG', 'Audio', f'Extracted title: "{metadata["title"]}"')
                     log_universal('INFO', 'Audio', f'Extracted from filename pattern: {metadata["artist"]} - {metadata["title"]}')
                     return metadata
             
@@ -3499,6 +3517,13 @@ class AudioAnalyzer:
         try:
             from .external_apis import get_enhanced_metadata_enrichment_service
             
+            # Debug: Log what we're sending to external APIs
+            log_universal('DEBUG', 'Audio', '=== EXTERNAL API ENRICHMENT ===')
+            log_universal('DEBUG', 'Audio', f'Artist being sent to APIs: "{metadata.get("artist", "Unknown")}"')
+            log_universal('DEBUG', 'Audio', f'Title being sent to APIs: "{metadata.get("title", "Unknown")}"')
+            log_universal('DEBUG', 'Audio', f'Album being sent to APIs: "{metadata.get("album", "Unknown")}"')
+            log_universal('DEBUG', 'Audio', f'Genre being sent to APIs: "{metadata.get("genre", "Unknown")}"')
+            
             enrichment_service = get_enhanced_metadata_enrichment_service()
             if enrichment_service.is_available():
                 log_universal('DEBUG', 'Audio', 'Enriching metadata with external APIs')
@@ -3509,6 +3534,12 @@ class AudioAnalyzer:
                 original_title = metadata.get('title', 'Unknown')
                 enriched_artist = enriched_metadata.get('artist', original_artist)
                 enriched_title = enriched_metadata.get('title', original_title)
+                
+                # Debug: Log the enrichment results
+                log_universal('DEBUG', 'Audio', f'Original artist: "{original_artist}"')
+                log_universal('DEBUG', 'Audio', f'Original title: "{original_title}"')
+                log_universal('DEBUG', 'Audio', f'Enriched artist: "{enriched_artist}"')
+                log_universal('DEBUG', 'Audio', f'Enriched title: "{enriched_title}"')
                 
                 if enriched_artist != original_artist or enriched_title != original_title:
                     log_universal('INFO', 'Audio', f'External API enrichment successful: {original_artist} - {original_title} → {enriched_artist} - {enriched_title}')
