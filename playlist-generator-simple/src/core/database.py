@@ -8,7 +8,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  # Disable GPU to avoid GPU-related wa
 import time
 import sys
 import shutil
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta
 from pathlib import Path
 from contextlib import contextmanager
@@ -330,6 +330,16 @@ class DatabaseManager:
                 if advanced_cache:
                     cache_data.update(advanced_cache)
                 
+                # Get external API enrichment data
+                external_cache = self.get_cache(f"external_{file_path}")
+                if external_cache:
+                    cache_data.update(external_cache)
+                
+                # Get comprehensive categorization data
+                categorization_cache = self.get_cache(f"categorization_{file_path}")
+                if categorization_cache:
+                    cache_data.update(categorization_cache)
+                
                 # Also check for analysis result cache
                 analysis_cache = self.get_cache(f"analysis_{file_path}")
                 if analysis_cache and isinstance(analysis_cache, dict):
@@ -343,6 +353,18 @@ class DatabaseManager:
                                     cache_data.update(feature_data)
                                 else:
                                     cache_data[f"{feature_type}_data"] = feature_data
+                    
+                    # Extract metadata from analysis result
+                    if 'metadata' in analysis_cache:
+                        metadata = analysis_cache['metadata']
+                        if isinstance(metadata, dict):
+                            cache_data.update(metadata)
+                    
+                    # Extract external API data
+                    if 'external_api_data' in analysis_cache:
+                        external_data = analysis_cache['external_api_data']
+                        if isinstance(external_data, dict):
+                            cache_data.update(external_data)
                 
                 if not cache_data:
                     log_universal('WARNING', 'Database', f'No cached data found for {file_path}')
