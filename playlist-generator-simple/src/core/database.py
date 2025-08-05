@@ -1920,12 +1920,45 @@ class DatabaseManager:
                 genre = metadata.get('genre') if metadata else None
                 duration = metadata.get('duration')
                 
-                # Update existing record or create new one with all required fields
+                # Extract technical metadata
+                bitrate = metadata.get('bitrate') if metadata else None
+                sample_rate = metadata.get('sample_rate') if metadata else None
+                channels = metadata.get('channels') if metadata else None
+                
+                # Extract external API data
+                musicbrainz_id = metadata.get('musicbrainz_id') if metadata else None
+                musicbrainz_artist_id = metadata.get('musicbrainz_artist_id') if metadata else None
+                musicbrainz_album_id = metadata.get('musicbrainz_album_id') if metadata else None
+                discogs_id = metadata.get('discogs_id') if metadata else None
+                spotify_id = metadata.get('spotify_id') if metadata else None
+                release_date = metadata.get('release_date') if metadata else None
+                disc_number = metadata.get('disc_number') if metadata else None
+                duration_ms = metadata.get('duration_ms') if metadata else None
+                play_count = metadata.get('play_count') if metadata else None
+                listeners = metadata.get('listeners') if metadata else None
+                rating = metadata.get('rating') if metadata else None
+                popularity = metadata.get('popularity') if metadata else None
+                url = metadata.get('url') if metadata else None
+                image_url = metadata.get('image_url') if metadata else None
+                enrichment_sources = metadata.get('enrichment_sources') if metadata else None
+                
+                # Convert enrichment_sources to JSON if it's a list
+                if isinstance(enrichment_sources, list):
+                    import json
+                    enrichment_sources = json.dumps(enrichment_sources)
+                
+                # Update existing record or create new one with all required fields including technical metadata and external API data
                 cursor.execute("""
                     INSERT OR REPLACE INTO tracks 
-                    (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration))
+                    (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration, 
+                     bitrate, sample_rate, channels, musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id,
+                     discogs_id, spotify_id, release_date, disc_number, duration_ms, play_count, listeners,
+                     rating, popularity, url, image_url, enrichment_sources, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration,
+                      bitrate, sample_rate, channels, musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id,
+                      discogs_id, spotify_id, release_date, disc_number, duration_ms, play_count, listeners,
+                      rating, popularity, url, image_url, enrichment_sources))
                 
                 conn.commit()
                 return True
@@ -1950,12 +1983,19 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Convert features to JSON for storage
+                import json
+                rhythm_features_json = json.dumps(features.get('rhythm', {})) if features.get('rhythm') else None
+                spectral_features_json = json.dumps(features.get('spectral', {})) if features.get('spectral') else None
+                mfcc_features_json = json.dumps(features.get('mfcc', {})) if features.get('mfcc') else None
+                
                 # Extract key features and update tracks table
                 cursor.execute("""
                     UPDATE tracks 
                     SET bpm = ?, rhythm_confidence = ?, spectral_centroid = ?, 
                         spectral_flatness = ?, spectral_rolloff = ?, loudness = ?,
                         key = ?, scale = ?, danceability = ?, energy = ?,
+                        rhythm_features = ?, spectral_features = ?, mfcc_features = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE file_path = ?
                 """, (
@@ -1969,6 +2009,9 @@ class DatabaseManager:
                     features.get('scale'),
                     features.get('danceability'),
                     features.get('energy'),
+                    rhythm_features_json,
+                    spectral_features_json,
+                    mfcc_features_json,
                     file_path
                 ))
                 
@@ -1998,17 +2041,19 @@ class DatabaseManager:
                 # Convert features to JSON for storage
                 embedding_json = json.dumps(features.get('embedding', []))
                 tags_json = json.dumps(features.get('tags', {}))
+                musicnn_features_json = json.dumps(features) if features else None
                 
                 # Update tracks table with MusicNN features
                 cursor.execute("""
                     UPDATE tracks 
-                    SET embedding = ?, tags = ?, musicnn_skipped = ?,
+                    SET embedding = ?, tags = ?, musicnn_skipped = ?, musicnn_features = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE file_path = ?
                 """, (
                     embedding_json,
                     tags_json,
                     features.get('musicnn_skipped', 0),
+                    musicnn_features_json,
                     file_path
                 ))
                 
@@ -2085,6 +2130,10 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Convert features to JSON for storage
+                import json
+                spotify_features_json = json.dumps(features) if features else None
+                
                 # Update the tracks table with Spotify-style features
                 cursor.execute("""
                     UPDATE tracks SET
@@ -2096,6 +2145,7 @@ class DatabaseManager:
                         speechiness = ?,
                         valence = ?,
                         liveness = ?,
+                        spotify_features = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE file_path = ?
                 """, (
@@ -2107,6 +2157,7 @@ class DatabaseManager:
                     features.get('speechiness', 0.0),
                     features.get('valence', 0.0),
                     features.get('liveness', 0.0),
+                    spotify_features_json,
                     file_path
                 ))
                 
