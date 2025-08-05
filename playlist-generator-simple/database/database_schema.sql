@@ -48,6 +48,8 @@ CREATE TABLE tracks (
     valence REAL,
     acousticness REAL,
     instrumentalness REAL,
+    speechiness REAL,
+    liveness REAL,
     
     -- Rhythm features (Essentia)
     rhythm_confidence REAL,
@@ -193,6 +195,8 @@ CREATE INDEX idx_tracks_key ON tracks(key);
 CREATE INDEX idx_tracks_energy ON tracks(energy);
 CREATE INDEX idx_tracks_danceability ON tracks(danceability);
 CREATE INDEX idx_tracks_analysis_date ON tracks(analysis_date);
+CREATE INDEX idx_tracks_speechiness ON tracks(speechiness);
+CREATE INDEX idx_tracks_liveness ON tracks(liveness);
 
 -- Composite indexes for common queries
 CREATE INDEX idx_tracks_genre_year ON tracks(genre, year);
