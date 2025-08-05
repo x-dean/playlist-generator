@@ -396,7 +396,7 @@ class DatabaseManager:
                     # Add dynamic columns
                     all_columns = basic_columns + column_names
                     all_values = basic_values + values
-                    all_placeholders = ', '.join(['?' for _ in all_columns])
+                    all_placeholders = ', '.join(['?' for _ in all_values])  # Use actual values count
                     all_column_list = ', '.join(all_columns)
                     
                     cursor.execute(f"""
