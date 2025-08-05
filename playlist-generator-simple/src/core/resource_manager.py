@@ -344,8 +344,8 @@ class ResourceManager:
         
         try:
             # Clean up old cache entries
-            from .database import DatabaseManager
-            db_manager = DatabaseManager()
+            from .database import DatabaseManager, get_db_manager
+db_manager = get_db_manager()
             cleaned_count = db_manager.cleanup_cache()
             log_universal('INFO', 'Resource', f"Cleaned up {cleaned_count} cache entries")
             

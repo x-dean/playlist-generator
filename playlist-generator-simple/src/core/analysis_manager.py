@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Import local modules
-from .database import DatabaseManager
+from .database import DatabaseManager, get_db_manager
 from .logging_setup import get_logger, log_function_call, log_universal
 from .file_discovery import FileDiscovery
 
@@ -50,7 +50,7 @@ class AnalysisManager:
             db_manager: Database manager instance (creates new one if None)
             config: Configuration dictionary (uses global config if None)
         """
-        self.db_manager = db_manager or DatabaseManager()
+        self.db_manager = db_manager or get_db_manager()
         
         # Load configuration
         if config is None:

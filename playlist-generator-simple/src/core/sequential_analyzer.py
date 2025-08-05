@@ -21,7 +21,7 @@ from typing import List, Dict, Any, Optional, Tuple, Iterator
 from datetime import datetime
 
 # Import local modules
-from .database import DatabaseManager
+from .database import DatabaseManager, get_db_manager
 from .logging_setup import get_logger, log_function_call, log_universal
 from .resource_manager import ResourceManager
 
@@ -65,10 +65,10 @@ def _worker_process_function(file_path: str, force_reextract: bool, timeout_seco
         
         # Import required modules in worker process
         from .audio_analyzer import AudioAnalyzer
-        from .database import DatabaseManager
+        from .database import DatabaseManager, get_db_manager
         
         # Initialize components
-        db_manager = DatabaseManager()
+        db_manager = get_db_manager()
         analyzer = AudioAnalyzer(config=config, processing_mode='sequential')
         
         # Process file
@@ -144,7 +144,7 @@ class SequentialAnalyzer:
             memory_threshold_percent: Memory threshold percentage
             rss_limit_gb: RSS memory limit in GB
         """
-        self.db_manager = db_manager or DatabaseManager()
+        self.db_manager = db_manager or get_db_manager()
         self.resource_manager = resource_manager or ResourceManager()
         
         # Analysis settings
@@ -448,12 +448,12 @@ def process_file_isolated(file_path: str, force_reextract: bool = False) -> dict
         # Import required modules with proper error handling
         try:
             from core.audio_analyzer import AudioAnalyzer
-            from core.database import DatabaseManager
+            from core.database import DatabaseManager, get_db_manager
         except ImportError as e:
             return {'success': False, 'error': f'Import error: {e}'}
         
         # Initialize components
-        db_manager = DatabaseManager()
+        db_manager = get_db_manager()
         analyzer = AudioAnalyzer(processing_mode='sequential')
         
         # Process file

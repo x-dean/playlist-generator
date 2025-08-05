@@ -20,7 +20,7 @@ from collections import defaultdict
 
 # Import local modules
 from .logging_setup import get_logger, log_function_call, log_universal
-from .database import DatabaseManager
+from .database import DatabaseManager, get_db_manager
 
 logger = get_logger('playlista.playlist_generator')
 
@@ -114,7 +114,7 @@ class PlaylistGenerator:
         self.diversity_threshold = config.get('DIVERSITY_THRESHOLD', DEFAULT_DIVERSITY_THRESHOLD)
         
         # Initialize database manager
-        self.db_manager = DatabaseManager()
+        self.db_manager = get_db_manager()
         
         # Initialize generation methods
         self._init_generation_methods()

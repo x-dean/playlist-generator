@@ -31,7 +31,7 @@ from ..application.use_cases import AnalyzeTrackUseCase, ImportTracksUseCase, Ge
 from ..infrastructure.container import get_container
 from ..infrastructure.monitoring import get_metrics_collector, get_performance_monitor
 from ..domain.exceptions import DomainException, TrackNotFoundException, AnalysisFailedException
-from ..core.database import DatabaseManager
+from ..core.database import DatabaseManager, get_db_manager
 from ..core.async_audio_processor import get_async_audio_processor
 from ..core.professional_logging import get_logger, LogCategory, LogLevel
 
@@ -64,7 +64,7 @@ def get_monitor_dependency():
 
 def get_database_manager():
     """Dependency to get database manager."""
-    return DatabaseManager()
+    return get_db_manager()
 
 
 @router.post("/tracks/analyze", response_model=AnalysisResultResponse)

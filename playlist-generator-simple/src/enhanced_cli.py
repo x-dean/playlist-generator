@@ -22,7 +22,7 @@ from typing import Dict, List, Any, Optional
 from core.analysis_manager import AnalysisManager
 from core.resource_manager import ResourceManager
 from core.audio_analyzer import AudioAnalyzer
-from core.database import DatabaseManager
+from core.database import DatabaseManager, get_db_manager
 from core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
 from core.logging_setup import get_logger, setup_logging, log_universal
 from core.config_loader import config_loader
@@ -103,7 +103,7 @@ class EnhancedCLI:
         
         # Use local database path for development
         db_path = os.path.join(os.path.dirname(__file__), '..', 'cache', 'playlista.db')
-        self.db_manager = DatabaseManager(db_path=db_path)
+        self.db_manager = get_db_manager()
         
         # Pass the database manager to other components
         self.analysis_manager = AnalysisManager(db_manager=self.db_manager)

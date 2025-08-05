@@ -24,7 +24,7 @@ except ImportError:
     pass
 
 # Import local modules
-from .database import DatabaseManager
+from .database import DatabaseManager, get_db_manager
 from .logging_setup import get_logger, log_function_call, log_universal
 from .resource_manager import ResourceManager
 
@@ -90,7 +90,7 @@ class ParallelAnalyzer:
             config = config_loader.get_audio_analysis_config()
         
         self.config = config
-        self.db_manager = db_manager or DatabaseManager()
+        self.db_manager = db_manager or get_db_manager()
         self.resource_manager = resource_manager or ResourceManager()
         
         # Analysis settings
