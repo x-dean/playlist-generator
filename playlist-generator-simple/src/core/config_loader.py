@@ -316,7 +316,6 @@ class ConfigLoader:
         
         log_universal('INFO', 'Config', 'Loading configuration')
         log_universal('DEBUG', 'Config', "Starting configuration loading")
- preselected_choice
         
         # Start with defaults
         config = self._get_default_config()
