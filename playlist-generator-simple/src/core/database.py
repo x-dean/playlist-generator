@@ -170,6 +170,20 @@ class DatabaseManager:
                 for key, value in feature_dict.items():
                     if value is None:
                         continue
+                    
+                    # Special handling for custom_tags - store as JSON in single column
+                    if key == 'custom_tags' and isinstance(value, dict):
+                        column_name = 'custom_tags'
+                        if column_name not in existing_columns:
+                            try:
+                                cursor.execute(f"ALTER TABLE tracks ADD COLUMN {column_name} TEXT")
+                                new_columns.append(column_name)
+                                existing_columns.add(column_name)
+                                log_universal('DEBUG', 'Database', f'Added custom_tags column: {column_name}')
+                            except sqlite3.OperationalError as e:
+                                if "duplicate column name" not in str(e):
+                                    log_universal('WARNING', 'Database', f'Failed to add column {column_name}: {e}')
+                        continue  # Skip recursive processing for custom_tags
                         
                     # Create column name
                     column_name = f"{prefix}_{key}" if prefix else key
@@ -231,6 +245,11 @@ class DatabaseManager:
             for key, value in feature_dict.items():
                 if value is None:
                     continue
+                
+                # Special handling for custom_tags - store as JSON
+                if key == 'custom_tags' and isinstance(value, dict):
+                    flattened['custom_tags'] = json.dumps(value) if value else None
+                    continue  # Skip recursive processing for custom_tags
                     
                 column_name = f"{prefix}_{key}" if prefix else key
                 column_name = column_name.replace('.', '_').replace('-', '_').replace(' ', '_').replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace('{', '').replace('}', '').replace('&', 'and').replace('+', 'plus').lower()
