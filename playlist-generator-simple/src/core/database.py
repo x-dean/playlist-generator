@@ -283,12 +283,39 @@ class DatabaseManager:
                 valence = get(essentia_features, 'valence')
                 acousticness = get(essentia_features, 'acousticness')
                 instrumentalness = get(essentia_features, 'instrumentalness')
+                
+                # Convert numeric values to proper types for SQLite
+                def safe_float(value):
+                    if value is None:
+                        return None
+                    try:
+                        return float(value)
+                    except (ValueError, TypeError):
+                        return None
+                
+                bpm = safe_float(bpm)
+                loudness = safe_float(loudness)
+                energy = safe_float(energy)
+                danceability = safe_float(danceability)
+                valence = safe_float(valence)
+                acousticness = safe_float(acousticness)
+                instrumentalness = safe_float(instrumentalness)
 
                 # Extract rhythm features (Essentia)
                 rhythm_confidence = get(essentia_features, 'rhythm_confidence')
                 bpm_estimates = get(essentia_features, 'bpm_estimates')
                 bpm_intervals = get(essentia_features, 'bpm_intervals')
                 external_bpm = get(essentia_features, 'external_bpm')
+                
+                # Convert rhythm features to proper types
+                rhythm_confidence = safe_float(rhythm_confidence)
+                external_bpm = safe_float(external_bpm)
+                
+                # Convert complex types to JSON strings for SQLite
+                if bpm_estimates is not None:
+                    bpm_estimates = json.dumps(bpm_estimates) if not isinstance(bpm_estimates, str) else bpm_estimates
+                if bpm_intervals is not None:
+                    bpm_intervals = json.dumps(bpm_intervals) if not isinstance(bpm_intervals, str) else bpm_intervals
 
                 # Extract spectral features (Essentia)
                 spectral_centroid = get(essentia_features, 'spectral_centroid')
@@ -297,16 +324,33 @@ class DatabaseManager:
                 spectral_bandwidth = get(essentia_features, 'spectral_bandwidth')
                 spectral_contrast_mean = get(essentia_features, 'spectral_contrast_mean')
                 spectral_contrast_std = get(essentia_features, 'spectral_contrast_std')
+                
+                # Convert spectral features to proper types
+                spectral_centroid = safe_float(spectral_centroid)
+                spectral_flatness = safe_float(spectral_flatness)
+                spectral_rolloff = safe_float(spectral_rolloff)
+                spectral_bandwidth = safe_float(spectral_bandwidth)
+                spectral_contrast_mean = safe_float(spectral_contrast_mean)
+                spectral_contrast_std = safe_float(spectral_contrast_std)
 
                 # Extract loudness features (Essentia)
                 dynamic_complexity = get(essentia_features, 'dynamic_complexity')
                 loudness_range = get(essentia_features, 'loudness_range')
                 dynamic_range = get(essentia_features, 'dynamic_range')
+                
+                # Convert loudness features to proper types
+                dynamic_complexity = safe_float(dynamic_complexity)
+                loudness_range = safe_float(loudness_range)
+                dynamic_range = safe_float(dynamic_range)
 
                 # Extract key features (Essentia)
                 scale = get(essentia_features, 'scale')
                 key_strength = get(essentia_features, 'key_strength')
                 key_confidence = get(essentia_features, 'key_confidence')
+                
+                # Convert key features to proper types
+                key_strength = safe_float(key_strength)
+                key_confidence = safe_float(key_confidence)
 
                 # Extract MFCC features (Essentia)
                 mfcc_coefficients = get(essentia_features, 'mfcc_coefficients')
@@ -314,6 +358,18 @@ class DatabaseManager:
                 mfcc_std = get(essentia_features, 'mfcc_std')
                 mfcc_delta = get(essentia_features, 'mfcc_delta')
                 mfcc_delta2 = get(essentia_features, 'mfcc_delta2')
+                
+                # Convert complex types to JSON strings for SQLite
+                if mfcc_coefficients is not None:
+                    mfcc_coefficients = json.dumps(mfcc_coefficients) if not isinstance(mfcc_coefficients, str) else mfcc_coefficients
+                if mfcc_bands is not None:
+                    mfcc_bands = json.dumps(mfcc_bands) if not isinstance(mfcc_bands, str) else mfcc_bands
+                if mfcc_std is not None:
+                    mfcc_std = json.dumps(mfcc_std) if not isinstance(mfcc_std, str) else mfcc_std
+                if mfcc_delta is not None:
+                    mfcc_delta = json.dumps(mfcc_delta) if not isinstance(mfcc_delta, str) else mfcc_delta
+                if mfcc_delta2 is not None:
+                    mfcc_delta2 = json.dumps(mfcc_delta2) if not isinstance(mfcc_delta2, str) else mfcc_delta2
 
                 # Extract MusiCNN features
                 embedding = get(musicnn_features, 'embedding')
@@ -322,6 +378,18 @@ class DatabaseManager:
                 embedding_max = get(musicnn_features, 'embedding_max')
                 tags = get(musicnn_features, 'tags')
                 musicnn_skipped = get(analysis_data, 'musicnn_skipped', 0)
+                
+                # Convert complex types to JSON strings for SQLite
+                if embedding is not None:
+                    embedding = json.dumps(embedding) if not isinstance(embedding, str) else embedding
+                if embedding_std is not None:
+                    embedding_std = json.dumps(embedding_std) if not isinstance(embedding_std, str) else embedding_std
+                if embedding_min is not None:
+                    embedding_min = json.dumps(embedding_min) if not isinstance(embedding_min, str) else embedding_min
+                if embedding_max is not None:
+                    embedding_max = json.dumps(embedding_max) if not isinstance(embedding_max, str) else embedding_max
+                if tags is not None:
+                    tags = json.dumps(tags) if not isinstance(tags, str) else tags
 
                 # Extract chroma features (Essentia)
                 chroma_mean = get(essentia_features, 'chroma_mean')
@@ -333,6 +401,22 @@ class DatabaseManager:
                 mfcc_features = get(essentia_features, 'mfcc_features')
                 musicnn_features = get(analysis_data, 'musicnn_features')
                 spotify_features = get(essentia_features, 'spotify_features')
+                
+                # Convert complex types to JSON strings for SQLite
+                if chroma_mean is not None:
+                    chroma_mean = json.dumps(chroma_mean) if not isinstance(chroma_mean, str) else chroma_mean
+                if chroma_std is not None:
+                    chroma_std = json.dumps(chroma_std) if not isinstance(chroma_std, str) else chroma_std
+                if rhythm_features is not None:
+                    rhythm_features = json.dumps(rhythm_features) if not isinstance(rhythm_features, str) else rhythm_features
+                if spectral_features is not None:
+                    spectral_features = json.dumps(spectral_features) if not isinstance(spectral_features, str) else spectral_features
+                if mfcc_features is not None:
+                    mfcc_features = json.dumps(mfcc_features) if not isinstance(mfcc_features, str) else mfcc_features
+                if musicnn_features is not None:
+                    musicnn_features = json.dumps(musicnn_features) if not isinstance(musicnn_features, str) else musicnn_features
+                if spotify_features is not None:
+                    spotify_features = json.dumps(spotify_features) if not isinstance(spotify_features, str) else spotify_features
 
                 # Extract analysis metadata
                 analysis_type = get(analysis_data, 'analysis_type', 'full')
@@ -390,10 +474,24 @@ class DatabaseManager:
                 placeholders = ', '.join(['?' for _ in columns])
                 column_list = ', '.join(columns)
                 
+                # Ensure all values are SQLite-compatible
+                def sanitize_value(value):
+                    if value is None:
+                        return None
+                    if isinstance(value, (int, float, str)):
+                        return value
+                    if isinstance(value, (list, dict)):
+                        return json.dumps(value)
+                    if hasattr(value, 'tolist'):  # numpy arrays
+                        return json.dumps(value.tolist())
+                    return str(value)
+                
+                sanitized_values = [sanitize_value(v) for v in values]
+                
                 cursor.execute(f"""
                     INSERT OR REPLACE INTO tracks ({column_list})
                     VALUES ({placeholders})
-                """, values)
+                """, sanitized_values)
 
                 track_id = cursor.lastrowid
 
