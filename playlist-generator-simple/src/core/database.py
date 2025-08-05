@@ -102,12 +102,20 @@ class DatabaseManager:
                     log_universal('WARNING', 'Database', f"Error closing connection: {e}")
 
     def _init_database(self):
-        """Initialize database with complete schema."""
+        """Initialize database with complete schema if it doesn't exist."""
         try:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Read and execute the complete schema
+                # Check if database is empty (no tables exist)
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                existing_tables = cursor.fetchall()
+                
+                if existing_tables:
+                    log_universal('INFO', 'Database', f'Database already exists with {len(existing_tables)} tables')
+                    return True
+                
+                # Database is empty, initialize with complete schema
                 schema_file = Path(__file__).parent.parent.parent / 'database' / 'playlist_generator_schema.sql'
                 
                 if schema_file.exists():
