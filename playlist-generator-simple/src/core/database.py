@@ -366,9 +366,22 @@ class DatabaseManager:
                         if isinstance(external_data, dict):
                             cache_data.update(external_data)
                 
+                # If no cache data found, try to get data from the tracks table itself
                 if not cache_data:
-                    log_universal('WARNING', 'Database', f'No cached data found for {file_path}')
-                    return False
+                    log_universal('DEBUG', 'Database', f'No cache data found, checking tracks table for {file_path}')
+                    
+                    # Get existing track data
+                    cursor.execute("SELECT * FROM tracks WHERE file_path = ?", (file_path,))
+                    existing_track = cursor.fetchone()
+                    
+                    if existing_track:
+                        # Convert row to dict for processing
+                        track_dict = dict(existing_track)
+                        log_universal('INFO', 'Database', f'Found existing track data for {file_path}')
+                        return True  # Data already exists in tracks table
+                    else:
+                        log_universal('WARNING', 'Database', f'No cached data found for {file_path}')
+                        return False
                 
                 # Ensure all columns exist
                 available_columns = self._ensure_dynamic_columns(cursor, cache_data)
