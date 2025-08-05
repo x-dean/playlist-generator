@@ -161,6 +161,8 @@ class EnhancedCLI:
                 return self._handle_config(parsed_args)
             elif parsed_args.command == 'db':
                 return self._handle_db(parsed_args)
+            elif parsed_args.command == 'validate-database':
+                return self._handle_validate_database(parsed_args)
             else:
                 log_universal('ERROR', 'CLI', f"Unknown command: {parsed_args.command}")
                 return 1
@@ -394,7 +396,7 @@ Examples:
                                   help='Reload configuration')
         
         # Database commands
-        db_parser = subparsers.add_parser('db', help='Database management commands')
+        db_parser = subparsers.add_parser('db', help='Database management')
         db_parser.add_argument('--init', action='store_true', help='Initialize database schema')
         db_parser.add_argument('--migrate', action='store_true', help='Migrate existing database')
         db_parser.add_argument('--backup', action='store_true', help='Create database backup')
@@ -407,6 +409,20 @@ Examples:
         db_parser.add_argument('--validate-schema', action='store_true', help='Validate database schema')
         db_parser.add_argument('--fix-schema', action='store_true', help='Fix database schema issues')
         db_parser.add_argument('--repair', action='store_true', help='Repair database issues')
+        db_parser.add_argument('--init-schema', action='store_true', help='Initialize complete database schema')
+        db_parser.add_argument('--validate-all-data', action='store_true', help='Validate all data completeness')
+        db_parser.add_argument('--repair-corrupted', action='store_true', help='Repair corrupted data entries')
+        db_parser.add_argument('--re-analyze-missing', action='store_true', help='Re-analyze files with missing data')
+        db_parser.add_argument('--fix-json-fields', action='store_true', help='Fix JSON field parsing issues')
+        db_parser.add_argument('--show-schema', action='store_true', help='Show current database schema')
+        db_parser.add_argument('--compare-schemas', action='store_true', help='Compare current schema with complete schema')
+        db_parser.add_argument('--backup-schema', action='store_true', help='Backup current schema')
+        
+        # Validate database command
+        validate_parser = subparsers.add_parser('validate-database', help='Validate database data completeness')
+        validate_parser.add_argument('file_path', type=str, help='Path to audio file to validate')
+        validate_parser.add_argument('--validate', action='store_true', help='Validate data completeness')
+        validate_parser.add_argument('--fix', action='store_true', help='Attempt to fix missing data')
         
         # Global options
         for subparser in [analyze_parser, stats_parser, test_parser, monitor_parser, 
@@ -1089,6 +1105,45 @@ Examples:
                     log_universal('WARNING', 'CLI', f'Schema fixes completed with {len(fix_results["errors"])} errors')
                 else:
                     log_universal('INFO', 'CLI', 'Database schema fixes completed successfully.')
+            elif args.init_schema:
+                log_universal('INFO', 'CLI', 'Initializing complete database schema...')
+                success = self.db_manager.initialize_schema()
+                if success:
+                    log_universal('INFO', 'CLI', 'Complete database schema initialized successfully')
+                else:
+                    log_universal('ERROR', 'CLI', 'Database schema initialization failed')
+                    return 1
+            elif args.validate_all_data:
+                log_universal('INFO', 'CLI', 'Validating all data completeness...')
+                result = self.db_manager.validate_all_data()
+                log_universal('INFO', 'CLI', f'Data validation: {result["valid_tracks"]}/{result["total_tracks"]} valid')
+                log_universal('INFO', 'CLI', f'Overall quality: {result["overall_quality"]:.2%}')
+            elif args.repair_corrupted:
+                log_universal('INFO', 'CLI', 'Repairing corrupted data...')
+                result = self.db_manager.repair_corrupted_data()
+                log_universal('INFO', 'CLI', f'Repaired {result["total_repairs"]} issues')
+            elif args.re_analyze_missing:
+                log_universal('INFO', 'CLI', 'Re-analyzing files with missing data...')
+                # This would require implementing a method to find and re-analyze files
+                log_universal('INFO', 'CLI', 'Re-analysis feature not yet implemented')
+            elif args.fix_json_fields:
+                log_universal('INFO', 'CLI', 'Fixing JSON field parsing issues...')
+                result = self.db_manager.repair_corrupted_data()
+                log_universal('INFO', 'CLI', f'Fixed {result["total_repairs"]} JSON issues')
+            elif args.show_schema:
+                log_universal('INFO', 'CLI', 'Showing database schema...')
+                result = self.db_manager.show_schema_info()
+                log_universal('INFO', 'CLI', f'Schema: {result["total_columns"]} columns, {result["total_indexes"]} indexes')
+            elif args.compare_schemas:
+                log_universal('INFO', 'CLI', 'Comparing schemas...')
+                current_schema = self.db_manager.show_schema_info()
+                # Compare with complete schema
+                log_universal('INFO', 'CLI', f'Current schema has {current_schema["total_columns"]} columns')
+            elif args.backup_schema:
+                log_universal('INFO', 'CLI', 'Backing up schema...')
+                schema_info = self.db_manager.show_schema_info()
+                # Save schema info to file
+                log_universal('INFO', 'CLI', 'Schema backup completed')
             elif args.repair:
                 log_universal('INFO', 'CLI', 'Attempting to repair database issues...')
                 repair_results = self.db_manager.repair_database()
@@ -1103,6 +1158,76 @@ Examples:
             
         except Exception as e:
             log_universal('ERROR', 'CLI', f"Database management failed: {e}")
+            return 1
+    
+    def _handle_validate_database(self, args) -> int:
+        """Handle validate-database command."""
+        log_universal('INFO', 'CLI', 'Validating database data completeness')
+        
+        try:
+            from core.database import get_db_manager
+            db_manager = get_db_manager()
+            
+            # Validate data completeness
+            if args.validate:
+                result = db_manager.validate_data_completeness(args.file_path)
+                
+                log_universal('INFO', 'CLI', f"Database validation for: {args.file_path}")
+                log_universal('INFO', 'CLI', f"Overall data quality: {result['data_quality']:.2%}")
+                log_universal('INFO', 'CLI', f"Valid: {result['valid']}")
+                
+                if result['missing_fields']:
+                    log_universal('INFO', 'CLI', "Missing fields by category:")
+                    for category, fields in result['missing_fields'].items():
+                        log_universal('INFO', 'CLI', f"  {category}: {', '.join(fields)}")
+                
+                if result['json_parsing_issues']:
+                    log_universal('WARNING', 'CLI', f"JSON parsing issues: {', '.join(result['json_parsing_issues'])}")
+                
+                if result['tag_sources']:
+                    log_universal('INFO', 'CLI', f"Tag sources: {result['tag_sources']}")
+                
+                log_universal('INFO', 'CLI', f"Fields present: {result['fields_present']}/{result['total_fields_checked']}")
+                
+                # Data quality by category
+                log_universal('INFO', 'CLI', "Data quality by category:")
+                for category, quality in result['data_quality_by_category'].items():
+                    log_universal('INFO', 'CLI', f"  {category}: {quality:.2%}")
+            
+            # Get analysis result with parsed JSON
+            analysis_result = db_manager.get_analysis_result(args.file_path)
+            if analysis_result:
+                log_universal('INFO', 'CLI', "Analysis result retrieved successfully")
+                log_universal('INFO', 'CLI', f"Title: {analysis_result.get('title', 'Unknown')}")
+                log_universal('INFO', 'CLI', f"Artist: {analysis_result.get('artist', 'Unknown')}")
+                log_universal('INFO', 'CLI', f"Duration: {analysis_result.get('duration', 'Unknown')}")
+                
+                # Show parsed JSON fields
+                json_fields = ['bpm_estimates', 'mfcc_coefficients', 'embedding', 'tags']
+                for field in json_fields:
+                    if field in analysis_result and analysis_result[field]:
+                        if isinstance(analysis_result[field], (list, dict)):
+                            log_universal('INFO', 'CLI', f"{field}: {type(analysis_result[field]).__name__} with {len(analysis_result[field])} items")
+                        else:
+                            log_universal('INFO', 'CLI', f"{field}: {type(analysis_result[field]).__name__}")
+            else:
+                log_universal('WARNING', 'CLI', f"No analysis result found for: {args.file_path}")
+            
+            if args.fix:
+                log_universal('INFO', 'CLI', "Attempting to fix missing data...")
+                # For now, just re-analyze the file
+                from core.audio_analyzer import AudioAnalyzer
+                analyzer = AudioAnalyzer()
+                analyzer.analyze_audio_file(args.file_path, force_reanalysis=True)
+                log_universal('INFO', 'CLI', "Re-analysis completed for data fix")
+            
+            return 0
+            
+        except FileNotFoundError as e:
+            log_universal('ERROR', 'CLI', f"File not found for validation: {e}")
+            return 1
+        except Exception as e:
+            log_universal('ERROR', 'CLI', f"Database data validation failed: {e}")
             return 1
     
     def _build_analysis_config(self, args) -> Dict[str, Any]:

@@ -45,7 +45,7 @@ WORKDIR /app
 COPY src /app/src
 COPY playlista /app/playlista
 COPY entrypoint.sh /app/entrypoint.sh
-COPY database/database_schema.sql /app/database/database_schema.sql
+COPY database/playlist_generator_schema.sql /app/database/playlist_generator_schema.sql
 COPY scripts /app/scripts
 COPY playlista.conf /app/playlista.conf
 

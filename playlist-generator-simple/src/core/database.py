@@ -102,61 +102,31 @@ class DatabaseManager:
                     log_universal('WARNING', 'Database', f"Error closing connection: {e}")
 
     def _init_database(self):
-        """Initialize schema from SQL file if needed."""
-        log_universal('INFO', 'Database', "Checking database schema...")
-
+        """Initialize database with complete schema."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with self._get_db_connection() as conn:
                 cursor = conn.cursor()
-
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tracks'")
-                if cursor.fetchone():
-                    log_universal('INFO', 'Database', "Schema already initialized.")
-                    return
-
-                # Schema path (Docker internal only)
-                schema_path = '/app/database/database_schema.sql'
-
-                schema_sql = None
-                schema_path_used = None
                 
-                if os.path.exists(schema_path):
-                    try:
-                        with open(schema_path, 'r', encoding='utf-8') as f:
-                            schema_sql = f.read()
-                        schema_path_used = schema_path
-                        log_universal('INFO', 'Database', f"Loaded schema from: {schema_path}")
-                    except Exception as e:
-                        log_universal('ERROR', 'Database', f"Failed to read schema from {schema_path}: {e}")
-                        raise
+                # Read and execute the complete schema
+                schema_file = Path(__file__).parent.parent.parent / 'database' / 'playlist_generator_schema.sql'
+                
+                if schema_file.exists():
+                    with open(schema_file, 'r') as f:
+                        schema_sql = f.read()
+                    
+                    # Execute the complete schema
+                    cursor.executescript(schema_sql)
+                    conn.commit()
+                    
+                    log_universal('INFO', 'Database', 'Complete database schema initialized successfully')
+                    return True
                 else:
-                    error_msg = f"Schema file not found at: {schema_path}"
-                    log_universal('ERROR', 'Database', error_msg)
-                    raise FileNotFoundError(error_msg)
-
-                if schema_sql:
-                    try:
-                        cursor.executescript(schema_sql)
-                        
-                        # Enable WAL mode for better performance
-                        cursor.execute("PRAGMA journal_mode=WAL")
-                        cursor.execute("PRAGMA synchronous=NORMAL")
-                        cursor.execute("PRAGMA cache_size=10000")
-                        cursor.execute("PRAGMA temp_store=MEMORY")
-                        cursor.execute("PRAGMA foreign_keys=ON")
-                        
-                        log_universal('INFO', 'Database', f"Schema initialized successfully from {schema_path_used}")
-                    except Exception as e:
-                        log_universal('ERROR', 'Database', f"Failed to execute schema: {e}")
-                        raise
-                else:
-                    error_msg = f"No valid schema file found in paths: {schema_path}"
-                    log_universal('ERROR', 'Database', error_msg)
-                    raise FileNotFoundError(error_msg)
-
+                    log_universal('ERROR', 'Database', f'Schema file not found: {schema_file}')
+                    return False
+                    
         except Exception as e:
-            log_universal('ERROR', 'Database', f"Schema initialization failed: {e}")
-            raise
+            log_universal('ERROR', 'Database', f'Database initialization failed: {e}')
+            return False
 
     def _ensure_dynamic_columns(self, cursor, features: Dict[str, Any]) -> List[str]:
         """
@@ -604,16 +574,30 @@ class DatabaseManager:
     def save_analysis_result(self, file_path: str, filename: str, file_size_bytes: int,
                              file_hash: str, analysis_data: Dict[str, Any],
                              metadata: Dict[str, Any] = None, discovery_source: str = 'file_system') -> bool:
+        """
+        Save analysis result with complete data preservation.
+        
+        Args:
+            file_path: Path to the audio file
+            filename: Just the filename
+            file_size_bytes: File size in bytes
+            file_hash: MD5 hash of the file
+            analysis_data: Complete analysis data structure
+            metadata: Additional metadata
+            discovery_source: Source of discovery
+            
+        Returns:
+            True if successful, False otherwise
+        """
         try:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 now = datetime.now()
 
+                # Extract core metadata with fallbacks
                 get = lambda d, k, default=None: d.get(k, default) if d else default
-                j = lambda k: json.dumps(get(analysis_data, k, {}))
-                jd = lambda k: json.dumps(get(analysis_data, k, {}))
-
-                # Extract core metadata
+                
+                # Core file info
                 title = get(metadata, 'title', filename)
                 artist = get(metadata, 'artist', 'Unknown')
                 album = get(metadata, 'album')
@@ -622,272 +606,72 @@ class DatabaseManager:
                 year = get(metadata, 'year')
                 duration = get(analysis_data, 'duration')
 
-                # Extract audio properties
+                # Audio properties
                 bitrate = get(metadata, 'bitrate')
                 sample_rate = get(metadata, 'sample_rate')
                 channels = get(metadata, 'channels')
 
-                # Extract additional metadata
-                composer = get(metadata, 'composer')
-                mood = get(metadata, 'mood')
-                style = get(metadata, 'style')
-
-                # Extract external API data from metadata
-                musicbrainz_id = get(metadata, 'musicbrainz_id')
-                musicbrainz_artist_id = get(metadata, 'musicbrainz_artist_id')
-                musicbrainz_album_id = get(metadata, 'musicbrainz_album_id')
-                discogs_id = get(metadata, 'discogs_id')
-                spotify_id = get(metadata, 'spotify_id')
-                release_date = get(metadata, 'release_date')
-                disc_number = get(metadata, 'disc_number')
-                duration_ms = get(metadata, 'duration_ms')
-                play_count = get(metadata, 'play_count')
-                listeners = get(metadata, 'listeners')
-                rating = get(metadata, 'rating')
-                popularity = get(metadata, 'popularity')
-                url = get(metadata, 'url')
-                image_url = get(metadata, 'image_url')
-                enrichment_sources = get(metadata, 'enrichment_sources', [])
+                # Extract all nested features dynamically
+                all_features = {}
                 
-                # Extract tags and genres from external APIs
-                external_tags = get(metadata, 'tags', [])
-                external_genres = get(metadata, 'genres', [])
+                # Extract from analysis_data structure
+                if isinstance(analysis_data, dict):
+                    # Handle nested structure: {'essentia': {...}, 'musicnn': {...}, 'metadata': {...}}
+                    for category, category_data in analysis_data.items():
+                        if isinstance(category_data, dict):
+                            all_features.update(category_data)
+                        else:
+                            all_features[category] = category_data
+                    
+                    # Also extract top-level features
+                    for key, value in analysis_data.items():
+                        if key not in ['essentia', 'musicnn', 'metadata']:
+                            all_features[key] = value
                 
-                # Extract mutagen-specific metadata
-                bitrate = get(metadata, 'bitrate')
-                sample_rate = get(metadata, 'sample_rate')
-                channels = get(metadata, 'channels')
-                encoded_by = get(metadata, 'encoded_by')
-                language = get(metadata, 'language')
-                copyright = get(metadata, 'copyright')
-                publisher = get(metadata, 'publisher')
-                original_artist = get(metadata, 'original_artist')
-                original_album = get(metadata, 'original_album')
-                original_year = get(metadata, 'original_year')
-                original_filename = get(metadata, 'original_filename')
-                content_group = get(metadata, 'content_group')
-                encoder = get(metadata, 'encoder')
-                file_type = get(metadata, 'file_type')
-                playlist_delay = get(metadata, 'playlist_delay')
-                recording_time = get(metadata, 'recording_time')
-                tempo = get(metadata, 'tempo')
-                length = get(metadata, 'length')
-                replaygain_track_gain = get(metadata, 'replaygain_track_gain')
-                replaygain_album_gain = get(metadata, 'replaygain_album_gain')
-                replaygain_track_peak = get(metadata, 'replaygain_track_peak')
-                replaygain_album_peak = get(metadata, 'replaygain_album_peak')
-                lyricist = get(metadata, 'lyricist')
-                band = get(metadata, 'band')
-                conductor = get(metadata, 'conductor')
-                remixer = get(metadata, 'remixer')
-                subtitle = get(metadata, 'subtitle')
-                grouping = get(metadata, 'grouping')
-                quality = get(metadata, 'quality')
-
-                # Extract essential audio features from nested structure
-                essentia_features = analysis_data.get('essentia', {})
-                musicnn_features = analysis_data.get('musicnn', {})
+                # Extract from metadata if provided
+                if metadata:
+                    all_features.update(metadata)
                 
-                # Extract from essentia features
-                bpm = get(essentia_features, 'bpm')
-                key = get(essentia_features, 'key')
-                mode = get(essentia_features, 'mode')
-                loudness = get(essentia_features, 'loudness')
-                energy = get(essentia_features, 'energy')
-                danceability = get(essentia_features, 'danceability')
-                valence = get(essentia_features, 'valence')
-                acousticness = get(essentia_features, 'acousticness')
-                instrumentalness = get(essentia_features, 'instrumentalness')
+                # Ensure dynamic columns exist for all features
+                available_columns = self._ensure_dynamic_columns(cursor, all_features)
                 
-                # Convert numeric values to proper types for SQLite
-                def safe_float(value):
-                    if value is None:
-                        return None
-                    try:
-                        return float(value)
-                    except (ValueError, TypeError):
-                        return None
+                # Prepare values using dynamic approach
+                column_names, values = self._prepare_dynamic_values(all_features, available_columns)
                 
-                bpm = safe_float(bpm)
-                loudness = safe_float(loudness)
-                energy = safe_float(energy)
-                danceability = safe_float(danceability)
-                valence = safe_float(valence)
-                acousticness = safe_float(acousticness)
-                instrumentalness = safe_float(instrumentalness)
-
-                # Extract rhythm features (Essentia)
-                rhythm_confidence = get(essentia_features, 'rhythm_confidence')
-                bpm_estimates = get(essentia_features, 'bpm_estimates')
-                bpm_intervals = get(essentia_features, 'bpm_intervals')
-                external_bpm = get(essentia_features, 'external_bpm')
+                # Add core fields that are always required
+                core_fields = {
+                    'file_path': file_path,
+                    'file_hash': file_hash,
+                    'filename': filename,
+                    'file_size_bytes': file_size_bytes,
+                    'analysis_date': now,
+                    'created_at': now,
+                    'updated_at': now,
+                    'status': 'analyzed',
+                    'analysis_status': 'completed',
+                    'retry_count': 0,
+                    'error_message': None,
+                    'title': title,
+                    'artist': artist,
+                    'album': album,
+                    'track_number': track_number,
+                    'genre': genre,
+                    'year': year,
+                    'duration': duration,
+                    'bitrate': bitrate,
+                    'sample_rate': sample_rate,
+                    'channels': channels
+                }
                 
-                # Convert rhythm features to proper types
-                rhythm_confidence = safe_float(rhythm_confidence)
-                external_bpm = safe_float(external_bpm)
+                # Merge core fields with dynamic features
+                for key, value in core_fields.items():
+                    if key not in column_names:
+                        column_names.append(key)
+                        values.append(value)
                 
-                # Convert complex types to JSON strings for SQLite
-                if bpm_estimates is not None:
-                    bpm_estimates = json.dumps(bpm_estimates) if not isinstance(bpm_estimates, str) else bpm_estimates
-                if bpm_intervals is not None:
-                    bpm_intervals = json.dumps(bpm_intervals) if not isinstance(bpm_intervals, str) else bpm_intervals
-
-                # Extract spectral features (Essentia)
-                spectral_centroid = get(essentia_features, 'spectral_centroid')
-                spectral_flatness = get(essentia_features, 'spectral_flatness')
-                spectral_rolloff = get(essentia_features, 'spectral_rolloff')
-                spectral_bandwidth = get(essentia_features, 'spectral_bandwidth')
-                spectral_contrast_mean = get(essentia_features, 'spectral_contrast_mean')
-                spectral_contrast_std = get(essentia_features, 'spectral_contrast_std')
-                
-                # Convert spectral features to proper types
-                spectral_centroid = safe_float(spectral_centroid)
-                spectral_flatness = safe_float(spectral_flatness)
-                spectral_rolloff = safe_float(spectral_rolloff)
-                spectral_bandwidth = safe_float(spectral_bandwidth)
-                spectral_contrast_mean = safe_float(spectral_contrast_mean)
-                spectral_contrast_std = safe_float(spectral_contrast_std)
-
-                # Extract loudness features (Essentia)
-                dynamic_complexity = get(essentia_features, 'dynamic_complexity')
-                loudness_range = get(essentia_features, 'loudness_range')
-                dynamic_range = get(essentia_features, 'dynamic_range')
-                
-                # Convert loudness features to proper types
-                dynamic_complexity = safe_float(dynamic_complexity)
-                loudness_range = safe_float(loudness_range)
-                dynamic_range = safe_float(dynamic_range)
-
-                # Extract key features (Essentia)
-                scale = get(essentia_features, 'scale')
-                key_strength = get(essentia_features, 'key_strength')
-                key_confidence = get(essentia_features, 'key_confidence')
-                
-                # Convert key features to proper types
-                key_strength = safe_float(key_strength)
-                key_confidence = safe_float(key_confidence)
-
-                # Extract MFCC features (Essentia)
-                mfcc_coefficients = get(essentia_features, 'mfcc_coefficients')
-                mfcc_bands = get(essentia_features, 'mfcc_bands')
-                mfcc_std = get(essentia_features, 'mfcc_std')
-                mfcc_delta = get(essentia_features, 'mfcc_delta')
-                mfcc_delta2 = get(essentia_features, 'mfcc_delta2')
-                
-                # Convert complex types to JSON strings for SQLite
-                if mfcc_coefficients is not None:
-                    mfcc_coefficients = json.dumps(mfcc_coefficients) if not isinstance(mfcc_coefficients, str) else mfcc_coefficients
-                if mfcc_bands is not None:
-                    mfcc_bands = json.dumps(mfcc_bands) if not isinstance(mfcc_bands, str) else mfcc_bands
-                if mfcc_std is not None:
-                    mfcc_std = json.dumps(mfcc_std) if not isinstance(mfcc_std, str) else mfcc_std
-                if mfcc_delta is not None:
-                    mfcc_delta = json.dumps(mfcc_delta) if not isinstance(mfcc_delta, str) else mfcc_delta
-                if mfcc_delta2 is not None:
-                    mfcc_delta2 = json.dumps(mfcc_delta2) if not isinstance(mfcc_delta2, str) else mfcc_delta2
-
-                # Extract MusiCNN features
-                embedding = get(musicnn_features, 'embedding')
-                embedding_std = get(musicnn_features, 'embedding_std')
-                embedding_min = get(musicnn_features, 'embedding_min')
-                embedding_max = get(musicnn_features, 'embedding_max')
-                tags = get(musicnn_features, 'tags')
-                musicnn_skipped = get(analysis_data, 'musicnn_skipped', 0)
-                
-                # Convert complex types to JSON strings for SQLite
-                if embedding is not None:
-                    embedding = json.dumps(embedding) if not isinstance(embedding, str) else embedding
-                if embedding_std is not None:
-                    embedding_std = json.dumps(embedding_std) if not isinstance(embedding_std, str) else embedding_std
-                if embedding_min is not None:
-                    embedding_min = json.dumps(embedding_min) if not isinstance(embedding_min, str) else embedding_min
-                if embedding_max is not None:
-                    embedding_max = json.dumps(embedding_max) if not isinstance(embedding_max, str) else embedding_max
-                if tags is not None:
-                    tags = json.dumps(tags) if not isinstance(tags, str) else tags
-
-                # Extract chroma features (Essentia)
-                chroma_mean = get(essentia_features, 'chroma_mean')
-                chroma_std = get(essentia_features, 'chroma_std')
-
-                # Extract extended features as JSON
-                rhythm_features = get(essentia_features, 'rhythm_features')
-                spectral_features = get(essentia_features, 'spectral_features')
-                mfcc_features = get(essentia_features, 'mfcc_features')
-                musicnn_features = get(analysis_data, 'musicnn_features')
-                spotify_features = get(essentia_features, 'spotify_features')
-                
-                # Convert complex types to JSON strings for SQLite
-                if chroma_mean is not None:
-                    chroma_mean = json.dumps(chroma_mean) if not isinstance(chroma_mean, str) else chroma_mean
-                if chroma_std is not None:
-                    chroma_std = json.dumps(chroma_std) if not isinstance(chroma_std, str) else chroma_std
-                if rhythm_features is not None:
-                    rhythm_features = json.dumps(rhythm_features) if not isinstance(rhythm_features, str) else rhythm_features
-                if spectral_features is not None:
-                    spectral_features = json.dumps(spectral_features) if not isinstance(spectral_features, str) else spectral_features
-                if mfcc_features is not None:
-                    mfcc_features = json.dumps(mfcc_features) if not isinstance(mfcc_features, str) else mfcc_features
-                if musicnn_features is not None:
-                    musicnn_features = json.dumps(musicnn_features) if not isinstance(musicnn_features, str) else musicnn_features
-                if spotify_features is not None:
-                    spotify_features = json.dumps(spotify_features) if not isinstance(spotify_features, str) else spotify_features
-
-                # Extract analysis metadata
-                analysis_type = get(analysis_data, 'analysis_type', 'full')
-                long_audio_category = get(analysis_data, 'long_audio_category')
-
-                # Prepare all values for INSERT
-                values = [
-                    file_path, file_hash, filename, file_size_bytes, now, now, now, 'analyzed', 'completed', 0, None,
-                    title, artist, album, track_number, genre, year, duration, bitrate, sample_rate, channels,
-                    bpm, key, mode, loudness, energy, danceability, valence, acousticness, instrumentalness, 0.0, 0.0,
-                    rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm,
-                    spectral_centroid, spectral_flatness, spectral_rolloff, spectral_bandwidth, spectral_contrast_mean, spectral_contrast_std,
-                    dynamic_complexity, loudness_range, dynamic_range, scale, key_strength, key_confidence,
-                    composer, mood, style,
-                    # External API data
-                    musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id, discogs_id, spotify_id,
-                    release_date, disc_number, duration_ms, play_count, listeners, rating, popularity, url, image_url,
-                    json.dumps(enrichment_sources) if enrichment_sources else None,
-                    # Mutagen metadata
-                    encoded_by, language, copyright, publisher, original_artist, original_album, original_year,
-                    original_filename, content_group, encoder, file_type, playlist_delay, recording_time, tempo, length,
-                    replaygain_track_gain, replaygain_album_gain, replaygain_track_peak, replaygain_album_peak,
-                    lyricist, band, conductor, remixer, subtitle, grouping, quality,
-                    # Analysis metadata
-                    analysis_type, long_audio_category,
-                    # Features
-                    mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2,
-                    embedding, embedding_std, embedding_min, embedding_max, tags, musicnn_skipped,
-                    chroma_mean, chroma_std, rhythm_features, spectral_features, mfcc_features, musicnn_features, spotify_features
-                ]
-
-                # Build dynamic INSERT statement with all available columns
-                columns = [
-                    'file_path', 'file_hash', 'filename', 'file_size_bytes', 'analysis_date', 'created_at', 'updated_at',
-                    'status', 'analysis_status', 'retry_count', 'error_message', 'title', 'artist', 'album', 'track_number',
-                    'genre', 'year', 'duration', 'bitrate', 'sample_rate', 'channels', 'bpm', 'key', 'mode', 'loudness',
-                    'energy', 'danceability', 'valence', 'acousticness', 'instrumentalness', 'speechiness', 'liveness',
-                    'rhythm_confidence', 'bpm_estimates', 'bpm_intervals', 'external_bpm', 'spectral_centroid',
-                    'spectral_flatness', 'spectral_rolloff', 'spectral_bandwidth', 'spectral_contrast_mean',
-                    'spectral_contrast_std', 'dynamic_complexity', 'loudness_range', 'dynamic_range', 'scale',
-                    'key_strength', 'key_confidence', 'composer', 'mood', 'style',
-                    'musicbrainz_id', 'musicbrainz_artist_id', 'musicbrainz_album_id', 'discogs_id', 'spotify_id',
-                    'release_date', 'disc_number', 'duration_ms', 'play_count', 'listeners', 'rating', 'popularity',
-                    'url', 'image_url', 'enrichment_sources', 'encoded_by', 'language', 'copyright', 'publisher',
-                    'original_artist', 'original_album', 'original_year', 'original_filename', 'content_group',
-                    'encoder', 'file_type', 'playlist_delay', 'recording_time', 'tempo', 'length',
-                    'replaygain_track_gain', 'replaygain_album_gain', 'replaygain_track_peak', 'replaygain_album_peak',
-                    'lyricist', 'band', 'conductor', 'remixer', 'subtitle', 'grouping', 'quality',
-                    'analysis_type', 'long_audio_category', 'mfcc_coefficients', 'mfcc_bands', 'mfcc_std',
-                    'mfcc_delta', 'mfcc_delta2', 'embedding', 'embedding_std', 'embedding_min', 'embedding_max',
-                    'tags', 'musicnn_skipped', 'chroma_mean', 'chroma_std', 'rhythm_features', 'spectral_features',
-                    'mfcc_features', 'musicnn_features', 'spotify_features'
-                ]
-
-                placeholders = ', '.join(['?' for _ in columns])
-                column_list = ', '.join(columns)
+                # Build INSERT statement
+                placeholders = ', '.join(['?' for _ in column_names])
+                column_list = ', '.join(column_names)
                 
                 # Ensure all values are SQLite-compatible
                 def sanitize_value(value):
@@ -915,10 +699,12 @@ class DatabaseManager:
                     self._save_tags(cursor, track_id, metadata['tags'])
                 
                 # Save external API tags if available
+                external_tags = get(metadata, 'tags', [])
+                external_genres = get(metadata, 'genres', [])
+                
                 if external_tags:
                     self._save_tags(cursor, track_id, {'external_apis': external_tags})
                 
-                # Save external API genres if available
                 if external_genres:
                     self._save_tags(cursor, track_id, {'external_genres': external_genres})
 
@@ -1467,27 +1253,68 @@ class DatabaseManager:
     # 📁 Get one track analysis result
     @log_function_call
     def get_analysis_result(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """
+        Get analysis result with parsed JSON fields.
+        
+        Args:
+            file_path: Path to the audio file
+            
+        Returns:
+            Analysis result dictionary with parsed JSON fields or None
+        """
         try:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
+                
                 cursor.execute("""
                     SELECT * FROM tracks WHERE file_path = ?
                 """, (file_path,))
-                row = cursor.fetchone()
-                if not row:
+                
+                result = cursor.fetchone()
+                if not result:
                     return None
-
-                result = dict(row)
+                
+                # Convert to dictionary
+                analysis_result = dict(result)
+                
+                # Parse JSON fields back to structured data
+                json_fields = [
+                    'bpm_estimates', 'bpm_intervals', 'mfcc_coefficients', 'mfcc_bands', 
+                    'mfcc_std', 'mfcc_delta', 'mfcc_delta2', 'embedding', 'embedding_std',
+                    'embedding_min', 'embedding_max', 'tags', 'chroma_mean', 'chroma_std',
+                    'rhythm_features', 'spectral_features', 'mfcc_features', 'musicnn_features',
+                    'spotify_features', 'enrichment_sources'
+                ]
+                
+                for field in json_fields:
+                    if field in analysis_result and analysis_result[field]:
+                        try:
+                            if isinstance(analysis_result[field], str):
+                                analysis_result[field] = json.loads(analysis_result[field])
+                        except (json.JSONDecodeError, TypeError):
+                            log_universal('WARNING', 'Database', f'Failed to parse JSON field: {field}')
+                
+                # Get tags for this track
                 cursor.execute("""
-                    SELECT source, tag_name, tag_value FROM tags WHERE track_id = ?
-                """, (row['id'],))
+                    SELECT source, tag_name, tag_value, confidence
+                    FROM tags 
+                    WHERE track_id = ?
+                """, (analysis_result['id'],))
+                
                 tags = {}
                 for tag_row in cursor.fetchall():
-                    source = tag_row['source']
-                    tags.setdefault(source, {})[tag_row['tag_name']] = tag_row['tag_value']
-                result['tags'] = tags
-                return result
-        except Exception:
+                    source = tag_row[0]
+                    if source not in tags:
+                        tags[source] = {}
+                    tags[source][tag_row[1]] = tag_row[2]
+                
+                analysis_result['tags'] = tags
+                
+                log_universal('DEBUG', 'Database', f"Retrieved analysis result for: {file_path}")
+                return analysis_result
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Failed to get analysis result: {e}")
             return None
 
     # 🧹 Delete analysis result (track + tags + playlist links)
@@ -3037,6 +2864,431 @@ class DatabaseManager:
         except Exception as e:
             log_universal('ERROR', 'Database', f"Get file tracking summary failed: {e}")
             return {}
+
+    @log_function_call
+    def validate_data_completeness(self, file_path: str) -> Dict[str, Any]:
+        """
+        Validate that all analysis data is properly stored.
+        
+        Args:
+            file_path: Path to the audio file
+            
+        Returns:
+            Dictionary with validation results
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get track data
+                cursor.execute("SELECT * FROM tracks WHERE file_path = ?", (file_path,))
+                track_data = cursor.fetchone()
+                
+                if not track_data:
+                    return {
+                        'valid': False,
+                        'error': 'Track not found in database',
+                        'missing_fields': [],
+                        'data_quality': 0.0
+                    }
+                
+                track_dict = dict(track_data)
+                
+                # Define expected fields by category
+                expected_fields = {
+                    'core': ['title', 'artist', 'album', 'duration', 'file_size_bytes'],
+                    'audio_features': ['bpm', 'key', 'mode', 'loudness', 'energy', 'danceability', 'valence'],
+                    'rhythm': ['rhythm_confidence', 'bpm_estimates', 'bpm_intervals'],
+                    'spectral': ['spectral_centroid', 'spectral_flatness', 'spectral_rolloff'],
+                    'mfcc': ['mfcc_coefficients', 'mfcc_bands', 'mfcc_std'],
+                    'musicnn': ['embedding', 'tags', 'musicnn_skipped'],
+                    'chroma': ['chroma_mean', 'chroma_std'],
+                    'metadata': ['bitrate', 'sample_rate', 'channels', 'genre', 'year']
+                }
+                
+                missing_fields = {}
+                data_quality_scores = {}
+                
+                for category, fields in expected_fields.items():
+                    category_missing = []
+                    category_present = 0
+                    
+                    for field in fields:
+                        if field not in track_dict or track_dict[field] is None:
+                            category_missing.append(field)
+                        else:
+                            category_present += 1
+                    
+                    if category_missing:
+                        missing_fields[category] = category_missing
+                    
+                    data_quality_scores[category] = category_present / len(fields)
+                
+                # Calculate overall data quality
+                overall_quality = sum(data_quality_scores.values()) / len(data_quality_scores)
+                
+                # Check for JSON parsing issues
+                json_fields = [
+                    'bpm_estimates', 'bpm_intervals', 'mfcc_coefficients', 'mfcc_bands',
+                    'mfcc_std', 'mfcc_delta', 'mfcc_delta2', 'embedding', 'embedding_std',
+                    'embedding_min', 'embedding_max', 'tags', 'chroma_mean', 'chroma_std'
+                ]
+                
+                json_parsing_issues = []
+                for field in json_fields:
+                    if field in track_dict and track_dict[field]:
+                        try:
+                            if isinstance(track_dict[field], str):
+                                json.loads(track_dict[field])
+                        except (json.JSONDecodeError, TypeError):
+                            json_parsing_issues.append(field)
+                
+                # Get tags data
+                cursor.execute("""
+                    SELECT source, COUNT(*) as count
+                    FROM tags 
+                    WHERE track_id = ?
+                    GROUP BY source
+                """, (track_dict['id'],))
+                
+                tag_sources = {row[0]: row[1] for row in cursor.fetchall()}
+                
+                return {
+                    'valid': len(missing_fields) == 0 and len(json_parsing_issues) == 0,
+                    'data_quality': overall_quality,
+                    'missing_fields': missing_fields,
+                    'data_quality_by_category': data_quality_scores,
+                    'json_parsing_issues': json_parsing_issues,
+                    'tag_sources': tag_sources,
+                    'total_fields_checked': sum(len(fields) for fields in expected_fields.values()),
+                    'fields_present': sum(len(fields) - len(missing) for fields, missing in zip(expected_fields.values(), missing_fields.values()) if fields)
+                }
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Data completeness validation failed: {e}")
+            return {
+                'valid': False,
+                'error': str(e),
+                'missing_fields': [],
+                'data_quality': 0.0
+            }
+
+    @log_function_call
+    def migrate_to_complete_schema(self) -> Dict[str, Any]:
+        """
+        Migrate existing database to complete schema with all missing fields.
+        
+        Returns:
+            Dictionary with migration results
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get current schema
+                cursor.execute("PRAGMA table_info(tracks)")
+                current_columns = {row[1] for row in cursor.fetchall()}
+                
+                # Define all missing columns from complete schema
+                missing_columns = {
+                    'tempo_confidence': 'REAL',
+                    'tempo_strength': 'REAL',
+                    'rhythm_pattern': 'TEXT',
+                    'beat_positions': 'TEXT',
+                    'onset_times': 'TEXT',
+                    'rhythm_complexity': 'REAL',
+                    'spectral_flux': 'REAL',
+                    'spectral_entropy': 'REAL',
+                    'spectral_crest': 'REAL',
+                    'spectral_decrease': 'REAL',
+                    'spectral_kurtosis': 'REAL',
+                    'spectral_skewness': 'REAL',
+                    'key_scale_notes': 'TEXT',
+                    'key_chord_progression': 'TEXT',
+                    'modulation_points': 'TEXT',
+                    'tonal_centroid': 'REAL',
+                    'harmonic_complexity': 'REAL',
+                    'chord_progression': 'TEXT',
+                    'harmonic_centroid': 'REAL',
+                    'harmonic_contrast': 'REAL',
+                    'chord_changes': 'INTEGER',
+                    'zero_crossing_rate': 'REAL',
+                    'root_mean_square': 'REAL',
+                    'peak_amplitude': 'REAL',
+                    'crest_factor': 'REAL',
+                    'signal_to_noise_ratio': 'REAL',
+                    'timbre_brightness': 'REAL',
+                    'timbre_warmth': 'REAL',
+                    'timbre_hardness': 'REAL',
+                    'timbre_depth': 'REAL',
+                    'intro_duration': 'REAL',
+                    'verse_duration': 'REAL',
+                    'chorus_duration': 'REAL',
+                    'bridge_duration': 'REAL',
+                    'outro_duration': 'REAL',
+                    'section_boundaries': 'TEXT',
+                    'repetition_rate': 'REAL',
+                    'bitrate_quality': 'REAL',
+                    'sample_rate_quality': 'REAL',
+                    'encoding_quality': 'REAL',
+                    'compression_artifacts': 'REAL',
+                    'clipping_detection': 'REAL',
+                    'electronic_elements': 'REAL',
+                    'classical_period': 'TEXT',
+                    'jazz_style': 'TEXT',
+                    'rock_subgenre': 'TEXT',
+                    'folk_style': 'TEXT',
+                    'harmonic_features': 'TEXT',
+                    'timbre_features': 'TEXT',
+                    'structure_features': 'TEXT'
+                }
+                
+                added_columns = []
+                failed_columns = []
+                
+                # Add missing columns
+                for column_name, column_type in missing_columns.items():
+                    if column_name not in current_columns:
+                        try:
+                            cursor.execute(f"ALTER TABLE tracks ADD COLUMN {column_name} {column_type}")
+                            added_columns.append(column_name)
+                            log_universal('INFO', 'Database', f'Added column: {column_name}')
+                        except Exception as e:
+                            failed_columns.append(f'{column_name}: {str(e)}')
+                            log_universal('ERROR', 'Database', f'Failed to add column {column_name}: {e}')
+                
+                # Create missing indexes
+                missing_indexes = [
+                    'idx_tracks_tempo_confidence',
+                    'idx_tracks_rhythm_complexity',
+                    'idx_tracks_harmonic_complexity',
+                    'idx_tracks_timbre_brightness',
+                    'idx_tracks_spectral_flux',
+                    'idx_tracks_root_mean_square'
+                ]
+                
+                created_indexes = []
+                failed_indexes = []
+                
+                for index_name in missing_indexes:
+                    try:
+                        column_name = index_name.replace('idx_tracks_', '')
+                        cursor.execute(f"CREATE INDEX IF NOT EXISTS {index_name} ON tracks({column_name})")
+                        created_indexes.append(index_name)
+                        log_universal('INFO', 'Database', f'Created index: {index_name}')
+                    except Exception as e:
+                        failed_indexes.append(f'{index_name}: {str(e)}')
+                        log_universal('ERROR', 'Database', f'Failed to create index {index_name}: {e}')
+                
+                conn.commit()
+                
+                return {
+                    'success': len(failed_columns) == 0 and len(failed_indexes) == 0,
+                    'added_columns': added_columns,
+                    'failed_columns': failed_columns,
+                    'created_indexes': created_indexes,
+                    'failed_indexes': failed_indexes,
+                    'total_columns_added': len(added_columns),
+                    'total_indexes_created': len(created_indexes)
+                }
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Schema migration failed: {e}')
+            return {
+                'success': False,
+                'error': str(e),
+                'added_columns': [],
+                'failed_columns': [str(e)],
+                'created_indexes': [],
+                'failed_indexes': [str(e)]
+            }
+
+    @log_function_call
+    def validate_all_data(self) -> Dict[str, Any]:
+        """
+        Validate data completeness for all tracks in database.
+        
+        Returns:
+            Dictionary with validation results
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get all tracks
+                cursor.execute("SELECT file_path FROM tracks WHERE status = 'analyzed'")
+                tracks = cursor.fetchall()
+                
+                validation_results = []
+                total_tracks = len(tracks)
+                valid_tracks = 0
+                invalid_tracks = 0
+                
+                for track in tracks:
+                    file_path = track[0]
+                    result = self.validate_data_completeness(file_path)
+                    validation_results.append({
+                        'file_path': file_path,
+                        'valid': result['valid'],
+                        'data_quality': result['data_quality'],
+                        'missing_fields': result['missing_fields']
+                    })
+                    
+                    if result['valid']:
+                        valid_tracks += 1
+                    else:
+                        invalid_tracks += 1
+                
+                # Calculate overall statistics
+                overall_quality = sum(r['data_quality'] for r in validation_results) / len(validation_results) if validation_results else 0.0
+                
+                return {
+                    'total_tracks': total_tracks,
+                    'valid_tracks': valid_tracks,
+                    'invalid_tracks': invalid_tracks,
+                    'overall_quality': overall_quality,
+                    'validation_rate': valid_tracks / total_tracks if total_tracks > 0 else 0.0,
+                    'results': validation_results
+                }
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Data validation failed: {e}')
+            return {
+                'error': str(e),
+                'total_tracks': 0,
+                'valid_tracks': 0,
+                'invalid_tracks': 0,
+                'overall_quality': 0.0,
+                'validation_rate': 0.0,
+                'results': []
+            }
+
+    @log_function_call
+    def repair_corrupted_data(self) -> Dict[str, Any]:
+        """
+        Repair corrupted data entries in the database.
+        
+        Returns:
+            Dictionary with repair results
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Find corrupted JSON fields
+                json_fields = [
+                    'bpm_estimates', 'bpm_intervals', 'mfcc_coefficients', 'mfcc_bands',
+                    'mfcc_std', 'mfcc_delta', 'mfcc_delta2', 'embedding', 'embedding_std',
+                    'embedding_min', 'embedding_max', 'tags', 'chroma_mean', 'chroma_std'
+                ]
+                
+                repaired_fields = []
+                failed_repairs = []
+                
+                for field in json_fields:
+                    try:
+                        # Find records with invalid JSON
+                        cursor.execute(f"""
+                            SELECT id, {field} FROM tracks 
+                            WHERE {field} IS NOT NULL 
+                            AND {field} != ''
+                            AND {field} != 'null'
+                        """)
+                        
+                        records = cursor.fetchall()
+                        
+                        for record_id, field_value in records:
+                            try:
+                                # Try to parse JSON
+                                if isinstance(field_value, str):
+                                    json.loads(field_value)
+                            except (json.JSONDecodeError, TypeError):
+                                # Invalid JSON - set to NULL
+                                cursor.execute(f"UPDATE tracks SET {field} = NULL WHERE id = ?", (record_id,))
+                                repaired_fields.append(f'{field}:{record_id}')
+                                log_universal('INFO', 'Database', f'Repaired invalid JSON in {field} for record {record_id}')
+                        
+                    except Exception as e:
+                        failed_repairs.append(f'{field}: {str(e)}')
+                        log_universal('ERROR', 'Database', f'Failed to repair {field}: {e}')
+                
+                # Fix NULL values in required fields
+                required_fields = ['title', 'artist']
+                for field in required_fields:
+                    try:
+                        cursor.execute(f"UPDATE tracks SET {field} = 'Unknown' WHERE {field} IS NULL")
+                        affected = cursor.rowcount
+                        if affected > 0:
+                            repaired_fields.append(f'{field}:{affected}_records')
+                            log_universal('INFO', 'Database', f'Fixed {affected} NULL values in {field}')
+                    except Exception as e:
+                        failed_repairs.append(f'{field}: {str(e)}')
+                
+                conn.commit()
+                
+                return {
+                    'success': len(failed_repairs) == 0,
+                    'repaired_fields': repaired_fields,
+                    'failed_repairs': failed_repairs,
+                    'total_repairs': len(repaired_fields)
+                }
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Data repair failed: {e}')
+            return {
+                'success': False,
+                'error': str(e),
+                'repaired_fields': [],
+                'failed_repairs': [str(e)],
+                'total_repairs': 0
+            }
+
+    @log_function_call
+    def show_schema_info(self) -> Dict[str, Any]:
+        """
+        Show current database schema information.
+        
+        Returns:
+            Dictionary with schema information
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get table information
+                cursor.execute("PRAGMA table_info(tracks)")
+                columns = cursor.fetchall()
+                
+                # Get index information
+                cursor.execute("PRAGMA index_list(tracks)")
+                indexes = cursor.fetchall()
+                
+                # Get view information
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='view'")
+                views = cursor.fetchall()
+                
+                return {
+                    'table_name': 'tracks',
+                    'total_columns': len(columns),
+                    'columns': [{'name': col[1], 'type': col[2], 'not_null': col[3], 'default': col[4]} for col in columns],
+                    'total_indexes': len(indexes),
+                    'indexes': [idx[1] for idx in indexes],
+                    'total_views': len(views),
+                    'views': [view[0] for view in views]
+                }
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Schema info failed: {e}')
+            return {
+                'error': str(e),
+                'table_name': 'tracks',
+                'total_columns': 0,
+                'columns': [],
+                'total_indexes': 0,
+                'indexes': [],
+                'total_views': 0,
+                'views': []
+            }
 
 
 # Global database manager instance

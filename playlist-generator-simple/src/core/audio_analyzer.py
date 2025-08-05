@@ -713,6 +713,26 @@ class AudioAnalyzer:
                 chroma_features = self._extract_chroma_features(audio, sample_rate, file_path)
                 features.update(chroma_features)
             
+            # Extract harmonic features (NEW)
+            harmonic_features = self._extract_harmonic_features(audio, sample_rate)
+            features.update(harmonic_features)
+            
+            # Extract beat features (NEW)
+            beat_features = self._extract_beat_features(audio, sample_rate)
+            features.update(beat_features)
+            
+            # Extract advanced spectral features (NEW)
+            advanced_spectral_features = self._extract_advanced_spectral_features(audio, sample_rate)
+            features.update(advanced_spectral_features)
+            
+            # Extract advanced audio features (NEW)
+            advanced_audio_features = self._extract_advanced_audio_features(audio, sample_rate)
+            features.update(advanced_audio_features)
+            
+            # Extract timbre features (NEW)
+            timbre_features = self._extract_timbre_features(audio, sample_rate)
+            features.update(timbre_features)
+            
             return features
             
         except Exception as e:
@@ -4590,6 +4610,325 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Failed to create combined category: {e}')
             return None
+
+    def _extract_harmonic_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+        """
+        Extract harmonic analysis features including chord detection and harmonic complexity.
+        
+        Args:
+            audio: Audio data as numpy array
+            sample_rate: Sample rate in Hz
+            
+        Returns:
+            Dictionary of harmonic features
+        """
+        try:
+            features = {}
+            
+            # Use librosa for harmonic analysis if available
+            try:
+                import librosa
+                
+                # Extract chromagram for chord analysis
+                chromagram = librosa.feature.chroma_stft(y=audio, sr=sample_rate)
+                
+                # Calculate harmonic complexity (variance in chromagram)
+                harmonic_complexity = np.var(chromagram)
+                features['harmonic_complexity'] = float(harmonic_complexity)
+                
+                # Extract chord progression (simplified - major chords only)
+                chord_progression = []
+                for i in range(0, chromagram.shape[1], 10):  # Sample every 10 frames
+                    if i < chromagram.shape[1]:
+                        frame = chromagram[:, i]
+                        chord_idx = np.argmax(frame)
+                        chord_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+                        chord_progression.append(chord_names[chord_idx])
+                
+                features['chord_progression'] = chord_progression
+                features['chord_changes'] = len(chord_progression)
+                
+                # Calculate harmonic centroid
+                harmonic_centroid = np.mean(chromagram)
+                features['harmonic_centroid'] = float(harmonic_centroid)
+                
+                # Calculate harmonic contrast
+                harmonic_contrast = np.std(chromagram)
+                features['harmonic_contrast'] = float(harmonic_contrast)
+                
+            except ImportError:
+                log_universal('WARNING', 'Audio', 'Librosa not available for harmonic analysis')
+                features['harmonic_complexity'] = 0.0
+                features['chord_progression'] = []
+                features['chord_changes'] = 0
+                features['harmonic_centroid'] = 0.0
+                features['harmonic_contrast'] = 0.0
+            
+            return features
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Harmonic feature extraction failed: {e}')
+            return {
+                'harmonic_complexity': 0.0,
+                'chord_progression': [],
+                'chord_changes': 0,
+                'harmonic_centroid': 0.0,
+                'harmonic_contrast': 0.0
+            }
+
+    def _extract_beat_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+        """
+        Extract beat tracking and onset detection features.
+        
+        Args:
+            audio: Audio data as numpy array
+            sample_rate: Sample rate in Hz
+            
+        Returns:
+            Dictionary of beat features
+        """
+        try:
+            features = {}
+            
+            # Use librosa for beat tracking if available
+            try:
+                import librosa
+                
+                # Extract beat positions
+                tempo, beat_frames = librosa.beat.beat_track(y=audio, sr=sample_rate)
+                beat_times = librosa.frames_to_time(beat_frames, sr=sample_rate)
+                
+                features['beat_positions'] = beat_times.tolist()
+                features['tempo_confidence'] = float(tempo / 120.0)  # Normalize to 120 BPM
+                
+                # Extract onset times
+                onset_frames = librosa.onset.onset_detect(y=audio, sr=sample_rate)
+                onset_times = librosa.frames_to_time(onset_frames, sr=sample_rate)
+                
+                features['onset_times'] = onset_times.tolist()
+                
+                # Calculate rhythm complexity based on beat regularity
+                if len(beat_times) > 1:
+                    beat_intervals = np.diff(beat_times)
+                    rhythm_complexity = np.std(beat_intervals) / np.mean(beat_intervals)
+                    features['rhythm_complexity'] = float(rhythm_complexity)
+                else:
+                    features['rhythm_complexity'] = 0.0
+                
+                # Calculate tempo strength
+                tempo_strength = len(beat_times) / (len(audio) / sample_rate)  # Beats per second
+                features['tempo_strength'] = float(tempo_strength)
+                
+                # Classify rhythm pattern
+                if tempo_strength > 2.0:
+                    features['rhythm_pattern'] = 'fast'
+                elif tempo_strength > 1.0:
+                    features['rhythm_pattern'] = 'medium'
+                else:
+                    features['rhythm_pattern'] = 'slow'
+                
+            except ImportError:
+                log_universal('WARNING', 'Audio', 'Librosa not available for beat tracking')
+                features['beat_positions'] = []
+                features['onset_times'] = []
+                features['tempo_confidence'] = 0.0
+                features['rhythm_complexity'] = 0.0
+                features['tempo_strength'] = 0.0
+                features['rhythm_pattern'] = 'unknown'
+            
+            return features
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Beat feature extraction failed: {e}')
+            return {
+                'beat_positions': [],
+                'onset_times': [],
+                'tempo_confidence': 0.0,
+                'rhythm_complexity': 0.0,
+                'tempo_strength': 0.0,
+                'rhythm_pattern': 'unknown'
+            }
+
+    def _extract_advanced_spectral_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+        """
+        Extract advanced spectral features including flux, entropy, crest, etc.
+        
+        Args:
+            audio: Audio data as numpy array
+            sample_rate: Sample rate in Hz
+            
+        Returns:
+            Dictionary of advanced spectral features
+        """
+        try:
+            features = {}
+            
+            # Use librosa for advanced spectral analysis if available
+            try:
+                import librosa
+                
+                # Calculate spectral flux
+                stft = librosa.stft(audio)
+                magnitude = np.abs(stft)
+                
+                # Spectral flux (change in magnitude over time)
+                spectral_flux = np.mean(np.diff(magnitude, axis=1))
+                features['spectral_flux'] = float(spectral_flux)
+                
+                # Spectral entropy
+                spectral_entropy = librosa.feature.spectral_flatness(y=audio, S=magnitude)
+                features['spectral_entropy'] = float(np.mean(spectral_entropy))
+                
+                # Spectral crest (peak-to-average ratio)
+                spectral_crest = np.max(magnitude) / np.mean(magnitude)
+                features['spectral_crest'] = float(spectral_crest)
+                
+                # Spectral decrease
+                freqs = librosa.fft_frequencies(sr=sample_rate)
+                spectral_decrease = np.sum(freqs * magnitude) / np.sum(magnitude)
+                features['spectral_decrease'] = float(spectral_decrease)
+                
+                # Spectral kurtosis and skewness
+                spectral_kurtosis = np.mean((magnitude - np.mean(magnitude)) ** 4) / (np.std(magnitude) ** 4)
+                spectral_skewness = np.mean((magnitude - np.mean(magnitude)) ** 3) / (np.std(magnitude) ** 3)
+                
+                features['spectral_kurtosis'] = float(spectral_kurtosis)
+                features['spectral_skewness'] = float(spectral_skewness)
+                
+            except ImportError:
+                log_universal('WARNING', 'Audio', 'Librosa not available for advanced spectral analysis')
+                features['spectral_flux'] = 0.0
+                features['spectral_entropy'] = 0.0
+                features['spectral_crest'] = 0.0
+                features['spectral_decrease'] = 0.0
+                features['spectral_kurtosis'] = 0.0
+                features['spectral_skewness'] = 0.0
+            
+            return features
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Advanced spectral feature extraction failed: {e}')
+            return {
+                'spectral_flux': 0.0,
+                'spectral_entropy': 0.0,
+                'spectral_crest': 0.0,
+                'spectral_decrease': 0.0,
+                'spectral_kurtosis': 0.0,
+                'spectral_skewness': 0.0
+            }
+
+    def _extract_advanced_audio_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+        """
+        Extract advanced audio features including RMS, peak amplitude, crest factor, etc.
+        
+        Args:
+            audio: Audio data as numpy array
+            sample_rate: Sample rate in Hz
+            
+        Returns:
+            Dictionary of advanced audio features
+        """
+        try:
+            features = {}
+            
+            # Zero crossing rate
+            zero_crossing_rate = np.sum(np.diff(np.sign(audio)) != 0) / len(audio)
+            features['zero_crossing_rate'] = float(zero_crossing_rate)
+            
+            # Root mean square (RMS)
+            root_mean_square = np.sqrt(np.mean(audio ** 2))
+            features['root_mean_square'] = float(root_mean_square)
+            
+            # Peak amplitude
+            peak_amplitude = np.max(np.abs(audio))
+            features['peak_amplitude'] = float(peak_amplitude)
+            
+            # Crest factor (peak-to-RMS ratio)
+            if root_mean_square > 0:
+                crest_factor = peak_amplitude / root_mean_square
+            else:
+                crest_factor = 0.0
+            features['crest_factor'] = float(crest_factor)
+            
+            # Signal to noise ratio (simplified)
+            signal_power = np.mean(audio ** 2)
+            noise_power = np.var(audio - np.mean(audio))
+            if noise_power > 0:
+                signal_to_noise_ratio = 10 * np.log10(signal_power / noise_power)
+            else:
+                signal_to_noise_ratio = 0.0
+            features['signal_to_noise_ratio'] = float(signal_to_noise_ratio)
+            
+            return features
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Advanced audio feature extraction failed: {e}')
+            return {
+                'zero_crossing_rate': 0.0,
+                'root_mean_square': 0.0,
+                'peak_amplitude': 0.0,
+                'crest_factor': 0.0,
+                'signal_to_noise_ratio': 0.0
+            }
+
+    def _extract_timbre_features(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+        """
+        Extract timbre analysis features including brightness, warmth, hardness, depth.
+        
+        Args:
+            audio: Audio data as numpy array
+            sample_rate: Sample rate in Hz
+            
+        Returns:
+            Dictionary of timbre features
+        """
+        try:
+            features = {}
+            
+            # Use librosa for timbre analysis if available
+            try:
+                import librosa
+                
+                # Extract MFCC for timbre analysis
+                mfcc = librosa.feature.mfcc(y=audio, sr=sample_rate, n_mfcc=13)
+                
+                # Timbre brightness (based on spectral centroid)
+                spectral_centroid = librosa.feature.spectral_centroid(y=audio, sr=sample_rate)
+                timbre_brightness = np.mean(spectral_centroid) / (sample_rate / 2)  # Normalize
+                features['timbre_brightness'] = float(timbre_brightness)
+                
+                # Timbre warmth (based on low-frequency content)
+                spectral_rolloff = librosa.feature.spectral_rolloff(y=audio, sr=sample_rate)
+                timbre_warmth = 1.0 - (np.mean(spectral_rolloff) / (sample_rate / 2))  # Invert
+                features['timbre_warmth'] = float(timbre_warmth)
+                
+                # Timbre hardness (based on spectral flatness)
+                spectral_flatness = librosa.feature.spectral_flatness(y=audio, sr=sample_rate)
+                timbre_hardness = np.mean(spectral_flatness)
+                features['timbre_hardness'] = float(timbre_hardness)
+                
+                # Timbre depth (based on spectral bandwidth)
+                spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio, sr=sample_rate)
+                timbre_depth = np.mean(spectral_bandwidth) / (sample_rate / 2)  # Normalize
+                features['timbre_depth'] = float(timbre_depth)
+                
+            except ImportError:
+                log_universal('WARNING', 'Audio', 'Librosa not available for timbre analysis')
+                features['timbre_brightness'] = 0.0
+                features['timbre_warmth'] = 0.0
+                features['timbre_hardness'] = 0.0
+                features['timbre_depth'] = 0.0
+            
+            return features
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Timbre feature extraction failed: {e}')
+            return {
+                'timbre_brightness': 0.0,
+                'timbre_warmth': 0.0,
+                'timbre_hardness': 0.0,
+                'timbre_depth': 0.0
+            }
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':
