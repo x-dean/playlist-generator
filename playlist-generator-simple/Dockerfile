@@ -52,9 +52,6 @@ COPY playlista.conf /app/playlista.conf
 # Create directories with proper permissions
 RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/music /app/database
 
-# Initialize database during build
-RUN python /app/scripts/init_database.py /app/cache/playlista.db
-
 # Make scripts executable
 RUN chmod +x /app/playlista /app/entrypoint.sh
 
