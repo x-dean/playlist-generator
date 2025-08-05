@@ -568,6 +568,8 @@ class AudioAnalyzer:
                     
                     # Convert mutagen tags to dictionary format
                     tags_dict = {}
+                    log_universal('DEBUG', 'Audio', f'Processing {len(audio_file.tags)} raw mutagen tags')
+                    
                     for key, value in audio_file.tags.items():
                         # Limit tag value size to prevent memory issues
                         if isinstance(value, str) and len(value) > 1000:
@@ -577,6 +579,9 @@ class AudioAnalyzer:
                             value = [str(item)[:500] for item in value[:10]]
                         
                         tags_dict[key] = value
+                        log_universal('DEBUG', 'Audio', f'Raw tag: {key} = {value}')
+                    
+                    log_universal('DEBUG', 'Audio', f'Converted to {len(tags_dict)} tags for mapping')
                     
                     # Map tags using the enhanced mapper
                     mapped_metadata = tag_mapper.map_tags(tags_dict)

@@ -198,9 +198,17 @@ class TagMapper:
             TagMapping('style', 'style', 'Style (lowercase)', priority=2),
             TagMapping('quality', 'quality', 'Quality (lowercase)', priority=3),
             TagMapping('encoder', 'encoder', 'Encoder (lowercase)', priority=3),
+            TagMapping('encoder', 'encoded_by', 'Encoded by (lowercase)', priority=3),  # Also map to encoded_by
             TagMapping('bpm', 'bpm', 'BPM (lowercase)', data_type="float", priority=2),
             TagMapping('tempo', 'bpm', 'Tempo (lowercase)', data_type="float", priority=2),
+            TagMapping('tempo', 'tempo', 'Tempo (lowercase)', data_type="float", priority=2),  # Also map to tempo
             TagMapping('key', 'key', 'Key (lowercase)', priority=2),
+            
+            # Additional lowercase mappings for missing fields
+            TagMapping('original_artist', 'original_artist', 'Original artist (lowercase)', priority=3),
+            TagMapping('original_album', 'original_album', 'Original album (lowercase)', priority=3),
+            TagMapping('lyricist', 'lyricist', 'Lyricist (lowercase)', priority=3),
+            TagMapping('band', 'band', 'Band (lowercase)', priority=3),
             
             # ID3v2.3 specific tags
             TagMapping('TIT1', 'content_group', 'Content group (ID3v2.3)', priority=2),
@@ -226,10 +234,19 @@ class TagMapper:
             TagMapping('TSRC', 'isrc', 'ISRC (ID3v2.3)', priority=2),
             TagMapping('TLEN', 'length', 'Length (ID3v2.3)', data_type="int", priority=2),
             TagMapping('TENC', 'encoder', 'Encoder (ID3v2.3)', priority=3),
+            TagMapping('TENC', 'encoded_by', 'Encoded by (ID3v2.3)', priority=3),  # Also map to encoded_by
             TagMapping('TOFN', 'original_filename', 'Original filename (ID3v2.3)', priority=3),
             TagMapping('TOYE', 'original_year', 'Original year (ID3v2.3)', data_type="int", priority=3),
             TagMapping('TDLY', 'playlist_delay', 'Playlist delay (ID3v2.3)', data_type="int", priority=3),
             TagMapping('TFLT', 'file_type', 'File type (ID3v2.3)', priority=3),
+            
+            # Additional mappings for missing fields
+            TagMapping('TXXX:ORIGINAL_ARTIST', 'original_artist', 'Original artist (TXXX)', priority=3),
+            TagMapping('TXXX:ORIGINAL_ALBUM', 'original_album', 'Original album (TXXX)', priority=3),
+            TagMapping('TXXX:LYRICIST', 'lyricist', 'Lyricist (TXXX)', priority=3),
+            TagMapping('TXXX:BAND', 'band', 'Band (TXXX)', priority=3),
+            TagMapping('TXXX:TEMPO', 'tempo', 'Tempo (TXXX)', data_type="float", priority=2),
+            TagMapping('TXXX:BPM', 'tempo', 'BPM as tempo (TXXX)', data_type="float", priority=2),
             
             # Vorbis/FLAC specific tags
             TagMapping('ARTIST', 'artist', 'Artist (Vorbis)', priority=1),
@@ -249,8 +266,10 @@ class TagMapper:
             TagMapping('STYLE', 'style', 'Style (Vorbis)', priority=2),
             TagMapping('QUALITY', 'quality', 'Quality (Vorbis)', priority=3),
             TagMapping('ENCODER', 'encoder', 'Encoder (Vorbis)', priority=3),
+            TagMapping('ENCODER', 'encoded_by', 'Encoded by (Vorbis)', priority=3),  # Also map to encoded_by
             TagMapping('BPM', 'bpm', 'BPM (Vorbis)', data_type="float", priority=2),
             TagMapping('TEMPO', 'bpm', 'Tempo (Vorbis)', data_type="float", priority=2),
+            TagMapping('TEMPO', 'tempo', 'Tempo (Vorbis)', data_type="float", priority=2),  # Also map to tempo
             TagMapping('KEY', 'key', 'Key (Vorbis)', priority=2),
             TagMapping('RATING', 'rating', 'Rating (Vorbis)', data_type="int", priority=2),
             TagMapping('ISRC', 'isrc', 'ISRC (Vorbis)', priority=2),
@@ -260,6 +279,12 @@ class TagMapper:
             TagMapping('PLAYLISTDELAY', 'playlist_delay', 'Playlist delay (Vorbis)', data_type="int", priority=3),
             TagMapping('FILETYPE', 'file_type', 'File type (Vorbis)', priority=3),
             TagMapping('RECORDINGTIME', 'recording_time', 'Recording time (Vorbis)', priority=3),
+            
+            # Additional Vorbis mappings for missing fields
+            TagMapping('ORIGINALARTIST', 'original_artist', 'Original artist (Vorbis)', priority=3),
+            TagMapping('ORIGINALALBUM', 'original_album', 'Original album (Vorbis)', priority=3),
+            TagMapping('LYRICIST', 'lyricist', 'Lyricist (Vorbis)', priority=3),
+            TagMapping('BAND', 'band', 'Band (Vorbis)', priority=3),
         ]
     
     def map_tags(self, mutagen_tags: Dict[str, Any]) -> Dict[str, Any]:
@@ -298,11 +323,37 @@ class TagMapper:
                     
                     log_universal('DEBUG', 'TagMapper', 
                                 f'Mapped {mapping.mutagen_key} -> {mapping.standard_key}: {processed_value}')
+            else:
+                # Debug: log when a mapping key is not found
+                if mapping.priority <= 2:  # Only log high priority mappings to avoid spam
+                    log_universal('DEBUG', 'TagMapper', 
+                                f'Key not found: {mapping.mutagen_key} (expected for {mapping.standard_key})')
         
         # Handle custom TXXX tags
         custom_tags = self._extract_custom_tags(mutagen_tags)
         if custom_tags:
             mapped_metadata['custom_tags'] = custom_tags
+            
+            # Extract ReplayGain fields from custom tags
+            replaygain_mappings = {
+                'REPLAYGAIN_TRACK_GAIN': 'replaygain_track_gain',
+                'REPLAYGAIN_ALBUM_GAIN': 'replaygain_album_gain', 
+                'REPLAYGAIN_TRACK_PEAK': 'replaygain_track_peak',
+                'REPLAYGAIN_ALBUM_PEAK': 'replaygain_album_peak'
+            }
+            
+            for custom_key, standard_key in replaygain_mappings.items():
+                if custom_key in custom_tags:
+                    value = custom_tags[custom_key]
+                    # Convert ReplayGain values (remove "dB" suffix for gain values)
+                    if 'GAIN' in custom_key and isinstance(value, str):
+                        value = value.replace(' dB', '').replace('dB', '')
+                    try:
+                        float_value = float(value)
+                        mapped_metadata[standard_key] = float_value
+                        log_universal('DEBUG', 'TagMapper', f'Extracted ReplayGain {custom_key} -> {standard_key}: {float_value}')
+                    except (ValueError, TypeError):
+                        log_universal('WARNING', 'TagMapper', f'Failed to convert ReplayGain {custom_key}: {value}')
         
         log_universal('INFO', 'TagMapper', f'Mapped {len(mapped_metadata)} standard fields from {len(mutagen_tags)} raw tags')
         return mapped_metadata
@@ -383,24 +434,29 @@ class TagMapper:
         
         for key, value in mutagen_tags.items():
             if key.startswith('TXXX'):
-                # Extract the custom tag name
+                # Extract the custom tag name from the key
+                # Format: TXXX:REPLAYGAIN_TRACK_GAIN -> REPLAYGAIN_TRACK_GAIN
+                if ':' in key:
+                    custom_name = key.split(':', 1)[1]
+                else:
+                    custom_name = key
+                
+                # Extract the value
                 if isinstance(value, list) and len(value) > 0:
-                    custom_name = str(value[0])
-                    custom_value = value[1] if len(value) > 1 else ""
+                    custom_value = str(value[0])
                 elif isinstance(value, str):
                     # Handle string format "name\0value"
                     if '\0' in value:
                         parts = value.split('\0', 1)
-                        custom_name = parts[0]
-                        custom_value = parts[1] if len(parts) > 1 else ""
+                        custom_value = parts[1] if len(parts) > 1 else value
                     else:
-                        custom_name = key
                         custom_value = value
                 else:
-                    custom_name = key
                     custom_value = str(value)
                 
                 custom_tags[custom_name] = custom_value
+                
+                log_universal('DEBUG', 'TagMapper', f'Extracted custom tag: {custom_name} = {custom_value}')
         
         return custom_tags
     
