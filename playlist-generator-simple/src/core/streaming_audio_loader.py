@@ -910,7 +910,7 @@ class StreamingAudioLoader:
                     audio, sample_rate = extract_multiple_segments(
                         audio_path,
                         self.sample_rate,
-                        {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 30},
+                        {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 60},
                         'streaming'
                     )
                     log_universal('INFO', 'Streaming', f"Audio loaded with Librosa: {len(audio)} samples, {sample_rate}Hz")

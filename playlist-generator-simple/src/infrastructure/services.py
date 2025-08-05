@@ -97,7 +97,7 @@ class EssentiaAudioAnalyzer(IAudioAnalyzer):
             audio, sample_rate = extract_multiple_segments(
                 file_path,
                 self.sample_rate,
-                {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 30},
+                {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 60},
                 'service'
             )
             return audio, sample_rate
@@ -111,7 +111,7 @@ class EssentiaAudioAnalyzer(IAudioAnalyzer):
             audio, sample_rate = extract_multiple_segments(
                 file_path,
                 self.sample_rate,
-                {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 30},
+                {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 60},
                 'service'
             )
             return audio, sample_rate

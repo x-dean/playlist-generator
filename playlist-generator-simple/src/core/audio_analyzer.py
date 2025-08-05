@@ -1336,11 +1336,11 @@ class AudioAnalyzer:
                         audio = audio[start_sample:end_sample]
                         log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB) - using 10% sample for MFCC extraction')
                     elif file_size_mb > half_track_threshold_mb:
-                        # Use multi-segment loading for large files (3x30s from start, middle, end)
+                        # Use middle segment loading for large files (1x60s from middle)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using multi-segment loading for MFCC extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB) - using middle segment loading for MFCC extraction')
                     else:
                         # Use full audio for small files
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB) - using full audio for MFCC extraction')
@@ -1353,11 +1353,11 @@ class AudioAnalyzer:
                         audio = audio[start_sample:end_sample]
                         log_universal('INFO', 'Audio', f'Very large file detected ({file_size_mb:.1f}MB from DB) - using 10% sample for MFCC extraction')
                     elif file_size_mb > half_track_threshold_mb:
-                        # Use multi-segment loading for large files (3x30s from start, middle, end)
+                        # Use middle segment loading for large files (1x60s from middle)
                         start_sample = len(audio) // 4
                         end_sample = 3 * len(audio) // 4
                         audio = audio[start_sample:end_sample]
-                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using multi-segment loading for MFCC extraction')
+                        log_universal('INFO', 'Audio', f'Large file detected ({file_size_mb:.1f}MB from DB) - using middle segment loading for MFCC extraction')
                     else:
                         # Use full audio for small files
                         log_universal('DEBUG', 'Audio', f'Small file ({file_size_mb:.1f}MB from DB) - using full audio for MFCC extraction')
@@ -2582,11 +2582,11 @@ class AudioAnalyzer:
                     musicnn_sample_duration = 3  # seconds - MusiCNN expects ~3 seconds
                     musicnn_sample_size = musicnn_sample_duration * sample_rate
                     
-                    # Take a 3-second segment from the middle of the 30-second sample
+                    # Take a 3-second segment from the middle of the 60-second sample
                     if len(sample) > musicnn_sample_size:
                         start_idx = (len(sample) - musicnn_sample_size) // 2
                         musicnn_sample = sample[start_idx:start_idx + musicnn_sample_size]
-                        log_universal('DEBUG', 'Audio', f'Using 3s segment from 30s sample {i+1} (position {start_idx/sample_rate:.1f}s)')
+                        log_universal('DEBUG', 'Audio', f'Using 3s segment from 60s sample {i+1} (position {start_idx/sample_rate:.1f}s)')
                     else:
                         musicnn_sample = sample
                         log_universal('DEBUG', 'Audio', f'Using full sample {i+1} (shorter than 3s)')
@@ -4953,7 +4953,8 @@ def clean_numpy_array(arr: np.ndarray) -> np.ndarray:
 
 def extract_multiple_segments(audio_path: str, sample_rate: int = 44100, config: Dict[str, Any] = None, processing_mode: str = 'parallel') -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
-    Extract 3 audio segments from different parts of the track for comprehensive analysis.
+    Extract audio segments from different parts of the track for comprehensive analysis.
+    Configuration determines number and duration of segments.
     
     Args:
         audio_path: Path to audio file
@@ -4981,7 +4982,7 @@ def extract_multiple_segments(audio_path: str, sample_rate: int = 44100, config:
             pass  # Continue if memory check fails
         
         # Get segment configuration from config
-        segment_duration = config.get('OPTIMIZED_SEGMENT_DURATION_SECONDS', 30) if config else 30
+        segment_duration = config.get('OPTIMIZED_SEGMENT_DURATION_SECONDS', 60) if config else 60
         positions_str = config.get('MULTI_SEGMENT_POSITIONS', '0.0,0.5,0.9') if config else '0.0,0.5,0.9'
         positions = tuple(float(x.strip()) for x in positions_str.split(','))
         
@@ -5024,7 +5025,7 @@ def extract_multiple_segments(audio_path: str, sample_rate: int = 44100, config:
                 # Concatenate segments for analysis
                 combined_audio = np.concatenate(segments)
                 
-                log_universal('DEBUG', 'Audio', f'Extracted 3 segments from {os.path.basename(audio_path)}: {len(combined_audio)} samples total')
+                log_universal('DEBUG', 'Audio', f'Extracted {len(segments)} segment(s) from {os.path.basename(audio_path)}: {len(combined_audio)} samples total')
                 log_universal('DEBUG', 'Audio', f'  Segment duration: {segment_duration}s each')
                 log_universal('DEBUG', 'Audio', f'  Positions: {positions}')
                 
@@ -5065,7 +5066,7 @@ def extract_multiple_segments(audio_path: str, sample_rate: int = 44100, config:
                 # Concatenate segments for analysis
                 combined_audio = np.concatenate(segments)
                 
-                log_universal('DEBUG', 'Audio', f'Extracted 3 segments with librosa from {os.path.basename(audio_path)}: {len(combined_audio)} samples total')
+                log_universal('DEBUG', 'Audio', f'Extracted {len(segments)} segment(s) with librosa from {os.path.basename(audio_path)}: {len(combined_audio)} samples total')
                 log_universal('DEBUG', 'Audio', f'  Segment duration: {segment_duration}s each')
                 log_universal('DEBUG', 'Audio', f'  Positions: {positions}')
                 
@@ -5085,7 +5086,7 @@ def extract_multiple_segments(audio_path: str, sample_rate: int = 44100, config:
 
 def load_optimized_segment(audio_path: str, sample_rate: int = 44100, config: Dict[str, Any] = None, processing_mode: str = 'parallel') -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
-    Load optimized audio segments (3x30 seconds) for comprehensive analysis.
+    Load optimized audio segments (1x60 seconds from middle) for comprehensive analysis.
     This provides sufficient data for accurate feature extraction while reducing memory usage.
     
     Args:

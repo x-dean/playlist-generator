@@ -210,7 +210,7 @@ class CPUOptimizedAnalyzer:
             audio, sr = extract_multiple_segments(
                 audio_file,
                 self.sample_rate,
-                {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 30},
+                {'OPTIMIZED_SEGMENT_DURATION_SECONDS': 60},
                 'cpu_optimized'
             )
             
