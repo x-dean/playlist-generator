@@ -158,6 +158,308 @@ class DatabaseManager:
             log_universal('ERROR', 'Database', f"Schema initialization failed: {e}")
             raise
 
+    def _ensure_dynamic_columns(self, cursor, features: Dict[str, Any]) -> List[str]:
+        """
+        Dynamically ensure all feature columns exist in the tracks table.
+        Creates new columns if they don't exist.
+        
+        Args:
+            cursor: Database cursor
+            features: Dictionary of features to ensure columns for
+            
+        Returns:
+            List of column names that exist
+        """
+        try:
+            # Get current table schema
+            cursor.execute("PRAGMA table_info(tracks)")
+            existing_columns = {row[1] for row in cursor.fetchall()}
+            
+            # Define feature type mappings
+            type_mappings = {
+                'int': 'INTEGER',
+                'float': 'REAL', 
+                'str': 'TEXT',
+                'bool': 'INTEGER',
+                'list': 'TEXT',  # JSON string
+                'dict': 'TEXT'   # JSON string
+            }
+            
+            new_columns = []
+            
+            def add_feature_columns(feature_dict: Dict[str, Any], prefix: str = ''):
+                """Recursively add columns for nested features."""
+                for key, value in feature_dict.items():
+                    if value is None:
+                        continue
+                        
+                    # Create column name
+                    column_name = f"{prefix}_{key}" if prefix else key
+                    column_name = column_name.replace('.', '_').replace('-', '_')
+                    
+                    # Determine SQLite type
+                    if isinstance(value, (int, float, str, bool)):
+                        sqlite_type = type_mappings[type(value).__name__]
+                    elif isinstance(value, (list, dict)):
+                        sqlite_type = 'TEXT'  # JSON string
+                    else:
+                        sqlite_type = 'TEXT'  # Default to TEXT
+                    
+                    # Add column if it doesn't exist
+                    if column_name not in existing_columns:
+                        try:
+                            cursor.execute(f"ALTER TABLE tracks ADD COLUMN {column_name} {sqlite_type}")
+                            new_columns.append(column_name)
+                            log_universal('DEBUG', 'Database', f'Added dynamic column: {column_name} ({sqlite_type})')
+                        except sqlite3.OperationalError as e:
+                            if "duplicate column name" not in str(e):
+                                log_universal('WARNING', 'Database', f'Failed to add column {column_name}: {e}')
+                    
+                    # Recursively process nested dictionaries
+                    if isinstance(value, dict):
+                        add_feature_columns(value, column_name)
+            
+            # Process all features
+            add_feature_columns(features)
+            
+            if new_columns:
+                log_universal('INFO', 'Database', f'Added {len(new_columns)} dynamic columns: {new_columns}')
+            
+            return list(existing_columns) + new_columns
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Dynamic column creation failed: {e}')
+            return []
+
+    def _prepare_dynamic_values(self, features: Dict[str, Any], columns: List[str]) -> Tuple[List[str], List[Any]]:
+        """
+        Prepare dynamic INSERT values based on available columns.
+        
+        Args:
+            features: Dictionary of features
+            columns: List of available columns
+            
+        Returns:
+            Tuple of (column_names, values)
+        """
+        def flatten_features(feature_dict: Dict[str, Any], prefix: str = '') -> Dict[str, Any]:
+            """Flatten nested feature dictionary."""
+            flattened = {}
+            for key, value in feature_dict.items():
+                if value is None:
+                    continue
+                    
+                column_name = f"{prefix}_{key}" if prefix else key
+                column_name = column_name.replace('.', '_').replace('-', '_')
+                
+                if isinstance(value, dict):
+                    flattened.update(flatten_features(value, column_name))
+                else:
+                    # Convert complex types to JSON strings
+                    if isinstance(value, (list, dict)):
+                        value = json.dumps(value) if value else None
+                    flattened[column_name] = value
+            
+            return flattened
+        
+        # Flatten all features
+        flattened_features = flatten_features(features)
+        
+        # Prepare values for available columns
+        values = []
+        column_names = []
+        
+        for column in columns:
+            value = flattened_features.get(column)
+            if value is not None:
+                column_names.append(column)
+                values.append(value)
+        
+        return column_names, values
+
+    def consolidate_cache_to_tracks(self, file_path: str) -> bool:
+        """
+        Consolidate all cached analysis data into the tracks table.
+        This ensures all features are stored as proper columns instead of JSON blobs.
+        
+        Args:
+            file_path: Path to the audio file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get all cached data for this file
+                cache_data = {}
+                
+                # Get metadata
+                metadata_cache = self.get_cache(f"metadata_{file_path}")
+                if metadata_cache:
+                    cache_data.update(metadata_cache)
+                
+                # Get essentia features
+                essentia_cache = self.get_cache(f"essentia_{file_path}")
+                if essentia_cache:
+                    cache_data.update(essentia_cache)
+                
+                # Get Spotify features
+                spotify_cache = self.get_cache(f"spotify_{file_path}")
+                if spotify_cache:
+                    cache_data.update(spotify_cache)
+                
+                # Get MusicNN features
+                musicnn_cache = self.get_cache(f"musicnn_{file_path}")
+                if musicnn_cache:
+                    cache_data.update(musicnn_cache)
+                
+                # Get advanced categorization features
+                advanced_cache = self.get_cache(f"advanced_{file_path}")
+                if advanced_cache:
+                    cache_data.update(advanced_cache)
+                
+                if not cache_data:
+                    log_universal('WARNING', 'Database', f'No cached data found for {file_path}')
+                    return False
+                
+                # Ensure all columns exist
+                available_columns = self._ensure_dynamic_columns(cursor, cache_data)
+                
+                # Prepare values
+                column_names, values = self._prepare_dynamic_values(cache_data, available_columns)
+                
+                if not column_names:
+                    log_universal('WARNING', 'Database', f'No valid columns found for {file_path}')
+                    return False
+                
+                # Build dynamic INSERT/UPDATE
+                placeholders = ', '.join(['?' for _ in column_names])
+                column_list = ', '.join(column_names)
+                
+                # Check if track already exists
+                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
+                existing_track = cursor.fetchone()
+                
+                if existing_track:
+                    # UPDATE existing track
+                    set_clause = ', '.join([f"{col} = ?" for col in column_names])
+                    cursor.execute(f"""
+                        UPDATE tracks 
+                        SET {set_clause}, updated_at = ?
+                        WHERE file_path = ?
+                    """, values + [datetime.now(), file_path])
+                    log_universal('INFO', 'Database', f'Updated track with {len(column_names)} dynamic columns: {file_path}')
+                else:
+                    # INSERT new track
+                    cursor.execute(f"""
+                        INSERT INTO tracks (file_path, {column_list}, created_at, updated_at)
+                        VALUES (?, {placeholders}, ?, ?)
+                    """, [file_path] + values + [datetime.now(), datetime.now()])
+                    log_universal('INFO', 'Database', f'Inserted track with {len(column_names)} dynamic columns: {file_path}')
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to consolidate cache to tracks: {e}')
+            return False
+
+    def migrate_json_to_columns(self) -> Dict[str, int]:
+        """
+        Migrate existing JSON data in tracks table to proper columns.
+        This converts JSON blobs to individual columns for better performance.
+        
+        Returns:
+            Dictionary with migration statistics
+        """
+        try:
+            stats = {
+                'tracks_processed': 0,
+                'columns_created': 0,
+                'values_migrated': 0,
+                'errors': 0
+            }
+            
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get all tracks with JSON data
+                cursor.execute("""
+                    SELECT id, file_path, spotify_features, mfcc_features, musicnn_features, 
+                           rhythm_features, spectral_features, chroma_mean, chroma_std
+                    FROM tracks 
+                    WHERE spotify_features IS NOT NULL 
+                       OR mfcc_features IS NOT NULL 
+                       OR musicnn_features IS NOT NULL
+                       OR rhythm_features IS NOT NULL
+                       OR spectral_features IS NOT NULL
+                       OR chroma_mean IS NOT NULL
+                       OR chroma_std IS NOT NULL
+                """)
+                
+                tracks = cursor.fetchall()
+                log_universal('INFO', 'Database', f'Found {len(tracks)} tracks with JSON data to migrate')
+                
+                for track in tracks:
+                    try:
+                        track_id, file_path = track[0], track[1]
+                        
+                        # Parse JSON data
+                        json_data = {}
+                        
+                        for i, field_name in enumerate(['spotify_features', 'mfcc_features', 'musicnn_features', 
+                                                      'rhythm_features', 'spectral_features', 'chroma_mean', 'chroma_std']):
+                            if track[i+2]:  # Skip id and file_path
+                                try:
+                                    if isinstance(track[i+2], str):
+                                        parsed = json.loads(track[i+2])
+                                    else:
+                                        parsed = track[i+2]
+                                    json_data.update(parsed)
+                                except (json.JSONDecodeError, TypeError):
+                                    continue
+                        
+                        if json_data:
+                            # Ensure columns exist
+                            available_columns = self._ensure_dynamic_columns(cursor, json_data)
+                            
+                            # Prepare values
+                            column_names, values = self._prepare_dynamic_values(json_data, available_columns)
+                            
+                            if column_names:
+                                # Update track with new columns
+                                set_clause = ', '.join([f"{col} = ?" for col in column_names])
+                                cursor.execute(f"""
+                                    UPDATE tracks 
+                                    SET {set_clause}, updated_at = ?
+                                    WHERE id = ?
+                                """, values + [datetime.now(), track_id])
+                                
+                                stats['values_migrated'] += len(column_names)
+                                stats['tracks_processed'] += 1
+                                
+                                # Clear old JSON columns
+                                cursor.execute("""
+                                    UPDATE tracks 
+                                    SET spotify_features = NULL, mfcc_features = NULL, musicnn_features = NULL,
+                                        rhythm_features = NULL, spectral_features = NULL, chroma_mean = NULL, chroma_std = NULL
+                                    WHERE id = ?
+                                """, (track_id,))
+                    
+                    except Exception as e:
+                        log_universal('ERROR', 'Database', f'Failed to migrate track {file_path}: {e}')
+                        stats['errors'] += 1
+                
+                conn.commit()
+                log_universal('INFO', 'Database', f'Migration completed: {stats}')
+                return stats
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Migration failed: {e}')
+            return {'error': str(e)}
+
     @log_function_call
     def initialize_schema(self) -> bool:
         """Public method to initialize schema."""

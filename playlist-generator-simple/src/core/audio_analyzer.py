@@ -342,6 +342,10 @@ class AudioAnalyzer:
                 self.db_manager.save_spotify_features(file_path, spotify_features)
                 log_universal('INFO', 'Audio', f'Spotify-style features saved to database')
                 
+                # Add Spotify features to essentia_features for database save
+                if isinstance(essentia_features, dict):
+                    essentia_features.update(spotify_features)
+                
                 # Log key Spotify-style features
                 energy = spotify_features.get('energy', 0)
                 valence = spotify_features.get('valence', 0)
@@ -444,6 +448,15 @@ class AudioAnalyzer:
                 'metadata': metadata,
                 'long_audio_category': long_audio_category
             }
+            
+            # Consolidate all cached data into tracks table with dynamic columns
+            success = self.db_manager.consolidate_cache_to_tracks(file_path)
+            if success:
+                log_universal('INFO', 'Audio', f'Successfully consolidated all analysis data to tracks table: {os.path.basename(file_path)}')
+            else:
+                log_universal('WARNING', 'Audio', f'Failed to consolidate analysis data to tracks table: {os.path.basename(file_path)}')
+            
+            # Keep the old commit method as fallback
             self.db_manager.commit_analysis_results(file_path, all_features)
             
             # Prepare result
