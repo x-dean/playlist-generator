@@ -3931,7 +3931,7 @@ class AudioAnalyzer:
         
         for indicator in radio_indicators:
             if indicator in all_text:
-                return 'Radio/General'
+                return 'Radio_General'
         
         # Check for podcast indicators
         podcast_indicators = [
@@ -3942,7 +3942,7 @@ class AudioAnalyzer:
         
         for indicator in podcast_indicators:
             if indicator in all_text:
-                return 'Podcast/General'
+                return 'Podcast_General'
         
         # Check for mix indicators
         mix_indicators = [
@@ -3953,7 +3953,7 @@ class AudioAnalyzer:
         
         for indicator in mix_indicators:
             if indicator in all_text:
-                return 'Mix/General'
+                return 'Mix_General'
         
         return None
 
@@ -4014,55 +4014,55 @@ class AudioAnalyzer:
         for genre_name, keywords in electronic_keywords.items():
             for keyword in keywords:
                 if keyword in all_text:
-                    return 'Electronic/Dance'
+                    return 'Electronic_Dance'
         
-        # Rock/Metal genres
+        # Rock_Metal genres
         rock_keywords = ['rock', 'metal', 'punk', 'grunge', 'hardcore', 'alternative', 'rock', 'metal']
         for keyword in rock_keywords:
             if keyword in all_text:
-                return 'Rock/Metal'
+                return 'Rock_Metal'
         
-        # Hip-Hop/Rap genres
+        # Hip_Hop_Rap genres
         hiphop_keywords = ['hip', 'rap', 'urban', 'trap', 'r&b', 'soul', 'hip-hop', 'hip hop']
         for keyword in hiphop_keywords:
             if keyword in all_text:
-                return 'Hip-Hop/Rap'
+                return 'Hip_Hop_Rap'
         
-        # Jazz/Blues genres
+        # Jazz_Blues genres
         jazz_keywords = ['jazz', 'blues', 'smooth', 'fusion', 'bebop', 'jazz', 'blues']
         for keyword in jazz_keywords:
             if keyword in all_text:
-                return 'Jazz/Blues'
+                return 'Jazz_Blues'
         
-        # Classical/Orchestral
+        # Classical_Orchestral
         classical_keywords = ['classical', 'orchestra', 'symphony', 'concerto', 'sonata', 'classical']
         for keyword in classical_keywords:
             if keyword in all_text:
-                return 'Classical/Orchestral'
+                return 'Classical_Orchestral'
         
-        # Country/Folk
+        # Country_Folk
         country_keywords = ['country', 'folk', 'acoustic', 'bluegrass', 'americana', 'country', 'folk']
         for keyword in country_keywords:
             if keyword in all_text:
-                return 'Country/Folk'
+                return 'Country_Folk'
         
-        # World/Latin
+        # World_Latin
         world_keywords = ['reggae', 'latin', 'world', 'african', 'caribbean', 'reggae', 'latin']
         for keyword in world_keywords:
             if keyword in all_text:
-                return 'World/Latin'
+                return 'World_Latin'
         
-        # Ambient/Chill
+        # Ambient_Chill
         ambient_keywords = ['ambient', 'chill', 'relax', 'lounge', 'downtempo', 'ambient']
         for keyword in ambient_keywords:
             if keyword in all_text:
-                return 'Ambient/Chill'
+                return 'Ambient_Chill'
         
-        # Pop/Indie (catch-all for modern music)
+        # Pop_Indie (catch-all for modern music)
         pop_keywords = ['pop', 'indie', 'alternative', 'indie pop', 'indie rock', 'pop']
         for keyword in pop_keywords:
             if keyword in all_text:
-                return 'Pop/Indie'
+                return 'Pop_Indie'
         
         # Use audio features to determine genre if no metadata clues
         bpm = features.get('bpm', 0.0)
@@ -4077,13 +4077,13 @@ class AudioAnalyzer:
             elif 160 <= bpm <= 180:
                 return 'Electronic/Dance'
         
-        # Fallback to danceability
-        if danceability > 0.7:
-            return 'Electronic/Dance'
-        elif danceability < 0.3:
-            return 'Ambient/Chill'
-        else:
-            return 'Pop/Indie'  # Default for modern music
+                    # Fallback to danceability
+            if danceability > 0.7:
+                return 'Electronic_Dance'
+            elif danceability < 0.3:
+                return 'Ambient_Chill'
+            else:
+                return 'Pop_Indie'  # Default for modern music
 
     def _fallback_audio_features(self, features: Dict[str, Any]) -> str:
         """Fallback categorization based on audio features only."""
@@ -4114,12 +4114,8 @@ class AudioAnalyzer:
             bpm = features.get('bpm', 0.0)
             danceability = features.get('danceability', 0.0)
             energy = features.get('energy', 0.0)
-            valence = features.get('valence', 0.0)
-            acousticness = features.get('acousticness', 0.0)
             instrumentalness = features.get('instrumentalness', 0.0)
             speechiness = features.get('speechiness', 0.0)
-            dynamic_complexity = features.get('dynamic_complexity', 0.0)
-            silence_rate = features.get('silence_rate', 0.0)
             
             # High energy electronic music
             if energy > 0.8 and danceability > 0.7:
@@ -4127,39 +4123,39 @@ class AudioAnalyzer:
             
             # Trance/Progressive (125-150 BPM, high danceability)
             if 125 <= bpm <= 150 and danceability > 0.6:
-                return 'Electronic/Dance'
+                return 'Electronic_Dance'
             
             # Techno (120-140 BPM)
             if 120 <= bpm <= 140 and energy > 0.7:
-                return 'Electronic/Dance'
+                return 'Electronic_Dance'
             
             # Drum & Bass (160-180 BPM)
             if 160 <= bpm <= 180:
-                return 'Electronic/Dance'
+                return 'Electronic_Dance'
             
             # House (115-130 BPM)
             if 115 <= bpm <= 130 and danceability > 0.6:
-                return 'Electronic/Dance'
+                return 'Electronic_Dance'
             
-            # Ambient/Chill (low energy, low danceability)
+            # Ambient_Chill (low energy, low danceability)
             if energy < 0.3 and danceability < 0.3:
-                return 'Ambient/Chill'
+                return 'Ambient_Chill'
             
-            # Rock/Metal (high energy, low danceability)
+            # Rock_Metal (high energy, low danceability)
             if energy > 0.7 and danceability < 0.4:
-                return 'Rock/Metal'
+                return 'Rock_Metal'
             
-            # Pop/Indie (balanced features)
+            # Pop_Indie (balanced features)
             if 0.4 <= danceability <= 0.7 and 0.4 <= energy <= 0.7:
-                return 'Pop/Indie'
+                return 'Pop_Indie'
             
             # Speech/Spoken content
             if speechiness > 0.5:
-                return 'Speech/Spoken'
+                return 'Speech_Spoken'
             
             # Instrumental music
             if instrumentalness > 0.8:
-                return 'Instrumental/Classical'
+                return 'Instrumental_Classical'
             
             return None
             
@@ -4177,29 +4173,29 @@ class AudioAnalyzer:
             
             # Convert tags to categories
             tag_categories = {
-                'electronic': 'Electronic/Dance',
-                'dance': 'Electronic/Dance',
-                'trance': 'Electronic/Dance',
-                'techno': 'Electronic/Dance',
-                'house': 'Electronic/Dance',
-                'rock': 'Rock/Metal',
-                'metal': 'Rock/Metal',
-                'punk': 'Rock/Metal',
-                'jazz': 'Jazz/Blues',
-                'blues': 'Jazz/Blues',
-                'classical': 'Classical/Orchestral',
-                'orchestra': 'Classical/Orchestral',
-                'pop': 'Pop/Indie',
-                'indie': 'Pop/Indie',
-                'hip hop': 'Hip-Hop/Rap',
-                'rap': 'Hip-Hop/Rap',
-                'r&b': 'Hip-Hop/Rap',
-                'country': 'Country/Folk',
-                'folk': 'Country/Folk',
-                'reggae': 'World/Latin',
-                'latin': 'World/Latin',
-                'ambient': 'Ambient/Chill',
-                'chill': 'Ambient/Chill'
+                'electronic': 'Electronic_Dance',
+                'dance': 'Electronic_Dance',
+                'trance': 'Electronic_Dance',
+                'techno': 'Electronic_Dance',
+                'house': 'Electronic_Dance',
+                'rock': 'Rock_Metal',
+                'metal': 'Rock_Metal',
+                'punk': 'Rock_Metal',
+                'jazz': 'Jazz_Blues',
+                'blues': 'Jazz_Blues',
+                'classical': 'Classical_Orchestral',
+                'orchestra': 'Classical_Orchestral',
+                'pop': 'Pop_Indie',
+                'indie': 'Pop_Indie',
+                'hip hop': 'Hip_Hop_Rap',
+                'rap': 'Hip_Hop_Rap',
+                'r&b': 'Hip_Hop_Rap',
+                'country': 'Country_Folk',
+                'folk': 'Country_Folk',
+                'reggae': 'World_Latin',
+                'latin': 'World_Latin',
+                'ambient': 'Ambient_Chill',
+                'chill': 'Ambient_Chill'
             }
             
             # Find the highest confidence tag
@@ -4238,30 +4234,30 @@ class AudioAnalyzer:
             
             # Convert tags to categories
             tag_categories = {
-                'electronic': 'Electronic/Dance',
-                'dance': 'Electronic/Dance',
-                'trance': 'Electronic/Dance',
-                'techno': 'Electronic/Dance',
-                'house': 'Electronic/Dance',
-                'edm': 'Electronic/Dance',
-                'rock': 'Rock/Metal',
-                'metal': 'Rock/Metal',
-                'punk': 'Rock/Metal',
-                'jazz': 'Jazz/Blues',
-                'blues': 'Jazz/Blues',
-                'classical': 'Classical/Orchestral',
-                'orchestra': 'Classical/Orchestral',
-                'pop': 'Pop/Indie',
-                'indie': 'Pop/Indie',
-                'hip hop': 'Hip-Hop/Rap',
-                'rap': 'Hip-Hop/Rap',
-                'r&b': 'Hip-Hop/Rap',
-                'country': 'Country/Folk',
-                'folk': 'Country/Folk',
-                'reggae': 'World/Latin',
-                'latin': 'World/Latin',
-                'ambient': 'Ambient/Chill',
-                'chill': 'Ambient/Chill'
+                'electronic': 'Electronic_Dance',
+                'dance': 'Electronic_Dance',
+                'trance': 'Electronic_Dance',
+                'techno': 'Electronic_Dance',
+                'house': 'Electronic_Dance',
+                'edm': 'Electronic_Dance',
+                'rock': 'Rock_Metal',
+                'metal': 'Rock_Metal',
+                'punk': 'Rock_Metal',
+                'jazz': 'Jazz_Blues',
+                'blues': 'Jazz_Blues',
+                'classical': 'Classical_Orchestral',
+                'orchestra': 'Classical_Orchestral',
+                'pop': 'Pop_Indie',
+                'indie': 'Pop_Indie',
+                'hip hop': 'Hip_Hop_Rap',
+                'rap': 'Hip_Hop_Rap',
+                'r&b': 'Hip_Hop_Rap',
+                'country': 'Country_Folk',
+                'folk': 'Country_Folk',
+                'reggae': 'World_Latin',
+                'latin': 'World_Latin',
+                'ambient': 'Ambient_Chill',
+                'chill': 'Ambient_Chill'
             }
             
             # Check each tag
@@ -4284,33 +4280,33 @@ class AudioAnalyzer:
             
             # Check for genre directories
             genre_paths = {
-                'trance': 'Electronic/Dance',
-                'techno': 'Electronic/Dance',
-                'house': 'Electronic/Dance',
-                'electronic': 'Electronic/Dance',
-                'edm': 'Electronic/Dance',
-                'dance': 'Electronic/Dance',
-                'rock': 'Rock/Metal',
-                'metal': 'Rock/Metal',
-                'punk': 'Rock/Metal',
-                'jazz': 'Jazz/Blues',
-                'blues': 'Jazz/Blues',
-                'classical': 'Classical/Orchestral',
-                'orchestra': 'Classical/Orchestral',
-                'pop': 'Pop/Indie',
-                'indie': 'Pop/Indie',
-                'hip hop': 'Hip-Hop/Rap',
-                'hiphop': 'Hip-Hop/Rap',
-                'rap': 'Hip-Hop/Rap',
-                'country': 'Country/Folk',
-                'folk': 'Country/Folk',
-                'reggae': 'World/Latin',
-                'latin': 'World/Latin',
-                'ambient': 'Ambient/Chill',
-                'chill': 'Ambient/Chill',
-                'radio': 'Radio/General',
-                'podcast': 'Podcast/General',
-                'mix': 'Mix/General'
+                'trance': 'Electronic_Dance',
+                'techno': 'Electronic_Dance',
+                'house': 'Electronic_Dance',
+                'electronic': 'Electronic_Dance',
+                'edm': 'Electronic_Dance',
+                'dance': 'Electronic_Dance',
+                'rock': 'Rock_Metal',
+                'metal': 'Rock_Metal',
+                'punk': 'Rock_Metal',
+                'jazz': 'Jazz_Blues',
+                'blues': 'Jazz_Blues',
+                'classical': 'Classical_Orchestral',
+                'orchestra': 'Classical_Orchestral',
+                'pop': 'Pop_Indie',
+                'indie': 'Pop_Indie',
+                'hip hop': 'Hip_Hop_Rap',
+                'hiphop': 'Hip_Hop_Rap',
+                'rap': 'Hip_Hop_Rap',
+                'country': 'Country_Folk',
+                'folk': 'Country_Folk',
+                'reggae': 'World_Latin',
+                'latin': 'World_Latin',
+                'ambient': 'Ambient_Chill',
+                'chill': 'Ambient_Chill',
+                'radio': 'Radio_General',
+                'podcast': 'Podcast_General',
+                'mix': 'Mix_General'
             }
             
             for path_keyword, category in genre_paths.items():
@@ -4332,11 +4328,11 @@ class AudioAnalyzer:
             
             # Very long tracks (> 45 minutes) are likely radio shows or mixes
             if duration > 2700:  # 45 minutes
-                return 'Radio/General'
+                return 'Radio_General'
             
             # Long tracks (20-45 minutes) could be mixes or extended versions
             elif duration > 1200:  # 20 minutes
-                return 'Mix/General'
+                return 'Mix_General'
             
             # Normal tracks (3-20 minutes) - no specific classification
             elif duration > 180:  # 3 minutes
@@ -4344,7 +4340,7 @@ class AudioAnalyzer:
             
             # Very short tracks (< 3 minutes) might be samples or jingles
             else:
-                return 'Short/Sample'
+                return 'Short_Sample'
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Failed to classify by duration: {e}')
@@ -4358,25 +4354,25 @@ class AudioAnalyzer:
             dynamic_complexity = features.get('dynamic_complexity', 0.0)
             silence_rate = features.get('silence_rate', 0.0)
             
-            # High energy, high danceability = Electronic/Dance
+            # High energy, high danceability = Electronic_Dance
             if energy > 0.8 and danceability > 0.7:
-                return 'Electronic/Dance'
+                return 'Electronic_Dance'
             
-            # High energy, low danceability = Rock/Metal
+            # High energy, low danceability = Rock_Metal
             elif energy > 0.8 and danceability < 0.4:
-                return 'Rock/Metal'
+                return 'Rock_Metal'
             
-            # Low energy, low danceability = Ambient/Chill
+            # Low energy, low danceability = Ambient_Chill
             elif energy < 0.3 and danceability < 0.3:
-                return 'Ambient/Chill'
+                return 'Ambient_Chill'
             
-            # High dynamic complexity = Complex/Progressive
+            # High dynamic complexity = Complex_Progressive
             elif dynamic_complexity > 0.8:
-                return 'Complex/Progressive'
+                return 'Complex_Progressive'
             
-            # High silence rate = Speech/Spoken
+            # High silence rate = Speech_Spoken
             elif silence_rate > 0.5:
-                return 'Speech/Spoken'
+                return 'Speech_Spoken'
             
             return None
             
@@ -4397,11 +4393,17 @@ class AudioAnalyzer:
                     category_votes[category] = 0
                 category_votes[category] += 1
             
-            # Find the category with the most votes
-            best_category = max(category_votes.items(), key=lambda x: x[1])
-            
             # Log voting results
             log_universal('DEBUG', 'Audio', f'Voting results: {category_votes}')
+            
+            # Check for combined categories
+            combined_category = self._create_combined_category(category_votes)
+            if combined_category:
+                log_universal('DEBUG', 'Audio', f'Created combined category: {combined_category}')
+                return combined_category
+            
+            # Fallback to simple voting
+            best_category = max(category_votes.items(), key=lambda x: x[1])
             log_universal('DEBUG', 'Audio', f'Selected category: {best_category[0]} with {best_category[1]} votes')
             
             return best_category[0]
@@ -4409,6 +4411,93 @@ class AudioAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Failed to perform voting classification: {e}')
             return 'Unknown'
+
+    def _create_combined_category(self, category_votes: Dict[str, int]) -> Optional[str]:
+        """Create combined categories when multiple aspects are detected."""
+        try:
+            # Check for Radio + Music genre combinations
+            if category_votes.get('Radio_General', 0) >= 1:
+                # Radio with Electronic_Dance
+                if category_votes.get('Electronic_Dance', 0) >= 2:
+                    return 'Radio_Electronic_Dance'
+                # Radio with Rock_Metal
+                elif category_votes.get('Rock_Metal', 0) >= 2:
+                    return 'Radio_Rock_Metal'
+                # Radio with Pop_Indie
+                elif category_votes.get('Pop_Indie', 0) >= 2:
+                    return 'Radio_Pop_Indie'
+                # Radio with Jazz_Blues
+                elif category_votes.get('Jazz_Blues', 0) >= 2:
+                    return 'Radio_Jazz_Blues'
+                # Radio with Classical_Orchestral
+                elif category_votes.get('Classical_Orchestral', 0) >= 2:
+                    return 'Radio_Classical_Orchestral'
+                # Radio with Hip_Hop_Rap
+                elif category_votes.get('Hip_Hop_Rap', 0) >= 2:
+                    return 'Radio_Hip_Hop_Rap'
+                # Radio with Country_Folk
+                elif category_votes.get('Country_Folk', 0) >= 2:
+                    return 'Radio_Country_Folk'
+                # Radio with World_Latin
+                elif category_votes.get('World_Latin', 0) >= 2:
+                    return 'Radio_World_Latin'
+                # Radio with Ambient_Chill
+                elif category_votes.get('Ambient_Chill', 0) >= 2:
+                    return 'Radio_Ambient_Chill'
+                # Just Radio
+                else:
+                    return 'Radio_General'
+            
+            # Check for Mix + Music genre combinations
+            elif category_votes.get('Mix_General', 0) >= 1:
+                # Mix with Electronic_Dance
+                if category_votes.get('Electronic_Dance', 0) >= 2:
+                    return 'Mix_Electronic_Dance'
+                # Mix with Rock_Metal
+                elif category_votes.get('Rock_Metal', 0) >= 2:
+                    return 'Mix_Rock_Metal'
+                # Mix with Pop_Indie
+                elif category_votes.get('Pop_Indie', 0) >= 2:
+                    return 'Mix_Pop_Indie'
+                # Mix with Jazz_Blues
+                elif category_votes.get('Jazz_Blues', 0) >= 2:
+                    return 'Mix_Jazz_Blues'
+                # Mix with Classical_Orchestral
+                elif category_votes.get('Classical_Orchestral', 0) >= 2:
+                    return 'Mix_Classical_Orchestral'
+                # Mix with Hip_Hop_Rap
+                elif category_votes.get('Hip_Hop_Rap', 0) >= 2:
+                    return 'Mix_Hip_Hop_Rap'
+                # Mix with Country_Folk
+                elif category_votes.get('Country_Folk', 0) >= 2:
+                    return 'Mix_Country_Folk'
+                # Mix with World_Latin
+                elif category_votes.get('World_Latin', 0) >= 2:
+                    return 'Mix_World_Latin'
+                # Mix with Ambient_Chill
+                elif category_votes.get('Ambient_Chill', 0) >= 2:
+                    return 'Mix_Ambient_Chill'
+                # Just Mix
+                else:
+                    return 'Mix_General'
+            
+            # Check for Podcast + Music genre combinations
+            elif category_votes.get('Podcast_General', 0) >= 1:
+                # Podcast with any music genre
+                for genre in ['Electronic_Dance', 'Rock_Metal', 'Pop_Indie', 'Jazz_Blues', 
+                             'Classical_Orchestral', 'Hip_Hop_Rap', 'Country_Folk', 
+                             'World_Latin', 'Ambient_Chill']:
+                    if category_votes.get(genre, 0) >= 2:
+                        return f'Podcast_{genre}'
+                # Just Podcast
+                else:
+                    return 'Podcast_General'
+            
+            return None
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to create combined category: {e}')
+            return None
 
 
 def get_audio_analyzer(config: Dict[str, Any] = None) -> 'AudioAnalyzer':
