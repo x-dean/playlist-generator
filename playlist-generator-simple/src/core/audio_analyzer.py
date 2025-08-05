@@ -722,6 +722,8 @@ class AudioAnalyzer:
                     metadata['bitrate'] = info.bitrate
                 if hasattr(info, 'sample_rate'):
                     metadata['sample_rate'] = info.sample_rate
+                if hasattr(info, 'channels'):
+                    metadata['channels'] = info.channels
             
             # Extract tags if available
             if hasattr(audio_file, 'tags') and audio_file.tags:
@@ -772,6 +774,8 @@ class AudioAnalyzer:
                     metadata['bitrate'] = info.bitrate
                 if hasattr(info, 'sample_rate'):
                     metadata['sample_rate'] = info.sample_rate
+                if hasattr(info, 'channels'):
+                    metadata['channels'] = info.channels
             
             # Extract and map tags if available
             if hasattr(audio_file, 'tags') and audio_file.tags:

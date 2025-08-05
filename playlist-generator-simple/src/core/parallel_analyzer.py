@@ -341,7 +341,7 @@ class ParallelAnalyzer:
                 
                 # Add audio type and category (map to database fields)
                 analysis_data['audio_type'] = analysis_result.get('audio_type', 'normal')
-                analysis_data['long_audio_category'] = analysis_result.get('audio_category')
+                analysis_data['long_audio_category'] = analysis_result.get('long_audio_category')
                 
                 # Extract metadata
                 metadata = analysis_result.get('metadata', {})
