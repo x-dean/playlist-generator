@@ -135,4 +135,8 @@ test_music/
 *.m4a
 *.wav
 *.aac
-*.wma 
+*.wma
+
+# Test files
+test_*.py
+check_*.py 

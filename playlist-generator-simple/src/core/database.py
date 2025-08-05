@@ -173,7 +173,7 @@ class DatabaseManager:
                         
                     # Create column name
                     column_name = f"{prefix}_{key}" if prefix else key
-                    column_name = column_name.replace('.', '_').replace('-', '_').lower()
+                    column_name = column_name.replace('.', '_').replace('-', '_').replace(' ', '_').replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace('{', '').replace('}', '').replace('&', 'and').replace('+', 'plus').lower()
                     
                     # Skip reserved SQLite keywords
                     reserved_keywords = {'index', 'order', 'group', 'table', 'select', 'where', 'from'}
@@ -233,7 +233,7 @@ class DatabaseManager:
                     continue
                     
                 column_name = f"{prefix}_{key}" if prefix else key
-                column_name = column_name.replace('.', '_').replace('-', '_').lower()
+                column_name = column_name.replace('.', '_').replace('-', '_').replace(' ', '_').replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace('{', '').replace('}', '').replace('&', 'and').replace('+', 'plus').lower()
                 
                 # Skip reserved SQLite keywords
                 reserved_keywords = {'index', 'order', 'group', 'table', 'select', 'where', 'from'}
@@ -1782,18 +1782,54 @@ class DatabaseManager:
                     import json
                     enrichment_sources = json.dumps(enrichment_sources)
                 
-                # Update existing record or create new one with all required fields including technical metadata and external API data
+                # Extract mutagen-specific metadata
+                encoded_by = metadata.get('encoded_by') if metadata else None
+                language = metadata.get('language') if metadata else None
+                copyright = metadata.get('copyright') if metadata else None
+                publisher = metadata.get('publisher') if metadata else None
+                original_artist = metadata.get('original_artist') if metadata else None
+                original_album = metadata.get('original_album') if metadata else None
+                original_year = metadata.get('original_year') if metadata else None
+                original_filename = metadata.get('original_filename') if metadata else None
+                content_group = metadata.get('content_group') if metadata else None
+                encoder = metadata.get('encoder') if metadata else None
+                file_type = metadata.get('file_type') if metadata else None
+                playlist_delay = metadata.get('playlist_delay') if metadata else None
+                recording_time = metadata.get('recording_time') if metadata else None
+                tempo = metadata.get('tempo') if metadata else None
+                length = metadata.get('length') if metadata else None
+                replaygain_track_gain = metadata.get('replaygain_track_gain') if metadata else None
+                replaygain_album_gain = metadata.get('replaygain_album_gain') if metadata else None
+                replaygain_track_peak = metadata.get('replaygain_track_peak') if metadata else None
+                replaygain_album_peak = metadata.get('replaygain_album_peak') if metadata else None
+                lyricist = metadata.get('lyricist') if metadata else None
+                band = metadata.get('band') if metadata else None
+                conductor = metadata.get('conductor') if metadata else None
+                remixer = metadata.get('remixer') if metadata else None
+                subtitle = metadata.get('subtitle') if metadata else None
+                grouping = metadata.get('grouping') if metadata else None
+                quality = metadata.get('quality') if metadata else None
+                
+                # Update existing record or create new one with all required fields including technical metadata, external API data, and mutagen metadata
                 cursor.execute("""
                     INSERT OR REPLACE INTO tracks 
                     (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration, 
                      bitrate, sample_rate, channels, musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id,
                      discogs_id, spotify_id, release_date, disc_number, duration_ms, play_count, listeners,
-                     rating, popularity, url, image_url, enrichment_sources, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                     rating, popularity, url, image_url, enrichment_sources, encoded_by, language, copyright,
+                     publisher, original_artist, original_album, original_year, original_filename, content_group,
+                     encoder, file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain,
+                     replaygain_album_gain, replaygain_track_peak, replaygain_album_peak, lyricist, band, conductor,
+                     remixer, subtitle, grouping, quality, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration,
                       bitrate, sample_rate, channels, musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id,
                       discogs_id, spotify_id, release_date, disc_number, duration_ms, play_count, listeners,
-                      rating, popularity, url, image_url, enrichment_sources))
+                      rating, popularity, url, image_url, enrichment_sources, encoded_by, language, copyright,
+                      publisher, original_artist, original_album, original_year, original_filename, content_group,
+                      encoder, file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain,
+                      replaygain_album_gain, replaygain_track_peak, replaygain_album_peak, lyricist, band, conductor,
+                      remixer, subtitle, grouping, quality))
                 
                 conn.commit()
                 return True
@@ -1878,18 +1914,21 @@ class DatabaseManager:
                 tags_json = json.dumps(features.get('tags', {}))
                 musicnn_features_json = json.dumps(features) if features else None
                 
-                # Update tracks table with MusicNN features
+                # Save to cache first (for consolidate_cache_to_tracks)
+                cache_key = f"musicnn_{file_path}"
+                self.save_cache(cache_key, features, cache_type='musicnn')
+                
+                # Insert or replace MusicNN features in tracks table
                 cursor.execute("""
-                    UPDATE tracks 
-                    SET embedding = ?, tags = ?, musicnn_skipped = ?, musicnn_features = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE file_path = ?
+                    INSERT OR REPLACE INTO tracks 
+                    (file_path, embedding, tags, musicnn_skipped, musicnn_features, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (
+                    file_path,
                     embedding_json,
                     tags_json,
                     features.get('musicnn_skipped', 0),
-                    musicnn_features_json,
-                    file_path
+                    musicnn_features_json
                 ))
                 
                 conn.commit()
