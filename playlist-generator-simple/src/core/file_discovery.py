@@ -108,33 +108,24 @@ class FileDiscovery:
     @log_function_call
     def _get_file_hash(self, filepath: str) -> str:
         """
-        Generate a hash for a file based on filename, modification time, and size.
-        This allows files to be moved/reorganized without being treated as new files.
+        Generate a hash for a file based on filename and size only.
+        Simple, fast, and reliable approach.
         
         Args:
             filepath: Path to the file
             
         Returns:
-            Hash string based on filename + modification time + size
+            Hash string based on filename + size
         """
         log_universal('DEBUG', 'FileDiscovery', f"Generating hash for: {filepath}")
         try:
-            stat = os.stat(filepath)
             filename = os.path.basename(filepath)
-            # Use filename + modification time + size for hash
-            # This allows files to be moved without being treated as new
-            content = f"{filename}:{stat.st_mtime}:{stat.st_size}"
+            file_size = os.path.getsize(filepath)
+            # Simple approach: filename + size
+            content = f"{filename}:{file_size}"
             
-            # Use configurable hash algorithm
-            if self.hash_algorithm.lower() == 'md5':
-                hash_result = hashlib.md5(content.encode()).hexdigest()
-            elif self.hash_algorithm.lower() == 'sha1':
-                hash_result = hashlib.sha1(content.encode()).hexdigest()
-            elif self.hash_algorithm.lower() == 'sha256':
-                hash_result = hashlib.sha256(content.encode()).hexdigest()
-            else:
-                # Default to MD5
-                hash_result = hashlib.md5(content.encode()).hexdigest()
+            # Use MD5 for consistency
+            hash_result = hashlib.md5(content.encode()).hexdigest()
             
             log_universal('DEBUG', 'FileDiscovery', f"Generated hash: {hash_result[:8]}... for {filename}")
             return hash_result
@@ -237,7 +228,7 @@ class FileDiscovery:
     @log_function_call
     def discover_files(self) -> List[str]:
         """
-        Discover audio files in the music directory.
+        Discover audio files in the music directory with caching.
         
         Returns:
             List of valid audio file paths
@@ -248,7 +239,20 @@ class FileDiscovery:
             log_universal('WARNING', 'FileDiscovery', f"Music directory does not exist: {self.music_dir}")
             return []
         
+        # Check if we have a recent discovery cache
+        db_manager = get_db_manager()
+        discovery_status = db_manager.get_discovery_status(self.music_dir)
+        
+        if discovery_status and discovery_status.get('status') == 'completed':
+            # Use cached discovery if recent (within 1 hour)
+            cache_age = datetime.now() - datetime.fromisoformat(discovery_status['created_at'])
+            if cache_age.total_seconds() < 3600:  # 1 hour
+                log_universal('INFO', 'FileDiscovery', f"Using cached discovery from {discovery_status['created_at']}")
+                # Return files from database instead of re-scanning
+                return list(self.get_db_files())
+        
         discovered_files = []
+        start_time = datetime.now()
         
         try:
             if self.enable_recursive_scan:
@@ -271,10 +275,28 @@ class FileDiscovery:
             # Sort files by size (largest first for better progress indication)
             discovered_files.sort(key=lambda x: os.path.getsize(x), reverse=True)
             
-            log_universal('INFO', 'FileDiscovery', f"File discovery complete: {len(discovered_files)} files found")
+            # Save discovery result to cache
+            scan_duration = (datetime.now() - start_time).total_seconds()
+            db_manager.save_discovery_result(
+                directory_path=self.music_dir,
+                file_count=len(discovered_files),
+                scan_duration=scan_duration,
+                status='completed'
+            )
+            
+            log_universal('INFO', 'FileDiscovery', f"File discovery complete: {len(discovered_files)} files found in {scan_duration:.2f}s")
             return discovered_files
             
         except Exception as e:
+            # Save failed discovery result
+            scan_duration = (datetime.now() - start_time).total_seconds()
+            db_manager.save_discovery_result(
+                directory_path=self.music_dir,
+                file_count=0,
+                scan_duration=scan_duration,
+                status='failed',
+                error_message=str(e)
+            )
             log_universal('ERROR', 'FileDiscovery', f"File discovery failed: {e}")
             return []
 
@@ -642,56 +664,76 @@ class FileDiscovery:
     @log_function_call
     def get_statistics(self) -> Dict[str, Any]:
         """
-        Get discovery statistics including database information.
+        Get file discovery statistics.
         
         Returns:
-            Dictionary with statistics
+            Dictionary with discovery statistics
         """
-        log_universal('DEBUG', 'FileDiscovery', "Generating discovery statistics...")
-        
         try:
-            # Get current files on disk
-            current_files = self.discover_files()
+            db_manager = get_db_manager()
+            
+            # Get discovery cache statistics
+            discovery_status = db_manager.get_discovery_status(self.music_dir)
             
             # Get database statistics
-            log_universal('DEBUG', 'FileDiscovery', "Retrieving database statistics...")
-            db_files = self.get_db_files()
-            failed_files = self.get_failed_files()
-            db_files_count = len(db_files)
-            failed_files_count = len(failed_files)
+            db_stats = db_manager.get_database_statistics()
             
-            log_universal('DEBUG', 'FileDiscovery', f"Database files: {db_files_count} valid, {failed_files_count} failed")
+            # Get file counts
+            total_files = len(self.get_db_files())
+            failed_files = len(self.get_failed_files())
             
-            # Calculate statistics
             stats = {
-                'current_files': len(current_files),
-                'database_files': db_files_count,
-                'failed_files': failed_files_count,
-                'new_files': len(set(current_files) - db_files - failed_files),
-                'removed_files': len(db_files - set(current_files)),
-                'database_path': self.db_path,
                 'music_directory': self.music_dir,
-                'failed_directory': self.failed_dir,
-                'min_file_size_bytes': self.min_file_size_bytes,
-                'valid_extensions': self.valid_extensions,
-                'hash_algorithm': self.hash_algorithm,
-                'max_retry_count': self.max_retry_count,
-                'enable_recursive_scan': self.enable_recursive_scan
+                'total_files': total_files,
+                'failed_files': failed_files,
+                'successful_files': total_files - failed_files,
+                'last_discovery': discovery_status.get('created_at') if discovery_status else None,
+                'discovery_status': discovery_status.get('status') if discovery_status else 'unknown',
+                'scan_duration': discovery_status.get('scan_duration') if discovery_status else None,
+                'database_stats': db_stats
             }
             
-            log_universal('INFO', 'FileDiscovery', f"Statistics generated successfully")
             return stats
             
         except Exception as e:
-            log_universal('ERROR', 'FileDiscovery', f"Error generating statistics: {e}")
-            return {
-                'current_files': 0,
-                'database_files': 0,
-                'failed_files': 0,
-                'new_files': 0,
-                'removed_files': 0,
-                'database_path': self.db_path,
-                'music_directory': self.music_dir,
-                'failed_directory': self.failed_dir,
-                'error': str(e)
-            } 
+            log_universal('ERROR', 'FileDiscovery', f"Failed to get statistics: {e}")
+            return {'error': str(e)}
+
+    @log_function_call
+    def get_discovery_history(self) -> List[Dict[str, Any]]:
+        """
+        Get discovery history from database.
+        
+        Returns:
+            List of discovery cache entries
+        """
+        try:
+            db_manager = get_db_manager()
+            
+            # Get all discovery cache entries for this directory
+            cache_entries = db_manager.get_cache_by_type('discovery')
+            
+            # Filter for this directory
+            discovery_history = []
+            for entry in cache_entries:
+                try:
+                    cache_data = json.loads(entry['cache_value'])
+                    if cache_data.get('directory_path') == self.music_dir:
+                        discovery_history.append({
+                            'created_at': entry['created_at'],
+                            'file_count': cache_data.get('file_count', 0),
+                            'scan_duration': cache_data.get('scan_duration', 0),
+                            'status': cache_data.get('status', 'unknown'),
+                            'error_message': cache_data.get('error_message')
+                        })
+                except json.JSONDecodeError:
+                    continue
+            
+            # Sort by creation date (newest first)
+            discovery_history.sort(key=lambda x: x['created_at'], reverse=True)
+            
+            return discovery_history
+            
+        except Exception as e:
+            log_universal('ERROR', 'FileDiscovery', f"Failed to get discovery history: {e}")
+            return [] 

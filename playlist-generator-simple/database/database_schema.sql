@@ -156,19 +156,28 @@ CREATE TABLE cache (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Statistics table for dashboard
+-- Statistics table for metrics and analytics
 CREATE TABLE statistics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category TEXT NOT NULL, -- 'analysis', 'discovery', 'playlist', 'system'
+    category TEXT NOT NULL,
     metric_name TEXT NOT NULL,
     metric_value REAL NOT NULL,
     metric_data TEXT, -- JSON for additional data
     date_recorded TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- =============================================================================
--- INDEXES FOR WEB UI PERFORMANCE
--- =============================================================================
+-- Discovery cache table for tracking file discovery operations
+CREATE TABLE discovery_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    directory_path TEXT NOT NULL,
+    file_count INTEGER NOT NULL,
+    scan_duration REAL NOT NULL, -- Duration in seconds
+    status TEXT NOT NULL, -- 'completed', 'failed', 'in_progress'
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for performance
 
 -- Essential indexes for fast queries
 CREATE INDEX idx_tracks_file_path ON tracks(file_path);
@@ -211,6 +220,14 @@ CREATE INDEX idx_cache_expires_at ON cache(expires_at);
 -- Statistics indexes
 CREATE INDEX idx_statistics_category ON statistics(category);
 CREATE INDEX idx_statistics_date ON statistics(date_recorded);
+
+-- Discovery cache indexes
+CREATE INDEX idx_discovery_cache_directory ON discovery_cache(directory_path);
+CREATE INDEX idx_discovery_cache_status ON discovery_cache(status);
+CREATE INDEX idx_discovery_cache_created_at ON discovery_cache(created_at);
+
+-- File hash index for tracking
+CREATE INDEX idx_tracks_file_hash ON tracks(file_hash);
 
 -- =============================================================================
 -- VIEWS FOR WEB UI OPTIMIZATION

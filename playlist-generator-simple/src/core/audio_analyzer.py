@@ -481,14 +481,16 @@ class AudioAnalyzer:
             log_universal('WARNING', 'Audio', f'Failed to cache analysis result for: {os.path.basename(file_path)}')
     
     def _calculate_file_hash(self, file_path: str) -> str:
-        """Calculate SHA256 hash of file for change detection."""
-        hash_sha256 = hashlib.sha256()
-        
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_sha256.update(chunk)
-        
-        return hash_sha256.hexdigest()
+        """Calculate hash based on filename and size only. Simple, fast, and reliable."""
+        try:
+            filename = os.path.basename(file_path)
+            file_size = os.path.getsize(file_path)
+            content = f"{filename}:{file_size}"
+            return hashlib.md5(content.encode()).hexdigest()
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f"Hash calculation failed for {file_path}: {e}")
+            # Fallback to filename hash
+            return hashlib.md5(os.path.basename(file_path).encode()).hexdigest()
     
     def _extract_metadata_with_mutagen(self, file_path: str) -> Optional[Dict[str, Any]]:
         """

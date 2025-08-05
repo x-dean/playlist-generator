@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
 from contextlib import contextmanager
+import hashlib
 
 # Import configuration and logging
 from .config_loader import config_loader
@@ -1972,6 +1973,395 @@ class DatabaseManager:
             health_status['issues'].append(f"Health check failed: {e}")
             log_universal('ERROR', 'Database', f"Database health check failed: {e}")
             return health_status
+
+    # 🔍 Hash-based file tracking methods
+    @log_function_call
+    def find_track_by_hash(self, file_hash: str) -> Optional[Dict[str, Any]]:
+        """
+        Find a track by its file hash.
+        
+        Args:
+            file_hash: Hash of the file to find
+            
+        Returns:
+            Track data dictionary or None if not found
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT * FROM tracks WHERE file_hash = ?
+                """, (file_hash,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Find track by hash failed: {e}")
+            return None
+
+    @log_function_call
+    def find_tracks_by_hash_pattern(self, hash_pattern: str) -> List[Dict[str, Any]]:
+        """
+        Find tracks by hash pattern (useful for partial matches).
+        
+        Args:
+            hash_pattern: Pattern to match against file hashes
+            
+        Returns:
+            List of matching track dictionaries
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT * FROM tracks WHERE file_hash LIKE ?
+                """, (f"%{hash_pattern}%",))
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Find tracks by hash pattern failed: {e}")
+            return []
+
+    @log_function_call
+    def update_file_path_by_hash(self, file_hash: str, new_file_path: str) -> bool:
+        """
+        Update file path for a track identified by hash.
+        
+        Args:
+            file_hash: Hash of the file to update
+            new_file_path: New file path
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE tracks 
+                    SET file_path = ?, filename = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE file_hash = ?
+                """, (new_file_path, os.path.basename(new_file_path), file_hash))
+                
+                if cursor.rowcount > 0:
+                    conn.commit()
+                    log_universal('INFO', 'Database', f"Updated file path for hash {file_hash[:8]}... to {new_file_path}")
+                    return True
+                else:
+                    log_universal('WARNING', 'Database', f"No track found with hash {file_hash[:8]}...")
+                    return False
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Update file path by hash failed: {e}")
+            return False
+
+    @log_function_call
+    def get_duplicate_files_by_hash(self) -> List[Dict[str, Any]]:
+        """
+        Find files with duplicate content (same hash but different paths).
+        
+        Returns:
+            List of duplicate file groups
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT file_hash, COUNT(*) as count, 
+                           GROUP_CONCAT(file_path, '|') as file_paths,
+                           GROUP_CONCAT(filename, '|') as filenames
+                    FROM tracks 
+                    WHERE file_hash IS NOT NULL
+                    GROUP BY file_hash 
+                    HAVING COUNT(*) > 1
+                    ORDER BY count DESC
+                """)
+                
+                duplicates = []
+                for row in cursor.fetchall():
+                    file_paths = row['file_paths'].split('|')
+                    filenames = row['filenames'].split('|')
+                    
+                    duplicates.append({
+                        'file_hash': row['file_hash'],
+                        'count': row['count'],
+                        'file_paths': file_paths,
+                        'filenames': filenames
+                    })
+                
+                return duplicates
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Get duplicate files by hash failed: {e}")
+            return []
+
+    @log_function_call
+    def get_moved_files(self, current_files: List[str]) -> Dict[str, Any]:
+        """
+        Detect files that have been moved by comparing current files with database.
+        
+        Args:
+            current_files: List of current file paths
+            
+        Returns:
+            Dictionary with moved file information
+        """
+        try:
+            # Get current file hashes
+            from .file_discovery import FileDiscovery
+            fd = FileDiscovery()
+            current_hashes = {}
+            
+            for file_path in current_files:
+                try:
+                    file_hash = fd._get_file_hash(file_path)
+                    current_hashes[file_hash] = file_path
+                except Exception as e:
+                    log_universal('WARNING', 'Database', f"Could not hash file {file_path}: {e}")
+            
+            # Get database hashes
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT file_hash, file_path FROM tracks 
+                    WHERE file_hash IS NOT NULL
+                """)
+                
+                db_hashes = {row['file_hash']: row['file_path'] for row in cursor.fetchall()}
+            
+            # Find moved files
+            moved_files = []
+            for file_hash, current_path in current_hashes.items():
+                if file_hash in db_hashes:
+                    db_path = db_hashes[file_hash]
+                    if db_path != current_path:
+                        moved_files.append({
+                            'file_hash': file_hash,
+                            'old_path': db_path,
+                            'new_path': current_path,
+                            'filename': os.path.basename(current_path)
+                        })
+            
+            # Find missing files (in DB but not in current files)
+            missing_files = []
+            for file_hash, db_path in db_hashes.items():
+                if file_hash not in current_hashes:
+                    missing_files.append({
+                        'file_hash': file_hash,
+                        'file_path': db_path,
+                        'filename': os.path.basename(db_path)
+                    })
+            
+            return {
+                'moved_files': moved_files,
+                'missing_files': missing_files,
+                'total_moved': len(moved_files),
+                'total_missing': len(missing_files)
+            }
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Get moved files failed: {e}")
+            return {'moved_files': [], 'missing_files': [], 'total_moved': 0, 'total_missing': 0}
+
+    @log_function_call
+    def update_moved_files(self, moved_files: List[Dict[str, Any]]) -> Dict[str, int]:
+        """
+        Update database with moved file information.
+        
+        Args:
+            moved_files: List of moved file dictionaries
+            
+        Returns:
+            Dictionary with update statistics
+        """
+        stats = {
+            'updated': 0,
+            'errors': 0,
+            'total': len(moved_files)
+        }
+        
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                for moved_file in moved_files:
+                    try:
+                        cursor.execute("""
+                            UPDATE tracks 
+                            SET file_path = ?, filename = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE file_hash = ?
+                        """, (
+                            moved_file['new_path'],
+                            moved_file['filename'],
+                            moved_file['file_hash']
+                        ))
+                        
+                        if cursor.rowcount > 0:
+                            stats['updated'] += 1
+                            log_universal('INFO', 'Database', f"Updated moved file: {moved_file['old_path']} -> {moved_file['new_path']}")
+                        else:
+                            stats['errors'] += 1
+                            log_universal('WARNING', 'Database', f"No track found for moved file hash: {moved_file['file_hash'][:8]}...")
+                            
+                    except Exception as e:
+                        stats['errors'] += 1
+                        log_universal('ERROR', 'Database', f"Error updating moved file {moved_file['new_path']}: {e}")
+                
+                conn.commit()
+                
+            log_universal('INFO', 'Database', f"Moved files update complete: {stats['updated']} updated, {stats['errors']} errors")
+            return stats
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Update moved files failed: {e}")
+            return {'updated': 0, 'errors': len(moved_files), 'total': len(moved_files)}
+
+    @log_function_call
+    def get_hash_statistics(self) -> Dict[str, Any]:
+        """
+        Get statistics about file hashes in the database.
+        
+        Returns:
+            Dictionary with hash statistics
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Total files with hashes
+                cursor.execute("SELECT COUNT(*) FROM tracks WHERE file_hash IS NOT NULL")
+                total_with_hash = cursor.fetchone()[0]
+                
+                # Total files without hashes
+                cursor.execute("SELECT COUNT(*) FROM tracks WHERE file_hash IS NULL")
+                total_without_hash = cursor.fetchone()[0]
+                
+                # Duplicate hashes
+                cursor.execute("""
+                    SELECT COUNT(*) FROM (
+                        SELECT file_hash FROM tracks 
+                        WHERE file_hash IS NOT NULL
+                        GROUP BY file_hash 
+                        HAVING COUNT(*) > 1
+                    )
+                """)
+                duplicate_hashes = cursor.fetchone()[0]
+                
+                # Hash algorithm distribution (if stored)
+                cursor.execute("""
+                    SELECT LENGTH(file_hash) as hash_length, COUNT(*) as count
+                    FROM tracks 
+                    WHERE file_hash IS NOT NULL
+                    GROUP BY LENGTH(file_hash)
+                """)
+                hash_lengths = {row['hash_length']: row['count'] for row in cursor.fetchall()}
+                
+                return {
+                    'total_with_hash': total_with_hash,
+                    'total_without_hash': total_without_hash,
+                    'duplicate_hashes': duplicate_hashes,
+                    'hash_lengths': hash_lengths,
+                    'total_files': total_with_hash + total_without_hash
+                }
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Get hash statistics failed: {e}")
+            return {}
+
+    @log_function_call
+    def calculate_file_hash(self, file_path: str, hash_type: str = 'discovery') -> str:
+        """
+        Calculate file hash using filename and size only.
+        Simple, fast, and reliable approach.
+        
+        Args:
+            file_path: Path to the file
+            hash_type: Type of hash to calculate (kept for compatibility)
+            
+        Returns:
+            Hash string based on filename + size
+        """
+        try:
+            if not os.path.exists(file_path):
+                log_universal('WARNING', 'Database', f"File does not exist: {file_path}")
+                return "file_not_found"
+            
+            # Simple approach: filename + size
+            filename = os.path.basename(file_path)
+            file_size = os.path.getsize(file_path)
+            content = f"{filename}:{file_size}"
+            
+            return hashlib.md5(content.encode()).hexdigest()
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Hash calculation failed for {file_path}: {e}")
+            # Fallback to filename hash
+            filename = os.path.basename(file_path)
+            return hashlib.md5(filename.encode()).hexdigest()
+
+    @log_function_call
+    def find_similar_tracks_by_metadata_hash(self, file_path: str) -> List[Dict[str, Any]]:
+        """
+        Find tracks with similar metadata (same artist, title, album, year).
+        
+        Args:
+            file_path: Path to the file to find similar tracks for
+            
+        Returns:
+            List of similar track dictionaries
+        """
+        try:
+            # Calculate metadata hash for the input file
+            metadata_hash = self.calculate_file_hash(file_path, 'metadata')
+            
+            # Find tracks with similar metadata
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT * FROM tracks 
+                    WHERE file_hash LIKE ? 
+                    AND file_path != ?
+                """, (f"{metadata_hash}%", file_path))
+                
+                return [dict(row) for row in cursor.fetchall()]
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Find similar tracks failed: {e}")
+            return []
+
+    @log_function_call
+    def get_file_tracking_summary(self) -> Dict[str, Any]:
+        """
+        Get a comprehensive summary of file tracking capabilities.
+        
+        Returns:
+            Dictionary with file tracking summary
+        """
+        try:
+            # Get hash statistics
+            hash_stats = self.get_hash_statistics()
+            
+            # Get duplicate files
+            duplicates = self.get_duplicate_files_by_hash()
+            
+            # Get total files
+            total_files = hash_stats.get('total_files', 0)
+            files_with_hash = hash_stats.get('total_with_hash', 0)
+            
+            # Calculate tracking coverage
+            tracking_coverage = (files_with_hash / total_files * 100) if total_files > 0 else 0
+            
+            return {
+                'total_files': total_files,
+                'files_with_hash': files_with_hash,
+                'files_without_hash': hash_stats.get('total_without_hash', 0),
+                'tracking_coverage_percent': round(tracking_coverage, 2),
+                'duplicate_files_count': len(duplicates),
+                'duplicate_groups': duplicates,
+                'hash_lengths': hash_stats.get('hash_lengths', {}),
+                'can_track_moves': files_with_hash > 0,
+                'can_detect_duplicates': len(duplicates) > 0
+            }
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f"Get file tracking summary failed: {e}")
+            return {}
 
 
 # Global database manager instance
