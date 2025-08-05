@@ -1808,7 +1808,6 @@ class DatabaseManager:
                 remixer = metadata.get('remixer') if metadata else None
                 subtitle = metadata.get('subtitle') if metadata else None
                 grouping = metadata.get('grouping') if metadata else None
-                quality = metadata.get('quality') if metadata else None
                 
                 # Update existing record or create new one with all required fields including technical metadata, external API data, and mutagen metadata
                 cursor.execute("""
@@ -1820,8 +1819,8 @@ class DatabaseManager:
                      publisher, original_artist, original_album, original_year, original_filename, content_group,
                      encoder, file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain,
                      replaygain_album_gain, replaygain_track_peak, replaygain_album_peak, lyricist, band, conductor,
-                     remixer, subtitle, grouping, quality, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                     remixer, subtitle, grouping, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (file_path, file_hash, filename, file_size_bytes, artist, title, album, year, genre, duration,
                       bitrate, sample_rate, channels, musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id,
                       discogs_id, spotify_id, release_date, disc_number, duration_ms, play_count, listeners,
@@ -1829,7 +1828,7 @@ class DatabaseManager:
                       publisher, original_artist, original_album, original_year, original_filename, content_group,
                       encoder, file_type, playlist_delay, recording_time, tempo, length, replaygain_track_gain,
                       replaygain_album_gain, replaygain_track_peak, replaygain_album_peak, lyricist, band, conductor,
-                      remixer, subtitle, grouping, quality))
+                      remixer, subtitle, grouping))
                 
                 conn.commit()
                 return True
