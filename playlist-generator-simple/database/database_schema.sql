@@ -80,6 +80,51 @@ CREATE TABLE tracks (
     mood TEXT,
     style TEXT,
     
+    -- External API data
+    musicbrainz_id TEXT,
+    musicbrainz_artist_id TEXT,
+    musicbrainz_album_id TEXT,
+    discogs_id TEXT,
+    spotify_id TEXT,
+    release_date TEXT,
+    disc_number INTEGER,
+    duration_ms INTEGER,
+    play_count INTEGER,
+    listeners INTEGER,
+    rating REAL,
+    popularity REAL,
+    url TEXT,
+    image_url TEXT,
+    enrichment_sources TEXT, -- JSON array of sources
+    
+    -- Mutagen-specific metadata
+    encoded_by TEXT,
+    language TEXT,
+    copyright TEXT,
+    publisher TEXT,
+    original_artist TEXT,
+    original_album TEXT,
+    original_year INTEGER,
+    original_filename TEXT,
+    content_group TEXT,
+    encoder TEXT,
+    file_type TEXT,
+    playlist_delay TEXT,
+    recording_time TEXT,
+    tempo REAL,
+    length REAL,
+    replaygain_track_gain REAL,
+    replaygain_album_gain REAL,
+    replaygain_track_peak REAL,
+    replaygain_album_peak REAL,
+    lyricist TEXT,
+    band TEXT,
+    conductor TEXT,
+    remixer TEXT,
+    subtitle TEXT,
+    grouping TEXT,
+    quality TEXT,
+    
     -- Analysis metadata
     analysis_type TEXT DEFAULT 'full', -- 'full', 'basic', 'discovery_only'
     long_audio_category TEXT, -- For long audio files

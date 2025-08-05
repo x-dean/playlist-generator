@@ -426,10 +426,23 @@ class AudioAnalyzer:
             
             # STEP 6: Ensure everything written to DB
             log_universal('INFO', 'Audio', f'Step 6: Committing all analysis results to database for {os.path.basename(file_path)}')
+            
+            # Determine long audio category
+            long_audio_category = None
+            if self._is_long_audio_track(file_path):
+                log_universal('INFO', 'Audio', f'Long audio track detected: {os.path.basename(file_path)}')
+                long_audio_category = self._determine_long_audio_category(file_path, metadata, {
+                    'essentia': essentia_features,
+                    'musicnn': musicnn_features,
+                    'metadata': metadata
+                })
+                log_universal('INFO', 'Audio', f'Long audio category determined: {long_audio_category}')
+            
             all_features = {
                 'essentia': essentia_features,
                 'musicnn': musicnn_features,
-                'metadata': metadata
+                'metadata': metadata,
+                'long_audio_category': long_audio_category
             }
             self.db_manager.commit_analysis_results(file_path, all_features)
             
@@ -441,7 +454,8 @@ class AudioAnalyzer:
                 'file_path': file_path,
                 'sample_rate': sample_rate,
                 'audio_length': len(audio),
-                'analysis_mode': 'simplified_6_step'
+                'analysis_mode': 'simplified_6_step',
+                'long_audio_category': long_audio_category
             }
             
             # Cache the result

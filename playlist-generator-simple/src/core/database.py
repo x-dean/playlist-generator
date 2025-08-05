@@ -217,6 +217,58 @@ class DatabaseManager:
                 mood = get(metadata, 'mood')
                 style = get(metadata, 'style')
 
+                # Extract external API data from metadata
+                musicbrainz_id = get(metadata, 'musicbrainz_id')
+                musicbrainz_artist_id = get(metadata, 'musicbrainz_artist_id')
+                musicbrainz_album_id = get(metadata, 'musicbrainz_album_id')
+                discogs_id = get(metadata, 'discogs_id')
+                spotify_id = get(metadata, 'spotify_id')
+                release_date = get(metadata, 'release_date')
+                disc_number = get(metadata, 'disc_number')
+                duration_ms = get(metadata, 'duration_ms')
+                play_count = get(metadata, 'play_count')
+                listeners = get(metadata, 'listeners')
+                rating = get(metadata, 'rating')
+                popularity = get(metadata, 'popularity')
+                url = get(metadata, 'url')
+                image_url = get(metadata, 'image_url')
+                enrichment_sources = get(metadata, 'enrichment_sources', [])
+                
+                # Extract tags and genres from external APIs
+                external_tags = get(metadata, 'tags', [])
+                external_genres = get(metadata, 'genres', [])
+                
+                # Extract mutagen-specific metadata
+                bitrate = get(metadata, 'bitrate')
+                sample_rate = get(metadata, 'sample_rate')
+                channels = get(metadata, 'channels')
+                encoded_by = get(metadata, 'encoded_by')
+                language = get(metadata, 'language')
+                copyright = get(metadata, 'copyright')
+                publisher = get(metadata, 'publisher')
+                original_artist = get(metadata, 'original_artist')
+                original_album = get(metadata, 'original_album')
+                original_year = get(metadata, 'original_year')
+                original_filename = get(metadata, 'original_filename')
+                content_group = get(metadata, 'content_group')
+                encoder = get(metadata, 'encoder')
+                file_type = get(metadata, 'file_type')
+                playlist_delay = get(metadata, 'playlist_delay')
+                recording_time = get(metadata, 'recording_time')
+                tempo = get(metadata, 'tempo')
+                length = get(metadata, 'length')
+                replaygain_track_gain = get(metadata, 'replaygain_track_gain')
+                replaygain_album_gain = get(metadata, 'replaygain_album_gain')
+                replaygain_track_peak = get(metadata, 'replaygain_track_peak')
+                replaygain_album_peak = get(metadata, 'replaygain_album_peak')
+                lyricist = get(metadata, 'lyricist')
+                band = get(metadata, 'band')
+                conductor = get(metadata, 'conductor')
+                remixer = get(metadata, 'remixer')
+                subtitle = get(metadata, 'subtitle')
+                grouping = get(metadata, 'grouping')
+                quality = get(metadata, 'quality')
+
                 # Extract essential audio features
                 bpm = get(analysis_data, 'bpm')
                 key = get(analysis_data, 'key')
@@ -282,19 +334,76 @@ class DatabaseManager:
                 analysis_type = get(analysis_data, 'analysis_type', 'full')
                 long_audio_category = get(analysis_data, 'long_audio_category')
 
-                cursor.execute("""
-                    INSERT OR REPLACE INTO tracks (
-                        file_path, file_hash, filename, file_size_bytes, analysis_date, created_at, updated_at, status, analysis_status, retry_count, error_message, title, artist, album, track_number, genre, year, duration, bitrate, sample_rate, channels, bpm, key, mode, loudness, energy, danceability, valence, acousticness, instrumentalness, speechiness, liveness, rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm, spectral_centroid, spectral_flatness, spectral_rolloff, spectral_bandwidth, spectral_contrast_mean, spectral_contrast_std, dynamic_complexity, loudness_range, dynamic_range, scale, key_strength, key_confidence, composer, mood, style, analysis_type, long_audio_category, mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2, embedding, embedding_std, embedding_min, embedding_max, tags, musicnn_skipped, chroma_mean, chroma_std, rhythm_features, spectral_features, mfcc_features, musicnn_features, spotify_features
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    file_path, file_hash, filename, file_size_bytes, now, now, now, 'analyzed', 'completed', 0, None, title, artist, album, track_number, genre, year, duration, bitrate, sample_rate, channels, bpm, key, mode, loudness, energy, danceability, valence, acousticness, instrumentalness, 0.0, 0.0, rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm, spectral_centroid, spectral_flatness, spectral_rolloff, spectral_bandwidth, spectral_contrast_mean, spectral_contrast_std, dynamic_complexity, loudness_range, dynamic_range, scale, key_strength, key_confidence, composer, mood, style, analysis_type, long_audio_category, mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2, embedding, embedding_std, embedding_min, embedding_max, tags, musicnn_skipped, chroma_mean, chroma_std, rhythm_features, spectral_features, mfcc_features, musicnn_features, spotify_features
-                ))
+                # Prepare all values for INSERT
+                values = [
+                    file_path, file_hash, filename, file_size_bytes, now, now, now, 'analyzed', 'completed', 0, None,
+                    title, artist, album, track_number, genre, year, duration, bitrate, sample_rate, channels,
+                    bpm, key, mode, loudness, energy, danceability, valence, acousticness, instrumentalness, 0.0, 0.0,
+                    rhythm_confidence, bpm_estimates, bpm_intervals, external_bpm,
+                    spectral_centroid, spectral_flatness, spectral_rolloff, spectral_bandwidth, spectral_contrast_mean, spectral_contrast_std,
+                    dynamic_complexity, loudness_range, dynamic_range, scale, key_strength, key_confidence,
+                    composer, mood, style,
+                    # External API data
+                    musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id, discogs_id, spotify_id,
+                    release_date, disc_number, duration_ms, play_count, listeners, rating, popularity, url, image_url,
+                    json.dumps(enrichment_sources) if enrichment_sources else None,
+                    # Mutagen metadata
+                    encoded_by, language, copyright, publisher, original_artist, original_album, original_year,
+                    original_filename, content_group, encoder, file_type, playlist_delay, recording_time, tempo, length,
+                    replaygain_track_gain, replaygain_album_gain, replaygain_track_peak, replaygain_album_peak,
+                    lyricist, band, conductor, remixer, subtitle, grouping, quality,
+                    # Analysis metadata
+                    analysis_type, long_audio_category,
+                    # Features
+                    mfcc_coefficients, mfcc_bands, mfcc_std, mfcc_delta, mfcc_delta2,
+                    embedding, embedding_std, embedding_min, embedding_max, tags, musicnn_skipped,
+                    chroma_mean, chroma_std, rhythm_features, spectral_features, mfcc_features, musicnn_features, spotify_features
+                ]
+
+                # Build dynamic INSERT statement with all available columns
+                columns = [
+                    'file_path', 'file_hash', 'filename', 'file_size_bytes', 'analysis_date', 'created_at', 'updated_at',
+                    'status', 'analysis_status', 'retry_count', 'error_message', 'title', 'artist', 'album', 'track_number',
+                    'genre', 'year', 'duration', 'bitrate', 'sample_rate', 'channels', 'bpm', 'key', 'mode', 'loudness',
+                    'energy', 'danceability', 'valence', 'acousticness', 'instrumentalness', 'speechiness', 'liveness',
+                    'rhythm_confidence', 'bpm_estimates', 'bpm_intervals', 'external_bpm', 'spectral_centroid',
+                    'spectral_flatness', 'spectral_rolloff', 'spectral_bandwidth', 'spectral_contrast_mean',
+                    'spectral_contrast_std', 'dynamic_complexity', 'loudness_range', 'dynamic_range', 'scale',
+                    'key_strength', 'key_confidence', 'composer', 'mood', 'style',
+                    'musicbrainz_id', 'musicbrainz_artist_id', 'musicbrainz_album_id', 'discogs_id', 'spotify_id',
+                    'release_date', 'disc_number', 'duration_ms', 'play_count', 'listeners', 'rating', 'popularity',
+                    'url', 'image_url', 'enrichment_sources', 'encoded_by', 'language', 'copyright', 'publisher',
+                    'original_artist', 'original_album', 'original_year', 'original_filename', 'content_group',
+                    'encoder', 'file_type', 'playlist_delay', 'recording_time', 'tempo', 'length',
+                    'replaygain_track_gain', 'replaygain_album_gain', 'replaygain_track_peak', 'replaygain_album_peak',
+                    'lyricist', 'band', 'conductor', 'remixer', 'subtitle', 'grouping', 'quality',
+                    'analysis_type', 'long_audio_category', 'mfcc_coefficients', 'mfcc_bands', 'mfcc_std',
+                    'mfcc_delta', 'mfcc_delta2', 'embedding', 'embedding_std', 'embedding_min', 'embedding_max',
+                    'tags', 'musicnn_skipped', 'chroma_mean', 'chroma_std', 'rhythm_features', 'spectral_features',
+                    'mfcc_features', 'musicnn_features', 'spotify_features'
+                ]
+
+                placeholders = ', '.join(['?' for _ in columns])
+                column_list = ', '.join(columns)
+                
+                cursor.execute(f"""
+                    INSERT OR REPLACE INTO tracks ({column_list})
+                    VALUES ({placeholders})
+                """, values)
 
                 track_id = cursor.lastrowid
 
                 # Save tags if provided
                 if metadata and 'tags' in metadata:
                     self._save_tags(cursor, track_id, metadata['tags'])
+                
+                # Save external API tags if available
+                if external_tags:
+                    self._save_tags(cursor, track_id, {'external_apis': external_tags})
+                
+                # Save external API genres if available
+                if external_genres:
+                    self._save_tags(cursor, track_id, {'external_genres': external_genres})
 
                 conn.commit()
                 log_universal('DEBUG', 'Database', f'Saved analysis result for: {file_path}')
