@@ -538,6 +538,10 @@ class AudioAnalyzer:
             
             metadata = {}
             
+            # Always extract technical metadata first
+            technical_metadata = self._extract_basic_metadata_with_mapping(audio_file)
+            metadata.update(technical_metadata)
+            
             # Extract tags using enhanced tag mapper
             if hasattr(audio_file, 'tags') and audio_file.tags:
                 try:
@@ -571,11 +575,13 @@ class AudioAnalyzer:
                 except Exception as e:
                     log_universal('WARNING', 'Audio', f'Tag mapping failed: {e}')
                     # Fallback to basic extraction with manual mapping
-                    metadata = self._extract_basic_metadata_with_mapping(audio_file)
+                    basic_metadata = self._extract_basic_metadata_with_mapping(audio_file)
+                    metadata.update(basic_metadata)
             
             # Extract basic metadata if no tags
             if not metadata:
-                metadata = self._extract_basic_metadata_with_mapping(audio_file)
+                basic_metadata = self._extract_basic_metadata_with_mapping(audio_file)
+                metadata.update(basic_metadata)
             
             return metadata
             
