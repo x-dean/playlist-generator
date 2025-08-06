@@ -1853,8 +1853,8 @@ class AudioAnalyzer:
                 )
 
                 chroma_frames = []
-                # Use the required frame size for Chromagram (32768 samples)
-                chroma_frame_size = 32768
+                # Use the required frame size for Chromagram (16384 samples)
+                chroma_frame_size = 16384
                 chroma_hop_size = chroma_frame_size // 2  # 50% overlap
                 
                 for frame in es.FrameGenerator(audio, frameSize=chroma_frame_size, hopSize=chroma_hop_size, startFromZero=True):
@@ -3914,9 +3914,8 @@ class AudioAnalyzer:
                 
                 import essentia.standard as es
                 
-                # Ensure audio is mono
-                if len(audio.shape) > 1:
-                    audio = np.mean(audio, axis=1)
+                # Convert audio for Essentia compatibility
+                audio = convert_audio_for_essentia(audio)
 
                 # Limit audio length for performance (max 60 seconds)
                 max_samples = 60 * sample_rate

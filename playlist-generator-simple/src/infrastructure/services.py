@@ -133,6 +133,10 @@ class EssentiaAudioAnalyzer(IAudioAnalyzer):
         """Extract features using Essentia."""
         import essentia.standard as es
         
+        # Convert audio for Essentia compatibility
+        if audio.dtype != np.float32:
+            audio = audio.astype(np.float32)
+        
         features = {}
         
         # Rhythm features
