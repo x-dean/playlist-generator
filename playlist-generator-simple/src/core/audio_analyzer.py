@@ -682,6 +682,12 @@ class AudioAnalyzer:
                     # Log all raw mutagen tags for debugging
                     log_universal('DEBUG', 'Audio', '=== RAW MUTAGEN TAGS ===')
                     for key, value in audio_file.tags.items():
+                        # Safely convert key to string, handling tuples and other types
+                        if isinstance(key, (list, tuple)):
+                            safe_key = str(key[0]) if key else 'unknown'
+                        else:
+                            safe_key = str(key)
+                        
                         # Limit tag value size to prevent memory issues
                         if isinstance(value, str) and len(value) > 1000:
                             value = value[:1000] + "..."
@@ -689,8 +695,8 @@ class AudioAnalyzer:
                             # Limit list size and individual item size
                             value = [str(item)[:500] for item in value[:10]]
                         
-                        tags_dict[key] = value
-                        log_universal('DEBUG', 'Audio', f'Raw tag: {key} = {value}')
+                        tags_dict[safe_key] = value
+                        log_universal('DEBUG', 'Audio', f'Raw tag: {safe_key} = {value}')
                     
                     log_universal('DEBUG', 'Audio', f'Converted to {len(tags_dict)} tags for mapping')
                     
