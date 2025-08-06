@@ -329,7 +329,8 @@ class TagMapper:
             # Check if this mutagen key exists in the tags (case-insensitive)
             found_key = None
             for tag_key in mutagen_tags.keys():
-                if tag_key.lower() == mapping.mutagen_key.lower():
+                # Ensure tag_key is a string before calling .lower()
+                if isinstance(tag_key, str) and tag_key.lower() == mapping.mutagen_key.lower():
                     found_key = tag_key
                     break
             
