@@ -189,14 +189,14 @@ class AnalysisManager:
                     for failed_file in failed_files_cache:
                         log_universal('DEBUG', 'Analysis', f'Failed file: {failed_file["filename"]} - {failed_file["error_message"]}')
             
-            db_files = self.file_discovery.get_db_files()
-            log_universal('INFO', 'Analysis', f"Using {len(db_files)} files from database for selection")
+            # ✅ FIXED: Use discovered files directly to avoid loop
+            log_universal('INFO', 'Analysis', f"Using {len(audio_files)} discovered files for selection")
             
             files_to_analyze = []
             skipped_count = 0
             failed_count = 0
             
-            for file_path in db_files:
+            for file_path in audio_files:
                 # Check if file should be analyzed
                 should_analyze = self._should_analyze_file(file_path, force_reextract, include_failed, failed_files_cache)
                 
