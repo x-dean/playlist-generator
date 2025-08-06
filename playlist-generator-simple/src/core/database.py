@@ -115,8 +115,8 @@ class DatabaseManager:
                     log_universal('INFO', 'Database', f'Database already exists with {len(existing_tables)} tables')
                     return True
                 
-                # Database is empty, initialize with complete schema
-                schema_file = Path(__file__).parent.parent.parent / 'database' / 'playlist_generator_schema.sql'
+                # Database is empty, initialize with component-based schema
+                schema_file = Path(__file__).parent.parent.parent / 'database' / 'component_based_schema.sql'
                 
                 if schema_file.exists():
                     with open(schema_file, 'r') as f:
@@ -602,7 +602,7 @@ class DatabaseManager:
                              file_hash: str, analysis_data: Dict[str, Any],
                              metadata: Dict[str, Any] = None, discovery_source: str = 'file_system') -> bool:
         """
-        Save analysis result with complete data preservation.
+        Save analysis result using component-based approach.
         
         Args:
             file_path: Path to the audio file
@@ -616,6 +616,112 @@ class DatabaseManager:
         Returns:
             True if successful, False otherwise
         """
+        try:
+            # 1. Save file discovery
+            self.save_file_discovery(file_path, file_hash, file_size_bytes, filename, discovery_source)
+            
+            # 2. Save mutagen metadata if available
+            if metadata:
+                self.save_mutagen_metadata(file_path, metadata)
+            
+            # 3. Save analysis components
+            if analysis_data:
+                # Save MusicNN features
+                if 'musicnn' in analysis_data:
+                    self.save_musicnn_features(file_path, analysis_data['musicnn'])
+                
+                # Save Essentia features
+                if 'essentia' in analysis_data:
+                    self.save_essentia_features(file_path, analysis_data['essentia'])
+                
+                # Save external metadata
+                if 'external' in analysis_data:
+                    self.save_external_metadata(file_path, analysis_data['external'])
+                
+                # Save audio analysis
+                if 'librosa' in analysis_data:
+                    self.save_audio_analysis(file_path, 'librosa', analysis_data['librosa'])
+                
+                # Save Spotify features
+                if 'spotify' in analysis_data:
+                    self.save_spotify_features(file_path, analysis_data['spotify'])
+            
+            # 4. Update main table with essential features for fast queries
+            self._update_main_track_features(file_path, analysis_data, metadata)
+            
+            return True
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to save analysis result: {e}')
+            return False
+
+    def _update_main_track_features(self, file_path: str, analysis_data: Dict[str, Any], metadata: Dict[str, Any] = None):
+        """
+        Update main tracks table with essential features for fast queries.
+        
+        Args:
+            file_path: Path to the file
+            analysis_data: Analysis data
+            metadata: Metadata
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get track ID
+                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
+                track_row = cursor.fetchone()
+                if not track_row:
+                    return
+                
+                track_id = track_row[0]
+                
+                # Extract essential features for playlist queries
+                update_fields = {}
+                
+                # From Essentia features
+                if analysis_data and 'essentia' in analysis_data:
+                    essentia = analysis_data['essentia']
+                    if essentia.get('bpm'):
+                        update_fields['bpm'] = essentia['bpm']
+                    if essentia.get('key'):
+                        update_fields['key'] = essentia['key']
+                    if essentia.get('scale'):
+                        update_fields['mode'] = essentia['scale']
+                
+                # From Spotify features
+                if analysis_data and 'spotify' in analysis_data:
+                    spotify = analysis_data['spotify']
+                    if spotify.get('energy'):
+                        update_fields['energy'] = spotify['energy']
+                    if spotify.get('danceability'):
+                        update_fields['danceability'] = spotify['danceability']
+                    if spotify.get('valence'):
+                        update_fields['valence'] = spotify['valence']
+                    if spotify.get('acousticness'):
+                        update_fields['acousticness'] = spotify['acousticness']
+                    if spotify.get('instrumentalness'):
+                        update_fields['instrumentalness'] = spotify['instrumentalness']
+                    if spotify.get('speechiness'):
+                        update_fields['speechiness'] = spotify['speechiness']
+                    if spotify.get('liveness'):
+                        update_fields['liveness'] = spotify['liveness']
+                
+                # Update main table if we have features
+                if update_fields:
+                    set_clause = ', '.join([f"{k} = ?" for k in update_fields.keys()])
+                    values = list(update_fields.values()) + [track_id]
+                    
+                    cursor.execute(f"""
+                        UPDATE tracks 
+                        SET {set_clause}, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    """, values)
+                
+                conn.commit()
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to update main track features: {e}')
         try:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
@@ -691,7 +797,6 @@ class DatabaseManager:
                     'file_hash': file_hash,
                     'filename': filename,
                     'file_size_bytes': file_size_bytes,
-                    'analysis_date': now,
                     'created_at': now,
                     'updated_at': now,
                     'status': 'analyzed',
@@ -701,13 +806,9 @@ class DatabaseManager:
                     'title': title,
                     'artist': artist,
                     'album': album,
-                    'track_number': track_number,
                     'genre': genre,
                     'year': year,
-                    'duration': duration,
-                    'bitrate': bitrate,
-                    'sample_rate': sample_rate,
-                    'channels': channels
+                    'duration': duration
                 }
                 
                 # Merge core fields with dynamic features
@@ -1716,9 +1817,159 @@ class DatabaseManager:
             return 0.0
 
     @log_function_call
+    def save_file_discovery(self, file_path: str, file_hash: str, file_size_bytes: int, filename: str, discovery_source: str = 'file_system') -> bool:
+        """
+        Save file discovery to component table.
+        
+        Args:
+            file_path: Path to the file
+            file_hash: File hash
+            file_size_bytes: File size in bytes
+            filename: Just the filename
+            discovery_source: Source of discovery
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Insert or replace file discovery
+                cursor.execute("""
+                    INSERT OR REPLACE INTO file_discovery 
+                    (file_path, file_hash, file_size_bytes, filename, discovery_source, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (file_path, file_hash, file_size_bytes, filename, discovery_source))
+                
+                # Also create basic track entry
+                cursor.execute("""
+                    INSERT OR REPLACE INTO tracks 
+                    (file_path, file_hash, filename, file_size_bytes, updated_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (file_path, file_hash, filename, file_size_bytes))
+                
+                conn.commit()
+                log_universal('DEBUG', 'Database', f'Saved file discovery for: {file_path}')
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to save file discovery: {e}')
+            return False
+
+    @log_function_call
+    def save_mutagen_metadata(self, file_path: str, metadata: Dict[str, Any]) -> bool:
+        """
+        Save mutagen metadata to component table.
+        
+        Args:
+            file_path: Path to the file
+            metadata: Mutagen metadata dictionary
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get track ID
+                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
+                track_row = cursor.fetchone()
+                if not track_row:
+                    log_universal('WARNING', 'Database', f'Track not found for mutagen metadata: {file_path}')
+                    return False
+                
+                track_id = track_row[0]
+                
+                # Extract metadata fields
+                title = metadata.get('title', 'Unknown')
+                artist = metadata.get('artist', 'Unknown')
+                album = metadata.get('album')
+                track_number = metadata.get('track_number')
+                disc_number = metadata.get('disc_number')
+                year = metadata.get('year')
+                
+                # Ensure genre is always stored as JSON array
+                raw_genre = metadata.get('genre')
+                if raw_genre is not None:
+                    if isinstance(raw_genre, list):
+                        genre = json.dumps(raw_genre)
+                    elif isinstance(raw_genre, str):
+                        if raw_genre.startswith('[') and raw_genre.endswith(']'):
+                            try:
+                                json.loads(raw_genre)
+                                genre = raw_genre
+                            except json.JSONDecodeError:
+                                genre = json.dumps([raw_genre])
+                        else:
+                            genre = json.dumps([raw_genre])
+                    else:
+                        genre = json.dumps([str(raw_genre)])
+                else:
+                    genre = None
+                
+                duration = metadata.get('duration')
+                bitrate = metadata.get('bitrate')
+                sample_rate = metadata.get('sample_rate')
+                channels = metadata.get('channels')
+                
+                # Extract all other mutagen fields
+                encoded_by = metadata.get('encoded_by')
+                language = metadata.get('language')
+                copyright = metadata.get('copyright')
+                publisher = metadata.get('publisher')
+                original_artist = metadata.get('original_artist')
+                original_album = metadata.get('original_album')
+                original_year = metadata.get('original_year')
+                original_filename = metadata.get('original_filename')
+                content_group = metadata.get('content_group')
+                encoder = metadata.get('encoder')
+                file_type = metadata.get('file_type')
+                playlist_delay = metadata.get('playlist_delay')
+                recording_time = metadata.get('recording_time')
+                tempo = metadata.get('tempo')
+                length = metadata.get('length')
+                replaygain_track_gain = metadata.get('replaygain_track_gain')
+                replaygain_album_gain = metadata.get('replaygain_album_gain')
+                replaygain_track_peak = metadata.get('replaygain_track_peak')
+                replaygain_album_peak = metadata.get('replaygain_album_peak')
+                lyricist = metadata.get('lyricist')
+                band = metadata.get('band')
+                conductor = metadata.get('conductor')
+                remixer = metadata.get('remixer')
+                
+                # Insert or replace mutagen metadata
+                cursor.execute("""
+                    INSERT OR REPLACE INTO mutagen_metadata 
+                    (track_id, title, artist, album, track_number, disc_number, year, genre,
+                     duration, bitrate, sample_rate, channels, encoded_by, language, copyright,
+                     publisher, original_artist, original_album, original_year, original_filename,
+                     content_group, encoder, file_type, playlist_delay, recording_time, tempo,
+                     length, replaygain_track_gain, replaygain_album_gain, replaygain_track_peak,
+                     replaygain_album_peak, lyricist, band, conductor, remixer, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (
+                    track_id, title, artist, album, track_number, disc_number, year, genre,
+                    duration, bitrate, sample_rate, channels, encoded_by, language, copyright,
+                    publisher, original_artist, original_album, original_year, original_filename,
+                    content_group, encoder, file_type, playlist_delay, recording_time, tempo,
+                    length, replaygain_track_gain, replaygain_album_gain, replaygain_track_peak,
+                    replaygain_album_peak, lyricist, band, conductor, remixer
+                ))
+                
+                conn.commit()
+                log_universal('DEBUG', 'Database', f'Saved mutagen metadata to component table for: {file_path}')
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to save mutagen metadata: {e}')
+            return False
+
+    @log_function_call
     def save_metadata(self, file_path: str, metadata: Dict[str, Any]) -> bool:
         """
-        Save metadata to database.
+        Save metadata to database (legacy method - now uses component tables).
         
         Args:
             file_path: Path to the file
@@ -1961,7 +2212,7 @@ class DatabaseManager:
     @log_function_call
     def save_essentia_features(self, file_path: str, features: Dict[str, Any]) -> bool:
         """
-        Save Essentia features to database.
+        Save Essentia features to component table.
         
         Args:
             file_path: Path to the file
@@ -1974,39 +2225,62 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
+                # Get track ID
+                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
+                track_row = cursor.fetchone()
+                if not track_row:
+                    log_universal('WARNING', 'Database', f'Track not found for Essentia features: {file_path}')
+                    return False
+                
+                track_id = track_row[0]
+                
                 # Convert features to JSON for storage
-                import json
                 rhythm_features_json = json.dumps(features.get('rhythm', {})) if features.get('rhythm') else None
                 spectral_features_json = json.dumps(features.get('spectral', {})) if features.get('spectral') else None
                 mfcc_features_json = json.dumps(features.get('mfcc', {})) if features.get('mfcc') else None
+                harmonic_features_json = json.dumps(features.get('harmonic', {})) if features.get('harmonic') else None
                 
-                # Extract key features and update tracks table
+                # Extract key values for main table
+                bpm = features.get('bpm')
+                key = features.get('key')
+                scale = features.get('scale')
+                rhythm_confidence = features.get('rhythm_confidence', 0.0)
+                key_confidence = features.get('key_confidence', 0.0)
+                processing_time = features.get('processing_time', 0.0)
+                
+                # Insert or replace Essentia features in component table
                 cursor.execute("""
-                    UPDATE tracks 
-                    SET bpm = ?, rhythm_confidence = ?, spectral_centroid = ?, 
-                        spectral_flatness = ?, spectral_rolloff = ?, loudness = ?,
-                        key = ?, scale = ?, danceability = ?, energy = ?,
-                        rhythm_features = ?, spectral_features = ?, mfcc_features = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE file_path = ?
+                    INSERT OR REPLACE INTO essentia_features 
+                    (track_id, rhythm_features, spectral_features, mfcc_features, harmonic_features,
+                     bpm, key, scale, rhythm_confidence, key_confidence, processing_time, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (
-                    features.get('bpm'),
-                    features.get('rhythm_confidence'),
-                    features.get('spectral_centroid'),
-                    features.get('spectral_flatness'),
-                    features.get('spectral_rolloff'),
-                    features.get('loudness'),
-                    features.get('key'),
-                    features.get('scale'),
-                    features.get('danceability'),
-                    features.get('energy'),
+                    track_id,
                     rhythm_features_json,
                     spectral_features_json,
                     mfcc_features_json,
-                    file_path
+                    harmonic_features_json,
+                    bpm,
+                    key,
+                    scale,
+                    rhythm_confidence,
+                    key_confidence,
+                    processing_time
                 ))
                 
+                # Update main tracks table with essential features
+                if bpm or key or scale:
+                    cursor.execute("""
+                        UPDATE tracks 
+                        SET bpm = COALESCE(?, bpm), 
+                            key = COALESCE(?, key), 
+                            mode = COALESCE(?, mode),
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    """, (bpm, key, scale, track_id))
+                
                 conn.commit()
+                log_universal('DEBUG', 'Database', f'Saved Essentia features to component table for: {file_path}')
                 return True
                 
         except Exception as e:
@@ -2016,7 +2290,7 @@ class DatabaseManager:
     @log_function_call
     def save_musicnn_features(self, file_path: str, features: Dict[str, Any]) -> bool:
         """
-        Save MusicNN features to database.
+        Save MusicNN features to component table.
         
         Args:
             file_path: Path to the file
@@ -2029,35 +2303,36 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Calculate file hash and extract filename
-                file_hash = self._calculate_file_hash_for_failed(file_path)
-                filename = os.path.basename(file_path)
+                # Get track ID
+                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
+                track_row = cursor.fetchone()
+                if not track_row:
+                    log_universal('WARNING', 'Database', f'Track not found for MusicNN features: {file_path}')
+                    return False
+                
+                track_id = track_row[0]
                 
                 # Convert features to JSON for storage
                 embedding_json = json.dumps(features.get('embedding', []))
                 tags_json = json.dumps(features.get('tags', {}))
-                musicnn_features_json = json.dumps(features) if features else None
+                confidence = features.get('confidence', 0.0)
+                processing_time = features.get('processing_time', 0.0)
                 
-                # Save to cache first (for consolidate_cache_to_tracks)
-                cache_key = f"musicnn_{file_path}"
-                self.save_cache(cache_key, features, cache_type='musicnn')
-                
-                # Insert or replace MusicNN features in tracks table
+                # Insert or replace MusicNN features in component table
                 cursor.execute("""
-                    INSERT OR REPLACE INTO tracks 
-                    (file_path, file_hash, filename, embedding, tags, musicnn_skipped, musicnn_features, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    INSERT OR REPLACE INTO musicnn_features 
+                    (track_id, embedding, tags, confidence, processing_time, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (
-                    file_path,
-                    file_hash,
-                    filename,
+                    track_id,
                     embedding_json,
                     tags_json,
-                    features.get('musicnn_skipped', 0),
-                    musicnn_features_json
+                    confidence,
+                    processing_time
                 ))
                 
                 conn.commit()
+                log_universal('DEBUG', 'Database', f'Saved MusicNN features to component table for: {file_path}')
                 return True
                 
         except Exception as e:
@@ -2065,13 +2340,13 @@ class DatabaseManager:
             return False
 
     @log_function_call
-    def save_advanced_categorization_features(self, file_path: str, features: Dict[str, Any]) -> bool:
+    def save_external_metadata(self, file_path: str, metadata: Dict[str, Any]) -> bool:
         """
-        Save advanced categorization features to database.
+        Save external metadata to component table.
         
         Args:
             file_path: Path to the file
-            features: Advanced categorization features dictionary
+            metadata: External metadata dictionary
             
         Returns:
             True if successful, False otherwise
@@ -2080,49 +2355,122 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Update the tracks table with advanced features
-                # Only update if we have valid features (not None)
-                if features is not None:
-                    cursor.execute("""
-                        UPDATE tracks SET
-                            danceability = ?,
-                            energy = ?,
-                            acousticness = ?,
-                            instrumentalness = ?,
-                            speechiness = ?,
-                            valence = ?,
-                            liveness = ?,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE file_path = ?
-                    """, (
-                        features.get('danceability', 0.0),
-                        features.get('energy', 0.0),
-                        features.get('acousticness', 0.0),
-                        features.get('instrumentalness', 0.0),
-                        features.get('speechiness', 0.0),
-                        features.get('valence', 0.0),
-                        features.get('liveness', 0.0),
-                        file_path
-                    ))
-                else:
-                    log_universal('WARNING', 'Database', f'No valid advanced categorization features to save for {file_path}')
+                # Get track ID
+                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
+                track_row = cursor.fetchone()
+                if not track_row:
+                    log_universal('WARNING', 'Database', f'Track not found for external metadata: {file_path}')
                     return False
                 
-                if cursor.rowcount > 0:
-                    log_universal('DEBUG', 'Database', f'Saved advanced categorization features for {os.path.basename(file_path)}')
-                    return True
-                else:
-                    log_universal('WARNING', 'Database', f'No track found for {os.path.basename(file_path)}')
-                    return False
-                    
+                track_id = track_row[0]
+                
+                # Extract external API IDs
+                musicbrainz_id = metadata.get('musicbrainz_id')
+                musicbrainz_artist_id = metadata.get('musicbrainz_artist_id')
+                musicbrainz_album_id = metadata.get('musicbrainz_album_id')
+                spotify_id = metadata.get('spotify_id')
+                discogs_id = metadata.get('discogs_id')
+                
+                # Convert metadata to JSON
+                metadata_json = json.dumps(metadata) if metadata else None
+                enrichment_sources = metadata.get('enrichment_sources', [])
+                enrichment_sources_json = json.dumps(enrichment_sources) if enrichment_sources else None
+                
+                # Insert or replace external metadata in component table
+                cursor.execute("""
+                    INSERT OR REPLACE INTO external_metadata 
+                    (track_id, musicbrainz_id, musicbrainz_artist_id, musicbrainz_album_id,
+                     spotify_id, discogs_id, metadata, enrichment_sources, last_updated, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, (
+                    track_id,
+                    musicbrainz_id,
+                    musicbrainz_artist_id,
+                    musicbrainz_album_id,
+                    spotify_id,
+                    discogs_id,
+                    metadata_json,
+                    enrichment_sources_json
+                ))
+                
+                conn.commit()
+                log_universal('DEBUG', 'Database', f'Saved external metadata to component table for: {file_path}')
+                return True
+                
         except Exception as e:
-            log_universal('ERROR', 'Database', f'Failed to save advanced categorization features: {e}')
+            log_universal('ERROR', 'Database', f'Failed to save external metadata: {e}')
             return False
+
+    @log_function_call
+    def save_audio_analysis(self, file_path: str, analysis_type: str, features: Dict[str, Any]) -> bool:
+        """
+        Save audio analysis features to component table.
+        
+        Args:
+            file_path: Path to the file
+            analysis_type: Type of analysis ('librosa', 'custom', 'advanced')
+            features: Analysis features dictionary
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get track ID
+                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
+                track_row = cursor.fetchone()
+                if not track_row:
+                    log_universal('WARNING', 'Database', f'Track not found for audio analysis: {file_path}')
+                    return False
+                
+                track_id = track_row[0]
+                
+                # Convert features to JSON
+                features_json = json.dumps(features) if features else None
+                confidence = features.get('confidence', 0.0)
+                processing_time = features.get('processing_time', 0.0)
+                
+                # Insert or replace audio analysis in component table
+                cursor.execute("""
+                    INSERT OR REPLACE INTO audio_analysis 
+                    (track_id, analysis_type, features, confidence, processing_time, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (
+                    track_id,
+                    analysis_type,
+                    features_json,
+                    confidence,
+                    processing_time
+                ))
+                
+                conn.commit()
+                log_universal('DEBUG', 'Database', f'Saved {analysis_type} analysis to component table for: {file_path}')
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to save audio analysis: {e}')
+            return False
+
+    @log_function_call
+    def save_advanced_categorization_features(self, file_path: str, features: Dict[str, Any]) -> bool:
+        """
+        Save advanced categorization features to audio analysis component table.
+        
+        Args:
+            file_path: Path to the file
+            features: Advanced categorization features dictionary
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.save_audio_analysis(file_path, 'advanced_categorization', features)
 
     @log_function_call
     def save_spotify_features(self, file_path: str, features: Dict[str, Any]) -> bool:
         """
-        Save Spotify-style features to database.
+        Save Spotify-style features to audio analysis component table and update main table.
         
         Args:
             file_path: Path to the file
@@ -2135,51 +2483,52 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Convert features to JSON for storage
-                import json
-                spotify_features_json = json.dumps(features) if features else None
+                # Get track ID
+                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
+                track_row = cursor.fetchone()
+                if not track_row:
+                    log_universal('WARNING', 'Database', f'Track not found for Spotify features: {file_path}')
+                    return False
                 
-                # Update the tracks table with Spotify-style features
-                # Only update if we have valid features (not None)
+                track_id = track_row[0]
+                
+                # Save to audio analysis component table
+                success = self.save_audio_analysis(file_path, 'spotify', features)
+                if not success:
+                    return False
+                
+                # Update main tracks table with essential features for playlist queries
                 if features is not None:
                     cursor.execute("""
                         UPDATE tracks SET
-                            danceability = ?,
-                            energy = ?,
-                            mode = ?,
-                            acousticness = ?,
-                            instrumentalness = ?,
-                            speechiness = ?,
-                            valence = ?,
-                            liveness = ?,
-                            spotify_features = ?,
+                            danceability = COALESCE(?, danceability),
+                            energy = COALESCE(?, energy),
+                            mode = COALESCE(?, mode),
+                            acousticness = COALESCE(?, acousticness),
+                            instrumentalness = COALESCE(?, instrumentalness),
+                            speechiness = COALESCE(?, speechiness),
+                            valence = COALESCE(?, valence),
+                            liveness = COALESCE(?, liveness),
                             updated_at = CURRENT_TIMESTAMP
-                        WHERE file_path = ?
+                        WHERE id = ?
                     """, (
-                        features.get('danceability', 0.0),
-                        features.get('energy', 0.0),
-                        features.get('mode', 0.0),
-                        features.get('acousticness', 0.0),
-                        features.get('instrumentalness', 0.0),
-                        features.get('speechiness', 0.0),
-                        features.get('valence', 0.0),
-                        features.get('liveness', 0.0),
-                        spotify_features_json,
-                        file_path
+                        features.get('danceability'),
+                        features.get('energy'),
+                        features.get('mode'),
+                        features.get('acousticness'),
+                        features.get('instrumentalness'),
+                        features.get('speechiness'),
+                        features.get('valence'),
+                        features.get('liveness'),
+                        track_id
                     ))
-                else:
-                    log_universal('WARNING', 'Database', f'No valid Spotify-style features to save for {file_path}')
-                    return False
                 
-                if cursor.rowcount > 0:
-                    log_universal('DEBUG', 'Database', f'Saved Spotify-style features for {os.path.basename(file_path)}')
-                    return True
-                else:
-                    log_universal('WARNING', 'Database', f'No track found for {os.path.basename(file_path)}')
-                    return False
-                    
+                conn.commit()
+                log_universal('DEBUG', 'Database', f'Saved Spotify features to component table and updated main table for: {file_path}')
+                return True
+                
         except Exception as e:
-            log_universal('ERROR', 'Database', f'Failed to save Spotify-style features: {e}')
+            log_universal('ERROR', 'Database', f'Failed to save Spotify features: {e}')
             return False
 
     @log_function_call
