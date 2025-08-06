@@ -171,19 +171,9 @@ class DatabaseManager:
                     if value is None:
                         continue
                     
-                    # Special handling for custom_tags - store as JSON in single column
-                    if key == 'custom_tags' and isinstance(value, dict):
-                        column_name = 'custom_tags'
-                        if column_name not in existing_columns:
-                            try:
-                                cursor.execute(f"ALTER TABLE tracks ADD COLUMN {column_name} TEXT")
-                                new_columns.append(column_name)
-                                existing_columns.add(column_name)
-                                log_universal('DEBUG', 'Database', f'Added custom_tags column: {column_name}')
-                            except sqlite3.OperationalError as e:
-                                if "duplicate column name" not in str(e):
-                                    log_universal('WARNING', 'Database', f'Failed to add column {column_name}: {e}')
-                        continue  # Skip recursive processing for custom_tags
+                    # Skip custom_tags - they should be stored in mutagen_metadata table
+                    if key == 'custom_tags':
+                        continue  # Skip processing for custom_tags
                         
                     # Create column name
                     column_name = f"{prefix}_{key}" if prefix else key
@@ -246,10 +236,9 @@ class DatabaseManager:
                 if value is None:
                     continue
                 
-                # Special handling for custom_tags - store as JSON
-                if key == 'custom_tags' and isinstance(value, dict):
-                    flattened['custom_tags'] = json.dumps(value) if value else None
-                    continue  # Skip recursive processing for custom_tags
+                                    # Skip custom_tags - they should be stored in mutagen_metadata table
+                    if key == 'custom_tags':
+                        continue  # Skip processing for custom_tags
                     
                 column_name = f"{prefix}_{key}" if prefix else key
                 column_name = column_name.replace('.', '_').replace('-', '_').replace(' ', '_').replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace('{', '').replace('}', '').replace('&', 'and').replace('+', 'plus').lower()
@@ -627,24 +616,28 @@ class DatabaseManager:
             # 3. Save analysis components
             if analysis_data:
                 # Save MusicNN features
-                if 'musicnn' in analysis_data:
+                if 'musicnn' in analysis_data and analysis_data['musicnn']:
                     self.save_musicnn_features(file_path, analysis_data['musicnn'])
                 
                 # Save Essentia features
-                if 'essentia' in analysis_data:
+                if 'essentia' in analysis_data and analysis_data['essentia']:
                     self.save_essentia_features(file_path, analysis_data['essentia'])
                 
-                # Save external metadata
-                if 'external' in analysis_data:
+                # Save external metadata (from enriched metadata)
+                if 'external' in analysis_data and analysis_data['external']:
                     self.save_external_metadata(file_path, analysis_data['external'])
                 
-                # Save audio analysis
-                if 'librosa' in analysis_data:
+                # Save audio analysis (librosa features)
+                if 'librosa' in analysis_data and analysis_data['librosa']:
                     self.save_audio_analysis(file_path, 'librosa', analysis_data['librosa'])
                 
                 # Save Spotify features
-                if 'spotify' in analysis_data:
+                if 'spotify' in analysis_data and analysis_data['spotify']:
                     self.save_spotify_features(file_path, analysis_data['spotify'])
+                
+                # Save advanced categorization features
+                if 'advanced_categorization' in analysis_data and analysis_data['advanced_categorization']:
+                    self.save_advanced_categorization_features(file_path, analysis_data['advanced_categorization'])
             
             # 4. Update main table with essential features for fast queries
             self._update_main_track_features(file_path, analysis_data, metadata, filename, file_hash, file_size_bytes)
@@ -1945,6 +1938,10 @@ class DatabaseManager:
                 conductor = metadata.get('conductor')
                 remixer = metadata.get('remixer')
                 
+                # Handle custom tags
+                custom_tags = metadata.get('custom_tags')
+                custom_tags_json = json.dumps(custom_tags) if custom_tags else None
+                
                 # Insert or replace mutagen metadata
                 cursor.execute("""
                     INSERT OR REPLACE INTO mutagen_metadata 
@@ -1953,15 +1950,15 @@ class DatabaseManager:
                      publisher, original_artist, original_album, original_year, original_filename,
                      content_group, encoder, file_type, playlist_delay, recording_time, tempo,
                      length, replaygain_track_gain, replaygain_album_gain, replaygain_track_peak,
-                     replaygain_album_peak, lyricist, band, conductor, remixer, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                     replaygain_album_peak, lyricist, band, conductor, remixer, custom_tags, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (
                     track_id, title, artist, album, track_number, disc_number, year, genre,
                     duration, bitrate, sample_rate, channels, encoded_by, language, copyright,
                     publisher, original_artist, original_album, original_year, original_filename,
                     content_group, encoder, file_type, playlist_delay, recording_time, tempo,
                     length, replaygain_track_gain, replaygain_album_gain, replaygain_track_peak,
-                    replaygain_album_peak, lyricist, band, conductor, remixer
+                    replaygain_album_peak, lyricist, band, conductor, remixer, custom_tags_json
                 ))
                 
                 conn.commit()

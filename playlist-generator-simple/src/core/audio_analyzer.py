@@ -309,10 +309,27 @@ class AudioAnalyzer:
             # STEP 3: Enrich metadata with external APIs
             log_universal('INFO', 'Audio', f'Step 3: Enriching metadata with external APIs for {os.path.basename(file_path)}')
             enriched_metadata = self._enrich_metadata_with_external_apis(metadata)
+            external_api_data = {}
+            
             if enriched_metadata and enriched_metadata != metadata:
+                # Extract external API specific data
+                external_api_data = {
+                    'musicbrainz_id': enriched_metadata.get('musicbrainz_id'),
+                    'musicbrainz_artist_id': enriched_metadata.get('musicbrainz_artist_id'),
+                    'musicbrainz_album_id': enriched_metadata.get('musicbrainz_album_id'),
+                    'discogs_id': enriched_metadata.get('discogs_id'),
+                    'spotify_id': enriched_metadata.get('spotify_id'),
+                    'release_date': enriched_metadata.get('release_date'),
+                    'popularity': enriched_metadata.get('popularity'),
+                    'url': enriched_metadata.get('url'),
+                    'image_url': enriched_metadata.get('image_url'),
+                    'enrichment_sources': enriched_metadata.get('enrichment_sources')
+                }
+                
+                # Update main metadata with enriched data
+                metadata.update(enriched_metadata)
                 self.db_manager.save_metadata(file_path, enriched_metadata)
                 log_universal('INFO', 'Audio', f'Enriched metadata saved: {enriched_metadata.get("artist", "Unknown")} - {enriched_metadata.get("title", "Unknown")}')
-                metadata = enriched_metadata
             
             # Load audio data
             log_universal('INFO', 'Audio', f'Loading audio data for {os.path.basename(file_path)}')
@@ -451,6 +468,7 @@ class AudioAnalyzer:
                 'essentia': essentia_features,
                 'musicnn': musicnn_features,
                 'metadata': metadata,
+                'external': external_api_data,
                 'long_audio_category': long_audio_category
             }
             

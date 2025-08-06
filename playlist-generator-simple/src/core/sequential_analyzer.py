@@ -80,14 +80,8 @@ def _worker_process_function(file_path: str, force_reextract: bool, timeout_seco
             file_size_bytes = os.path.getsize(file_path)
             file_hash = analyzer._calculate_file_hash(file_path)
             
-            # Prepare analysis data
+            # Prepare analysis data - use the structured features from the analyzer
             analysis_data = result.get('features', {})
-            analysis_data['status'] = 'analyzed'
-            analysis_data['analysis_type'] = result.get('analysis_mode', 'full')
-            
-            # Add audio type and category (map to database fields)
-            analysis_data['audio_type'] = result.get('audio_type', 'normal')
-            analysis_data['long_audio_category'] = result.get('long_audio_category')
             
             # Extract metadata
             metadata = result.get('metadata', {})

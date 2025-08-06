@@ -62,6 +62,7 @@ CREATE TABLE mutagen_metadata (
     band TEXT,
     conductor TEXT,
     remixer TEXT,
+    custom_tags TEXT, -- JSON object of custom TXXX and iTunes tags
     extraction_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

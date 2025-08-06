@@ -334,14 +334,8 @@ class ParallelAnalyzer:
                 file_size_bytes = os.path.getsize(file_path)
                 file_hash = self._calculate_file_hash(file_path)
                 
-                # Prepare analysis data with status
+                # Prepare analysis data - use the structured features from the analyzer
                 analysis_data = analysis_result.get('features', {})
-                analysis_data['status'] = 'analyzed'
-                analysis_data['analysis_type'] = analysis_result.get('analysis_mode', 'full')
-                
-                # Add audio type and category (map to database fields)
-                analysis_data['audio_type'] = analysis_result.get('audio_type', 'normal')
-                analysis_data['long_audio_category'] = analysis_result.get('long_audio_category')
                 
                 # Extract metadata
                 metadata = analysis_result.get('metadata', {})
