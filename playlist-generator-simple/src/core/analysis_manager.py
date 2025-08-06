@@ -260,9 +260,12 @@ class AnalysisManager:
                 if analysis_status == 'completed':
                     log_universal('DEBUG', 'Analysis', f"File already analyzed and unchanged: {file_path}")
                     return False
-                else:
-                    log_universal('DEBUG', 'Analysis', f"File discovered but analysis incomplete (status: {analysis_status}): {file_path}")
+                elif analysis_status in ['pending', 'in_progress', 'failed']:
+                    log_universal('DEBUG', 'Analysis', f"File needs analysis (status: {analysis_status}): {file_path}")
                     return True
+                else:
+                    log_universal('DEBUG', 'Analysis', f"File has unknown analysis status '{analysis_status}': {file_path}")
+                    return True  # Default to analyzing unknown status
         
         # Check if file previously failed
         if not include_failed:
