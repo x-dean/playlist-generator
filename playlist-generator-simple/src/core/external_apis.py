@@ -378,6 +378,7 @@ class LastFMClient(BaseAPIClient):
         self.api_key = api_key or os.getenv('LASTFM_API_KEY')
         if not self.api_key:
             log_universal('WARNING', 'LastFM API', 'No Last.fm API key provided')
+            self.api_key = None
             return
         
         log_universal('INFO', 'LastFM API', 'Client configured successfully')
@@ -424,6 +425,7 @@ class LastFMClient(BaseAPIClient):
             TrackMetadata object or None if not found
         """
         if not self.api_key:
+            log_universal('DEBUG', 'LastFM API', f'No API key available for: {title} by {artist}')
             return None
         
         # Check cache first
@@ -937,11 +939,15 @@ class EnhancedMetadataEnrichmentService:
         # Last.fm
         if config.get('LASTFM_ENABLED', True):
             try:
-                self.clients['lastfm'] = LastFMClient(
+                lastfm_client = LastFMClient(
                     api_key=config.get('LASTFM_API_KEY'),
                     rate_limit=config.get('LASTFM_RATE_LIMIT', 2.0)
                 )
-                log_universal('INFO', 'Enrichment', 'Last.fm client initialized')
+                if lastfm_client.api_key:
+                    self.clients['lastfm'] = lastfm_client
+                    log_universal('INFO', 'Enrichment', 'Last.fm client initialized')
+                else:
+                    log_universal('WARNING', 'Enrichment', 'Last.fm client not initialized - no API key')
             except Exception as e:
                 log_universal('WARNING', 'Enrichment', f'Last.fm client failed: {e}')
         

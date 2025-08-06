@@ -3072,6 +3072,17 @@ class AudioAnalyzer:
             if not isinstance(chroma_features, dict):
                 chroma_features = {}
             
+            # Check if we have any meaningful audio analysis data
+            has_rhythm_data = rhythm_features.get('bpm', 0) > 0
+            has_spectral_data = spectral_features.get('spectral_centroid', 0) > 0
+            has_loudness_data = loudness_features.get('loudness', 0) != 0
+            has_key_data = key_features.get('key', '') != ''
+            
+            # If we don't have any meaningful data, return None instead of default values
+            if not (has_rhythm_data or has_spectral_data or has_loudness_data or has_key_data):
+                log_universal('WARNING', 'Audio', 'No meaningful audio analysis data available for Spotify-style features')
+                return None
+            
             # Extract base features
             bpm = rhythm_features.get('bpm', 0)
             rhythm_confidence = rhythm_features.get('rhythm_confidence', 0)
@@ -3380,18 +3391,8 @@ class AudioAnalyzer:
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Failed to extract Spotify-style features: {e}')
-            # Return default values
-            return {
-                'danceability': 0.5,
-                'energy': 0.5,
-                'mode': 0.0,
-                'acousticness': 0.5,
-                'instrumentalness': 0.5,
-                'speechiness': 0.5,
-                'valence': 0.5,
-                'liveness': 0.5,
-                'popularity': 0.5
-            }
+            # Return None instead of default values when extraction fails
+            return None
 
     def _extract_missing_artist_title(self, metadata: Dict[str, Any], file_path: str):
         """

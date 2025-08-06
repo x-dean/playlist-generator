@@ -629,7 +629,27 @@ class DatabaseManager:
                 artist = get(metadata, 'artist', 'Unknown')
                 album = get(metadata, 'album')
                 track_number = get(metadata, 'track_number')
-                genre = get(metadata, 'genre')
+                
+                # Ensure genre is always stored as JSON array
+                raw_genre = get(metadata, 'genre')
+                if raw_genre is not None:
+                    if isinstance(raw_genre, list):
+                        genre = json.dumps(raw_genre)
+                    elif isinstance(raw_genre, str):
+                        # If it's already a JSON string, keep it
+                        if raw_genre.startswith('[') and raw_genre.endswith(']'):
+                            try:
+                                json.loads(raw_genre)  # Validate JSON
+                                genre = raw_genre
+                            except json.JSONDecodeError:
+                                genre = json.dumps([raw_genre])
+                        else:
+                            genre = json.dumps([raw_genre])
+                    else:
+                        genre = json.dumps([str(raw_genre)])
+                else:
+                    genre = None
+                
                 year = get(metadata, 'year')
                 duration = get(analysis_data, 'duration')
 
@@ -1771,7 +1791,27 @@ class DatabaseManager:
                 
                 album = metadata.get('album') if metadata else None
                 year = metadata.get('year') if metadata else None
-                genre = metadata.get('genre') if metadata else None
+                
+                # Ensure genre is always stored as JSON array
+                raw_genre = metadata.get('genre') if metadata else None
+                if raw_genre is not None:
+                    if isinstance(raw_genre, list):
+                        genre = json.dumps(raw_genre)
+                    elif isinstance(raw_genre, str):
+                        # If it's already a JSON string, keep it
+                        if raw_genre.startswith('[') and raw_genre.endswith(']'):
+                            try:
+                                json.loads(raw_genre)  # Validate JSON
+                                genre = raw_genre
+                            except json.JSONDecodeError:
+                                genre = json.dumps([raw_genre])
+                        else:
+                            genre = json.dumps([raw_genre])
+                    else:
+                        genre = json.dumps([str(raw_genre)])
+                else:
+                    genre = None
+                
                 duration = metadata.get('duration')
                 
                 # Extract technical metadata
@@ -2041,27 +2081,32 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 # Update the tracks table with advanced features
-                cursor.execute("""
-                    UPDATE tracks SET
-                        danceability = ?,
-                        energy = ?,
-                        acousticness = ?,
-                        instrumentalness = ?,
-                        speechiness = ?,
-                        valence = ?,
-                        liveness = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE file_path = ?
-                """, (
-                    features.get('danceability', 0.0),
-                    features.get('energy', 0.0),
-                    features.get('acousticness', 0.0),
-                    features.get('instrumentalness', 0.0),
-                    features.get('speechiness', 0.0),
-                    features.get('valence', 0.0),
-                    features.get('liveness', 0.0),
-                    file_path
-                ))
+                # Only update if we have valid features (not None)
+                if features is not None:
+                    cursor.execute("""
+                        UPDATE tracks SET
+                            danceability = ?,
+                            energy = ?,
+                            acousticness = ?,
+                            instrumentalness = ?,
+                            speechiness = ?,
+                            valence = ?,
+                            liveness = ?,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE file_path = ?
+                    """, (
+                        features.get('danceability', 0.0),
+                        features.get('energy', 0.0),
+                        features.get('acousticness', 0.0),
+                        features.get('instrumentalness', 0.0),
+                        features.get('speechiness', 0.0),
+                        features.get('valence', 0.0),
+                        features.get('liveness', 0.0),
+                        file_path
+                    ))
+                else:
+                    log_universal('WARNING', 'Database', f'No valid advanced categorization features to save for {file_path}')
+                    return False
                 
                 if cursor.rowcount > 0:
                     log_universal('DEBUG', 'Database', f'Saved advanced categorization features for {os.path.basename(file_path)}')
@@ -2095,31 +2140,36 @@ class DatabaseManager:
                 spotify_features_json = json.dumps(features) if features else None
                 
                 # Update the tracks table with Spotify-style features
-                cursor.execute("""
-                    UPDATE tracks SET
-                        danceability = ?,
-                        energy = ?,
-                        mode = ?,
-                        acousticness = ?,
-                        instrumentalness = ?,
-                        speechiness = ?,
-                        valence = ?,
-                        liveness = ?,
-                        spotify_features = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE file_path = ?
-                """, (
-                    features.get('danceability', 0.0),
-                    features.get('energy', 0.0),
-                    features.get('mode', 0.0),
-                    features.get('acousticness', 0.0),
-                    features.get('instrumentalness', 0.0),
-                    features.get('speechiness', 0.0),
-                    features.get('valence', 0.0),
-                    features.get('liveness', 0.0),
-                    spotify_features_json,
-                    file_path
-                ))
+                # Only update if we have valid features (not None)
+                if features is not None:
+                    cursor.execute("""
+                        UPDATE tracks SET
+                            danceability = ?,
+                            energy = ?,
+                            mode = ?,
+                            acousticness = ?,
+                            instrumentalness = ?,
+                            speechiness = ?,
+                            valence = ?,
+                            liveness = ?,
+                            spotify_features = ?,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE file_path = ?
+                    """, (
+                        features.get('danceability', 0.0),
+                        features.get('energy', 0.0),
+                        features.get('mode', 0.0),
+                        features.get('acousticness', 0.0),
+                        features.get('instrumentalness', 0.0),
+                        features.get('speechiness', 0.0),
+                        features.get('valence', 0.0),
+                        features.get('liveness', 0.0),
+                        spotify_features_json,
+                        file_path
+                    ))
+                else:
+                    log_universal('WARNING', 'Database', f'No valid Spotify-style features to save for {file_path}')
+                    return False
                 
                 if cursor.rowcount > 0:
                     log_universal('DEBUG', 'Database', f'Saved Spotify-style features for {os.path.basename(file_path)}')
