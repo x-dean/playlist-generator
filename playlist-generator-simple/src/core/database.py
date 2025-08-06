@@ -647,7 +647,7 @@ class DatabaseManager:
                     self.save_spotify_features(file_path, analysis_data['spotify'])
             
             # 4. Update main table with essential features for fast queries
-            self._update_main_track_features(file_path, analysis_data, metadata)
+            self._update_main_track_features(file_path, analysis_data, metadata, filename, file_hash, file_size_bytes)
             
             return True
             
@@ -655,7 +655,7 @@ class DatabaseManager:
             log_universal('ERROR', 'Database', f'Failed to save analysis result: {e}')
             return False
 
-    def _update_main_track_features(self, file_path: str, analysis_data: Dict[str, Any], metadata: Dict[str, Any] = None):
+    def _update_main_track_features(self, file_path: str, analysis_data: Dict[str, Any], metadata: Dict[str, Any] = None, filename: str = None, file_hash: str = None, file_size_bytes: int = None):
         """
         Update main tracks table with essential features for fast queries.
         
@@ -731,6 +731,12 @@ class DatabaseManager:
                 get = lambda d, k, default=None: d.get(k, default) if d else default
                 
                 # Core file info
+                if filename is None:
+                    filename = os.path.basename(file_path)
+                if file_hash is None:
+                    file_hash = self._calculate_file_hash_for_failed(file_path)
+                if file_size_bytes is None:
+                    file_size_bytes = os.path.getsize(file_path)
                 title = get(metadata, 'title', filename)
                 artist = get(metadata, 'artist', 'Unknown')
                 album = get(metadata, 'album')
@@ -1355,7 +1361,7 @@ class DatabaseManager:
     @log_function_call
     def get_tracks_for_web_ui(self, limit: int = 50, offset: int = 0,
                                artist: str = None, genre: str = None,
-                               year: int = None, sort_by: str = 'analysis_date') -> List[Dict[str, Any]]:
+                               year: int = None, sort_by: str = 'updated_at') -> List[Dict[str, Any]]:
         try:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
@@ -1372,8 +1378,8 @@ class DatabaseManager:
                     query += " AND year = ?"
                     params.append(year)
 
-                sort_fields = ['analysis_date', 'title', 'artist', 'album', 'year', 'bpm']
-                query += f" ORDER BY {sort_by if sort_by in sort_fields else 'analysis_date'} DESC LIMIT ? OFFSET ?"
+                sort_fields = ['updated_at', 'title', 'artist', 'album', 'year', 'bpm']
+                query += f" ORDER BY {sort_by if sort_by in sort_fields else 'updated_at'} DESC LIMIT ? OFFSET ?"
                 params.extend([limit, offset])
 
                 cursor.execute(query, params)
@@ -1389,10 +1395,10 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT id, file_path, filename, file_size_bytes, file_hash, 
-                           analysis_date, analysis_type, long_audio_category,
+                           updated_at, analysis_status,
                            title, artist, album, genre, year, duration,
                            bpm, key, mode, loudness, danceability, energy
-                    FROM tracks ORDER BY analysis_date DESC
+                    FROM tracks ORDER BY updated_at DESC
                 """)
                 return [dict(row) for row in cursor.fetchall()]
         except Exception:
@@ -2550,7 +2556,7 @@ class DatabaseManager:
                 cursor.execute("""
                     UPDATE tracks 
                     SET status = 'analyzed', analysis_status = 'completed', 
-                        analysis_date = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE file_path = ?
                 """, (file_path,))
                 
