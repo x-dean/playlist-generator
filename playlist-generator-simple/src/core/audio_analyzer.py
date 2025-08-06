@@ -347,15 +347,10 @@ class AudioAnalyzer:
             # Calculate file hash for caching
             file_hash = self._calculate_file_hash(file_path)
             
-            # Check cache unless force reanalysis
+            # Note: Cache checking is now handled by Analysis Manager
+            # Analyzers should just process the files they're given
             if force_reanalysis is None:
                 force_reanalysis = self.config.get('FORCE_REANALYSIS', False)
-            
-            if not force_reanalysis:
-                cached_result = self._get_cached_analysis(file_path, file_hash)
-                if cached_result:
-                    log_universal('INFO', 'Audio', f'Using cached analysis for {os.path.basename(file_path)}')
-                    return cached_result
             
             # STEP 1: Extract artist/track using mutagen with tag mapping
             log_universal('INFO', 'Audio', f'Step 1: Extracting metadata with mutagen for {os.path.basename(file_path)}')
