@@ -1700,7 +1700,7 @@ class DatabaseManager:
     @log_function_call
     def save_metadata(self, file_path: str, metadata: Dict[str, Any]) -> bool:
         """
-        Save metadata to database (legacy method - now uses component tables).
+        Save metadata to database using component-based approach.
         
         Args:
             file_path: Path to the file
@@ -1710,231 +1710,21 @@ class DatabaseManager:
             True if successful, False otherwise
         """
         try:
-            with self._get_db_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Calculate required fields
-                filename = os.path.basename(file_path)
-                file_size_bytes = os.path.getsize(file_path)
-                file_hash = self._calculate_file_hash_for_failed(file_path)
-                
-                # Debug logging for metadata
-                log_universal('DEBUG', 'Database', f'Metadata received: {metadata}')
-                if metadata is None:
-                    log_universal('WARNING', 'Database', f'Metadata is None for file: {file_path}')
-                elif not metadata:
-                    log_universal('WARNING', 'Database', f'Metadata is empty for file: {file_path}')
-                
-                # Extract core data with better fallbacks
-                title = 'Unknown'
-                artist = 'Unknown'
-                
-                if metadata:
-                    title = metadata.get('title', 'Unknown')
-                    artist = metadata.get('artist', 'Unknown')
-                
-                # If still unknown, try to extract from filename
-                if title == 'Unknown' or artist == 'Unknown':
-                    # Try to parse artist - title from filename
-                    filename_without_ext = os.path.splitext(filename)[0]
-                    if ' - ' in filename_without_ext:
-                        parts = filename_without_ext.split(' - ', 1)
-                        if len(parts) == 2:
-                            if artist == 'Unknown':
-                                artist = parts[0].strip()
-                            if title == 'Unknown':
-                                title = parts[1].strip()
-                    elif '_-_' in filename_without_ext:
-                        # Try underscore separator
-                        parts = filename_without_ext.split('_-_', 1)
-                        if len(parts) == 2:
-                            if artist == 'Unknown':
-                                artist = parts[0].strip()
-                            if title == 'Unknown':
-                                title = parts[1].strip()
-                    elif '__' in filename_without_ext:
-                        # Try double underscore separator
-                        parts = filename_without_ext.split('__', 1)
-                        if len(parts) == 2:
-                            if artist == 'Unknown':
-                                artist = parts[0].strip()
-                            if title == 'Unknown':
-                                title = parts[1].strip()
-                    else:
-                        # No separator found, use filename as title
-                        if title == 'Unknown':
-                            title = filename_without_ext
-                
-                # Final fallback - use filename as title
-                if title == 'Unknown':
-                    title = os.path.splitext(filename)[0]
-                
-                log_universal('DEBUG', 'Database', f'Final title: {title}, artist: {artist} for file: {file_path}')
-                
-                album = metadata.get('album') if metadata else None
-                year = metadata.get('year') if metadata else None
-                
-                # Ensure genre is always stored as JSON array
-                raw_genre = metadata.get('genre') if metadata else None
-                if raw_genre is not None:
-                    if isinstance(raw_genre, list):
-                        genre = json.dumps(raw_genre)
-                    elif isinstance(raw_genre, str):
-                        # If it's already a JSON string, keep it
-                        if raw_genre.startswith('[') and raw_genre.endswith(']'):
-                            try:
-                                json.loads(raw_genre)  # Validate JSON
-                                genre = raw_genre
-                            except json.JSONDecodeError:
-                                genre = json.dumps([raw_genre])
-                        else:
-                            genre = json.dumps([raw_genre])
-                    else:
-                        genre = json.dumps([str(raw_genre)])
-                else:
-                    genre = None
-                
-                duration = metadata.get('duration')
-                
-                # Extract technical metadata
-                bitrate = metadata.get('bitrate') if metadata else None
-                sample_rate = metadata.get('sample_rate') if metadata else None
-                channels = metadata.get('channels') if metadata else None
-                
-                # Extract external API data
-                musicbrainz_id = metadata.get('musicbrainz_id') if metadata else None
-                musicbrainz_artist_id = metadata.get('musicbrainz_artist_id') if metadata else None
-                musicbrainz_album_id = metadata.get('musicbrainz_album_id') if metadata else None
-                discogs_id = metadata.get('discogs_id') if metadata else None
-                spotify_id = metadata.get('spotify_id') if metadata else None
-                release_date = metadata.get('release_date') if metadata else None
-                disc_number = metadata.get('disc_number') if metadata else None
-                duration_ms = metadata.get('duration_ms') if metadata else None
-                play_count = metadata.get('play_count') if metadata else None
-                listeners = metadata.get('listeners') if metadata else None
-                rating = metadata.get('rating') if metadata else None
-                popularity = metadata.get('popularity') if metadata else None
-                url = metadata.get('url') if metadata else None
-                image_url = metadata.get('image_url') if metadata else None
-                enrichment_sources = metadata.get('enrichment_sources') if metadata else None
-                
-                # Convert enrichment_sources to JSON if it's a list
-                if isinstance(enrichment_sources, list):
-                    enrichment_sources = json.dumps(enrichment_sources)
-                
-                # Extract mutagen-specific metadata
-                encoded_by = metadata.get('encoded_by') if metadata else None
-                language = metadata.get('language') if metadata else None
-                copyright = metadata.get('copyright') if metadata else None
-                publisher = metadata.get('publisher') if metadata else None
-                original_artist = metadata.get('original_artist') if metadata else None
-                original_album = metadata.get('original_album') if metadata else None
-                original_year = metadata.get('original_year') if metadata else None
-                original_filename = metadata.get('original_filename') if metadata else None
-                content_group = metadata.get('content_group') if metadata else None
-                encoder = metadata.get('encoder') if metadata else None
-                file_type = metadata.get('file_type') if metadata else None
-                playlist_delay = metadata.get('playlist_delay') if metadata else None
-                recording_time = metadata.get('recording_time') if metadata else None
-                tempo = metadata.get('tempo') if metadata else None
-                length = metadata.get('length') if metadata else None
-                replaygain_track_gain = metadata.get('replaygain_track_gain') if metadata else None
-                replaygain_album_gain = metadata.get('replaygain_album_gain') if metadata else None
-                replaygain_track_peak = metadata.get('replaygain_track_peak') if metadata else None
-                replaygain_album_peak = metadata.get('replaygain_album_peak') if metadata else None
-                lyricist = metadata.get('lyricist') if metadata else None
-                band = metadata.get('band') if metadata else None
-                conductor = metadata.get('conductor') if metadata else None
-                remixer = metadata.get('remixer') if metadata else None
-                
-                # Prepare metadata for dynamic insertion
-                metadata_dict = {
-                    'file_path': file_path,
-                    'file_hash': file_hash,
-                    'filename': filename,
-                    'file_size_bytes': file_size_bytes,
-                    'artist': artist,
-                    'title': title,
-                    'album': album,
-                    'year': year,
-                    'genre': genre,
-                    'duration': duration,
-                    'bitrate': bitrate,
-                    'sample_rate': sample_rate,
-                    'channels': channels,
-                    'musicbrainz_id': musicbrainz_id,
-                    'musicbrainz_artist_id': musicbrainz_artist_id,
-                    'musicbrainz_album_id': musicbrainz_album_id,
-                    'discogs_id': discogs_id,
-                    'spotify_id': spotify_id,
-                    'release_date': release_date,
-                    'disc_number': disc_number,
-                    'duration_ms': duration_ms,
-                    'play_count': play_count,
-                    'listeners': listeners,
-                    'rating': rating,
-                    'popularity': popularity,
-                    'url': url,
-                    'image_url': image_url,
-                    'enrichment_sources': enrichment_sources,
-                    'encoded_by': encoded_by,
-                    'language': language,
-                    'copyright': copyright,
-                    'publisher': publisher,
-                    'original_artist': original_artist,
-                    'original_album': original_album,
-                    'original_year': original_year,
-                    'original_filename': original_filename,
-                    'content_group': content_group,
-                    'encoder': encoder,
-                    'file_type': file_type,
-                    'playlist_delay': playlist_delay,
-                    'recording_time': recording_time,
-                    'tempo': tempo,
-                    'length': length,
-                    'replaygain_track_gain': replaygain_track_gain,
-                    'replaygain_album_gain': replaygain_album_gain,
-                    'replaygain_track_peak': replaygain_track_peak,
-                    'replaygain_album_peak': replaygain_album_peak,
-                    'lyricist': lyricist,
-                    'band': band,
-                    'conductor': conductor,
-                    'remixer': remixer
-                }
-                
-                # Remove None values to avoid inserting NULLs
-                metadata_dict = {k: v for k, v in metadata_dict.items() if v is not None}
-                
-                # Ensure all columns exist
-                available_columns = self._ensure_dynamic_columns(cursor, metadata_dict)
-                
-                # Prepare values dynamically
-                column_names, values = self._prepare_dynamic_values(metadata_dict, available_columns)
-                
-                if column_names:
-                    # Build dynamic INSERT statement
-                    all_columns = ['file_path'] + column_names + ['updated_at']
-                    all_values = [file_path] + values + [datetime.now()]
-                    all_placeholders = ', '.join(['?' for _ in all_values])
-                    all_column_list = ', '.join(all_columns)
-                    
-                    cursor.execute(f"""
-                        INSERT OR REPLACE INTO tracks ({all_column_list})
-                        VALUES ({all_placeholders})
-                    """, all_values)
-                    
-                    log_universal('DEBUG', 'Database', f'Saved metadata with {len(column_names)} dynamic columns')
-                else:
-                    # Fallback to basic insert if no dynamic columns
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO tracks 
-                        (file_path, filename, file_size_bytes, artist, title, updated_at)
-                        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    """, (file_path, filename, file_size_bytes, artist, title))
-                
-                conn.commit()
-                return True
-                
+            # Calculate required fields
+            filename = os.path.basename(file_path)
+            file_size_bytes = os.path.getsize(file_path)
+            file_hash = self._calculate_file_hash_for_failed(file_path)
+            
+            # Use the component-based approach
+            return self.save_analysis_result(
+                file_path=file_path,
+                filename=filename,
+                file_size_bytes=file_size_bytes,
+                file_hash=file_hash,
+                analysis_data={},  # No analysis data, just metadata
+                metadata=metadata,
+                discovery_source='file_system'
+            )
         except Exception as e:
             log_universal('ERROR', 'Database', f'Failed to save metadata: {e}')
             return False
