@@ -2089,7 +2089,6 @@ class DatabaseManager:
                 
                 # Convert enrichment_sources to JSON if it's a list
                 if isinstance(enrichment_sources, list):
-                    import json
                     enrichment_sources = json.dumps(enrichment_sources)
                 
                 # Extract mutagen-specific metadata
