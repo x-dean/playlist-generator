@@ -951,12 +951,25 @@ Examples:
         log_universal('INFO', 'CLI', 'Running full pipeline')
         
         try:
-            # For now, just run analysis and playlist generation separately
-            # This would need to be implemented as a full pipeline
-            log_universal('INFO', 'Pipeline', "Full pipeline not yet implemented")
-            log_universal('INFO', 'Pipeline', "  Running analysis and playlist generation separately")
+            # Step 1: Run discovery first
+            log_universal('INFO', 'Pipeline', "Step 1: Running file discovery")
+            from core.file_discovery import FileDiscovery
+            file_discovery = FileDiscovery()
             
-            # Run analysis
+            # Discover files
+            discovered_files = file_discovery.discover_files()
+            log_universal('INFO', 'Pipeline', f"Discovered {len(discovered_files)} files")
+            
+            # Save discovered files to database
+            if discovered_files:
+                stats = file_discovery.save_discovered_files_to_db(discovered_files)
+                log_universal('INFO', 'Pipeline', f"Database save results: {stats['new']} new, {stats['updated']} updated, {stats['unchanged']} unchanged")
+            else:
+                log_universal('WARNING', 'Pipeline', "No files discovered")
+                return 0
+            
+            # Step 2: Run analysis
+            log_universal('INFO', 'Pipeline', "Step 2: Running analysis")
             files = self.analysis_manager.select_files_for_analysis(
                 music_path=args.music_path,
                 force_reextract=args.force,
@@ -964,31 +977,37 @@ Examples:
             )
             
             if files:
+                log_universal('INFO', 'Pipeline', f"Found {len(files)} files to analyze")
                 results = self.analysis_manager.analyze_files(
                     files=files,
                     force_reextract=args.force
                 )
-                log_universal('INFO', 'Analysis', f"Analysis completed: {results.get('success_count', 0)} files processed")
+                log_universal('INFO', 'Pipeline', f"Analysis completed: {results.get('success_count', 0)} files processed")
+            else:
+                log_universal('WARNING', 'Pipeline', "No files found for analysis")
             
-            # Generate playlists if requested
+            # Step 3: Generate playlists if requested
             if args.generate:
+                log_universal('INFO', 'Pipeline', "Step 3: Generating playlists")
                 playlists = self.playlist_generator.generate_playlists(
                     method='all',
                     num_playlists=5,
                     playlist_size=20
                 )
-                log_universal('INFO', 'Playlist', f"Generated {len(playlists)} playlists")
+                log_universal('INFO', 'Pipeline', f"Generated {len(playlists)} playlists")
             
-            # Export if requested
+            # Step 4: Export if requested
             if args.export:
-                log_universal('INFO', 'Export', "Export functionality not yet implemented")
+                log_universal('INFO', 'Pipeline', "Step 4: Exporting results")
+                log_universal('INFO', 'Pipeline', "Export functionality not yet implemented")
             
-            # Final retry of failed files (if any)
+            # Step 5: Final retry of failed files (if any)
             if not args.no_final_retry: # Only run final retry if not explicitly skipped
-                log_universal('INFO', 'Pipeline', "Running final retry of failed files")
+                log_universal('INFO', 'Pipeline', "Step 5: Running final retry of failed files")
                 retry_results = self.analysis_manager.final_retry_failed_files()
                 log_universal('INFO', 'Pipeline', f"Final retry completed: {retry_results.get('successful', 0)} recovered, {retry_results.get('moved_to_failed_dir', 0)} moved to failed directory")
             
+            log_universal('INFO', 'Pipeline', "Pipeline completed successfully")
             return 0
             
         except Exception as e:
