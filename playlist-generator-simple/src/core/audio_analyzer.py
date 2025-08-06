@@ -82,6 +82,26 @@ DEFAULT_HOP_SIZE = 512
 DEFAULT_FRAME_SIZE = 2048
 DEFAULT_TIMEOUT_SECONDS = 600
 
+def convert_audio_for_essentia(audio: np.ndarray) -> np.ndarray:
+    """
+    Convert audio data to the correct dtype for Essentia algorithms.
+    Essentia requires one-dimensional numpy arrays of dtype {"single", "int", "complex64"}.
+    """
+    try:
+        # Ensure audio is 1D
+        if len(audio.shape) > 1:
+            audio = np.mean(audio, axis=1)
+        
+        # Convert to float32 (single precision) for Essentia compatibility
+        if audio.dtype != np.float32:
+            audio = audio.astype(np.float32)
+        
+        return audio
+    except Exception as e:
+        log_universal('WARNING', 'Audio', f'Failed to convert audio for Essentia: {e}')
+        # Fallback to float32 conversion
+        return audio.astype(np.float32)
+
 
 def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[str, Any] = None, processing_mode: str = 'parallel') -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
@@ -1041,9 +1061,8 @@ class AudioAnalyzer:
                     features['bpm_intervals'] = []
                     return features
 
-                # Ensure audio is mono
-                if len(audio.shape) > 1:
-                    audio = np.mean(audio, axis=1)
+                # Convert audio for Essentia compatibility
+                audio = convert_audio_for_essentia(audio)
 
                 # 3-tier system based on file size
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
@@ -1182,9 +1201,8 @@ class AudioAnalyzer:
                     })
                     return features
 
-                # Ensure audio is mono
-                if len(audio.shape) > 1:
-                    audio = np.mean(audio, axis=1)
+                # Convert audio for Essentia compatibility
+                audio = convert_audio_for_essentia(audio)
 
                 # Extract spectral features using the correct essentia algorithms
                 try:
@@ -1300,6 +1318,9 @@ class AudioAnalyzer:
                 
                 import essentia.standard as es
                 
+                # Convert audio for Essentia compatibility
+                audio = convert_audio_for_essentia(audio)
+                
                 # Use RMS like the old working version
                 log_universal('DEBUG', 'Audio', "Initializing Essentia RMS algorithm")
                 rms_algo = es.RMS()
@@ -1377,9 +1398,8 @@ class AudioAnalyzer:
                     })
                     return features
                 
-                # Ensure audio is mono and has proper sample rate
-                if len(audio.shape) > 1:
-                    audio = np.mean(audio, axis=1)
+                # Convert audio for Essentia compatibility
+                audio = convert_audio_for_essentia(audio)
                 
                 # Resample to 16kHz if needed (KeyExtractor works better with 16kHz)
                 if sample_rate != 16000:
@@ -1450,9 +1470,8 @@ class AudioAnalyzer:
                     })
                     return features
                 
-                # Ensure audio is mono
-                if len(audio.shape) > 1:
-                    audio = np.mean(audio, axis=1)
+                # Convert audio for Essentia compatibility
+                audio = convert_audio_for_essentia(audio)
                 
                 # Use 3-tier system for MFCC extraction instead of hardcoded 60s limit
                 # Files < 100MB: Full processing, Files 100-200MB: Multi-segment, Files > 200MB: Multi-segment
@@ -1793,9 +1812,8 @@ class AudioAnalyzer:
                     features['chroma_std']  = [0.0] * 12
                     return features
 
-                # Ensure audio is mono
-                if len(audio.shape) > 1:
-                    audio = np.mean(audio, axis=1)
+                # Convert audio for Essentia compatibility
+                audio = convert_audio_for_essentia(audio)
 
                 # 3-tier system based on file size
                 half_track_threshold_mb = self.config.get('HALF_TRACK_THRESHOLD_MB', 100)
