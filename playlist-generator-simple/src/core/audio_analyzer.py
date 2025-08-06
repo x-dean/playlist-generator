@@ -5020,9 +5020,14 @@ class AudioAnalyzer:
                 try:
                     # Use numpy's safe division to avoid warnings
                     ratio = np.divide(signal_power, noise_power, out=np.zeros_like(signal_power), where=noise_power!=0)
-                    signal_to_noise_ratio = 10 * np.log10(ratio)
-                    # Handle infinite or NaN results
-                    if not np.isfinite(signal_to_noise_ratio):
+                    
+                    # Handle log10 of zero or very small values
+                    if ratio > 0:
+                        signal_to_noise_ratio = 10 * np.log10(ratio)
+                        # Handle infinite or NaN results
+                        if not np.isfinite(signal_to_noise_ratio):
+                            signal_to_noise_ratio = 0.0
+                    else:
                         signal_to_noise_ratio = 0.0
                 except (ValueError, RuntimeWarning):
                     signal_to_noise_ratio = 0.0
