@@ -2067,9 +2067,15 @@ class AudioAnalyzer:
             
             # Priority 3: Refine with metadata keywords
             if metadata:
-                title = str(metadata.get('title', '')).lower()
-                artist = str(metadata.get('artist', '')).lower()
-                album = str(metadata.get('album', '')).lower()
+                # Safely convert metadata values to strings, handling tuples and other types
+                def safe_str(value):
+                    if isinstance(value, (list, tuple)):
+                        return str(value[0]) if value else ''
+                    return str(value) if value else ''
+                
+                title = safe_str(metadata.get('title', '')).lower()
+                artist = safe_str(metadata.get('artist', '')).lower()
+                album = safe_str(metadata.get('album', '')).lower()
 
                 # Strong metadata indicators override duration-based categorization
                 if any(word in title for word in ['podcast', 'talk', 'interview', 'conversation', 'discussion']):
@@ -4161,33 +4167,39 @@ class AudioAnalyzer:
         Returns:
             Content type string or None
         """
+        # Safely convert metadata values to strings, handling tuples and other types
+        def safe_str(value):
+            if isinstance(value, (list, tuple)):
+                return str(value[0]) if value else ''
+            return str(value) if value else ''
+        
         # Extract all possible text fields
-        artist = metadata.get('artist', '').lower()
-        title = metadata.get('title', '').lower()
-        album = metadata.get('album', '').lower()
-        genre = metadata.get('genre', '').lower()
-        composer = metadata.get('composer', '').lower()
-        lyricist = metadata.get('lyricist', '').lower()
-        band = metadata.get('band', '').lower()
-        conductor = metadata.get('conductor', '').lower()
-        remixer = metadata.get('remixer', '').lower()
-        subtitle = metadata.get('subtitle', '').lower()
-        grouping = metadata.get('grouping', '').lower()
-        publisher = metadata.get('publisher', '').lower()
-        copyright = metadata.get('copyright', '').lower()
-        encoded_by = metadata.get('encoded_by', '').lower()
-        language = metadata.get('language', '').lower()
-        mood = metadata.get('mood', '').lower()
-        style = metadata.get('style', '').lower()
-        quality = metadata.get('quality', '').lower()
-        original_artist = metadata.get('original_artist', '').lower()
-        original_album = metadata.get('original_album', '').lower()
-        content_group = metadata.get('content_group', '').lower()
-        encoder = metadata.get('encoder', '').lower()
-        playlist_delay = metadata.get('playlist_delay', '').lower()
-        recording_time = metadata.get('recording_time', '').lower()
-        tempo = metadata.get('tempo', '').lower()
-        length = metadata.get('length', '').lower()
+        artist = safe_str(metadata.get('artist', '')).lower()
+        title = safe_str(metadata.get('title', '')).lower()
+        album = safe_str(metadata.get('album', '')).lower()
+        genre = safe_str(metadata.get('genre', '')).lower()
+        composer = safe_str(metadata.get('composer', '')).lower()
+        lyricist = safe_str(metadata.get('lyricist', '')).lower()
+        band = safe_str(metadata.get('band', '')).lower()
+        conductor = safe_str(metadata.get('conductor', '')).lower()
+        remixer = safe_str(metadata.get('remixer', '')).lower()
+        subtitle = safe_str(metadata.get('subtitle', '')).lower()
+        grouping = safe_str(metadata.get('grouping', '')).lower()
+        publisher = safe_str(metadata.get('publisher', '')).lower()
+        copyright = safe_str(metadata.get('copyright', '')).lower()
+        encoded_by = safe_str(metadata.get('encoded_by', '')).lower()
+        language = safe_str(metadata.get('language', '')).lower()
+        mood = safe_str(metadata.get('mood', '')).lower()
+        style = safe_str(metadata.get('style', '')).lower()
+        quality = safe_str(metadata.get('quality', '')).lower()
+        original_artist = safe_str(metadata.get('original_artist', '')).lower()
+        original_album = safe_str(metadata.get('original_album', '')).lower()
+        content_group = safe_str(metadata.get('content_group', '')).lower()
+        encoder = safe_str(metadata.get('encoder', '')).lower()
+        playlist_delay = safe_str(metadata.get('playlist_delay', '')).lower()
+        recording_time = safe_str(metadata.get('recording_time', '')).lower()
+        tempo = safe_str(metadata.get('tempo', '')).lower()
+        length = safe_str(metadata.get('length', '')).lower()
         
         # Combine all text fields for comprehensive analysis
         all_text = f"{artist} {title} {album} {genre} {composer} {lyricist} {band} {conductor} {remixer} {subtitle} {grouping} {publisher} {copyright} {encoded_by} {language} {mood} {style} {quality} {original_artist} {original_album} {content_group} {encoder} {playlist_delay} {recording_time} {tempo} {length}"
@@ -4240,33 +4252,39 @@ class AudioAnalyzer:
         Returns:
             Genre category string or None
         """
+        # Safely convert metadata values to strings, handling tuples and other types
+        def safe_str(value):
+            if isinstance(value, (list, tuple)):
+                return str(value[0]) if value else ''
+            return str(value) if value else ''
+        
         # Extract all metadata fields
-        artist = metadata.get('artist', '').lower()
-        title = metadata.get('title', '').lower()
-        album = metadata.get('album', '').lower()
-        genre = metadata.get('genre', '').lower()
-        composer = metadata.get('composer', '').lower()
-        lyricist = metadata.get('lyricist', '').lower()
-        band = metadata.get('band', '').lower()
-        conductor = metadata.get('conductor', '').lower()
-        remixer = metadata.get('remixer', '').lower()
-        subtitle = metadata.get('subtitle', '').lower()
-        grouping = metadata.get('grouping', '').lower()
-        publisher = metadata.get('publisher', '').lower()
-        copyright = metadata.get('copyright', '').lower()
-        encoded_by = metadata.get('encoded_by', '').lower()
-        language = metadata.get('language', '').lower()
-        mood = metadata.get('mood', '').lower()
-        style = metadata.get('style', '').lower()
-        quality = metadata.get('quality', '').lower()
-        original_artist = metadata.get('original_artist', '').lower()
-        original_album = metadata.get('original_album', '').lower()
-        content_group = metadata.get('content_group', '').lower()
-        encoder = metadata.get('encoder', '').lower()
-        playlist_delay = metadata.get('playlist_delay', '').lower()
-        recording_time = metadata.get('recording_time', '').lower()
-        tempo = metadata.get('tempo', '').lower()
-        length = metadata.get('length', '').lower()
+        artist = safe_str(metadata.get('artist', '')).lower()
+        title = safe_str(metadata.get('title', '')).lower()
+        album = safe_str(metadata.get('album', '')).lower()
+        genre = safe_str(metadata.get('genre', '')).lower()
+        composer = safe_str(metadata.get('composer', '')).lower()
+        lyricist = safe_str(metadata.get('lyricist', '')).lower()
+        band = safe_str(metadata.get('band', '')).lower()
+        conductor = safe_str(metadata.get('conductor', '')).lower()
+        remixer = safe_str(metadata.get('remixer', '')).lower()
+        subtitle = safe_str(metadata.get('subtitle', '')).lower()
+        grouping = safe_str(metadata.get('grouping', '')).lower()
+        publisher = safe_str(metadata.get('publisher', '')).lower()
+        copyright = safe_str(metadata.get('copyright', '')).lower()
+        encoded_by = safe_str(metadata.get('encoded_by', '')).lower()
+        language = safe_str(metadata.get('language', '')).lower()
+        mood = safe_str(metadata.get('mood', '')).lower()
+        style = safe_str(metadata.get('style', '')).lower()
+        quality = safe_str(metadata.get('quality', '')).lower()
+        original_artist = safe_str(metadata.get('original_artist', '')).lower()
+        original_album = safe_str(metadata.get('original_album', '')).lower()
+        content_group = safe_str(metadata.get('content_group', '')).lower()
+        encoder = safe_str(metadata.get('encoder', '')).lower()
+        playlist_delay = safe_str(metadata.get('playlist_delay', '')).lower()
+        recording_time = safe_str(metadata.get('recording_time', '')).lower()
+        tempo = safe_str(metadata.get('tempo', '')).lower()
+        length = safe_str(metadata.get('length', '')).lower()
         
         # Combine all text fields
         all_text = f"{artist} {title} {album} {genre} {composer} {lyricist} {band} {conductor} {remixer} {subtitle} {grouping} {publisher} {copyright} {encoded_by} {language} {mood} {style} {quality} {original_artist} {original_album} {content_group} {encoder} {playlist_delay} {recording_time} {tempo} {length}"
