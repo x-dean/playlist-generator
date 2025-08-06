@@ -5014,8 +5014,16 @@ class AudioAnalyzer:
             # Signal to noise ratio (simplified)
             signal_power = np.mean(audio ** 2)
             noise_power = np.var(audio - np.mean(audio))
-            if noise_power > 0:
-                signal_to_noise_ratio = 10 * np.log10(signal_power / noise_power)
+            
+            # Avoid division by zero and very small values
+            if noise_power > 1e-10:  # Use a small threshold instead of exact zero
+                try:
+                    signal_to_noise_ratio = 10 * np.log10(signal_power / noise_power)
+                    # Handle infinite or NaN results
+                    if not np.isfinite(signal_to_noise_ratio):
+                        signal_to_noise_ratio = 0.0
+                except (ValueError, RuntimeWarning):
+                    signal_to_noise_ratio = 0.0
             else:
                 signal_to_noise_ratio = 0.0
             features['signal_to_noise_ratio'] = float(signal_to_noise_ratio)
