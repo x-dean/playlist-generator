@@ -538,15 +538,19 @@ if __name__ == "__main__":
 
     def _get_analysis_config(self, file_path: str) -> Dict[str, Any]:
         """
-        Get analysis configuration for a file.
+        Get analysis configuration for a file with UNIVERSAL memory optimization.
         
         Args:
             file_path: Path to the file
             
         Returns:
-            Analysis configuration dictionary
+            Analysis configuration dictionary with memory optimization settings
         """
         try:
+            # Load main configuration to get memory optimization settings
+            from .config_loader import config_loader
+            main_config = config_loader.get_config()
+            
             # Get file size for analysis type determination
             file_size_bytes = os.path.getsize(file_path)
             file_size_mb = file_size_bytes / (1024 * 1024)
@@ -572,6 +576,37 @@ if __name__ == "__main__":
             # MusicNN is disabled for very large files to save memory
             enable_musicnn = file_size_mb < 200  # Disable for files >= 200MB
             
+            # UNIVERSAL MEMORY OPTIMIZATION SETTINGS
+            # Include all memory optimization settings from main config
+            memory_optimization_settings = {
+                # Universal memory optimization flags
+                'MEMORY_OPTIMIZATION_ENABLED': main_config.get('MEMORY_OPTIMIZATION_ENABLED', False),
+                'MEMORY_OPTIMIZATION_UNIVERSAL': main_config.get('MEMORY_OPTIMIZATION_UNIVERSAL', False),
+                'MEMORY_OPTIMIZATION_FORCE_ALL_CATEGORIES': main_config.get('MEMORY_OPTIMIZATION_FORCE_ALL_CATEGORIES', False),
+                
+                # Memory optimization parameters
+                'MEMORY_OPTIMIZED_SAMPLE_RATE': main_config.get('MEMORY_OPTIMIZED_SAMPLE_RATE', 22050),
+                'MEMORY_OPTIMIZED_BIT_DEPTH': main_config.get('MEMORY_OPTIMIZED_BIT_DEPTH', 16),
+                'MEMORY_OPTIMIZED_CHUNK_DURATION_SECONDS': main_config.get('MEMORY_OPTIMIZED_CHUNK_DURATION_SECONDS', 3),
+                'MEMORY_OPTIMIZED_MEMORY_LIMIT_PERCENT': main_config.get('MEMORY_OPTIMIZED_MEMORY_LIMIT_PERCENT', 15),
+                'MEMORY_OPTIMIZED_MAX_MB_PER_TRACK': main_config.get('MEMORY_OPTIMIZED_MAX_MB_PER_TRACK', 200),
+                'MEMORY_OPTIMIZED_STREAMING_CHUNK_SIZE': main_config.get('MEMORY_OPTIMIZED_STREAMING_CHUNK_SIZE', 5),
+                
+                # Memory reduction strategies
+                'MEMORY_REDUCE_SAMPLE_RATE': main_config.get('MEMORY_REDUCE_SAMPLE_RATE', True),
+                'MEMORY_USE_FLOAT16': main_config.get('MEMORY_USE_FLOAT16', True),
+                'MEMORY_STREAMING_ENABLED': main_config.get('MEMORY_STREAMING_ENABLED', True),
+                'MEMORY_MAPPING_ENABLED': main_config.get('MEMORY_MAPPING_ENABLED', True),
+                'MEMORY_FORCE_CLEANUP': main_config.get('MEMORY_FORCE_CLEANUP', True),
+                'MEMORY_MONITORING_ENABLED': main_config.get('MEMORY_MONITORING_ENABLED', True),
+                
+                # TensorFlow memory optimization
+                'TF_GPU_THREAD_MODE': main_config.get('TF_GPU_THREAD_MODE', 'gpu_private'),
+                'TF_ENABLE_ONEDNN_OPTS': main_config.get('TF_ENABLE_ONEDNN_OPTS', 0),
+                'TF_CPP_MIN_LOG_LEVEL': main_config.get('TF_CPP_MIN_LOG_LEVEL', 2),
+                'CUDA_VISIBLE_DEVICES': main_config.get('CUDA_VISIBLE_DEVICES', -1)
+            }
+            
             analysis_config = {
                 'analysis_type': analysis_type,
                 'use_full_analysis': use_full_analysis,
@@ -591,16 +626,70 @@ if __name__ == "__main__":
                 'SKIP_MUSICNN_FOR_VERY_LARGE_FILES': True
             }
             
+            # Merge memory optimization settings into analysis config
+            analysis_config.update(memory_optimization_settings)
+            
             log_universal('DEBUG', 'Sequential', f"Analysis config for {os.path.basename(file_path)}: {analysis_config['analysis_type']}")
             log_universal('DEBUG', 'Sequential', f"MusiCNN enabled: {enable_musicnn} (disabled for files >= 200MB)")
             log_universal('DEBUG', 'Sequential', f"Lightweight categorization enabled: {analysis_config['ENABLE_LIGHTWEIGHT_CATEGORIZATION']}")
+            log_universal('DEBUG', 'Sequential', f"UNIVERSAL memory optimization enabled: {analysis_config['MEMORY_OPTIMIZATION_ENABLED']}")
+            log_universal('DEBUG', 'Sequential', f"UNIVERSAL memory optimization forced: {analysis_config['MEMORY_OPTIMIZATION_FORCE_ALL_CATEGORIES']}")
             
             return analysis_config
             
         except Exception as e:
             log_universal('WARNING', 'Sequential', f"Error getting analysis config for {file_path}: {e}")
-            # Return basic analysis config as fallback
-            return {
+            # Return basic analysis config as fallback with memory optimization
+            try:
+                # Try to load main config for memory optimization settings
+                from .config_loader import config_loader
+                main_config = config_loader.get_config()
+                
+                # Include memory optimization settings in fallback
+                memory_optimization_settings = {
+                    'MEMORY_OPTIMIZATION_ENABLED': main_config.get('MEMORY_OPTIMIZATION_ENABLED', False),
+                    'MEMORY_OPTIMIZATION_UNIVERSAL': main_config.get('MEMORY_OPTIMIZATION_UNIVERSAL', False),
+                    'MEMORY_OPTIMIZATION_FORCE_ALL_CATEGORIES': main_config.get('MEMORY_OPTIMIZATION_FORCE_ALL_CATEGORIES', False),
+                    'MEMORY_OPTIMIZED_SAMPLE_RATE': main_config.get('MEMORY_OPTIMIZED_SAMPLE_RATE', 22050),
+                    'MEMORY_OPTIMIZED_BIT_DEPTH': main_config.get('MEMORY_OPTIMIZED_BIT_DEPTH', 16),
+                    'MEMORY_OPTIMIZED_CHUNK_DURATION_SECONDS': main_config.get('MEMORY_OPTIMIZED_CHUNK_DURATION_SECONDS', 3),
+                    'MEMORY_OPTIMIZED_MEMORY_LIMIT_PERCENT': main_config.get('MEMORY_OPTIMIZED_MEMORY_LIMIT_PERCENT', 15),
+                    'MEMORY_OPTIMIZED_MAX_MB_PER_TRACK': main_config.get('MEMORY_OPTIMIZED_MAX_MB_PER_TRACK', 200),
+                    'MEMORY_REDUCE_SAMPLE_RATE': main_config.get('MEMORY_REDUCE_SAMPLE_RATE', True),
+                    'MEMORY_USE_FLOAT16': main_config.get('MEMORY_USE_FLOAT16', True),
+                    'MEMORY_STREAMING_ENABLED': main_config.get('MEMORY_STREAMING_ENABLED', True),
+                    'MEMORY_MAPPING_ENABLED': main_config.get('MEMORY_MAPPING_ENABLED', True),
+                    'MEMORY_FORCE_CLEANUP': main_config.get('MEMORY_FORCE_CLEANUP', True),
+                    'MEMORY_MONITORING_ENABLED': main_config.get('MEMORY_MONITORING_ENABLED', True),
+                    'TF_GPU_THREAD_MODE': main_config.get('TF_GPU_THREAD_MODE', 'gpu_private'),
+                    'TF_ENABLE_ONEDNN_OPTS': main_config.get('TF_ENABLE_ONEDNN_OPTS', 0),
+                    'TF_CPP_MIN_LOG_LEVEL': main_config.get('TF_CPP_MIN_LOG_LEVEL', 2),
+                    'CUDA_VISIBLE_DEVICES': main_config.get('CUDA_VISIBLE_DEVICES', -1)
+                }
+            except Exception:
+                # If config loading fails, use defaults
+                memory_optimization_settings = {
+                    'MEMORY_OPTIMIZATION_ENABLED': True,
+                    'MEMORY_OPTIMIZATION_UNIVERSAL': True,
+                    'MEMORY_OPTIMIZATION_FORCE_ALL_CATEGORIES': True,
+                    'MEMORY_OPTIMIZED_SAMPLE_RATE': 22050,
+                    'MEMORY_OPTIMIZED_BIT_DEPTH': 16,
+                    'MEMORY_OPTIMIZED_CHUNK_DURATION_SECONDS': 3,
+                    'MEMORY_OPTIMIZED_MEMORY_LIMIT_PERCENT': 15,
+                    'MEMORY_OPTIMIZED_MAX_MB_PER_TRACK': 200,
+                    'MEMORY_REDUCE_SAMPLE_RATE': True,
+                    'MEMORY_USE_FLOAT16': True,
+                    'MEMORY_STREAMING_ENABLED': True,
+                    'MEMORY_MAPPING_ENABLED': True,
+                    'MEMORY_FORCE_CLEANUP': True,
+                    'MEMORY_MONITORING_ENABLED': True,
+                    'TF_GPU_THREAD_MODE': 'gpu_private',
+                    'TF_ENABLE_ONEDNN_OPTS': 0,
+                    'TF_CPP_MIN_LOG_LEVEL': 2,
+                    'CUDA_VISIBLE_DEVICES': -1
+                }
+            
+            fallback_config = {
                 'analysis_type': 'basic',
                 'use_full_analysis': False,
                 'EXTRACT_RHYTHM': True,
@@ -618,6 +707,12 @@ if __name__ == "__main__":
                 'ENABLE_LIGHTWEIGHT_CATEGORIZATION': True,
                 'SKIP_MUSICNN_FOR_VERY_LARGE_FILES': True
             }
+            
+            # Merge memory optimization settings into fallback config
+            fallback_config.update(memory_optimization_settings)
+            
+            log_universal('WARNING', 'Sequential', f"Using fallback config with UNIVERSAL memory optimization for {file_path}")
+            return fallback_config
 
     def _calculate_file_hash(self, file_path: str) -> str:
         """
