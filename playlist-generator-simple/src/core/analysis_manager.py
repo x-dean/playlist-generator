@@ -174,7 +174,26 @@ class AnalysisManager:
             
             if not all_db_files:
                 log_universal('WARNING', 'Analysis', f"No files found in database")
-                return []
+                log_universal('INFO', 'Analysis', f"Running file discovery to populate database...")
+                
+                # Run discovery to populate database
+                discovered_files = self.file_discovery.discover_files()
+                if not discovered_files:
+                    log_universal('WARNING', 'Analysis', f"No audio files found in {music_path}")
+                    return []
+                
+                log_universal('INFO', 'Analysis', f"Discovered {len(discovered_files)} audio files")
+                
+                # Save discovered files to database
+                log_universal('INFO', 'Analysis', f"Saving discovered files to database...")
+                save_stats = self.file_discovery.save_discovered_files_to_db(discovered_files)
+                log_universal('INFO', 'Analysis', f"Database save complete: {save_stats['new']} new, {save_stats['updated']} updated, {save_stats['unchanged']} unchanged")
+                
+                # Get files from database again after discovery
+                all_db_files = self.db_manager.get_all_analysis_results()
+                if not all_db_files:
+                    log_universal('WARNING', 'Analysis', f"Still no files found in database after discovery")
+                    return []
             
             log_universal('INFO', 'Analysis', f"Found {len(all_db_files)} files in database")
             
