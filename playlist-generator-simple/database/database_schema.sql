@@ -24,9 +24,9 @@ CREATE TABLE tracks (
     retry_count INTEGER DEFAULT 0,
     error_message TEXT,
     
-    -- Core metadata (essential for web UI)
-    title TEXT NOT NULL,
-    artist TEXT NOT NULL,
+    -- Core metadata (essential for web UI) - made nullable for discovery
+    title TEXT DEFAULT 'Unknown',
+    artist TEXT DEFAULT 'Unknown',
     album TEXT,
     track_number INTEGER,
     genre TEXT,
@@ -117,43 +117,30 @@ CREATE TABLE tracks (
     replaygain_album_gain REAL,
     replaygain_track_peak REAL,
     replaygain_album_peak REAL,
-    lyricist TEXT,
-    band TEXT,
-    conductor TEXT,
-    remixer TEXT,
-    subtitle TEXT,
-    grouping TEXT,
-    quality TEXT,
     
-    -- Analysis metadata
-    analysis_type TEXT DEFAULT 'full', -- 'full', 'basic', 'discovery_only'
-    long_audio_category TEXT, -- For long audio files
-    
-    -- MFCC features (Essentia)
-    mfcc_coefficients TEXT, -- JSON array
-    mfcc_bands TEXT, -- JSON array
-    mfcc_std TEXT, -- JSON array
-    mfcc_delta TEXT, -- JSON array
-    mfcc_delta2 TEXT, -- JSON array
-    
-    -- MusiCNN features
-    embedding TEXT, -- JSON array of 200-dimensional embedding
-    embedding_std TEXT, -- JSON array
-    embedding_min TEXT, -- JSON array
-    embedding_max TEXT, -- JSON array
-    tags TEXT, -- JSON object of MusiCNN tag names to confidence scores
-    musicnn_skipped INTEGER DEFAULT 0,
-    
-    -- Chroma features (Essentia)
-    chroma_mean TEXT, -- JSON array of 12-dimensional chroma means
-    chroma_std TEXT, -- JSON array of 12-dimensional chroma standard deviations
-    
-    -- Extended features (JSON for flexibility)
-    rhythm_features TEXT, -- JSON
-    spectral_features TEXT, -- JSON
-    mfcc_features TEXT, -- JSON
+    -- Component-based analysis data (JSON)
+    essentia_features TEXT, -- JSON
     musicnn_features TEXT, -- JSON
-    spotify_features TEXT -- JSON
+    librosa_features TEXT, -- JSON
+    spotify_features TEXT, -- JSON
+    external_metadata TEXT, -- JSON
+    advanced_categorization TEXT, -- JSON
+    
+    -- Discovery information
+    discovery_source TEXT DEFAULT 'file_system',
+    discovery_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- File discovery table for tracking discovery process
+CREATE TABLE file_discovery (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path TEXT UNIQUE NOT NULL,
+    file_hash TEXT NOT NULL,
+    file_size_bytes INTEGER NOT NULL,
+    filename TEXT NOT NULL,
+    discovery_source TEXT DEFAULT 'file_system',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Tags table for external API data

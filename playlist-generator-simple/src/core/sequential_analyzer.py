@@ -765,6 +765,38 @@ if __name__ == "__main__":
         except Exception as e:
             log_universal('ERROR', 'Sequential', f"Error during memory cleanup: {e}")
 
+    def _update_analysis_status(self, file_path: str, status: str, error_message: str = None):
+        """
+        Update the analysis status for a file in the database.
+        
+        Args:
+            file_path: Path to the file
+            status: New status ('pending', 'in_progress', 'completed', 'failed')
+            error_message: Error message if status is 'failed'
+        """
+        try:
+            with self.db_manager._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                if status == 'failed' and error_message:
+                    cursor.execute("""
+                        UPDATE tracks 
+                        SET analysis_status = ?, error_message = ?, retry_count = retry_count + 1, updated_at = CURRENT_TIMESTAMP
+                        WHERE file_path = ?
+                    """, (status, error_message, file_path))
+                else:
+                    cursor.execute("""
+                        UPDATE tracks 
+                        SET analysis_status = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE file_path = ?
+                    """, (status, file_path))
+                
+                conn.commit()
+                log_universal('DEBUG', 'Sequential', f"Updated analysis status to '{status}' for {os.path.basename(file_path)}")
+                
+        except Exception as e:
+            log_universal('ERROR', 'Sequential', f"Error updating analysis status for {file_path}: {e}")
+
     def get_config(self) -> Dict[str, Any]:
         """Get current analyzer configuration."""
         return {

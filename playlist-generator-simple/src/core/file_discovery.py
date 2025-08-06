@@ -117,7 +117,6 @@ class FileDiscovery:
         Returns:
             Hash string based on filename + size
         """
-        log_universal('DEBUG', 'FileDiscovery', f"Generating hash for: {filepath}")
         try:
             filename = os.path.basename(filepath)
             file_size = os.path.getsize(filepath)
@@ -127,7 +126,6 @@ class FileDiscovery:
             # Use MD5 for consistency
             hash_result = hashlib.md5(content.encode()).hexdigest()
             
-            log_universal('DEBUG', 'FileDiscovery', f"Generated hash: {hash_result[:8]}... for {filename}")
             return hash_result
             
         except Exception as e:
@@ -323,72 +321,73 @@ class FileDiscovery:
         try:
             db_manager = get_db_manager()
             
-            for filepath in filepaths:
-                try:
-                    filename = os.path.basename(filepath)
-                    file_size = os.path.getsize(filepath)
-                    file_hash = self._get_file_hash(filepath)
-                    modified_time = os.path.getmtime(filepath)
-                    
-                    # Check if file already exists in database
-                    existing_result = db_manager.get_analysis_result(filepath)
-                    
-                    if existing_result:
-                        existing_hash = existing_result.get('file_hash')
-                        existing_size = existing_result.get('file_size_bytes')
+            # Batch process files for better performance
+            batch_size = 100
+            for i in range(0, len(filepaths), batch_size):
+                batch = filepaths[i:i + batch_size]
+                
+                # Pre-collect file info for batch
+                file_info_batch = []
+                for filepath in batch:
+                    try:
+                        filename = os.path.basename(filepath)
+                        file_size = os.path.getsize(filepath)
+                        file_hash = self._get_file_hash(filepath)
+                        modified_time = os.path.getmtime(filepath)
                         
-                        if existing_hash == file_hash and existing_size == file_size:
-                            # File unchanged
-                            stats['unchanged'] += 1
-                            log_universal('DEBUG', 'FileDiscovery', f"File unchanged: {filename}")
+                        file_info_batch.append({
+                            'filepath': filepath,
+                            'filename': filename,
+                            'file_size': file_size,
+                            'file_hash': file_hash,
+                            'modified_time': modified_time
+                        })
+                    except Exception as e:
+                        stats['errors'] += 1
+                        log_universal('ERROR', 'FileDiscovery', f"Error collecting file info for {filepath}: {e}")
+                
+                # Process batch
+                for file_info in file_info_batch:
+                    try:
+                        # Check if file already exists in database
+                        existing_result = db_manager.get_analysis_result(file_info['filepath'])
+                        
+                        if existing_result:
+                            existing_hash = existing_result.get('file_hash')
+                            existing_size = existing_result.get('file_size_bytes')
+                            
+                            if existing_hash == file_info['file_hash'] and existing_size == file_info['file_size']:
+                                # File unchanged
+                                stats['unchanged'] += 1
+                            else:
+                                # File modified - update basic discovery info only
+                                db_manager.save_file_discovery(
+                                    file_path=file_info['filepath'],
+                                    file_hash=file_info['file_hash'],
+                                    file_size_bytes=file_info['file_size'],
+                                    filename=file_info['filename'],
+                                    discovery_source='file_system'
+                                )
+                                stats['updated'] += 1
                         else:
-                            # File modified - update with discovery info
-                            db_manager.save_analysis_result(
-                                file_path=filepath,
-                                filename=filename,
-                                file_size_bytes=file_size,
-                                file_hash=file_hash,
-                                analysis_data={
-                                    'status': 'discovered',
-                                    'modified_time': modified_time,
-                                    'analysis_type': 'discovery_only'
-                                },
-                                metadata={
-                                    'title': filename,
-                                    'artist': 'Unknown',
-                                    'discovered_date': datetime.now().isoformat()
-                                },
+                            # New file - save basic discovery info only
+                            db_manager.save_file_discovery(
+                                file_path=file_info['filepath'],
+                                file_hash=file_info['file_hash'],
+                                file_size_bytes=file_info['file_size'],
+                                filename=file_info['filename'],
                                 discovery_source='file_system'
                             )
-                            stats['updated'] += 1
-                            log_universal('DEBUG', 'FileDiscovery', f"Updated modified file in database: {filepath}")
-                    else:
-                        # New file - save with discovery info
-                        db_manager.save_analysis_result(
-                            file_path=filepath,
-                            filename=filename,
-                            file_size_bytes=file_size,
-                            file_hash=file_hash,
-                            analysis_data={
-                                'status': 'discovered',
-                                'modified_time': modified_time,
-                                'analysis_type': 'discovery_only'
-                            },
-                            metadata={
-                                'title': filename,
-                                'artist': 'Unknown',
-                                'discovered_date': datetime.now().isoformat()
-                            },
-                            discovery_source='file_system'
-                        )
-                        stats['new'] += 1
-                        log_universal('DEBUG', 'FileDiscovery', f"Saved new file to database: {filepath}")
-                        
-                except Exception as e:
-                    stats['errors'] += 1
-                    log_universal('ERROR', 'FileDiscovery', f"Error saving file {filepath} to database: {e}")
-            
-            log_universal('DEBUG', 'FileDiscovery', "Database changes committed")
+                            stats['new'] += 1
+                            
+                    except Exception as e:
+                        stats['errors'] += 1
+                        log_universal('ERROR', 'FileDiscovery', f"Error saving file {file_info['filepath']} to database: {e}")
+                
+                # Log progress for large batches
+                if len(filepaths) > 1000:
+                    progress = min(i + batch_size, len(filepaths))
+                    log_universal('INFO', 'FileDiscovery', f"Processed {progress}/{len(filepaths)} files...")
             
         except Exception as e:
             log_universal('ERROR', 'FileDiscovery', f"Database operation failed: {e}")

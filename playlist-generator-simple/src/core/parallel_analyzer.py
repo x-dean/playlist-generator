@@ -147,6 +147,9 @@ class ParallelAnalyzer:
         def _thread_worker(file_path: str) -> Tuple[str, bool]:
             """Worker function for threaded processing."""
             try:
+                # Update status to in_progress
+                self._update_analysis_status(file_path, 'in_progress')
+                
                 # Get analysis configuration for this file
                 analysis_config = self._get_analysis_config(file_path)
                 
@@ -181,8 +184,18 @@ class ParallelAnalyzer:
                         discovery_source='file_system'
                     )
                     
+                    if success:
+                        # Update status to completed
+                        self._update_analysis_status(file_path, 'completed')
+                    else:
+                        # Update status to failed
+                        self._update_analysis_status(file_path, 'failed', 'Database save failed')
+                    
                     return file_path, success
                 else:
+                    # Update status to failed
+                    self._update_analysis_status(file_path, 'failed', 'Analysis returned no result')
+                    
                     # Mark as failed in database
                     filename = os.path.basename(file_path)
                     with self.db_manager._get_db_connection() as conn:
@@ -197,6 +210,8 @@ class ParallelAnalyzer:
                     return file_path, False
                     
             except Exception as e:
+                # Update status to failed
+                self._update_analysis_status(file_path, 'failed', str(e))
                 log_universal('ERROR', 'Threaded', f"Failed: {file_path}: {e}")
                 
                 # Mark as failed in database
@@ -601,6 +616,38 @@ class ParallelAnalyzer:
             Optimal number of workers
         """
         return self.resource_manager.get_optimal_worker_count(max_workers)
+
+    def _update_analysis_status(self, file_path: str, status: str, error_message: str = None):
+        """
+        Update the analysis status for a file in the database.
+        
+        Args:
+            file_path: Path to the file
+            status: New status ('pending', 'in_progress', 'completed', 'failed')
+            error_message: Error message if status is 'failed'
+        """
+        try:
+            with self.db_manager._get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                if status == 'failed' and error_message:
+                    cursor.execute("""
+                        UPDATE tracks 
+                        SET analysis_status = ?, error_message = ?, retry_count = retry_count + 1, updated_at = CURRENT_TIMESTAMP
+                        WHERE file_path = ?
+                    """, (status, error_message, file_path))
+                else:
+                    cursor.execute("""
+                        UPDATE tracks 
+                        SET analysis_status = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE file_path = ?
+                    """, (status, file_path))
+                
+                conn.commit()
+                log_universal('DEBUG', 'Parallel', f"Updated analysis status to '{status}' for {os.path.basename(file_path)}")
+                
+        except Exception as e:
+            log_universal('ERROR', 'Parallel', f"Error updating analysis status for {file_path}: {e}")
 
     def get_config(self) -> Dict[str, Any]:
         """Get current analyzer configuration."""

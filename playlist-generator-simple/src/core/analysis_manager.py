@@ -166,49 +166,61 @@ class AnalysisManager:
             if music_path is None:
                 music_path = self.config.get('MUSIC_PATH', '/music')
             
-            # Discover audio files
-            audio_files = self.file_discovery.discover_files()
+            # Get files from database that need analysis
+            log_universal('INFO', 'Analysis', f"Reading files from database...")
             
-            if not audio_files:
-                log_universal('WARNING', 'Analysis', f"No audio files found in {music_path}")
+            # Get all files from database
+            all_db_files = self.db_manager.get_all_analysis_results()
+            
+            if not all_db_files:
+                log_universal('WARNING', 'Analysis', f"No files found in database")
                 return []
             
-            log_universal('INFO', 'Analysis', f"Discovered {len(audio_files)} audio files")
+            log_universal('INFO', 'Analysis', f"Found {len(all_db_files)} files in database")
             
-            log_universal('INFO', 'Analysis', f"Saving discovered files to database...")
-            save_stats = self.file_discovery.save_discovered_files_to_db(audio_files)
-            log_universal('INFO', 'Analysis', f"Database save complete: {save_stats['new']} new, {save_stats['updated']} updated, {save_stats['unchanged']} unchanged")
-            
-            # Cache failed files list to avoid duplicate database calls
-            failed_files_cache = None
-            if not include_failed:
-                failed_files_cache = self.db_manager.get_failed_analysis_files(max_retries=self.failed_files_max_retries)
-                failed_files_paths = {f['file_path'] for f in failed_files_cache}
-                log_universal('DEBUG', 'Analysis', f'Retrieved {len(failed_files_cache)} failed files from database')
-                if failed_files_cache:
-                    for failed_file in failed_files_cache:
-                        log_universal('DEBUG', 'Analysis', f'Failed file: {failed_file["filename"]} - {failed_file["error_message"]}')
-            
-            # ✅ FIXED: Use discovered files directly to avoid loop
-            log_universal('INFO', 'Analysis', f"Using {len(audio_files)} discovered files for selection")
-            
+            # Filter files that need analysis based on analysis_status
             files_to_analyze = []
             skipped_count = 0
             failed_count = 0
             
-            for file_path in audio_files:
-                # Check if file should be analyzed
-                should_analyze = self._should_analyze_file(file_path, force_reextract, include_failed, failed_files_cache)
+            for file_result in all_db_files:
+                file_path = file_result['file_path']
+                analysis_status = file_result.get('analysis_status', 'pending')
+                
+                # Check if file still exists on disk
+                if not os.path.exists(file_path):
+                    log_universal('DEBUG', 'Analysis', f"File no longer exists: {file_path}")
+                    continue
+                
+                # Determine if file should be analyzed
+                should_analyze = False
+                
+                if force_reextract:
+                    should_analyze = True
+                elif analysis_status == 'pending':
+                    should_analyze = True
+                elif analysis_status == 'in_progress':
+                    should_analyze = True  # Continue interrupted analysis
+                elif analysis_status == 'failed' and include_failed:
+                    retry_count = file_result.get('retry_count', 0)
+                    if retry_count < self.failed_files_max_retries:
+                        should_analyze = True
+                    else:
+                        failed_count += 1
+                elif analysis_status == 'completed':
+                    # Check if file has changed
+                    current_size = os.path.getsize(file_path)
+                    if current_size != file_result.get('file_size_bytes', 0):
+                        should_analyze = True  # File modified
+                    else:
+                        skipped_count += 1
                 
                 if should_analyze:
                     files_to_analyze.append(file_path)
-                else:
-                    skipped_count += 1
-                    
-                    # Count failed files for reporting
-                    if self.db_manager.get_analysis_result(file_path) is None:
-                        if failed_files_cache and file_path in failed_files_paths:
-                            failed_count += 1
+            
+            log_universal('INFO', 'Analysis', f"Selected {len(files_to_analyze)} files for analysis")
+            log_universal('INFO', 'Analysis', f"Skipped {skipped_count} files (already analyzed)")
+            log_universal('INFO', 'Analysis', f"Previously failed: {failed_count} files")
             
             select_time = time.time() - start_time
             log_universal('INFO', 'Analysis', f"File selection completed in {select_time:.2f}s")
