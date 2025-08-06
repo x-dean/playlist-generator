@@ -138,287 +138,48 @@ class DatabaseManager:
 
     def _ensure_dynamic_columns(self, cursor, features: Dict[str, Any]) -> List[str]:
         """
-        Dynamically ensure all feature columns exist in the tracks table.
-        Creates new columns if they don't exist.
+        DISABLED: Dynamic column creation is not used in component-based architecture.
+        All analysis data should be stored in component tables, not as dynamic columns.
         
         Args:
             cursor: Database cursor
-            features: Dictionary of features to ensure columns for
+            features: Features dictionary
             
         Returns:
-            List of column names that exist
+            Empty list (no dynamic columns created)
         """
-        try:
-            # Get current table schema
-            cursor.execute("PRAGMA table_info(tracks)")
-            existing_columns = {row[1] for row in cursor.fetchall()}
-            
-            # Define feature type mappings
-            type_mappings = {
-                'int': 'INTEGER',
-                'float': 'REAL', 
-                'str': 'TEXT',
-                'bool': 'INTEGER',
-                'list': 'TEXT',  # JSON string
-                'dict': 'TEXT'   # JSON string
-            }
-            
-            new_columns = []
-            
-            def add_feature_columns(feature_dict: Dict[str, Any], prefix: str = ''):
-                """Recursively add columns for nested features."""
-                for key, value in feature_dict.items():
-                    if value is None:
-                        continue
-                    
-                    # Skip custom_tags - they should be stored in mutagen_metadata table
-                    if key == 'custom_tags':
-                        continue  # Skip processing for custom_tags
-                        
-                    # Create column name
-                    column_name = f"{prefix}_{key}" if prefix else key
-                    column_name = column_name.replace('.', '_').replace('-', '_').replace(' ', '_').replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace('{', '').replace('}', '').replace('&', 'and').replace('+', 'plus').lower()
-                    
-                    # Skip reserved SQLite keywords
-                    reserved_keywords = {'index', 'order', 'group', 'table', 'select', 'where', 'from'}
-                    if column_name in reserved_keywords:
-                        column_name = f"feature_{column_name}"
-                    
-                    # Determine SQLite type
-                    if isinstance(value, (int, float, str, bool)):
-                        sqlite_type = type_mappings[type(value).__name__]
-                    elif isinstance(value, (list, dict)):
-                        sqlite_type = 'TEXT'  # JSON string
-                    else:
-                        sqlite_type = 'TEXT'  # Default to TEXT
-                    
-                    # Add column if it doesn't exist
-                    if column_name not in existing_columns:
-                        try:
-                            cursor.execute(f"ALTER TABLE tracks ADD COLUMN {column_name} {sqlite_type}")
-                            new_columns.append(column_name)
-                            log_universal('DEBUG', 'Database', f'Added dynamic column: {column_name} ({sqlite_type})')
-                        except sqlite3.OperationalError as e:
-                            if "duplicate column name" not in str(e):
-                                log_universal('WARNING', 'Database', f'Failed to add column {column_name}: {e}')
-                    
-                    # Recursively process nested dictionaries
-                    if isinstance(value, dict):
-                        add_feature_columns(value, column_name)
-            
-            # Process all features
-            add_feature_columns(features)
-            
-            if new_columns:
-                log_universal('INFO', 'Database', f'Added {len(new_columns)} dynamic columns: {new_columns}')
-            
-            return list(existing_columns) + new_columns
-            
-        except Exception as e:
-            log_universal('ERROR', 'Database', f'Dynamic column creation failed: {e}')
-            return []
+        # Component-based architecture: no dynamic columns in main table
+        return []
 
     def _prepare_dynamic_values(self, features: Dict[str, Any], columns: List[str]) -> Tuple[List[str], List[Any]]:
         """
-        Prepare dynamic INSERT values based on available columns.
+        DISABLED: Dynamic value preparation is not used in component-based architecture.
+        All analysis data should be stored in component tables, not as dynamic columns.
         
         Args:
             features: Dictionary of features
             columns: List of available columns
             
         Returns:
-            Tuple of (column_names, values)
+            Empty tuple (no dynamic values prepared)
         """
-        def flatten_features(feature_dict: Dict[str, Any], prefix: str = '') -> Dict[str, Any]:
-            """Flatten nested feature dictionary."""
-            flattened = {}
-            for key, value in feature_dict.items():
-                if value is None:
-                    continue
-                
-                                    # Skip custom_tags - they should be stored in mutagen_metadata table
-                    if key == 'custom_tags':
-                        continue  # Skip processing for custom_tags
-                    
-                column_name = f"{prefix}_{key}" if prefix else key
-                column_name = column_name.replace('.', '_').replace('-', '_').replace(' ', '_').replace('(', '').replace(')', '').replace('[', '').replace(']', '').replace('{', '').replace('}', '').replace('&', 'and').replace('+', 'plus').lower()
-                
-                # Skip reserved SQLite keywords
-                reserved_keywords = {'index', 'order', 'group', 'table', 'select', 'where', 'from'}
-                if column_name in reserved_keywords:
-                    column_name = f"feature_{column_name}"
-                
-                if isinstance(value, dict):
-                    flattened.update(flatten_features(value, column_name))
-                else:
-                    # Convert complex types to JSON strings
-                    if isinstance(value, (list, dict)):
-                        value = json.dumps(value) if value else None
-                    flattened[column_name] = value
-            
-            return flattened
-        
-        # Flatten all features
-        flattened_features = flatten_features(features)
-        
-        # Prepare values for available columns
-        values = []
-        column_names = []
-        
-        for column in columns:
-            value = flattened_features.get(column)
-            if value is not None:
-                column_names.append(column)
-                values.append(value)
-        
-        return column_names, values
+        # Component-based architecture: no dynamic values in main table
+        return [], []
 
     def consolidate_cache_to_tracks(self, file_path: str) -> bool:
         """
-        Consolidate all cached analysis data into the tracks table.
-        This ensures all features are stored as proper columns instead of JSON blobs.
+        DISABLED: Cache consolidation is not used in component-based architecture.
+        All analysis data should be stored directly in component tables.
         
         Args:
             file_path: Path to the audio file
             
         Returns:
-            True if successful, False otherwise
+            False (method disabled)
         """
-        try:
-            with self._get_db_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get all cached data for this file
-                cache_data = {}
-                
-                # Get metadata
-                metadata_cache = self.get_cache(f"metadata_{file_path}")
-                if metadata_cache:
-                    cache_data.update(metadata_cache)
-                
-                # Get essentia features
-                essentia_cache = self.get_cache(f"essentia_{file_path}")
-                if essentia_cache:
-                    cache_data.update(essentia_cache)
-                
-                # Get Spotify features
-                spotify_cache = self.get_cache(f"spotify_{file_path}")
-                if spotify_cache:
-                    cache_data.update(spotify_cache)
-                
-                # Get MusicNN features
-                musicnn_cache = self.get_cache(f"musicnn_{file_path}")
-                if musicnn_cache:
-                    cache_data.update(musicnn_cache)
-                
-                # Get advanced categorization features
-                advanced_cache = self.get_cache(f"advanced_{file_path}")
-                if advanced_cache:
-                    cache_data.update(advanced_cache)
-                
-                # Get external API enrichment data
-                external_cache = self.get_cache(f"external_{file_path}")
-                if external_cache:
-                    cache_data.update(external_cache)
-                
-                # Get comprehensive categorization data
-                categorization_cache = self.get_cache(f"categorization_{file_path}")
-                if categorization_cache:
-                    cache_data.update(categorization_cache)
-                
-                # Also check for analysis result cache
-                analysis_cache = self.get_cache(f"analysis_{file_path}")
-                if analysis_cache and isinstance(analysis_cache, dict):
-                    # Extract features from analysis result
-                    if 'features' in analysis_cache:
-                        features = analysis_cache['features']
-                        if isinstance(features, dict):
-                            # Flatten nested features
-                            for feature_type, feature_data in features.items():
-                                if isinstance(feature_data, dict):
-                                    cache_data.update(feature_data)
-                                else:
-                                    cache_data[f"{feature_type}_data"] = feature_data
-                    
-                    # Extract metadata from analysis result
-                    if 'metadata' in analysis_cache:
-                        metadata = analysis_cache['metadata']
-                        if isinstance(metadata, dict):
-                            cache_data.update(metadata)
-                    
-                    # Extract external API data
-                    if 'external_api_data' in analysis_cache:
-                        external_data = analysis_cache['external_api_data']
-                        if isinstance(external_data, dict):
-                            cache_data.update(external_data)
-                
-                # If no cache data found, try to get data from the tracks table itself
-                if not cache_data:
-                    log_universal('DEBUG', 'Database', f'No cache data found, checking tracks table for {file_path}')
-                    
-                    # Get existing track data
-                    cursor.execute("SELECT * FROM tracks WHERE file_path = ?", (file_path,))
-                    existing_track = cursor.fetchone()
-                    
-                    if existing_track:
-                        # Convert row to dict for processing
-                        track_dict = dict(existing_track)
-                        log_universal('INFO', 'Database', f'Found existing track data for {file_path}')
-                        return True  # Data already exists in tracks table
-                    else:
-                        log_universal('WARNING', 'Database', f'No cached data found for {file_path}')
-                        return False
-                
-                # Ensure all columns exist
-                available_columns = self._ensure_dynamic_columns(cursor, cache_data)
-                
-                # Prepare values
-                column_names, values = self._prepare_dynamic_values(cache_data, available_columns)
-                
-                if not column_names:
-                    log_universal('WARNING', 'Database', f'No valid columns found for {file_path}')
-                    return False
-                
-                # Build dynamic INSERT/UPDATE
-                placeholders = ', '.join(['?' for _ in column_names])
-                column_list = ', '.join(column_names)
-                
-                # Check if track already exists
-                cursor.execute("SELECT id FROM tracks WHERE file_path = ?", (file_path,))
-                existing_track = cursor.fetchone()
-                
-                if existing_track:
-                    # UPDATE existing track
-                    set_clause = ', '.join([f"{col} = ?" for col in column_names])
-                    cursor.execute(f"""
-                        UPDATE tracks 
-                        SET {set_clause}, updated_at = ?
-                        WHERE file_path = ?
-                    """, values + [datetime.now(), file_path])
-                    log_universal('INFO', 'Database', f'Updated track with {len(column_names)} dynamic columns: {file_path}')
-                else:
-                    # INSERT new track with basic required fields
-                    basic_columns = ['file_path', 'filename', 'file_size_bytes', 'created_at', 'updated_at']
-                    basic_values = [file_path, os.path.basename(file_path), 0, datetime.now(), datetime.now()]
-                    
-                    # Add dynamic columns
-                    all_columns = basic_columns + column_names
-                    all_values = basic_values + values
-                    all_placeholders = ', '.join(['?' for _ in all_values])  # Use actual values count
-                    all_column_list = ', '.join(all_columns)
-                    
-                    cursor.execute(f"""
-                        INSERT INTO tracks ({all_column_list})
-                        VALUES ({all_placeholders})
-                    """, all_values)
-                    log_universal('INFO', 'Database', f'Inserted track with {len(column_names)} dynamic columns: {file_path}')
-                
-                conn.commit()
-                return True
-                
-        except Exception as e:
-            log_universal('ERROR', 'Database', f'Failed to consolidate cache to tracks: {e}')
-            return False
+        # Component-based architecture: no cache consolidation needed
+        log_universal('INFO', 'Database', f'Cache consolidation disabled for component-based architecture: {file_path}')
+        return False
 
     def migrate_json_to_columns(self) -> Dict[str, int]:
         """
@@ -763,45 +524,15 @@ class DatabaseManager:
                 sample_rate = get(metadata, 'sample_rate')
                 channels = get(metadata, 'channels')
 
-                # Extract all nested features dynamically
-                all_features = {}
-                
-                # Extract from analysis_data structure
-                if isinstance(analysis_data, dict):
-                    # Handle nested structure: {'essentia': {...}, 'musicnn': {...}, 'metadata': {...}}
-                    for category, category_data in analysis_data.items():
-                        if isinstance(category_data, dict):
-                            all_features.update(category_data)
-                        else:
-                            all_features[category] = category_data
-                    
-                    # Also extract top-level features
-                    for key, value in analysis_data.items():
-                        if key not in ['essentia', 'musicnn', 'metadata']:
-                            all_features[key] = value
-                
-                # Extract from metadata if provided
-                if metadata:
-                    all_features.update(metadata)
-                
-                # Ensure dynamic columns exist for all features
-                available_columns = self._ensure_dynamic_columns(cursor, all_features)
-                
-                # Prepare values using dynamic approach
-                column_names, values = self._prepare_dynamic_values(all_features, available_columns)
-                
-                # Add core fields that are always required
-                core_fields = {
+                # Update only essential fields in main table (no dynamic columns)
+                update_fields = {
                     'file_path': file_path,
                     'file_hash': file_hash,
                     'filename': filename,
                     'file_size_bytes': file_size_bytes,
-                    'created_at': now,
                     'updated_at': now,
                     'status': 'analyzed',
                     'analysis_status': 'completed',
-                    'retry_count': 0,
-                    'error_message': None,
                     'title': title,
                     'artist': artist,
                     'album': album,
@@ -810,53 +541,50 @@ class DatabaseManager:
                     'duration': duration
                 }
                 
-                # Merge core fields with dynamic features
-                for key, value in core_fields.items():
-                    if key not in column_names:
-                        column_names.append(key)
-                        values.append(value)
+                # Extract essential playlist features from analysis data
+                if analysis_data:
+                    # From Essentia features
+                    if 'essentia' in analysis_data:
+                        essentia = analysis_data['essentia']
+                        if essentia.get('bpm'):
+                            update_fields['bpm'] = essentia['bpm']
+                        if essentia.get('key'):
+                            update_fields['key'] = essentia['key']
+                        if essentia.get('scale'):
+                            update_fields['mode'] = essentia['scale']
+                    
+                    # From Spotify features
+                    if 'spotify' in analysis_data:
+                        spotify = analysis_data['spotify']
+                        if spotify.get('energy'):
+                            update_fields['energy'] = spotify['energy']
+                        if spotify.get('danceability'):
+                            update_fields['danceability'] = spotify['danceability']
+                        if spotify.get('valence'):
+                            update_fields['valence'] = spotify['valence']
+                        if spotify.get('acousticness'):
+                            update_fields['acousticness'] = spotify['acousticness']
+                        if spotify.get('instrumentalness'):
+                            update_fields['instrumentalness'] = spotify['instrumentalness']
+                        if spotify.get('speechiness'):
+                            update_fields['speechiness'] = spotify['speechiness']
+                        if spotify.get('liveness'):
+                            update_fields['liveness'] = spotify['liveness']
+                        if spotify.get('loudness'):
+                            update_fields['loudness'] = spotify['loudness']
                 
-                # Build INSERT statement
-                placeholders = ', '.join(['?' for _ in column_names])
-                column_list = ', '.join(column_names)
-                
-                # Ensure all values are SQLite-compatible
-                def sanitize_value(value):
-                    if value is None:
-                        return None
-                    if isinstance(value, (int, float, str)):
-                        return value
-                    if isinstance(value, (list, dict)):
-                        return json.dumps(value)
-                    if hasattr(value, 'tolist'):  # numpy arrays
-                        return json.dumps(value.tolist())
-                    return str(value)
-                
-                sanitized_values = [sanitize_value(v) for v in values]
+                # Build UPDATE statement for essential fields only
+                set_clause = ', '.join([f"{k} = ?" for k in update_fields.keys()])
+                values = list(update_fields.values()) + [file_path]
                 
                 cursor.execute(f"""
-                    INSERT OR REPLACE INTO tracks ({column_list})
-                    VALUES ({placeholders})
-                """, sanitized_values)
-
-                track_id = cursor.lastrowid
-
-                # Save tags if provided
-                if metadata and 'tags' in metadata:
-                    self._save_tags(cursor, track_id, metadata['tags'])
-                
-                # Save external API tags if available
-                external_tags = get(metadata, 'tags', [])
-                external_genres = get(metadata, 'genres', [])
-                
-                if external_tags:
-                    self._save_tags(cursor, track_id, {'external_apis': external_tags})
-                
-                if external_genres:
-                    self._save_tags(cursor, track_id, {'external_genres': external_genres})
+                    UPDATE tracks 
+                    SET {set_clause}
+                    WHERE file_path = ?
+                """, values)
 
                 conn.commit()
-                log_universal('DEBUG', 'Database', f'Saved analysis result for: {file_path}')
+                log_universal('DEBUG', 'Database', f'Updated main track features for: {file_path}')
                 return True
 
         except Exception as e:
