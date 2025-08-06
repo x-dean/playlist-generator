@@ -41,26 +41,27 @@ from .logging_setup import get_logger, log_universal
 
 logger = get_logger('playlista.memory_optimized_loader')
 
-# Memory optimization constants
+# Universal memory optimization constants (applies to ALL file categories)
 OPTIMIZED_SAMPLE_RATE = 22050  # Reduced from 44100 (50% memory reduction)
 OPTIMIZED_BIT_DEPTH = 16  # Use float16 instead of float32 (50% memory reduction)
 OPTIMIZED_CHUNK_DURATION_SECONDS = 3  # Smaller chunks for memory safety
-OPTIMIZED_MEMORY_LIMIT_PERCENT = 10  # Conservative memory limit
-OPTIMIZED_MAX_MB_PER_TRACK = 100  # Maximum memory per track
+OPTIMIZED_MEMORY_LIMIT_PERCENT = 15  # Universal memory limit
+OPTIMIZED_MAX_MB_PER_TRACK = 200  # Universal maximum memory per track
 OPTIMIZED_STREAMING_CHUNK_SIZE = 5  # 5-second streaming chunks
 
 
 class MemoryOptimizedAudioLoader:
     """
-    Memory-optimized audio loader with aggressive memory reduction strategies.
+    Universal memory-optimized audio loader with aggressive memory reduction strategies.
+    Applies to ALL file categories (sequential, parallel half, parallel full).
     
     Features:
-    - Reduced sample rate (22kHz instead of 44.1kHz)
-    - Float16 conversion (50% memory reduction)
-    - Streaming chunk processing
-    - Memory mapping for large files
-    - Dynamic memory monitoring
-    - Automatic cleanup
+    - Reduced sample rate (22kHz instead of 44.1kHz) - UNIVERSAL
+    - Float16 conversion (50% memory reduction) - UNIVERSAL
+    - Streaming chunk processing - UNIVERSAL
+    - Memory mapping for all file sizes - UNIVERSAL
+    - Dynamic memory monitoring - UNIVERSAL
+    - Automatic cleanup - UNIVERSAL
     """
     
     def __init__(self, memory_limit_percent: float = OPTIMIZED_MEMORY_LIMIT_PERCENT,
@@ -84,13 +85,14 @@ class MemoryOptimizedAudioLoader:
         self.available_memory_gb = self._get_available_memory_gb()
         self.memory_limit_gb = self.available_memory_gb * (memory_limit_percent / 100)
         
-        log_universal('INFO', 'MemoryOpt', 'MemoryOptimizedAudioLoader initialized:')
+        log_universal('INFO', 'MemoryOpt', 'Universal MemoryOptimizedAudioLoader initialized:')
         log_universal('INFO', 'MemoryOpt', f'  Available memory: {self.available_memory_gb:.1f}GB')
         log_universal('INFO', 'MemoryOpt', f'  Memory limit: {self.memory_limit_gb:.1f}GB ({memory_limit_percent}%)')
-        log_universal('INFO', 'MemoryOpt', f'  Optimized sample rate: {self.sample_rate}Hz')
-        log_universal('INFO', 'MemoryOpt', f'  Optimized bit depth: {self.bit_depth}bit')
-        log_universal('INFO', 'MemoryOpt', f'  Max memory per track: {max_mb_per_track}MB')
-        log_universal('INFO', 'MemoryOpt', f'  Chunk duration: {chunk_duration_seconds}s')
+        log_universal('INFO', 'MemoryOpt', f'  Universal optimized sample rate: {self.sample_rate}Hz')
+        log_universal('INFO', 'MemoryOpt', f'  Universal optimized bit depth: {self.bit_depth}bit')
+        log_universal('INFO', 'MemoryOpt', f'  Universal max memory per track: {max_mb_per_track}MB')
+        log_universal('INFO', 'MemoryOpt', f'  Universal chunk duration: {chunk_duration_seconds}s')
+        log_universal('INFO', 'MemoryOpt', f'  Applies to ALL file categories (sequential, parallel half, parallel full)')
     
     def _get_available_memory_gb(self) -> float:
         """Get available memory in GB."""
