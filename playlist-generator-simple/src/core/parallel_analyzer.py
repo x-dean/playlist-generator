@@ -365,7 +365,7 @@ class ParallelAnalyzer:
                 
                 # Use cache table for failed analysis
                 db_manager = get_db_manager()
-                db_manager.mark_analysis_failed(file_path, os.path.basename(file_path), str(e))
+                db_manager.mark_analysis_failed(file_path, os.path.basename(file_path), "Analysis returned no result")
                 
                 # Log failed worker performance
                 log_universal('ERROR', 'Parallel', f"Worker {worker_id} file analysis failed: {os.path.basename(file_path)}")

@@ -1673,6 +1673,9 @@ class AudioAnalyzer:
     def _prepare_audio_for_musicnn(self, audio: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
         """Prepare audio for MusiCNN with enhanced preprocessing."""
         try:
+            # Convert audio for Essentia compatibility first
+            audio = convert_audio_for_essentia(audio)
+            
             # Resample to 16kHz if needed
             if sample_rate != 16000:
                 if ESSENTIA_AVAILABLE:
