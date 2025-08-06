@@ -241,20 +241,13 @@ class FileDiscovery:
         db_manager = get_db_manager()
         discovery_status = db_manager.get_discovery_status(self.music_dir)
         
-        # Get current files from database
-        current_db_files = self.get_db_files()
-        
         if discovery_status and discovery_status.get('status') == 'completed':
-            # Use cached discovery if recent (within 1 hour) AND we have files in database
+            # Use cached discovery if recent (within 1 hour)
             cache_age = datetime.now() - datetime.fromisoformat(discovery_status['created_at'])
-            if cache_age.total_seconds() < 3600 and current_db_files:  # 1 hour and files exist
+            if cache_age.total_seconds() < 3600:  # 1 hour
                 log_universal('INFO', 'FileDiscovery', f"Using cached discovery from {discovery_status['created_at']}")
                 # Return files from database instead of re-scanning
-                return list(current_db_files)
-            elif not current_db_files:
-                log_universal('INFO', 'FileDiscovery', "Cache exists but no files in database - forcing re-scan")
-            else:
-                log_universal('INFO', 'FileDiscovery', "Cache expired - re-scanning")
+                return list(self.get_db_files())
         
         discovered_files = []
         start_time = datetime.now()

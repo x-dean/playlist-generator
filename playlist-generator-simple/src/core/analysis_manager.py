@@ -267,8 +267,14 @@ class AnalysisManager:
             # Check if file has changed (using file size as simple indicator)
             current_size = os.path.getsize(file_path)
             if analysis_result['file_size_bytes'] == current_size:
-                # Check if file has been fully analyzed by looking at analysis_status
+                # Check if file has been fully analyzed by looking at both status fields
                 analysis_status = analysis_result.get('analysis_status', 'pending')
+                old_status = analysis_result.get('status', 'discovered')
+                
+                # Handle legacy data: if status is 'analyzed', treat as 'completed'
+                if old_status == 'analyzed':
+                    analysis_status = 'completed'
+                
                 if analysis_status == 'completed':
                     log_universal('DEBUG', 'Analysis', f"File already analyzed and unchanged: {file_path}")
                     return False
