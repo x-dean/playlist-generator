@@ -55,6 +55,7 @@ from .lazy_imports import (
     is_librosa_available, is_mutagen_available,
     librosa, mutagen
 )
+from .memory_optimized_loader import get_memory_optimized_loader
 
 logger = get_logger('playlista.audio_analyzer')
 
@@ -98,6 +99,23 @@ def safe_essentia_load(audio_path: str, sample_rate: int = 44100, config: Dict[s
         if not os.path.exists(audio_path):
             log_universal('ERROR', 'Audio', f'File not found: {audio_path}')
             return None, None
+        
+        # Check if memory optimization is enabled
+        memory_optimization_enabled = config.get('MEMORY_OPTIMIZATION_ENABLED', False) if config else False
+        
+        if memory_optimization_enabled:
+            # Use memory-optimized loader
+            try:
+                memory_loader = get_memory_optimized_loader()
+                audio, optimized_sample_rate = memory_loader.load_audio_memory_capped(audio_path)
+                
+                if audio is not None:
+                    log_universal('INFO', 'Audio', f'Loaded with memory optimization: {os.path.basename(audio_path)} ({len(audio)} samples, {optimized_sample_rate}Hz)')
+                    return audio, optimized_sample_rate
+                    
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f'Memory-optimized loading failed for {os.path.basename(audio_path)}: {e}')
+                # Fall through to standard loading
         
         # Check available memory before loading - CONSERVATIVE THRESHOLDS
         try:
@@ -211,6 +229,13 @@ class AudioAnalyzer:
         self.frame_size = config.get('FRAME_SIZE', DEFAULT_FRAME_SIZE)
         self.timeout_seconds = config.get('TIMEOUT_SECONDS', DEFAULT_TIMEOUT_SECONDS)
         
+        # Memory optimization settings
+        self.memory_optimization_enabled = config.get('MEMORY_OPTIMIZATION_ENABLED', False)
+        self.memory_optimized_sample_rate = config.get('MEMORY_OPTIMIZED_SAMPLE_RATE', 22050)
+        self.memory_optimized_bit_depth = config.get('MEMORY_OPTIMIZED_BIT_DEPTH', 16)
+        self.memory_optimized_chunk_duration = config.get('MEMORY_OPTIMIZED_CHUNK_DURATION_SECONDS', 3)
+        self.memory_optimized_max_mb_per_track = config.get('MEMORY_OPTIMIZED_MAX_MB_PER_TRACK', 100)
+        
         # Feature extraction settings
         self.extract_rhythm = config.get('EXTRACT_RHYTHM', True)
         self.extract_spectral = config.get('EXTRACT_SPECTRAL', True)
@@ -229,7 +254,21 @@ class AudioAnalyzer:
         self.cache_expiry_hours = config.get('CACHE_EXPIRY_HOURS', 168)  # 1 week
         self.force_reanalysis = config.get('FORCE_REANALYSIS', False)
         
+        # Initialize memory-optimized loader if enabled
+        self.memory_loader = None
+        if self.memory_optimization_enabled:
+            try:
+                self.memory_loader = get_memory_optimized_loader(
+                    memory_limit_percent=config.get('MEMORY_OPTIMIZED_MEMORY_LIMIT_PERCENT', 10),
+                    chunk_duration_seconds=self.memory_optimized_chunk_duration,
+                    max_mb_per_track=self.memory_optimized_max_mb_per_track
+                )
+                log_universal('INFO', 'Audio', 'Memory-optimized loader initialized')
+            except Exception as e:
+                log_universal('WARNING', 'Audio', f'Failed to initialize memory-optimized loader: {e}')
+        
         log_universal('INFO', 'Audio', 'AudioAnalyzer initialized')
+        log_universal('DEBUG', 'Audio', f'Memory optimization enabled: {self.memory_optimization_enabled}')
         log_universal('DEBUG', 'Audio', f'Feature extraction flags: rhythm={self.extract_rhythm}, spectral={self.extract_spectral}, loudness={self.extract_loudness}, key={self.extract_key}, mfcc={self.extract_mfcc}, musicnn={self.extract_musicnn}, chroma={self.extract_chroma}, danceability={self.extract_danceability}, onset_rate={self.extract_onset_rate}, zcr={self.extract_zcr}, spectral_contrast={self.extract_spectral_contrast}')
         log_universal('DEBUG', 'Audio', f'Processing mode: {self.processing_mode}')
         log_universal('DEBUG', 'Audio', f'TensorFlow available: {TENSORFLOW_AVAILABLE}')
@@ -331,9 +370,27 @@ class AudioAnalyzer:
                 self.db_manager.save_metadata(file_path, enriched_metadata)
                 log_universal('INFO', 'Audio', f'Enriched metadata saved: {enriched_metadata.get("artist", "Unknown")} - {enriched_metadata.get("title", "Unknown")}')
             
-            # Load audio data
+            # Load audio data with memory optimization if enabled
             log_universal('INFO', 'Audio', f'Loading audio data for {os.path.basename(file_path)}')
-            audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
+            
+            # Use memory-optimized loader if available and enabled
+            if self.memory_optimization_enabled and self.memory_loader:
+                try:
+                    log_universal('INFO', 'Audio', f'Using memory-optimized loader for {os.path.basename(file_path)}')
+                    audio, sample_rate = self.memory_loader.load_audio_memory_capped(file_path)
+                    
+                    if audio is None:
+                        log_universal('WARNING', 'Audio', f'Memory-optimized loading failed, falling back to standard loader')
+                        audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
+                    else:
+                        log_universal('INFO', 'Audio', f'Successfully loaded with memory optimization: {len(audio)} samples at {sample_rate}Hz')
+                        
+                except Exception as e:
+                    log_universal('WARNING', 'Audio', f'Memory-optimized loading failed: {e}, falling back to standard loader')
+                    audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
+            else:
+                # Use standard loader
+                audio, sample_rate = safe_essentia_load(file_path, self.sample_rate, self.config, self.processing_mode)
             
             if audio is None:
                 log_universal('ERROR', 'Audio', f'Failed to load audio: {os.path.basename(file_path)}')

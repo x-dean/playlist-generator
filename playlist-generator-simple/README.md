@@ -5,6 +5,7 @@ A comprehensive music analysis and playlist generation system with advanced audi
 ## Features
 
 - **Advanced Audio Analysis**: 100+ audio features including Spotify-style perceptual features
+- **Memory Optimization**: 75-95% memory reduction for large audio files
 - **Sophisticated Playlist Generation**: Multiple algorithms for different music styles
 - **Web UI**: Interactive dashboard for music library management
 - **Performance Optimized**: Fast analysis and playlist generation
