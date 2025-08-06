@@ -1989,8 +1989,9 @@ class DatabaseManager:
             with self._get_db_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Calculate file hash
+                # Calculate file hash and extract filename
                 file_hash = self._calculate_file_hash_for_failed(file_path)
+                filename = os.path.basename(file_path)
                 
                 # Convert features to JSON for storage
                 embedding_json = json.dumps(features.get('embedding', []))
@@ -2004,11 +2005,12 @@ class DatabaseManager:
                 # Insert or replace MusicNN features in tracks table
                 cursor.execute("""
                     INSERT OR REPLACE INTO tracks 
-                    (file_path, file_hash, embedding, tags, musicnn_skipped, musicnn_features, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    (file_path, file_hash, filename, embedding, tags, musicnn_skipped, musicnn_features, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, (
                     file_path,
                     file_hash,
+                    filename,
                     embedding_json,
                     tags_json,
                     features.get('musicnn_skipped', 0),
