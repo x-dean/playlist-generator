@@ -1299,6 +1299,8 @@ class DatabaseManager:
                 stats = {}
                 queries = {
                     'total_tracks': "SELECT COUNT(*) FROM tracks",
+                    'analyzed_tracks': "SELECT COUNT(*) FROM tracks WHERE status = 'analyzed'",
+                    'failed_tracks': "SELECT COUNT(*) FROM tracks WHERE status = 'failed'",
                     'playlists': "SELECT COUNT(*) FROM playlists",
                     'failed_analyses': "SELECT COUNT(*) FROM cache WHERE cache_type = 'failed_analysis'",
                     'discovery_entries': "SELECT COUNT(*) FROM cache WHERE cache_type = 'discovery'",
@@ -1308,6 +1310,12 @@ class DatabaseManager:
                 for key, q in queries.items():
                     cursor.execute(q)
                     stats[key] = cursor.fetchone()[0]
+                
+                # Calculate database size
+                cursor.execute("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()")
+                db_size_bytes = cursor.fetchone()[0]
+                stats['db_size_mb'] = db_size_bytes / (1024 * 1024)
+                
                 return stats
         except Exception:
             return {}

@@ -557,41 +557,51 @@ class AnalysisManager:
             results['failed_count'] += sequential_results['failed_count']
             results['sequential_files_processed'] = len(sequential_files)
         
-        # Process parallel half files
+        # Process parallel half files using optimized analyzer
         if parallel_half_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(parallel_half_files)} parallel half files (Multi-segment loading)")
-            log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files 25-200MB")
+            log_universal('INFO', 'Analysis', f"Processing {len(parallel_half_files)} parallel half files (Optimized)")
+            log_universal('INFO', 'Analysis', f"Using optimized batch processing for files 25-200MB")
             
-            # Use threaded processing (now the default)
-            log_universal('INFO', 'Analysis', f"Using threaded processing for parallel half files")
-            
-            # Use direct parallel processing (proven approach)
-            parallel_half_results = self.parallel_analyzer.process_files(
-                parallel_half_files, force_reextract, max_workers
-            )
-            results['success_count'] += parallel_half_results['success_count']
-            results['failed_count'] += parallel_half_results['failed_count']
-            results['parallel_half_files_processed'] = len(parallel_half_files)
-            
-            log_universal('INFO', 'Analysis', f"Parallel processing completed: {parallel_half_results['success_count']} successful, {parallel_half_results['failed_count']} failed")
+            try:
+                from .optimized_analyzer import analyze_files_optimized
+                parallel_half_results = analyze_files_optimized(parallel_half_files, force_reextract)
+                results['success_count'] += parallel_half_results['success_count']
+                results['failed_count'] += parallel_half_results['failed_count']
+                results['parallel_half_files_processed'] = len(parallel_half_files)
+                
+                log_universal('INFO', 'Analysis', f"Optimized processing completed: {parallel_half_results['success_count']} successful, {parallel_half_results['failed_count']} failed")
+            except ImportError:
+                log_universal('WARNING', 'Analysis', "Optimized analyzer not available, falling back to standard parallel processing")
+                # Fallback to standard parallel processing
+                parallel_half_results = self.parallel_analyzer.process_files(
+                    parallel_half_files, force_reextract, max_workers
+                )
+                results['success_count'] += parallel_half_results['success_count']
+                results['failed_count'] += parallel_half_results['failed_count']
+                results['parallel_half_files_processed'] = len(parallel_half_files)
         
-        # Process parallel full files
+        # Process parallel full files using optimized analyzer
         if parallel_full_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(parallel_full_files)} parallel full files (Full processing)")
-            log_universal('INFO', 'Analysis', f"Direct parallel processing selected for files < 25MB")
+            log_universal('INFO', 'Analysis', f"Processing {len(parallel_full_files)} parallel full files (Optimized)")
+            log_universal('INFO', 'Analysis', f"Using optimized batch processing for files < 25MB")
             
-            # Use threaded processing (now the default)
-            log_universal('INFO', 'Analysis', f"Using threaded processing for parallel full files")
-            
-            # Use direct parallel processing (proven approach)
-            parallel_full_results = self.parallel_analyzer.process_files(
-                parallel_full_files, force_reextract, max_workers
-            )
-            results['success_count'] += parallel_full_results['success_count']
-            results['failed_count'] += parallel_full_results['failed_count']
-            results['parallel_full_files_processed'] = len(parallel_full_files)
-            
-            log_universal('INFO', 'Analysis', f"Parallel processing completed: {parallel_full_results['success_count']} successful, {parallel_full_results['failed_count']} failed")
+            try:
+                from .optimized_analyzer import analyze_files_optimized
+                parallel_full_results = analyze_files_optimized(parallel_full_files, force_reextract)
+                results['success_count'] += parallel_full_results['success_count']
+                results['failed_count'] += parallel_full_results['failed_count']
+                results['parallel_full_files_processed'] = len(parallel_full_files)
+                
+                log_universal('INFO', 'Analysis', f"Optimized processing completed: {parallel_full_results['success_count']} successful, {parallel_full_results['failed_count']} failed")
+            except ImportError:
+                log_universal('WARNING', 'Analysis', "Optimized analyzer not available, falling back to standard parallel processing")
+                # Fallback to standard parallel processing
+                parallel_full_results = self.parallel_analyzer.process_files(
+                    parallel_full_files, force_reextract, max_workers
+                )
+                results['success_count'] += parallel_full_results['success_count']
+                results['failed_count'] += parallel_full_results['failed_count']
+                results['parallel_full_files_processed'] = len(parallel_full_files)
         
         total_time = time.time() - start_time
         results['total_time'] = total_time

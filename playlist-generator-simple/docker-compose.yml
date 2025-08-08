@@ -1,34 +1,32 @@
 services:
-  # API Server (always running)
-  playlist-api:
+  # Playlist Generator Simple
+  playlist-generator:
     build: .
-    container_name: playlist-api
+    container_name: playlist-generator
     ports:
-      - "8500:8500"
+      - "8501:8500"
     volumes:
       # Music library - mount your music directory here
-      - /root/music/library:/music:ro
+      - C:\Users\Dean\Documents\test_music:/music:ro
       
       # Playlists output directory
-      - /root/music/playlista/playlists:/app/playlists
+      - ./playlists:/app/playlists
       
       # Cache directory for analysis results
-      - /root/music/playlista/cache:/app/cache
+      - ./cache:/app/cache
       
       # Logs directory
-      - /root/music/playlista/logs:/app/logs
+      - ./logs:/app/logs
               
       # Models directory (for feature extraction models)
-      - /root/music/playlista/models/musicnn:/app/models:ro
+      - C:\Users\Dean\Desktop\musicnn:/app/models:ro
       
       # Configuration file
-      - /root/music/playlista/config/playlista.conf:/app/playlista.conf:ro
+      - ./playlista.conf:/app/playlista.conf:ro
     environment:
       - PYTHONPATH=/app
       - CACHE_DIR=/app/cache
       - LOG_LEVEL=INFO
-      - PROMETHEUS_MULTIPROC_DIR=/tmp
-      # Color support for Docker containers
       - DOCKER_CONTAINER=true
       - FORCE_COLOR=1
       - TERM=xterm-256color
@@ -40,18 +38,8 @@ services:
       - CUDA_VISIBLE_DEVICES=-1
       # External API keys (set these in your .env file)
       - LASTFM_API_KEY=${LASTFM_API_KEY}
-      - DISCOGS_API_KEY=${DISCOGS_API_KEY}
-      - DISCOGS_USER_TOKEN=${DISCOGS_USER_TOKEN}
-      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID}
-      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET}
-    command: ["/app/entrypoint.sh", "api"]
+    command: ["/app/entrypoint.sh"]
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8500/api/v1/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
     working_dir: /app
     tty: true
     stdin_open: true

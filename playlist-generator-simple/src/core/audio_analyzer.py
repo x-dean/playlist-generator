@@ -1857,8 +1857,8 @@ class AudioAnalyzer:
                 )
 
                 chroma_frames = []
-                # Use the required frame size for Chromagram (16384 samples)
-                chroma_frame_size = 16384
+                # Use the required frame size for Chromagram (32768 samples as per error message)
+                chroma_frame_size = 32768
                 chroma_hop_size = chroma_frame_size // 2  # 50% overlap
                 
                 for frame in es.FrameGenerator(audio, frameSize=chroma_frame_size, hopSize=chroma_hop_size, startFromZero=True):
