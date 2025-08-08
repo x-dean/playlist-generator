@@ -7,22 +7,22 @@ services:
       - "8501:8500"
     volumes:
       # Music library - mount your music directory here
-      - C:\Users\Dean\Documents\test_music:/music:ro
+      - /root/music/library:/music:ro
       
       # Playlists output directory
-      - ./playlists:/app/playlists
+      - /root/music/playlista/playlists:/app/playlists
       
       # Cache directory for analysis results
-      - ./cache:/app/cache
+      - /root/music/playlista/cache:/app/cache
       
       # Logs directory
-      - ./logs:/app/logs
+      - /root/music/playlista/logs:/app/logs
               
       # Models directory (for feature extraction models)
-      - C:\Users\Dean\Desktop\musicnn:/app/models:ro
+      - /root/music/playlista/models/musicnn:/app/models:ro
       
       # Configuration file
-      - ./playlista.conf:/app/playlista.conf:ro
+      - /root/music/playlista/config/playlista.conf:/app/playlista.conf:ro
     environment:
       - PYTHONPATH=/app
       - CACHE_DIR=/app/cache
