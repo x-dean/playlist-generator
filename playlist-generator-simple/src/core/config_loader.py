@@ -393,7 +393,14 @@ class ConfigLoader:
             'SKIP_LARGE_FILES': config.get('SKIP_LARGE_FILES', True),
             # Parallel processing options
             'USE_THREADED_PROCESSING': config.get('USE_THREADED_PROCESSING', False),
-            'THREADED_WORKERS_DEFAULT': config.get('THREADED_WORKERS_DEFAULT', 4)
+            'THREADED_WORKERS_DEFAULT': config.get('THREADED_WORKERS_DEFAULT', 4),
+            # Memory optimization settings
+            'MEMORY_OPTIMIZATION_ENABLED': config.get('MEMORY_OPTIMIZATION_ENABLED', False),
+            'MEMORY_OPTIMIZATION_UNIVERSAL': config.get('MEMORY_OPTIMIZATION_UNIVERSAL', False),
+            'MEMORY_OPTIMIZATION_FORCE_ALL_CATEGORIES': config.get('MEMORY_OPTIMIZATION_FORCE_ALL_CATEGORIES', False),
+            'MEMORY_OPTIMIZED_SAMPLE_RATE': config.get('MEMORY_OPTIMIZED_SAMPLE_RATE', 22050),
+            'MEMORY_OPTIMIZED_MEMORY_LIMIT_PERCENT': config.get('MEMORY_OPTIMIZED_MEMORY_LIMIT_PERCENT', 15),
+            'MEMORY_OPTIMIZED_MAX_MB_PER_TRACK': config.get('MEMORY_OPTIMIZED_MAX_MB_PER_TRACK', 200)
         }
         
         self._update_cache(cache_key, audio_config)

@@ -1,0 +1,52 @@
+{
+  "name": "playlista-v2-frontend",
+  "version": "2.0.0",
+  "private": true,
+  "dependencies": {
+    "@mantine/core": "^7.6.2",
+    "@mantine/hooks": "^7.6.2",
+    "@mantine/notifications": "^7.6.2",
+    "@tanstack/react-query": "^5.22.2",
+    "@tabler/icons-react": "^2.47.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.1",
+    "zustand": "^4.5.1",
+    "axios": "^1.6.7",
+    "howler": "^2.2.4",
+    "d3": "^7.9.0",
+    "@types/d3": "^7.4.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.55",
+    "@types/react-dom": "^18.2.19",
+    "@types/howler": "^2.2.11",
+    "@typescript-eslint/eslint-plugin": "^7.0.2",
+    "@typescript-eslint/parser": "^7.0.2",
+    "@vitejs/plugin-react": "^4.2.1",
+    "eslint": "^8.56.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.4"
+  },
+  "scripts": {
+    "start": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "proxy": "http://localhost:8000"
+}

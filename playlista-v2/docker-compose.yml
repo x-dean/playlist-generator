@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: playlista-v2-postgres
+    environment:
+      POSTGRES_DB: playlista_v2
+      POSTGRES_USER: playlista
+      POSTGRES_PASSWORD: playlista
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U playlista -d playlista_v2"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: playlista-v2-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # FastAPI Backend
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: playlista-v2-backend
+    environment:
+      # Database
+      PLAYLISTA_DATABASE_URL: postgresql+asyncpg://playlista:playlista@postgres:5432/playlista_v2
+      PLAYLISTA_REDIS_URL: redis://redis:6379/0
+      
+      # Paths
+      PLAYLISTA_MUSIC_LIBRARY_PATH: /music
+      PLAYLISTA_ML_MODEL_PATH: /models
+      
+      # Performance
+      PLAYLISTA_ANALYSIS_WORKERS: 4
+      PLAYLISTA_ENABLE_GPU: false
+      PLAYLISTA_TORCH_DEVICE: cpu
+      
+      # Logging
+      PLAYLISTA_LOG_LEVEL: INFO
+      PLAYLISTA_LOG_FORMAT: json
+      
+      # Security
+      PLAYLISTA_SECRET_KEY: playlista-v2-development-key-change-in-production
+      
+      # Debug
+      PLAYLISTA_DEBUG: true
+    ports:
+      - "8000:8000"
+    volumes:
+      # Music library
+      - C:\Users\Dean\Documents\test_music:/music:ro
+      
+      # ML models
+      - C:\Users\Dean\Desktop\musicnn:/models:ro
+      
+      # Development code (for hot reload)
+      - ./backend/app:/app/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: playlista-v2-frontend
+    environment:
+      REACT_APP_API_URL: http://localhost:8000/api
+      REACT_APP_WS_URL: ws://localhost:8000/ws
+    ports:
+      - "3000:3000"
+    volumes:
+      # Development code (for hot reload)
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+    command: npm start
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: playlista-v2-network
