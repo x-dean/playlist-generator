@@ -276,7 +276,7 @@ class AnalysisEngine:
             # Update track with analysis results
             update_data = {
                 "status": "analyzed",
-                "analyzed_at": time.time(),
+                "analyzed_at": datetime.now(),
                 
                 # Basic features
                 "duration": basic_features.get("duration"),

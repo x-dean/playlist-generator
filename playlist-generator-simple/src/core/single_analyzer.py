@@ -487,7 +487,25 @@ class SingleAnalyzer:
     def _save_result(self, result: Dict[str, Any]):
         """Save result to database."""
         try:
-            self.db_manager.save_analysis_result(result)
+            file_path = result.get('file_path')
+            if not file_path or not result.get('success'):
+                return  # Skip saving failed results
+                
+            # Calculate required parameters
+            filename = os.path.basename(file_path)
+            file_size_bytes = os.path.getsize(file_path)
+            file_hash = hashlib.md5(f"{filename}:{file_size_bytes}".encode()).hexdigest()
+            
+            # Save to database with correct parameters
+            self.db_manager.save_analysis_result(
+                file_path=file_path,
+                filename=filename,
+                file_size_bytes=file_size_bytes,
+                file_hash=file_hash,
+                analysis_data=result,
+                metadata=result.get('metadata', {}),
+                discovery_source='single_analyzer'
+            )
         except Exception as e:
             log_universal('WARNING', 'Database', f'Failed to save analysis result: {str(e)}')
     
