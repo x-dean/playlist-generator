@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
@@ -76,7 +77,7 @@ class AnalysisEngine:
     
     async def _process_analysis_queue(self) -> None:
         """Process pending analysis jobs"""
-        async with get_db_session() as db:
+        async for db in get_db_session():
             # Get next batch of jobs
             jobs = await self._get_pending_jobs(db, limit=settings.analysis_batch_size)
             
@@ -97,12 +98,15 @@ class AnalysisEngine:
             ]
             
             await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Break after processing with one database session
+            break
     
     async def _get_pending_jobs(self, db: AsyncSession, limit: int) -> List[AnalysisJob]:
         """Get pending analysis jobs ordered by priority"""
         query = (
             select(AnalysisJob)
-            .where(AnalysisJob.status == "queued")
+            .where(AnalysisJob.status == "pending")
             .order_by(AnalysisJob.priority.desc(), AnalysisJob.created_at.asc())
             .limit(limit)
         )
@@ -127,7 +131,7 @@ class AnalysisEngine:
                         job.id, 
                         "processing", 
                         worker_id=self._worker_id,
-                        started_at=start_time
+                        started_at=datetime.fromtimestamp(start_time)
                     )
                     
                     # Get track information
@@ -260,7 +264,7 @@ class AnalysisEngine:
     
     async def _save_analysis_result(self, track: Track, analysis_result: Dict[str, Any]) -> None:
         """Save analysis results to the track record"""
-        async with get_db_session() as db:
+        async for db in get_db_session():
             # Extract key features for direct database storage
             basic_features = analysis_result.get("basic_features", {})
             genre_predictions = analysis_result.get("genre_predictions", {})
@@ -333,13 +337,18 @@ class AnalysisEngine:
                 bpm=basic_features.get("bpm"),
                 energy=mood_predictions.get("energy")
             )
+            
+            # Break after processing with one database session
+            break
     
     async def _get_track(self, track_id: str) -> Optional[Track]:
         """Get track by ID"""
-        async with get_db_session() as db:
+        async for db in get_db_session():
             query = select(Track).where(Track.id == track_id)
             result = await db.execute(query)
-            return result.scalar_one_or_none()
+            track_result = result.scalar_one_or_none()
+            break
+        return track_result
     
     async def _update_job_status(
         self, 
@@ -348,7 +357,7 @@ class AnalysisEngine:
         **kwargs
     ) -> None:
         """Update analysis job status"""
-        async with get_db_session() as db:
+        async for db in get_db_session():
             update_data = {"status": status, **kwargs}
             
             stmt = (
@@ -359,6 +368,9 @@ class AnalysisEngine:
             
             await db.execute(stmt)
             await db.commit()
+            
+            # Break after processing with one database session
+            break
     
     async def _update_job_progress(
         self, 

@@ -118,7 +118,7 @@ class PlaylistCommands:
             num_playlists = args.num_playlists or 5
             use_advanced = args.use_advanced_features
             
-            logger.info(f"Generating {num_playlists} playlists using {method} method")
+            log_universal('INFO', 'CLI', f"Generating {num_playlists} playlists using {method} method")
             
             playlist_generator = PlaylistGenerator()
             result = playlist_generator.generate_playlists(
@@ -128,14 +128,14 @@ class PlaylistCommands:
             )
             
             if result:
-                logger.info("Playlist generation completed successfully")
+                log_universal('INFO', 'CLI', "Playlist generation completed successfully")
                 return 0
             else:
-                logger.error("Playlist generation failed")
+                log_universal('ERROR', 'CLI', "Playlist generation failed")
                 return 1
                 
         except Exception as e:
-            logger.error(f"Playlist generation error: {e}")
+            log_universal('ERROR', 'CLI', f"Playlist generation error: {str(e)}")
             return 1
     
     @staticmethod
@@ -148,7 +148,7 @@ class PlaylistCommands:
                 print(f"  - {method}")
             return 0
         except Exception as e:
-            logger.error(f"Playlist methods error: {e}")
+            log_universal('ERROR', 'CLI', f"Playlist methods error: {str(e)}")
             return 1
 
 
@@ -163,30 +163,30 @@ class DatabaseCommands:
             
             if args.init:
                 db_manager.initialize_database()
-                logger.info("Database initialized successfully")
+                log_universal('INFO', 'CLI', "Database initialized successfully")
                 return 0
             elif args.integrity_check:
                 result = db_manager.check_integrity()
                 if result:
-                    logger.info("Database integrity check passed")
+                    log_universal('INFO', 'CLI', "Database integrity check passed")
                     return 0
                 else:
-                    logger.error("Database integrity check failed")
+                    log_universal('ERROR', 'CLI', "Database integrity check failed")
                     return 1
             elif args.backup:
                 db_manager.create_backup()
-                logger.info("Database backup created successfully")
+                log_universal('INFO', 'CLI', "Database backup created successfully")
                 return 0
             elif args.vacuum:
                 db_manager.vacuum_database()
-                logger.info("Database vacuum completed")
+                log_universal('INFO', 'CLI', "Database vacuum completed")
                 return 0
             else:
-                logger.error("No database operation specified")
+                log_universal('ERROR', 'CLI', "No database operation specified")
                 return 1
                 
         except Exception as e:
-            logger.error(f"Database operation error: {e}")
+            log_universal('ERROR', 'CLI', f"Database operation error: {str(e)}")
             return 1
     
     @staticmethod
@@ -197,14 +197,14 @@ class DatabaseCommands:
             result = db_manager.validate_database_structure()
             
             if result:
-                logger.info("Database validation passed")
+                log_universal('INFO', 'CLI', "Database validation passed")
                 return 0
             else:
-                logger.error("Database validation failed")
+                log_universal('ERROR', 'CLI', "Database validation failed")
                 return 1
                 
         except Exception as e:
-            logger.error(f"Database validation error: {e}")
+            log_universal('ERROR', 'CLI', f"Database validation error: {str(e)}")
             return 1
 
 
@@ -259,7 +259,7 @@ class ManagerCommands:
             return 0
             
         except Exception as e:
-            logger.error(f"Manager status command failed: {e}")
+            log_universal('ERROR', 'CLI', f"Manager status command failed: {str(e)}")
             return 1
     
     @staticmethod
@@ -291,7 +291,7 @@ class ManagerCommands:
             return 0
             
         except Exception as e:
-            logger.error(f"Manager analysis command failed: {e}")
+            log_universal('ERROR', 'CLI', f"Manager analysis command failed: {str(e)}")
             return 1
 
 
@@ -319,23 +319,23 @@ class UtilityCommands:
             
             return 0
         except Exception as e:
-            logger.error(f"Status error: {e}")
+            log_universal('ERROR', 'CLI', f"Status error: {str(e)}")
             return 1
     
     @staticmethod
     def handle_cleanup(args) -> int:
         """Handle cleanup command."""
         try:
-            analysis_manager = AnalysisManager()
+            analysis_manager = get_analysis_manager()
             result = analysis_manager.cleanup_old_data()
             
             if result:
-                logger.info("Cleanup completed successfully")
+                log_universal('INFO', 'CLI', "Cleanup completed successfully")
                 return 0
             else:
-                logger.error("Cleanup failed")
+                log_universal('ERROR', 'CLI', "Cleanup failed")
                 return 1
                 
         except Exception as e:
-            logger.error(f"Cleanup error: {e}")
+            log_universal('ERROR', 'CLI', f"Cleanup error: {str(e)}")
             return 1 

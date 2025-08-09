@@ -348,7 +348,7 @@ async def analyze_track(
     job_query = select(AnalysisJob).where(
         and_(
             AnalysisJob.track_id == track_uuid,
-            AnalysisJob.status.in_(["queued", "processing"])
+            AnalysisJob.status.in_(["pending", "processing"])
         )
     )
     job_result = await db.execute(job_query)
@@ -364,7 +364,7 @@ async def analyze_track(
     analysis_job = AnalysisJob(
         track_id=track_uuid,
         priority=priority,
-        status="queued"
+        status="pending"
     )
     
     db.add(analysis_job)

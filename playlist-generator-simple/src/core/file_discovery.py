@@ -228,17 +228,7 @@ class FileDiscovery:
             log_universal('WARNING', 'FileDiscovery', f"Music directory does not exist: {self.music_dir}")
             return []
         
-        # Check if we have a recent discovery cache
-        db_manager = get_db_manager()
-        discovery_status = db_manager.get_discovery_status(self.music_dir)
-        
-        if discovery_status and discovery_status.get('status') == 'completed':
-            # Use cached discovery if recent (within 1 hour)
-            cache_age = datetime.now() - datetime.fromisoformat(discovery_status['created_at'])
-            if cache_age.total_seconds() < 3600:  # 1 hour
-                log_universal('INFO', 'FileDiscovery', f"Using cached discovery from {discovery_status['created_at']}")
-                # Return files from database instead of re-scanning
-                return list(self.get_db_files())
+        # Skip discovery caching for now - scan filesystem directly
         
         discovered_files = []
         start_time = datetime.now()
@@ -264,28 +254,16 @@ class FileDiscovery:
             # Sort files by size (largest first for better progress indication)
             discovered_files.sort(key=lambda x: os.path.getsize(x), reverse=True)
             
-            # Save discovery result to cache
+            # Calculate scan duration
             scan_duration = (datetime.now() - start_time).total_seconds()
-            db_manager.save_discovery_result(
-                directory_path=self.music_dir,
-                file_count=len(discovered_files),
-                scan_duration=scan_duration,
-                status='completed'
-            )
             
             log_universal('INFO', 'FileDiscovery', f"File discovery complete: {len(discovered_files)} files found in {scan_duration:.2f}s")
             return discovered_files
             
         except Exception as e:
-            # Save failed discovery result
+            # Log failed discovery
             scan_duration = (datetime.now() - start_time).total_seconds()
-            db_manager.save_discovery_result(
-                directory_path=self.music_dir,
-                file_count=0,
-                scan_duration=scan_duration,
-                status='failed',
-                error_message=str(e)
-            )
+            log_universal('WARNING', 'FileDiscovery', f"Discovery failed after {scan_duration:.1f}s: {str(e)}")
             log_universal('ERROR', 'FileDiscovery', f"File discovery failed: {e}")
             return []
 

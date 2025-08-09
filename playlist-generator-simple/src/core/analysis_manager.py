@@ -73,8 +73,13 @@ class AnalysisManager:
             
             log_universal('DEBUG', 'FileDiscovery', f"Scanning {music_path} (force: {force_reextract}, include_failed: {include_failed})")
             
+            # Update file discovery path if different from config
+            if music_path != self.config.get('MUSIC_PATH', '/music'):
+                self.file_discovery.music_dir = music_path
+                log_universal('DEBUG', 'FileDiscovery', f"Updated music directory to: {music_path}")
+            
             # Discover all audio files
-            all_files = self.file_discovery.discover_audio_files(music_path)
+            all_files = self.file_discovery.discover_files()
             
             if not all_files:
                     log_universal('WARNING', 'Analysis', f"No audio files found in {music_path}")
