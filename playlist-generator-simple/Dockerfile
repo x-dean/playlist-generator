@@ -58,6 +58,7 @@ RUN chmod +x /app/playlista /app/entrypoint.sh
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
+    MUSIC_PATH=/music \
     CACHE_DIR=/app/cache \
     LOG_FILE=/app/logs/playlista.log \
     MODEL_DIR=/app/models \

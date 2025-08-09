@@ -67,10 +67,9 @@ class SingleAnalyzer:
         self.max_workers = None
         
         # File size thresholds for optimization
-        self.min_optimized_size_mb = self.config.get('OPTIMIZED_PIPELINE_MIN_SIZE_MB', 5)
-        self.max_optimized_size_mb = self.config.get('OPTIMIZED_PIPELINE_MAX_SIZE_MB', 200)
+        self.large_file_threshold_mb = self.config.get('LARGE_FILE_THRESHOLD_MB', 200)
         
-        log_universal('INFO', 'System', f'Audio analyzer ready - dynamic workers, optimized for {self.min_optimized_size_mb}-{self.max_optimized_size_mb}MB files')
+        log_universal('INFO', 'System', f'Audio analyzer ready - dynamic workers, large files >{self.large_file_threshold_mb}MB get Essentia-only')
     
     def _calculate_dynamic_workers(self, files: List[str]) -> int:
         """Calculate optimal workers based on RAM availability and user configuration."""
@@ -114,7 +113,7 @@ class SingleAnalyzer:
                         total_sampled += 1
                         if file_size_mb > 500:  # Huge files (>500MB)
                             huge_files += 1
-                        elif file_size_mb > 200:  # Large files (200-500MB)
+                        elif file_size_mb > self.large_file_threshold_mb:  # Large files (200-500MB)
                             large_files += 1
                     except Exception:
                         continue
@@ -302,9 +301,9 @@ class SingleAnalyzer:
         
         return self._create_batch_result(results, total_time, failed_files)
     
-    def _should_use_optimized_pipeline(self, file_size_mb: float) -> bool:
-        """Determine if optimized pipeline should be used."""
-        return self.min_optimized_size_mb <= file_size_mb <= self.max_optimized_size_mb
+    def _should_use_large_file_analysis(self, file_size_mb: float) -> bool:
+        """Determine if file should use large file analysis (Essentia-only)."""
+        return file_size_mb > self.large_file_threshold_mb
     
     def _extract_metadata(self, file_path: str) -> Dict[str, Any]:
         """Extract basic metadata from audio file."""
@@ -367,19 +366,19 @@ class SingleAnalyzer:
             # For very large files, use simplified approach
             file_size_mb = metadata['file_size_mb']
             
-            if file_size_mb < self.min_optimized_size_mb:
-                # Small file - basic but complete analysis
-                return self._analyze_small_file(file_path, metadata)
-            else:
-                # Large file - simplified analysis
+            if self._should_use_large_file_analysis(file_size_mb):
+                # Large file (>200MB) - Essentia-only analysis
                 return self._analyze_large_file(file_path, metadata)
+            else:
+                # Small/medium file (<200MB) - Full analysis with Essentia + MusiCNN
+                return self._analyze_full_file(file_path, metadata)
                 
         except Exception as e:
             log_universal('ERROR', 'Audio', f'Standard analysis failed for {os.path.basename(file_path)}: {str(e)}')
             return {'error': str(e), 'available': False}
     
-    def _analyze_small_file(self, file_path: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze small files with basic feature extraction."""
+    def _analyze_full_file(self, file_path: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze small/medium files with full Essentia + MusiCNN analysis."""
         try:
             # Load audio using FFmpeg
             audio, sample_rate = self._load_audio_ffmpeg(file_path)
@@ -390,7 +389,7 @@ class SingleAnalyzer:
                 'duration': len(audio) / sample_rate,
                 'sample_rate': sample_rate,
                 'available': True,
-                'method': 'standard_small'
+                'method': 'full_analysis'
             }
             
             # Basic rhythm detection
@@ -1057,7 +1056,7 @@ class SingleAnalyzer:
             stats['analyzer'] = 'SingleAnalyzer'
             stats['pipeline_config'] = {
                 'workers': self.max_workers,
-                'optimized_range': f'{self.min_optimized_size_mb}-{self.max_optimized_size_mb}MB',
+                'large_file_threshold': f'{self.large_file_threshold_mb}MB',
                 'timeout': self.timeout_seconds
             }
             return stats

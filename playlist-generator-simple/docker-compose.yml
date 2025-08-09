@@ -72,6 +72,10 @@ services:
 
       # External API keys (set these in your .env file)
       - LASTFM_API_KEY=${LASTFM_API_KEY:-dummy_key_to_suppress_warnings}
+      
+      # MusiCNN model paths (Docker internal)
+      - MUSICNN_MODEL_PATH=/app/models/msd-musicnn-1.pb
+      - MUSICNN_JSON_PATH=/app/models/msd-musicnn-1.json
     command: ["/app/entrypoint.sh"]
     restart: unless-stopped
     working_dir: /app
