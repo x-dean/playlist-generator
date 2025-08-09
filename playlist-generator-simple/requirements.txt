@@ -10,6 +10,7 @@ mutagen
 numpy
 pandas
 scikit-learn
+scipy
 
 # Utilities
 tqdm

@@ -168,7 +168,7 @@ class PlaylistItem(Base):
     
     # Relationships
     playlist = relationship("Playlist", back_populates="tracks")
-    track = relationship("Track", back_populates="playlist_tracks")
+    track = relationship("Track", back_populates="playlist_items")
     
     # Ensure unique position per playlist
     __table_args__ = (

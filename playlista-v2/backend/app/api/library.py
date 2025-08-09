@@ -73,42 +73,66 @@ class TrackResponse:
     def __init__(self, track: Track):
         self.id = str(track.id)
         self.filename = track.filename
-        self.title = track.title or "Unknown"
-        self.artist = track.artist or "Unknown"
+        self.title = track.title
+        self.artist = track.artist
         self.album = track.album
         self.year = track.year
         self.genre = track.genre
-        self.duration = track.duration
+        self.duration = track.duration or 0
+        self.file_size = track.file_size_bytes or 0
         self.bpm = track.bpm
         self.key = track.key
         self.energy = track.energy
         self.danceability = track.danceability
         self.valence = track.valence
         self.status = track.status
+        
+        # Audio features for frontend compatibility
+        self.audio_features = None
+        if track.status == "analyzed":
+            self.audio_features = {
+                "tempo": track.bpm,
+                "key": track.key,
+                "energy": track.energy,
+                "danceability": track.danceability,
+                "valence": track.valence,
+                "acousticness": track.acousticness,
+                "instrumentalness": track.instrumentalness,
+                "speechiness": track.speechiness,
+                "liveness": track.liveness
+            }
+        
         self.analyzed_at = track.analyzed_at.isoformat() if track.analyzed_at else None
         self.created_at = track.created_at.isoformat() if track.created_at else None
 
 
-@router.get("/tracks", response_model=List[Dict[str, Any]])
+@router.get("/tracks")
 @log_performance("get_tracks")
 async def get_tracks(
-    limit: int = Query(default=100, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
     status: Optional[str] = Query(default=None),
     genre: Optional[str] = Query(default=None),
     artist: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
+    sort_by: str = Query(default="created_at"),
+    sort_order: str = Query(default="desc"),
     db: AsyncSession = Depends(get_db_session)
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """Get tracks with filtering and pagination"""
     
     with LogContext(
         operation="get_tracks",
-        limit=limit,
-        offset=offset,
+        page=page,
+        per_page=per_page,
         has_filters=bool(status or genre or artist or search)
     ):
+        # Calculate offset
+        offset = (page - 1) * per_page
+        
+        # Build base query
         query = select(Track)
+        count_query = select(func.count(Track.id))
         
         # Apply filters
         filters = []
@@ -129,21 +153,43 @@ async def get_tracks(
         
         if filters:
             query = query.where(and_(*filters))
+            count_query = count_query.where(and_(*filters))
+        
+        # Get total count
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
+        
+        # Apply sorting
+        sort_column = getattr(Track, sort_by, Track.created_at)
+        if sort_order.lower() == "desc":
+            query = query.order_by(sort_column.desc())
+        else:
+            query = query.order_by(sort_column.asc())
         
         # Apply pagination
-        query = query.offset(offset).limit(limit).order_by(Track.created_at.desc())
+        query = query.offset(offset).limit(per_page)
         
         result = await db.execute(query)
         tracks = result.scalars().all()
         
+        # Calculate pagination info
+        total_pages = (total + per_page - 1) // per_page
+        
         logger.info(
             "Retrieved tracks",
             count=len(tracks),
-            requested_limit=limit,
-            offset=offset
+            total=total,
+            page=page,
+            per_page=per_page
         )
         
-        return [TrackResponse(track).__dict__ for track in tracks]
+        return {
+            "tracks": [TrackResponse(track).__dict__ for track in tracks],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages
+        }
 
 
 @router.get("/tracks/count")

@@ -19,19 +19,23 @@ logger = get_logger("api.analysis")
 
 @router.post("/start")
 async def start_analysis_processing(
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks,
+    quick: bool = False,
+    limit: Optional[int] = None
 ) -> Dict[str, str]:
-    """Start the analysis processing engine"""
+    """Start analysis processing with optional parameters"""
     
     with LogContext(operation="start_analysis_processing"):
-        logger.info("Starting analysis processing engine")
+        logger.info("Starting analysis processing", quick=quick, limit=limit)
         
         # Start processing in background
         background_tasks.add_task(analysis_engine.start_processing)
         
         return {
             "status": "started",
-            "message": "Analysis processing engine started"
+            "message": f"Analysis processing started ({'quick test' if quick else 'full analysis'})",
+            "quick": quick,
+            "limit": limit
         }
 
 
@@ -48,6 +52,40 @@ async def stop_analysis_processing() -> Dict[str, str]:
             "status": "stopped",
             "message": "Analysis processing engine stopped"
         }
+
+
+@router.get("/jobs")
+async def get_analysis_jobs(
+    status: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db_session)
+) -> List[Dict[str, Any]]:
+    """Get analysis jobs list with optional filtering"""
+    
+    query = select(AnalysisJob)
+    
+    if status:
+        query = query.where(AnalysisJob.status == status)
+    
+    query = query.order_by(AnalysisJob.created_at.desc()).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    jobs = result.scalars().all()
+    
+    return [
+        {
+            "id": str(job.id),
+            "track_id": str(job.track_id),
+            "status": job.status,
+            "progress": job.progress_percent or 0,
+            "tracks_processed": 1 if job.status == "completed" else 0,
+            "total_tracks": 1,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None
+        }
+        for job in jobs
+    ]
 
 
 @router.get("/status")

@@ -56,6 +56,7 @@ from .lazy_imports import (
     librosa, mutagen
 )
 from .memory_optimized_loader import get_memory_optimized_loader
+from .pipeline_adapter import get_pipeline_adapter
 
 logger = get_logger('playlista.audio_analyzer')
 
@@ -300,6 +301,14 @@ class AudioAnalyzer:
             except Exception as e:
                 log_universal('WARNING', 'Audio', f'Failed to initialize memory-optimized loader: {e}')
         
+        # Initialize optimized pipeline adapter
+        try:
+            self.pipeline_adapter = get_pipeline_adapter(config)
+            log_universal('INFO', 'Audio', 'Optimized pipeline adapter initialized')
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Optimized pipeline adapter initialization failed: {e}')
+            self.pipeline_adapter = None
+        
         log_universal('INFO', 'Audio', 'AudioAnalyzer initialized')
         log_universal('DEBUG', 'Audio', f'Universal memory optimization enabled: {self.memory_optimization_enabled}')
         log_universal('DEBUG', 'Audio', f'Universal memory optimization forced: {self.memory_optimization_force_all_categories}')
@@ -351,6 +360,23 @@ class AudioAnalyzer:
             # Analyzers should just process the files they're given
             if force_reanalysis is None:
                 force_reanalysis = self.config.get('FORCE_REANALYSIS', False)
+            
+            # PRELIMINARY: Check if we should use optimized pipeline
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            if self.pipeline_adapter and self.pipeline_adapter.should_use_optimized_pipeline(file_path, file_size_mb):
+                log_universal('INFO', 'Audio', f'Using optimized pipeline for {os.path.basename(file_path)} ({file_size_mb:.1f}MB)')
+                
+                # Extract basic metadata first for optimized pipeline
+                basic_metadata = self._extract_metadata_with_mutagen(file_path)
+                
+                optimized_result = self.pipeline_adapter.analyze_with_optimized_pipeline(file_path, basic_metadata)
+                if optimized_result and optimized_result.get('analysis_success'):
+                    log_universal('INFO', 'Audio', f'Optimized analysis completed for {os.path.basename(file_path)}')
+                    return optimized_result
+                else:
+                    log_universal('WARNING', 'Audio', f'Optimized pipeline failed for {os.path.basename(file_path)}, falling back to standard analysis')
+            
+            log_universal('INFO', 'Audio', f'Using standard analysis pipeline for {os.path.basename(file_path)}')
             
             # STEP 1: Extract artist/track using mutagen with tag mapping
             log_universal('INFO', 'Audio', f'Step 1: Extracting metadata with mutagen for {os.path.basename(file_path)}')
