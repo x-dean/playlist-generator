@@ -28,8 +28,8 @@ async def start_analysis_processing(
     with LogContext(operation="start_analysis_processing"):
         logger.info("Starting analysis processing", quick=quick, limit=limit)
         
-        # Start processing in background
-        background_tasks.add_task(analysis_engine.start_processing)
+        # Start processing in background using asyncio task
+        asyncio.create_task(analysis_engine.start_processing())
         
         return {
             "status": "started",

@@ -46,10 +46,7 @@ class AnalysisManager:
         self.timeout_seconds = self.config.get('ANALYSIS_TIMEOUT', 600)
         
         # Initialize file discovery
-        self.file_discovery = FileDiscovery(
-                db_manager=self.db_manager,
-                config=self.config
-            )
+        self.file_discovery = FileDiscovery(config=self.config)
             
         # Initialize single analyzer (the one and only)
         self.single_analyzer = get_single_analyzer(self.config)

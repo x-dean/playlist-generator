@@ -92,7 +92,7 @@ class AnalysisCommands:
     def handle_retry_failed(args) -> int:
         """Handle retry-failed command."""
         try:
-            analysis_manager = AnalysisManager()
+            analysis_manager = get_analysis_manager()
             result = analysis_manager.retry_failed_analysis()
             
             if result:

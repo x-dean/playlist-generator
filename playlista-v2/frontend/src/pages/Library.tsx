@@ -94,7 +94,7 @@ export const Library = () => {
 
   const analyzeTrack = async (trackId: string) => {
     try {
-      await apiClient.post('/api/analyze', { track_id: trackId });
+      await apiClient.post(`/api/library/tracks/${trackId}/analyze`);
       // Refetch to show updated data
       refetch();
     } catch (error) {
