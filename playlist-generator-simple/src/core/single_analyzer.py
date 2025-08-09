@@ -466,6 +466,7 @@ class SingleAnalyzer:
         Returns:
             Enriched metadata dictionary
         """
+        log_universal('DEBUG', 'API', '*** _enrich_metadata method called! ***')
         enriched = metadata.copy()
         
         try:
