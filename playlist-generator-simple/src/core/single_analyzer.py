@@ -641,6 +641,7 @@ class SingleAnalyzer:
         all_text = f"{title} {artist} {filename}".lower()
         
         log_universal('DEBUG', 'Audio', f'Enhanced classification - Tempo: {tempo}, Energy: {energy}, Danceability: {danceability}')
+        log_universal('DEBUG', 'Audio', f'Base classification: {base_classification["type"]} ({base_classification["subtype"]}) - confidence: {base_classification["confidence"]:.2f}')
         
         # Enhanced classification logic using audio features
         enhanced_type = base_classification['type']
@@ -661,6 +662,7 @@ class SingleAnalyzer:
                 enhanced_subtype = 'experimental_mix' # Unusual tempo
             enhanced_confidence = min(0.95, enhanced_confidence + 0.3)
             enhanced_features.extend(['tempo_based_classification', 'energy_analysis'])
+            log_universal('DEBUG', 'Audio', f'DJ Mix detected: {enhanced_subtype} (tempo: {tempo}, energy: {energy}, danceability: {danceability})')
         
         # Radio show detection with audio characteristics
         elif self._is_radio_show_enhanced(all_text, tempo, energy, segments_analyzed):
@@ -673,6 +675,7 @@ class SingleAnalyzer:
                 enhanced_subtype = 'talk_radio'       # Mostly speech
             enhanced_confidence = min(0.9, enhanced_confidence + 0.2)
             enhanced_features.extend(['energy_based_content', 'segment_analysis'])
+            log_universal('DEBUG', 'Audio', f'Radio show detected: {enhanced_subtype} (energy: {energy}, segments: {segments_analyzed})')
         
         # Live performance detection
         elif self._is_live_performance_enhanced(all_text, tempo, danceability, duration):
@@ -685,6 +688,7 @@ class SingleAnalyzer:
                 enhanced_subtype = 'live_ambient'     # Ambient/experimental live
             enhanced_confidence = min(0.85, enhanced_confidence + 0.25)
             enhanced_features.extend(['danceability_analysis', 'tempo_consistency'])
+            log_universal('DEBUG', 'Audio', f'Live performance detected: {enhanced_subtype} (tempo: {tempo}, danceability: {danceability})')
         
         # Podcast detection (low danceability, variable tempo)
         elif tempo < 80 and danceability < 0.3 and duration > 1800:  # >30 min
@@ -692,6 +696,7 @@ class SingleAnalyzer:
             enhanced_subtype = 'long_form_podcast'
             enhanced_confidence = min(0.8, enhanced_confidence + 0.15)
             enhanced_features.extend(['low_danceability', 'speech_indicators'])
+            log_universal('DEBUG', 'Audio', f'Podcast detected: {enhanced_subtype} (tempo: {tempo}, danceability: {danceability})')
         
         # Add audio-based features to the classification
         audio_features = {
@@ -702,6 +707,10 @@ class SingleAnalyzer:
             'audio_classification_used': True
         }
         enhanced_features.extend([f"audio_{k}" for k in audio_features.keys()])
+        
+        # Log final enhanced classification result
+        log_universal('DEBUG', 'Audio', f'Enhanced classification result: {enhanced_type} ({enhanced_subtype}) - confidence: {enhanced_confidence:.2f}')
+        log_universal('DEBUG', 'Audio', f'Track estimation: {self._estimate_tracks_enhanced(enhanced_type, duration, tempo)} tracks')
         
         return {
             'type': enhanced_type,
@@ -731,7 +740,9 @@ class SingleAnalyzer:
         if duration > 3600:  # Typically long
             audio_score += 0.2
         
-        return (metadata_score + audio_score) > 0.6
+        total_score = metadata_score + audio_score
+        log_universal('DEBUG', 'Audio', f'DJ mix score: metadata={metadata_score:.2f}, audio={audio_score:.2f}, total={total_score:.2f}')
+        return total_score > 0.6
     
     def _is_radio_show_enhanced(self, text: str, tempo: float, energy: float, segments: int) -> bool:
         """Enhanced radio show detection using audio features."""
@@ -748,7 +759,9 @@ class SingleAnalyzer:
         if 80 < tempo < 140:  # Varied tempo range
             audio_score += 0.2
         
-        return (metadata_score + audio_score) > 0.5
+        total_score = metadata_score + audio_score
+        log_universal('DEBUG', 'Audio', f'Radio show score: metadata={metadata_score:.2f}, audio={audio_score:.2f}, total={total_score:.2f}')
+        return total_score > 0.5
     
     def _is_live_performance_enhanced(self, text: str, tempo: float, danceability: float, duration: float) -> bool:
         """Enhanced live performance detection using audio features."""
@@ -765,7 +778,9 @@ class SingleAnalyzer:
         if duration > 1800:  # Substantial performance length
             audio_score += 0.2
         
-        return (metadata_score + audio_score) > 0.5
+        total_score = metadata_score + audio_score
+        log_universal('DEBUG', 'Audio', f'Live performance score: metadata={metadata_score:.2f}, audio={audio_score:.2f}, total={total_score:.2f}')
+        return total_score > 0.5
     
     def _estimate_tracks_enhanced(self, content_type: str, duration: float, tempo: float) -> int:
         """Enhanced track count estimation using tempo information."""
