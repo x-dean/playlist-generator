@@ -95,10 +95,14 @@ services:
       PGADMIN_DEFAULT_EMAIL: admin@example.com
       PGADMIN_DEFAULT_PASSWORD: admin
       PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_ENHANCED_COOKIE_PROTECTION: 'True'
+      PGADMIN_CONFIG_LOGIN_BANNER: "Playlista Database Management"
+      PGADMIN_SERVER_JSON_FILE: '/pgadmin4/servers.json'
     ports:
       - "8082:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+      - ./config/servers.json:/pgadmin4/servers.json:ro
     networks:
       - playlista-network
     depends_on:
