@@ -67,10 +67,11 @@ class SingleAnalyzer:
         # Don't set max_workers here - use dynamic calculation instead
         self.max_workers = None
         
-        # File size thresholds for optimization
-        self.large_file_threshold_mb = self.config.get('LARGE_FILE_THRESHOLD_MB', 50)
+        # Duration thresholds for analysis strategy
+        self.long_content_threshold_minutes = self.config.get('LONG_CONTENT_THRESHOLD_MINUTES', 30)
+        self.long_content_threshold_seconds = self.long_content_threshold_minutes * 60
         
-        log_universal('INFO', 'System', f'Audio analyzer ready - dynamic workers, large files >{self.large_file_threshold_mb}MB get Essentia-only')
+        log_universal('INFO', 'System', f'Audio analyzer ready - duration-based analysis: <10min=full, 10-30min=3chunks, >30min=classification+3chunks')
     
     def _calculate_dynamic_workers(self, files: List[str]) -> int:
         """Calculate optimal workers based on RAM availability and user configuration."""
@@ -101,49 +102,12 @@ class SingleAnalyzer:
                 available_memory_gb = resource_manager.get_available_memory_gb()
                 log_universal('INFO', 'System', f'Auto-detected available RAM: {available_memory_gb:.1f}GB')
             
-            # Adjust memory per worker based on workload (only if auto mode)
-            if workload_mode == 'auto':
-                # Quick workload analysis - sample more files for better accuracy
-                large_files = 0
-                huge_files = 0
-                total_sampled = 0
-                
-                for file_path in files[:20]:  # Sample first 20 files for better accuracy
-                    try:
-                        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                        total_sampled += 1
-                        if file_size_mb > 500:  # Huge files (>500MB)
-                            huge_files += 1
-                        elif file_size_mb > self.large_file_threshold_mb:  # Large files (200-500MB)
-                            large_files += 1
-                    except Exception:
-                        continue
-                
-                if total_sampled == 0:
-                    large_file_ratio = 0
-                    huge_file_ratio = 0
-                else:
-                    large_file_ratio = large_files / total_sampled
-                    huge_file_ratio = huge_files / total_sampled
-                
-                # MUCH more conservative memory estimates for Essentia on large files
-                memory_per_worker_gb = base_memory_per_worker_gb  # Start with base
-                
-                if huge_file_ratio > 0.3:  # >30% huge files (>500MB)
-                    memory_per_worker_gb *= 4.0  # 4.8GB per worker for huge files with Essentia
-                    workload_type = 'huge_files'
-                elif large_file_ratio > 0.5:  # >50% large files (200-500MB)
-                    memory_per_worker_gb *= 3.0  # 3.6GB per worker for large files with Essentia
-                    workload_type = 'large_files'
-                elif large_file_ratio > 0.2:  # >20% large files
-                    memory_per_worker_gb *= 2.0  # 2.4GB per worker for mixed workload
-                    workload_type = 'mixed'
-                else:  # Mostly small files
-                    memory_per_worker_gb = base_memory_per_worker_gb  # Keep base value
-                    workload_type = 'small_files'
-                
-                log_universal('INFO', 'System', f'Workload detected: {workload_type} (large: {large_file_ratio:.1f}, huge: {huge_file_ratio:.1f})')
-                log_universal('INFO', 'System', f'Adjusted memory per worker: {memory_per_worker_gb:.1f}GB')
+            # Memory per worker is now consistent since chunk sizes are the same
+            memory_per_worker_gb = base_memory_per_worker_gb
+            workload_type = 'consistent_chunks'
+            
+            log_universal('INFO', 'System', f'Workload type: {workload_type} - all files use same chunk analysis')
+            log_universal('INFO', 'System', f'Memory per worker: {memory_per_worker_gb:.1f}GB (consistent for all files)')
             
             # Calculate workers based on memory
             memory_based_workers = max(1, int(available_memory_gb / memory_per_worker_gb))
@@ -205,16 +169,23 @@ class SingleAnalyzer:
             metadata = self._extract_metadata(file_path)
             log_universal('DEBUG', 'Audio', f'Metadata extracted: {os.path.basename(file_path)} - {metadata.get("title", "Unknown")} by {metadata.get("artist", "Unknown")}')
             
-            # Determine file size and analysis method
+            # Get duration for analysis strategy decision
+            duration_seconds = metadata.get('duration_seconds', 0)
+            if not duration_seconds:
+                duration_seconds = self._get_duration_ffmpeg(file_path)
+            
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
             
-            # Perform audio analysis
-            if self._should_use_large_file_analysis(file_size_mb):
-                log_universal('DEBUG', 'Audio', f'Large file analysis: {os.path.basename(file_path)} ({file_size_mb:.1f}MB)')
-                audio_features = self._analyze_large_file(file_path, metadata)
-            else:
-                log_universal('DEBUG', 'Audio', f'Standard analysis: {os.path.basename(file_path)} ({file_size_mb:.1f}MB)')
-                audio_features = self._analyze_standard(file_path, metadata)
+            # Perform audio analysis based on duration
+            if duration_seconds < 600:  # < 10 minutes
+                log_universal('DEBUG', 'Audio', f'Full file analysis: {os.path.basename(file_path)} ({duration_seconds/60:.1f}min)')
+                audio_features = self._analyze_full_file(file_path, metadata)
+            elif duration_seconds < 1800:  # 10-30 minutes
+                log_universal('DEBUG', 'Audio', f'Multi-chunk analysis: {os.path.basename(file_path)} ({duration_seconds/60:.1f}min)')
+                audio_features = self._analyze_multi_chunk_file(file_path, metadata, duration_seconds)
+            else:  # > 30 minutes
+                log_universal('DEBUG', 'Audio', f'Long content analysis: {os.path.basename(file_path)} ({duration_seconds/60:.1f}min)')
+                audio_features = self._analyze_long_content_file(file_path, metadata, duration_seconds)
             
             # Check if audio analysis failed
             if audio_features.get('error') or not audio_features.get('available', True):
@@ -336,9 +307,9 @@ class SingleAnalyzer:
         
         return self._create_batch_result(all_results, total_time, all_failed_files)
     
-    def _should_use_large_file_analysis(self, file_size_mb: float) -> bool:
-        """Determine if file should use large file analysis (Essentia-only)."""
-        return file_size_mb > self.large_file_threshold_mb
+    def _should_use_content_classification(self, duration_seconds: float) -> bool:
+        """Determine if file should use content classification based on duration."""
+        return duration_seconds > 1800  # 30 minutes
     
     def _group_files_by_size(self, files: List[str]) -> Dict[str, List[str]]:
         """
@@ -513,46 +484,111 @@ class SingleAnalyzer:
         
         return enriched
     
-    def _analyze_standard(self, file_path: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Standard analysis for files outside optimized range."""
+    def _analyze_multi_chunk_file(self, file_path: str, metadata: Dict[str, Any], duration_seconds: float) -> Dict[str, Any]:
+        """Analyze files 10-30 minutes using 3 strategic chunks with full Essentia + MusiCNN."""
         try:
-            # For very small files, do basic analysis
-            # For very large files, use simplified approach
-            file_size_mb = metadata['file_size_mb']
+            # Analyze 3 strategic segments: beginning, middle, end
+            segment_duration = 30  # 30 seconds per segment
+            segments = [
+                (0, segment_duration),  # Beginning
+                (duration_seconds * 0.5 - segment_duration/2, segment_duration),  # Middle
+                (max(0, duration_seconds - segment_duration), segment_duration)  # End
+            ]
             
-            if self._should_use_large_file_analysis(file_size_mb):
-                # Large file (>200MB) - Essentia-only analysis
-                return self._analyze_large_file(file_path, metadata)
-            else:
-                # Small/medium file (<200MB) - Full analysis with Essentia + MusiCNN
-                return self._analyze_full_file(file_path, metadata)
-                
+            segment_features = []
+            musicnn_features = []
+            
+            for i, (start_time, seg_duration) in enumerate(segments):
+                audio_segment = self._load_audio_segment_ffmpeg(file_path, start=start_time, duration=seg_duration)
+                if audio_segment is not None:
+                    # Full Essentia analysis for this segment
+                    essentia_features = self._analyze_single_segment_essentia(audio_segment)
+                    if essentia_features.get('tempo'):  # Valid analysis
+                        segment_features.append(essentia_features)
+                    
+                    # MusiCNN analysis for this segment
+                    musicnn_result = self._analyze_single_segment_musicnn(audio_segment, 22050)
+                    if musicnn_result.get('tags'):
+                        musicnn_features.append(musicnn_result)
+            
+            # Aggregate all features
+            final_features = self._aggregate_segment_features(segment_features)
+            if musicnn_features:
+                final_features.update(self._aggregate_musicnn_features(musicnn_features))
+            
+            final_features.update({
+                'segments_analyzed': len(segment_features),
+                'analysis_strategy': 'multi_chunk_full_analysis',
+                'method': 'multi_chunk_essentia_musicnn',
+                'available': True,
+                'duration': duration_seconds
+            })
+            
+            return final_features
+            
         except Exception as e:
-            log_universal('ERROR', 'Audio', f'Standard analysis failed for {os.path.basename(file_path)}: {str(e)}')
+            log_universal('ERROR', 'Audio', f'Multi-chunk analysis failed for {os.path.basename(file_path)}: {str(e)}')
+            return {'error': str(e), 'available': False}
+    
+    def _analyze_long_content_file(self, file_path: str, metadata: Dict[str, Any], duration_seconds: float) -> Dict[str, Any]:
+        """Analyze files >30 minutes with content classification + 3 strategic chunks with full Essentia + MusiCNN."""
+        try:
+            # Same 3-chunk analysis as multi-chunk but with content classification
+            audio_features = self._analyze_multi_chunk_file(file_path, metadata, duration_seconds)
+            
+            if audio_features.get('error'):
+                return audio_features
+            
+            # Add content classification for long files
+            content_classification = self._classify_large_content_enhanced(metadata, duration_seconds, audio_features)
+            
+            audio_features.update({
+                'content_type': content_classification['type'],
+                'content_subtype': content_classification['subtype'],
+                'content_confidence': content_classification['confidence'],
+                'content_features': content_classification['features'],
+                'estimated_track_count': content_classification.get('estimated_tracks'),
+                'content_description': content_classification['description'],
+                'method': 'long_content_essentia_musicnn',
+                'analysis_strategy': 'long_content_with_classification'
+            })
+            
+            return audio_features
+            
+        except Exception as e:
+            log_universal('ERROR', 'Audio', f'Long content analysis failed for {os.path.basename(file_path)}: {str(e)}')
             return {'error': str(e), 'available': False}
     
     def _analyze_full_file(self, file_path: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze small/medium files with full Essentia + MusiCNN analysis."""
         try:
-            # Load audio using FFmpeg
-            audio, sample_rate = self._load_audio_ffmpeg(file_path)
+            # Load audio using FFmpeg (limit to 30 seconds for efficiency)
+            audio, sample_rate = self._load_audio_ffmpeg(file_path, max_duration=30)
             if audio is None:
                 return {'error': 'Failed to load audio', 'available': False}
             
-            features = {
+            # Full Essentia analysis
+            essentia_features = self._analyze_single_segment_essentia(audio)
+            
+            # Full MusiCNN analysis
+            musicnn_features = self._analyze_single_segment_musicnn(audio, sample_rate)
+            
+            # Combine features
+            features = essentia_features.copy()
+            features.update(musicnn_features)
+            features.update({
                 'duration': len(audio) / sample_rate,
                 'sample_rate': sample_rate,
                 'available': True,
-                'method': 'full_analysis'
-            }
-            
-            # Basic rhythm detection
-            if len(audio) > sample_rate:  # At least 1 second
-                features['tempo'] = self._estimate_tempo_simple(audio, sample_rate)
+                'method': 'full_file_essentia_musicnn',
+                'analysis_strategy': 'full_file',
+                'segments_analyzed': 1
+            })
             
             return features
             
         except Exception as e:
+            log_universal('ERROR', 'Audio', f'Full file analysis failed for {os.path.basename(file_path)}: {str(e)}')
             return {'error': str(e), 'available': False}
     
     def _analyze_large_file(self, file_path: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
@@ -1216,6 +1252,98 @@ class SingleAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Feature aggregation failed: {str(e)}')
             return segment_features[0] if segment_features else {}
+    
+    def _analyze_single_segment_musicnn(self, audio: np.ndarray, sample_rate: int) -> Dict[str, Any]:
+        """Analyze a single audio segment with MusiCNN."""
+        try:
+            from .musicnn_integration import get_musicnn_integration
+            
+            musicnn = get_musicnn_integration()
+            if not musicnn.is_available():
+                log_universal('WARNING', 'Audio', 'MusiCNN not available, skipping features')
+                return {'musicnn_available': False}
+            
+            # Extract features using MusiCNN integration
+            musicnn_result = musicnn.extract_features(audio, sample_rate)
+            
+            if musicnn_result.get('error'):
+                log_universal('WARNING', 'Audio', f'MusiCNN extraction error: {musicnn_result["error"]}')
+                return {'musicnn_available': False, 'error': musicnn_result['error']}
+            
+            # Process results
+            features = {
+                'musicnn_tags': musicnn_result.get('tags', {}),
+                'musicnn_embeddings': musicnn_result.get('embeddings', []),
+                'musicnn_available': True
+            }
+            
+            # Add derived predictions
+            tags = musicnn_result.get('tags', {})
+            if tags:
+                features['musicnn_genre'] = musicnn.get_genre_prediction(tags)
+                features['musicnn_mood'] = musicnn.get_mood_prediction(tags)
+                features['musicnn_top_tags'] = musicnn.get_top_tags(tags, top_k=5)
+            
+            return features
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'MusiCNN segment analysis failed: {str(e)}')
+            return {'musicnn_available': False, 'error': str(e)}
+    
+    def _aggregate_musicnn_features(self, musicnn_features: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Aggregate MusiCNN features from multiple segments."""
+        if not musicnn_features:
+            return {'musicnn_available': False}
+        
+        try:
+            import numpy as np
+            
+            # Aggregate tags by averaging probabilities
+            all_tags = {}
+            tag_counts = {}
+            
+            for features in musicnn_features:
+                tags = features.get('musicnn_tags', {})
+                for tag, prob in tags.items():
+                    if tag not in all_tags:
+                        all_tags[tag] = 0
+                        tag_counts[tag] = 0
+                    all_tags[tag] += prob
+                    tag_counts[tag] += 1
+            
+            # Average the tag probabilities
+            aggregated_tags = {}
+            for tag, total_prob in all_tags.items():
+                aggregated_tags[tag] = total_prob / tag_counts[tag]
+            
+            # Aggregate embeddings by averaging
+            embeddings_list = [f.get('musicnn_embeddings', []) for f in musicnn_features if f.get('musicnn_embeddings')]
+            aggregated_embeddings = []
+            if embeddings_list and all(len(emb) > 0 for emb in embeddings_list):
+                embeddings_array = np.array(embeddings_list)
+                aggregated_embeddings = np.mean(embeddings_array, axis=0).tolist()
+            
+            # Get derived predictions from aggregated tags
+            from .musicnn_integration import get_musicnn_integration
+            musicnn = get_musicnn_integration()
+            
+            aggregated_features = {
+                'musicnn_tags': aggregated_tags,
+                'musicnn_embeddings': aggregated_embeddings,
+                'musicnn_available': True,
+                'musicnn_segments_aggregated': len(musicnn_features)
+            }
+            
+            if aggregated_tags:
+                aggregated_features['musicnn_genre'] = musicnn.get_genre_prediction(aggregated_tags)
+                aggregated_features['musicnn_mood'] = musicnn.get_mood_prediction(aggregated_tags)
+                aggregated_features['musicnn_top_tags'] = musicnn.get_top_tags(aggregated_tags, top_k=5)
+            
+            return aggregated_features
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'MusiCNN feature aggregation failed: {str(e)}')
+            return {'musicnn_available': False, 'error': str(e)}
     
     def _load_audio_ffmpeg(self, file_path: str, max_duration: float = 30) -> Tuple[Optional[np.ndarray], int]:
         """Load audio using FFmpeg (limited duration for small files)."""
