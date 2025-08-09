@@ -31,22 +31,22 @@ services:
       - "8000:8000"  # Web API port
     volumes:
       # Music library - mount your music directory here
-      - C:\Users\Dean\Documents\test_music:/music:ro
-      
+      - /root/music/lirary:/music:ro
+
       # Playlists output directory
-      - ./playlists:/app/playlists
-      
+      - /root/music/playlista/playlists:/app/playlists
+
       # Cache directory for pipeline cache only (database is PostgreSQL)
-      - playlista_cache:/app/cache
-      
+      - /root/music/playlista/cache:/app/cache
+
       # Logs directory
-      - ./logs:/app/logs
-              
+      - /root/music/playlista/logs:/app/logs
+
       # Models directory (for feature extraction models)
-      - C:\Users\Dean\Desktop\musicnn:/app/models:ro
-      
+      - /root/music/playlista/models/musicnn:/app/models:ro
+
       # Configuration file (using local config)
-      - ./playlista.conf:/app/playlista.conf:ro
+      - /root/music/playlista/config/playlista.conf:/app/playlista.conf:ro
     environment:
       - PYTHONPATH=/app
       - CACHE_DIR=/app/cache
@@ -55,7 +55,7 @@ services:
       - FORCE_COLOR=1
       - TERM=xterm-256color
       - PYTHONUNBUFFERED=1
-      
+
       # PostgreSQL configuration
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
@@ -63,13 +63,13 @@ services:
       - POSTGRES_USER=playlista
       - POSTGRES_PASSWORD=playlista_password
       - ENVIRONMENT=production
-      
+
       # TensorFlow warning suppression
       - TF_CPP_MIN_LOG_LEVEL=3
       - TF_ENABLE_ONEDNN_OPTS=0
       - TF_GPU_ALLOCATOR=cpu
       - CUDA_VISIBLE_DEVICES=-1
-      
+
       # External API keys (set these in your .env file)
       - LASTFM_API_KEY=${LASTFM_API_KEY:-dummy_key_to_suppress_warnings}
     command: ["/app/entrypoint.sh"]
