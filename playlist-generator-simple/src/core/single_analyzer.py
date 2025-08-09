@@ -177,8 +177,10 @@ class SingleAnalyzer:
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
             
             # Perform audio analysis based on duration
+            print(f'DEBUG: Duration: {duration_seconds}s, File size: {file_size_mb:.1f}MB')
             if duration_seconds < 600:  # < 10 minutes
                 log_universal('DEBUG', 'Audio', f'Full file analysis: {os.path.basename(file_path)} ({duration_seconds/60:.1f}min)')
+                print('DEBUG: Calling _analyze_full_file')
                 audio_features = self._analyze_full_file(file_path, metadata)
             elif duration_seconds < 1800:  # 10-30 minutes
                 log_universal('DEBUG', 'Audio', f'Multi-chunk analysis: {os.path.basename(file_path)} ({duration_seconds/60:.1f}min)')
@@ -551,6 +553,7 @@ class SingleAnalyzer:
     
     def _analyze_full_file(self, file_path: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze small/medium files with full Essentia + MusiCNN analysis."""
+        print(f'DEBUG: _analyze_full_file called for {os.path.basename(file_path)}')
         try:
             # Load audio using FFmpeg (limit to 30 seconds for efficiency)
             audio, sample_rate = self._load_audio_ffmpeg(file_path, max_duration=30)
@@ -558,7 +561,9 @@ class SingleAnalyzer:
                 return {'error': 'Failed to load audio', 'available': False}
             
             # Full Essentia analysis
+            print('DEBUG: About to call _analyze_single_segment_essentia')
             essentia_features = self._analyze_single_segment_essentia(audio)
+            print('DEBUG: _analyze_single_segment_essentia returned:', len(essentia_features), 'features')
             
             # Full MusiCNN analysis
             musicnn_features = self._analyze_single_segment_musicnn(audio, sample_rate)
@@ -1134,7 +1139,10 @@ class SingleAnalyzer:
     
     def _analyze_single_segment_essentia(self, audio: np.ndarray) -> Dict[str, Any]:
         """Analyze a single audio segment with Essentia."""
+        print(f'DEBUG: Starting Essentia analysis with {len(audio)} samples')
+        log_universal('DEBUG', 'Audio', f'Starting Essentia analysis with {len(audio)} samples')
         try:
+            print(f'DEBUG: Essentia analysis method called with {len(audio)} samples')
             from .lazy_imports import get_essentia, is_essentia_available
             if not is_essentia_available() or audio is None or len(audio) == 0:
                 return {}
@@ -1205,6 +1213,7 @@ class SingleAnalyzer:
             # Comprehensive loudness and dynamic analysis
             loudness_extractor = essentia_standard.Loudness()
             features['loudness'] = float(loudness_extractor(audio))
+            log_universal('DEBUG', 'Audio', 'Basic features extracted, proceeding to comprehensive analysis')
             
             # Peak amplitude and crest factor (can be calculated now)
             try:
@@ -1226,6 +1235,7 @@ class SingleAnalyzer:
                 features['crest_factor'] = 1.0
             
             # Comprehensive spectral and timbral feature extraction
+            log_universal('DEBUG', 'Audio', 'Starting comprehensive spectral feature extraction')
             windowing = essentia_standard.Windowing(type='hann')
             spectrum = essentia_standard.Spectrum()
             
@@ -1284,16 +1294,25 @@ class SingleAnalyzer:
             energies, rms_values = [], []
             
             # Process audio in frames
+            frame_count = 0
+            log_universal('DEBUG', 'Audio', f'Starting frame processing with {len(audio)} samples')
             for frame in essentia_standard.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
+                frame_count += 1
+                if frame_count % 100 == 0:
+                    log_universal('DEBUG', 'Audio', f'Processing frame {frame_count}')
                 windowed_frame = windowing(frame)
                 spec = spectrum(windowed_frame)
                 
                 # Spectral features
-                centroids.append(spectral_centroid(spec))
-                rolloffs.append(spectral_rolloff(spec))
-                fluxes.append(spectral_flux(spec))
-                flatnesses.append(spectral_flatness(spec))
-                zcrs.append(zcr(frame))
+                try:
+                    centroids.append(spectral_centroid(spec))
+                    rolloffs.append(spectral_rolloff(spec))
+                    fluxes.append(spectral_flux(spec))
+                    flatnesses.append(spectral_flatness(spec))
+                    zcrs.append(zcr(frame))
+                except Exception as e:
+                    log_universal('DEBUG', 'Audio', f'Spectral feature extraction failed on frame {frame_count}: {e}')
+                    continue
                 
                 # Additional spectral features
                 try:
@@ -1334,6 +1353,7 @@ class SingleAnalyzer:
                 energies.append(energy(frame))
                 rms_values.append(rms(frame))
             
+            log_universal('DEBUG', 'Audio', f'Processed {frame_count} frames, extracted {len(centroids)} spectral features')
             if centroids:
                 import numpy as np
                 
@@ -1403,9 +1423,17 @@ class SingleAnalyzer:
                 features['speechiness'] = min(1.0, avg_zcr * 20)  # Higher ZCR can indicate speech
             
             return features
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Comprehensive feature extraction failed: {str(e)}')
+            import traceback
+            log_universal('DEBUG', 'Audio', f'Comprehensive extraction exception: {traceback.format_exc()}')
+            # Return basic features only
+            return features
             
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Essentia segment analysis failed: {str(e)}')
+            import traceback
+            log_universal('DEBUG', 'Audio', f'Exception details: {traceback.format_exc()}')
             return {}
     
     def _aggregate_segment_features(self, segment_features: List[Dict[str, Any]]) -> Dict[str, Any]:
