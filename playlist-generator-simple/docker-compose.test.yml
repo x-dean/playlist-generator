@@ -97,7 +97,6 @@ services:
       - "8081:80"  # Different port for testing
     volumes:
       - pgadmin_test_data:/var/lib/pgadmin
-      - ./config/servers.json:/pgadmin4/servers.json:ro
     networks:
       - playlista-test-network
     depends_on:
