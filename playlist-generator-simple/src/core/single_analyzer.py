@@ -784,8 +784,15 @@ class SingleAnalyzer:
             
             else:  # minimal_sample
                 # Just analyze first 30 seconds
+                log_universal('DEBUG', 'Audio', f'Loading 30s segment for minimal analysis: {os.path.basename(file_path)}')
                 audio_segment = self._load_audio_segment_ffmpeg(file_path, start=0, duration=30)
-                features = self._analyze_single_segment_essentia(audio_segment)
+                if audio_segment is not None:
+                    log_universal('DEBUG', 'Audio', f'Audio segment loaded, analyzing with Essentia: {os.path.basename(file_path)}')
+                    features = self._analyze_single_segment_essentia(audio_segment)
+                    log_universal('DEBUG', 'Audio', f'Essentia analysis complete: {os.path.basename(file_path)} - {len(features)} features extracted')
+                else:
+                    log_universal('WARNING', 'Audio', f'Failed to load audio segment for minimal analysis: {os.path.basename(file_path)}')
+                    features = {}
                 features['segments_analyzed'] = 1
                 features['analysis_strategy'] = 'minimal_sample'
             

@@ -34,16 +34,23 @@ class SimpleCLI:
     def __init__(self):
         self.parser = self._create_argument_parser()
         self.config = config_loader.get_config()
-        self._setup_logging()
+        self._setup_logging()  # Initial setup with config file defaults
         # Ensure PostgreSQL is configured
         verify_database_config()
     
-    def _setup_logging(self):
-        """Setup logging based on configuration."""
+    def _setup_logging(self, args=None):
+        """Setup logging based on configuration and CLI flags."""
         logging_config = config_loader.get_logging_config()
         log_level = logging_config.get('LOG_LEVEL', 'INFO')
         console_logging = logging_config.get('LOG_CONSOLE_ENABLED', True)
         file_logging = logging_config.get('LOG_FILE_ENABLED', True)
+        
+        # Override log level based on CLI flags
+        if args:
+            if args.debug:
+                log_level = 'DEBUG'
+            elif args.verbose:
+                log_level = 'INFO'
         
         setup_logging(
             log_level=log_level,
@@ -59,6 +66,7 @@ class SimpleCLI:
             epilog="""
 Examples:
   playlista analyze --music-path /music
+  playlista -vv analyze --music-path /music  # Debug mode
   playlista playlist --method kmeans --num-playlists 5
   playlista manager status
   playlista manager analyze --force
@@ -66,6 +74,10 @@ Examples:
   playlista status
             """
         )
+        
+        # Global flags
+        parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output (INFO level)')
+        parser.add_argument('-vv', '--debug', action='store_true', help='Debug output (DEBUG level)')
         
         subparsers = parser.add_subparsers(dest='command', help='Available commands')
         
@@ -117,6 +129,9 @@ Examples:
         """Run the CLI with the given arguments."""
         try:
             parsed_args = self.parser.parse_args(args)
+            
+            # Re-setup logging based on CLI flags
+            self._setup_logging(parsed_args)
             
             if not parsed_args.command:
                 self.parser.print_help()
