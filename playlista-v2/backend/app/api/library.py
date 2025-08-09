@@ -36,8 +36,8 @@ async def get_library_stats(db: AsyncSession = Depends(get_db_session)) -> Dict[
             result = await db.execute(text("SELECT COUNT(*) FROM tracks"))
             total_tracks = result.scalar() or 0
             
-            # Count analyzed tracks (with audio_features)
-            result = await db.execute(text("SELECT COUNT(*) FROM tracks WHERE audio_features IS NOT NULL"))
+            # Count analyzed tracks (status = 'analyzed')
+            result = await db.execute(text("SELECT COUNT(*) FROM tracks WHERE status = 'analyzed'"))
             analyzed_tracks = result.scalar() or 0
             
             # Count playlists

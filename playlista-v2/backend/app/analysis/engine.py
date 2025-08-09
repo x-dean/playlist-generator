@@ -51,6 +51,9 @@ class AnalysisEngine:
         logger.info("Starting analysis processing loop", worker_id=self._worker_id)
         
         try:
+            # First, discover any new music files
+            await self._discover_music_files()
+            
             while self._processing:
                 await self._process_analysis_queue()
                 await asyncio.sleep(5)  # Check queue every 5 seconds
@@ -370,6 +373,116 @@ class AnalysisEngine:
             progress_percent=progress_percent,
             current_step=current_step
         )
+    
+    async def _discover_music_files(self) -> None:
+        """Discover new music files in the library directory"""
+        import mutagen
+        
+        music_dir = Path(settings.music_library_path)
+        if not music_dir.exists():
+            logger.warning(f"Music library directory does not exist: {music_dir}")
+            return
+        
+        logger.info(f"Discovering music files in: {music_dir}")
+        
+        # Supported audio file extensions
+        audio_extensions = {'.mp3', '.flac', '.wav', '.ogg', '.m4a', '.aac', '.wma'}
+        
+        # Get database session using the async generator pattern
+        try:
+            async for db in get_db_session():
+                discovered_count = 0
+                
+                # Recursively scan for audio files
+                for file_path in music_dir.rglob('*'):
+                    if file_path.suffix.lower() in audio_extensions:
+                        try:
+                            # Check if file already exists in database
+                            existing_query = select(Track).where(Track.file_path == str(file_path))
+                            result = await db.execute(existing_query)
+                            existing_track = result.scalar_one_or_none()
+                            
+                            if existing_track:
+                                continue  # Skip files already in database
+                            
+                            # Calculate file hash for deduplication
+                            file_hash = hashlib.md5(str(file_path).encode()).hexdigest()
+                            
+                            # Extract basic metadata with mutagen
+                            metadata = {}
+                            try:
+                                audio_file = mutagen.File(str(file_path))
+                                if audio_file:
+                                    metadata = {
+                                        'title': audio_file.get('TIT2', [str(file_path.stem)])[0] if 'TIT2' in audio_file else str(file_path.stem),
+                                        'artist': audio_file.get('TPE1', ['Unknown'])[0] if 'TPE1' in audio_file else 'Unknown',
+                                        'album': audio_file.get('TALB', ['Unknown'])[0] if 'TALB' in audio_file else 'Unknown',
+                                        'duration': getattr(audio_file, 'info', {}).get('length', 0),
+                                        'bitrate': getattr(audio_file, 'info', {}).get('bitrate', 0),
+                                        'sample_rate': getattr(audio_file, 'info', {}).get('sample_rate', 0),
+                                    }
+                            except Exception as e:
+                                logger.warning(f"Could not extract metadata from {file_path}: {e}")
+                                metadata = {
+                                    'title': str(file_path.stem),
+                                    'artist': 'Unknown',
+                                    'album': 'Unknown',
+                                    'duration': 0,
+                                    'bitrate': 0,
+                                    'sample_rate': 0,
+                                }
+                            
+                            # Create new track record
+                            new_track = Track(
+                                file_path=str(file_path),
+                                file_hash=file_hash,
+                                filename=file_path.name,
+                                file_size_bytes=file_path.stat().st_size,
+                                title=metadata.get('title'),
+                                artist=metadata.get('artist'),
+                                album=metadata.get('album'),
+                                duration=metadata.get('duration'),
+                                bitrate=metadata.get('bitrate'),
+                                sample_rate=metadata.get('sample_rate'),
+                                format=file_path.suffix.lower()[1:],  # Remove the dot
+                                status="discovered"
+                            )
+                            
+                            db.add(new_track)
+                            await db.flush()  # Get the track ID
+                            
+                            # Create analysis job for this track
+                            analysis_job = AnalysisJob(
+                                track_id=new_track.id,
+                                status="pending",
+                                priority=1
+                            )
+                            
+                            db.add(analysis_job)
+                            discovered_count += 1
+                            
+                            logger.debug(f"Discovered new track: {file_path.name}")
+                            
+                        except Exception as e:
+                            logger.error(f"Error processing file {file_path}: {e}")
+                            continue
+                
+                await db.commit()
+                
+                if discovered_count > 0:
+                    logger.info(f"Discovered {discovered_count} new music files")
+                    await self.websocket_manager.send_discovery_update(
+                        discovered_count, f"Discovered {discovered_count} new tracks"
+                    )
+                else:
+                    logger.info("No new music files discovered")
+                
+                # Break after processing with one database session
+                break
+        
+        except Exception as e:
+            logger.error(f"Error during file discovery: {e}")
+            raise
 
 
 # Global analysis engine instance

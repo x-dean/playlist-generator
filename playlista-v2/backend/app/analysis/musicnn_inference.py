@@ -298,3 +298,4 @@ class MusiCNNInference:
 
 # Global instance
 musicnn_inference = MusiCNNInference()
+

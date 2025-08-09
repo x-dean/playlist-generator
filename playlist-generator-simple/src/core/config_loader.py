@@ -226,75 +226,52 @@ class ConfigLoader:
     
     def _get_default_config(self) -> Dict[str, Any]:
         """
-        Get default configuration values.
+        Get simplified default configuration for SingleAnalyzer.
         
         Returns:
-            Dictionary of default configuration values
+            Dictionary of essential configuration values
         """
         return {
-            # File paths
+            # Core paths
             'MUSIC_PATH': '/music',
             'DB_PATH': '/app/cache/playlista.db',
             'LOG_FILE': '/app/logs/playlista.log',
-            'FAILED_FILES_DIR': '/app/cache/failed_dir',
+            'CACHE_DIR': '/app/cache',
             
             # Logging
             'LOG_LEVEL': 'INFO',
-            'LOG_FORMAT': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            'LOG_COLORED': True,
-            'LOG_BUFFERED': True,
+            'LOG_CONSOLE_ENABLED': True,
+            'LOG_FILE_ENABLED': True,
+            'LOG_FILE_SIZE_MB': 50,
+            'LOG_MAX_FILES': 5,
             
-            # Analysis settings
+            # SingleAnalyzer settings
+            'ANALYSIS_WORKERS': 'auto',
             'ANALYSIS_TIMEOUT': 600,
-            'WORKERS': 4,
-            'BATCH_SIZE': 100,
-            'SAMPLE_RATE': 44100,
-            'HOP_SIZE': 512,
-            'FRAME_SIZE': 2048,
+            'OPTIMIZED_PIPELINE_MIN_SIZE_MB': 5,
+            'OPTIMIZED_PIPELINE_MAX_SIZE_MB': 200,
             
-            # Feature extraction
-            'EXTRACT_RHYTHM': True,
-            'EXTRACT_SPECTRAL': True,
-            'EXTRACT_LOUDNESS': True,
-            'EXTRACT_KEY': True,
-            'EXTRACT_MFCC': True,
-            'EXTRACT_MUSICNN': True,
-            'MUSICNN_MODEL_PATH': '/app/models/msd-musicnn-1.pb',
-            'MUSICNN_JSON_PATH': '/app/models/msd-musicnn-1.json',
-            'MUSICNN_TIMEOUT_SECONDS': 60,
-            'EXTRACT_CHROMA': True,
-            'FORCE_REANALYSIS': False,
+            # OptimizedPipeline settings
+            'OPTIMIZED_SAMPLE_RATE': 22050,
+            'SEGMENT_LENGTH': 30,
+            'MAX_SEGMENTS': 4,
+            'PIPELINE_RESOURCE_MODE': 'balanced',
+            
+            # Database
+            'DB_BATCH_SIZE': 100,
+            'DB_MAX_CONNECTIONS': 5,
             
             # Caching
             'CACHE_ENABLED': True,
-            'CACHE_EXPIRY_HOURS': 168,  # 1 week
             
-            # External APIs
-            'MUSICBRAINZ_ENABLED': True,
-            'LASTFM_ENABLED': True,
+            # External APIs (optional)
+            'MUSICBRAINZ_ENABLED': False,
+            'LASTFM_ENABLED': False,
             'LASTFM_API_KEY': '',
             
-            # Database settings
-            'DB_CACHE_DEFAULT_EXPIRY_HOURS': 24,
-            'DB_CACHE_CLEANUP_FREQUENCY_HOURS': 24,
-            'DB_CACHE_MAX_SIZE_MB': 100,
-            'DB_CLEANUP_RETENTION_DAYS': 30,
-            'DB_FAILED_ANALYSIS_RETENTION_DAYS': 7,
-            'DB_STATISTICS_RETENTION_DAYS': 90,
-            'DB_CONNECTION_TIMEOUT_SECONDS': 30,
-            'DB_MAX_RETRY_ATTEMPTS': 3,
-            'DB_BATCH_SIZE': 100,
-            'DB_STATISTICS_COLLECTION_FREQUENCY_HOURS': 24,
-            'DB_AUTO_CLEANUP_ENABLED': True,
-            'DB_AUTO_CLEANUP_FREQUENCY_HOURS': 168,  # 1 week
-            'DB_BACKUP_ENABLED': True,
-            'DB_BACKUP_FREQUENCY_HOURS': 168,  # 1 week
-            'DB_BACKUP_RETENTION_DAYS': 30,
-            'DB_PERFORMANCE_MONITORING_ENABLED': True,
-            'DB_QUERY_TIMEOUT_SECONDS': 60,
-            'DB_MAX_CONNECTIONS': 10,
-            'DB_WAL_MODE_ENABLED': True,
-            'DB_SYNCHRONOUS_MODE': 'NORMAL'
+            # MusiCNN (if available)
+            'MUSICNN_MODEL_PATH': '/app/models/msd-musicnn-1.pb',
+            'MUSICNN_JSON_PATH': '/app/models/msd-musicnn-1.json',
         }
     
     def get_config(self, force_reload: bool = False) -> Dict[str, Any]:

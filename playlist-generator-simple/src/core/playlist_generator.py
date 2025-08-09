@@ -119,9 +119,8 @@ class PlaylistGenerator:
         # Initialize generation methods
         self._init_generation_methods()
         
-        log_universal('INFO', 'Playlist', f"Initializing PlaylistGenerator")
-        log_universal('DEBUG', 'Playlist', f"Playlist configuration: {config}")
-        log_universal('INFO', 'Playlist', f"PlaylistGenerator initialized successfully")
+        log_universal('DEBUG', 'System', f"Playlist generator initialized")
+        log_universal('DEBUG', 'Playlist', f"Configuration: {config}")
     
     def _init_generation_methods(self):
         """Initialize all playlist generation methods."""

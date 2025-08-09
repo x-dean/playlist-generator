@@ -203,7 +203,7 @@ class AnalysisWorker:
         """Run the appropriate analysis based on task strategy."""
         try:
             # Import analyzers
-            from .audio_analyzer import AudioAnalyzer
+            from .single_analyzer import get_single_analyzer
             from .config_loader import config_loader
             
             # Update progress
@@ -215,7 +215,7 @@ class AnalysisWorker:
             config = config_loader.get_audio_analysis_config()
             
             # Create analyzer
-            analyzer = AudioAnalyzer(config=config)
+            analyzer = get_single_analyzer(config)
             
             # Update progress
             self.orchestrator.progress_monitor.update_task_progress(

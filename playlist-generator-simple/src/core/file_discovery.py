@@ -67,18 +67,9 @@ class FileDiscovery:
         self.current_files = set()
         
         # Database manager is already initialized globally
-        log_universal('INFO', 'FileDiscovery', 'Initialized with config:')
-        log_universal('INFO', 'FileDiscovery', f'  Music directory: {self.music_dir} (fixed Docker path)')
-        log_universal('INFO', 'FileDiscovery', f'  Failed directory: {self.failed_dir} (fixed Docker path)')
-        log_universal('INFO', 'FileDiscovery', f'  Database path: {self.db_path} (fixed Docker path)')
-        log_universal('INFO', 'FileDiscovery', f'  Min file size: {self.min_file_size_bytes} bytes')
-        if self.max_file_size_bytes:
-            log_universal('INFO', 'FileDiscovery', f'  Max file size: {self.max_file_size_bytes} bytes')
-        log_universal('INFO', 'FileDiscovery', f'  Valid extensions: {", ".join(self.valid_extensions)}')
-        log_universal('INFO', 'FileDiscovery', f'  Hash algorithm: {self.hash_algorithm}')
-        log_universal('INFO', 'FileDiscovery', f'  Max retry count: {self.max_retry_count}')
-        log_universal('INFO', 'FileDiscovery', f'  Recursive scan: {self.enable_recursive_scan}')
-        log_universal('INFO', 'FileDiscovery', f'  Exclude directories: {", ".join(self.exclude_directories)} (fixed)')
+        log_universal('DEBUG', 'System', f'File discovery initialized - music: {self.music_dir}, failed: {self.failed_dir}')
+        log_universal('DEBUG', 'FileDiscovery', f'Config: min_size={self.min_file_size_bytes}b, extensions={len(self.valid_extensions)}, hash={self.hash_algorithm}')
+
 
     def override_config(self, **kwargs):
         """

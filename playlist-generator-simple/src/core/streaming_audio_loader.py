@@ -606,7 +606,7 @@ class StreamingAudioLoader:
                             # Load only this small chunk using librosa's offset and duration
                             # Use librosa API compatible with older versions
                             # Use multi-segment loading for consistency
-                            from .audio_analyzer import extract_multiple_segments
+                            # Use OptimizedPipeline directly for segment extraction
                             sub_chunk, sr = extract_multiple_segments(
                                 audio_path,
                                 self.sample_rate,
@@ -906,7 +906,7 @@ class StreamingAudioLoader:
                     log_universal('INFO', 'Streaming', "Trying Librosa audio loading...")
                     # Use librosa API compatible with older versions
                     # Use multi-segment loading for consistency
-                    from .audio_analyzer import extract_multiple_segments
+                    # Use OptimizedPipeline directly for segment extraction
                     audio, sample_rate = extract_multiple_segments(
                         audio_path,
                         self.sample_rate,

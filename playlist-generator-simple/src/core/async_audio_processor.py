@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import multiprocessing as mp
 
 from .logging_setup import get_logger, log_universal
-from .audio_analyzer import AudioAnalyzer
+from .single_analyzer import get_single_analyzer
 from .resource_manager import ResourceManager
 
 logger = get_logger('playlista.async_audio')
@@ -182,7 +182,7 @@ class AsyncAudioProcessor:
         """
         try:
             # Create analyzer instance (thread-safe)
-            analyzer = AudioAnalyzer()
+            analyzer = get_single_analyzer()
             
             # Perform analysis
             result = analyzer.analyze_file(

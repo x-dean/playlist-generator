@@ -10,12 +10,12 @@ export function Playlists() {
   
   const { data: playlists, refetch } = useQuery({
     queryKey: ['playlists'],
-    queryFn: () => api.get('/playlists/').then(res => res.data)
+    queryFn: () => api.get('/api/playlists/').then(res => res.data)
   });
 
   const handleGeneratePlaylist = async (method: string) => {
     try {
-      await api.post(`/playlists/generate?method=${method}&size=25`);
+      await api.post(`/api/playlists/generate?method=${method}&size=25`);
       refetch();
       close();
     } catch (error) {

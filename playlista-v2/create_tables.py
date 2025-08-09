@@ -52,3 +52,4 @@ async def create_tables():
 if __name__ == "__main__":
     success = asyncio.run(create_tables())
     exit(0 if success else 1)
+

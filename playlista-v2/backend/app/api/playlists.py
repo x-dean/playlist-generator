@@ -393,7 +393,7 @@ async def _create_playlist(
             transition_score=0.8,  # Placeholder
             harmonic_compatibility=0.7  # Placeholder
         )
-        db.add(playlist_track)
+        db.add(playlist_item)
     
     await db.commit()
     return playlist

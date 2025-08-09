@@ -10,9 +10,9 @@ from pathlib import Path
 import sys
 sys.path.append('/app')
 
-from src.core.analysis_manager import AnalysisManager
+from src.core.analysis_manager import get_analysis_manager
+from src.core.single_analyzer import analyze_files
 from src.core.resource_manager import ResourceManager
-from src.core.audio_analyzer import AudioAnalyzer
 from src.core.database import DatabaseManager, get_db_manager
 from src.core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
 from src.core.comprehensive_manager import get_comprehensive_manager
@@ -33,9 +33,9 @@ class AnalysisCommands:
             no_cache = args.no_cache
             workers = args.workers
             
-            logger.info(f"Starting analysis of {music_path}")
+            log_universal('INFO', 'CLI', f"Starting analysis of {music_path}")
             
-            analysis_manager = AnalysisManager()
+            analysis_manager = get_analysis_manager()
             
             # Select files for analysis
             files = analysis_manager.select_files_for_analysis(
@@ -45,10 +45,10 @@ class AnalysisCommands:
             )
             
             if not files:
-                logger.info("No files found for analysis")
+                log_universal('INFO', 'CLI', "No files found for analysis")
                 return 0
             
-            logger.info(f"Found {len(files)} files to analyze")
+            log_universal('INFO', 'CLI', f"Found {len(files)} files to analyze")
             
             # Analyze the files
             result = analysis_manager.analyze_files(
@@ -58,16 +58,17 @@ class AnalysisCommands:
             )
             
             if result.get('success', False):
-                logger.info("Analysis completed successfully")
-                logger.info(f"Analyzed: {result.get('analyzed_count', 0)} files")
-                logger.info(f"Failed: {result.get('failed_count', 0)} files")
+                log_universal('INFO', 'CLI', "Analysis completed successfully")
+                log_universal('INFO', 'CLI', f"Processed: {result.get('analyzed_count', 0)} files")
+                if result.get('failed_count', 0) > 0:
+                    log_universal('WARNING', 'CLI', f"Failed: {result.get('failed_count', 0)} files")
                 return 0
             else:
-                logger.error("Analysis failed")
+                log_universal('ERROR', 'CLI', "Analysis failed")
                 return 1
                 
         except Exception as e:
-            logger.error(f"Analysis error: {e}")
+            log_universal('ERROR', 'CLI', f"Analysis error: {str(e)}")
             return 1
     
     @staticmethod
@@ -84,7 +85,7 @@ class AnalysisCommands:
             
             return 0
         except Exception as e:
-            logger.error(f"Stats error: {e}")
+            log_universal('ERROR', 'CLI', f"Stats error: {str(e)}")
             return 1
     
     @staticmethod
@@ -95,14 +96,14 @@ class AnalysisCommands:
             result = analysis_manager.retry_failed_analysis()
             
             if result:
-                logger.info("Retry completed successfully")
+                log_universal('INFO', 'CLI', "Retry completed successfully")
                 return 0
             else:
-                logger.error("Retry failed")
+                log_universal('ERROR', 'CLI', "Retry failed")
                 return 1
                 
         except Exception as e:
-            logger.error(f"Retry error: {e}")
+            log_universal('ERROR', 'CLI', f"Retry error: {str(e)}")
             return 1
 
 
