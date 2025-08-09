@@ -487,7 +487,7 @@ class SingleAnalyzer:
                 'content_subtype': content_classification['subtype'],
                 'content_confidence': content_classification['confidence'],
                 'content_features': content_classification['features'],
-                'estimated_tracks': content_classification.get('estimated_tracks'),
+                'estimated_track_count': content_classification.get('estimated_tracks'),
                 'content_description': content_classification['description'],
                 
                 # Add Essentia features
@@ -1102,6 +1102,13 @@ class SingleAnalyzer:
             file_size_bytes = os.path.getsize(file_path)
             file_hash = hashlib.md5(f"{filename}:{file_size_bytes}".encode()).hexdigest()
             
+            # Flatten audio_features data for database storage
+            flattened_data = result.copy()
+            audio_features = result.get('audio_features', {})
+            
+            # Merge audio_features into the top level for database compatibility
+            flattened_data.update(audio_features)
+            
             # Save to database with correct parameters
             self.db_manager.save_track_analysis(
                 file_path=file_path,
@@ -1109,7 +1116,7 @@ class SingleAnalyzer:
                 file_size_bytes=file_size_bytes,
                 file_hash=file_hash,
                 metadata=result.get('metadata', {}),
-                analysis_data=result,
+                analysis_data=flattened_data,
                 discovery_source='single_analyzer'
             )
         except Exception as e:
