@@ -723,12 +723,11 @@ class SingleAnalyzer:
                 features['analysis_strategy'] = 'beginning_sample'
                 
             elif analysis_strategy == 'strategic_samples':
-                # Analyze 3 strategic segments: beginning, middle, end
+                # Analyze 2 strategic segments: beginning and early portion (avoid seeking far)
                 segment_duration = 30  # 30 seconds per segment
                 segments = [
                     (0, segment_duration),  # Beginning
-                    (duration * 0.5 - segment_duration/2, segment_duration),  # Middle
-                    (max(0, duration - segment_duration), segment_duration)  # End
+                    (min(300, duration * 0.25), segment_duration),  # Early portion (max 5 min in)
                 ]
                 
                 segment_features = []
@@ -780,20 +779,29 @@ class SingleAnalyzer:
     
     def _determine_large_file_strategy(self, file_size_mb: float, duration: float) -> str:
         """Determine analysis strategy based on file characteristics."""
-        if file_size_mb > 1000 or duration > 14400:  # >1GB or >4 hours
-            return 'minimal_sample'
-        elif file_size_mb > 500 or duration > 7200:  # >500MB or >2 hours  
-            return 'strategic_samples'
-        elif file_size_mb > 300 or duration > 3600:  # >300MB or >1 hour
-            return 'extended_samples'
+        if file_size_mb > 800 or duration > 10800:  # >800MB or >3 hours
+            return 'minimal_sample'  # Just beginning
+        elif file_size_mb > 400 or duration > 5400:  # >400MB or >1.5 hours  
+            return 'beginning_sample'  # Just beginning, longer sample
+        elif file_size_mb > 200 or duration > 3600:  # >200MB or >1 hour
+            return 'strategic_samples'  # Beginning + middle 
         else:
-            return 'beginning_sample'
+            return 'extended_samples'  # Multiple samples
     
     def _load_audio_segment_ffmpeg(self, file_path: str, start: float, duration: float) -> Optional[np.ndarray]:
-        """Load a specific segment of audio using FFmpeg."""
+        """Load a specific segment of audio using FFmpeg with optimizations for large files."""
         try:
             import numpy as np
             import subprocess
+            
+            # Adaptive timeout based on file size
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            if file_size_mb > 1000:
+                timeout = 120  # 2 minutes for very large files
+            elif file_size_mb > 500:
+                timeout = 90   # 1.5 minutes for large files
+            else:
+                timeout = 60   # 1 minute for medium files
             
             cmd = [
                 'ffmpeg', '-i', file_path,
@@ -803,16 +811,20 @@ class SingleAnalyzer:
                 '-ar', '22050',  # Sample rate
                 '-f', 'f32le',  # Output format
                 '-v', 'quiet',  # Suppress logs
+                '-threads', '1',  # Single thread for predictable performance
                 '-'
             ]
             
-            result = subprocess.run(cmd, capture_output=True, timeout=60)
+            result = subprocess.run(cmd, capture_output=True, timeout=timeout)
             if result.returncode == 0 and len(result.stdout) > 0:
                 audio = np.frombuffer(result.stdout, dtype=np.float32)
                 return audio if len(audio) > 0 else None
             
             return None
             
+        except subprocess.TimeoutExpired:
+            log_universal('WARNING', 'Audio', f'FFmpeg timeout after {timeout}s for segment at {start}s - skipping')
+            return None
         except Exception as e:
             log_universal('WARNING', 'Audio', f'Failed to load audio segment: {str(e)}')
             return None
