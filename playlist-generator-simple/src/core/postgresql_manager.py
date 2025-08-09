@@ -6,6 +6,7 @@ Replaces SQLite with PostgreSQL for better performance and concurrency.
 """
 
 import json
+import os
 import psycopg2
 import psycopg2.extras
 from psycopg2.pool import ThreadedConnectionPool
