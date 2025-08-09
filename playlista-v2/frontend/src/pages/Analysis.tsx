@@ -22,7 +22,9 @@ import {
   IconChartLine,
   IconBrain,
   IconInfoCircle,
-  IconPlayerPlay
+  IconPlayerPlay,
+  IconCheck,
+  IconAlertCircle
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { apiClient } from '../api/client';
@@ -42,10 +44,10 @@ export const Analysis = () => {
   const queryClient = useQueryClient();
 
   // Fetch analysis status
-  const { data: analysisJobs, isLoading } = useQuery<AnalysisJob[]>({
-    queryKey: ['analysis-jobs'],
-    queryFn: () => apiClient.get('/api/analysis/jobs').then(res => res.data),
-    refetchInterval: isAnalyzing ? 2000 : false, // Poll while analyzing
+  const { data: analysisStatus, isLoading } = useQuery({
+    queryKey: ['analysis-status'],
+    queryFn: () => apiClient.get('/api/analysis/status').then(res => res.data),
+    refetchInterval: 3000, // Poll every 3 seconds
   });
 
   // Start analysis mutation
@@ -59,7 +61,7 @@ export const Analysis = () => {
         message: 'Music analysis has been started successfully',
         color: 'green',
       });
-      queryClient.invalidateQueries({ queryKey: ['analysis-jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['analysis-status'] });
     },
     onError: (error: any) => {
       notifications.show({
@@ -70,8 +72,8 @@ export const Analysis = () => {
     },
   });
 
-  const activeJob = analysisJobs?.find(job => job.status === 'running');
-  const lastCompletedJob = analysisJobs?.find(job => job.status === 'completed');
+  const isEngineRunning = analysisStatus?.engine_status === 'running';
+  const hasAnalyzedTracks = (analysisStatus?.track_status_breakdown?.analyzed || 0) > 0;
 
   const handleStartAnalysis = (quick = false) => {
     startAnalysisMutation.mutate({ 
@@ -81,10 +83,10 @@ export const Analysis = () => {
   };
 
   React.useEffect(() => {
-    if (activeJob?.status !== 'running' && isAnalyzing) {
+    if (!isEngineRunning && isAnalyzing) {
       setIsAnalyzing(false);
     }
-  }, [activeJob, isAnalyzing]);
+  }, [isEngineRunning, isAnalyzing]);
 
   return (
     <Container size="lg" py="xl">
@@ -133,62 +135,107 @@ export const Analysis = () => {
           </Group>
         </Card>
 
-        {/* Active Analysis */}
-        {activeJob && (
-          <Card withBorder padding="lg">
-            <Group justify="space-between" mb="md">
-              <Title order={3}>Analysis in Progress</Title>
-              <Badge color="blue" variant="filled">Running</Badge>
-            </Group>
-            
-            <Stack gap="md">
-              <Text>
-                Processing {activeJob.tracks_processed} of {activeJob.total_tracks} tracks
-              </Text>
-              <Progress 
-                value={(activeJob.tracks_processed / activeJob.total_tracks) * 100} 
-                size="lg" 
-                animated
-              />
-              <Text size="sm" c="dimmed">
-                Started: {new Date(activeJob.created_at).toLocaleString()}
-              </Text>
-            </Stack>
-          </Card>
-        )}
-
-        {/* Analysis Results */}
-        {lastCompletedJob && (
-          <Card withBorder padding="lg">
-            <Group justify="space-between" mb="md">
-              <Title order={3}>Last Analysis Results</Title>
-              <Badge color="green" variant="filled">Completed</Badge>
-            </Group>
-            
+        {/* Analysis Status */}
+        <Card withBorder padding="lg">
+          <Group justify="space-between" mb="md">
+            <Title order={3}>Analysis Status</Title>
+            <Badge 
+              color={isEngineRunning ? "blue" : "gray"} 
+              variant="filled"
+            >
+              {isEngineRunning ? "Running" : "Stopped"}
+            </Badge>
+          </Group>
+          
+          <Stack gap="md">
+            <Text>
+              Analyzed: {analysisStatus?.track_status_breakdown?.analyzed || 0} of {analysisStatus?.total_tracks || 0} tracks
+            </Text>
+            <Progress 
+              value={analysisStatus?.analysis_progress_percent || 0} 
+              size="lg" 
+              animated={isEngineRunning}
+            />
             <Grid>
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <Group gap="sm" mb="xs">
-                  <IconMusic size={20} color="#4DABF7" />
-                  <Text fw={500}>Tracks Processed</Text>
-                </Group>
-                <Text size="xl" fw={700} c="blue">
-                  {lastCompletedJob.tracks_processed}
+              <Grid.Col span={6}>
+                <Text size="sm" c="dimmed">
+                  Progress: {(analysisStatus?.analysis_progress_percent || 0).toFixed(1)}%
                 </Text>
               </Grid.Col>
-              
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <Group gap="sm" mb="xs">
-                  <IconClock size={20} color="#51CF66" />
-                  <Text fw={500}>Completion Time</Text>
-                </Group>
-                <Text size="sm">
-                  {lastCompletedJob.completed_at ? 
-                    new Date(lastCompletedJob.completed_at).toLocaleString() : 
-                    'Unknown'
-                  }
+              <Grid.Col span={6}>
+                <Text size="sm" c="dimmed">
+                  Engine: {analysisStatus?.engine_status || 'Unknown'}
                 </Text>
               </Grid.Col>
             </Grid>
+          </Stack>
+        </Card>
+
+        {/* Job Statistics */}
+        {analysisStatus && (
+          <Card withBorder padding="lg">
+            <Group justify="space-between" mb="md">
+              <Title order={3}>Job Statistics</Title>
+              <Badge 
+                color={hasAnalyzedTracks ? "green" : "gray"} 
+                variant="filled"
+              >
+                {hasAnalyzedTracks ? "Active" : "No Data"}
+              </Badge>
+            </Group>
+            
+            <Grid>
+              <Grid.Col span={{ base: 12, md: 3 }}>
+                <Group gap="sm" mb="xs">
+                  <IconCheck size={20} color="#51CF66" />
+                  <Text fw={500}>Completed</Text>
+                </Group>
+                <Text size="xl" fw={700} c="green">
+                  {analysisStatus.job_status_breakdown?.completed || 0}
+                </Text>
+              </Grid.Col>
+              
+              <Grid.Col span={{ base: 12, md: 3 }}>
+                <Group gap="sm" mb="xs">
+                  <IconClock size={20} color="#4DABF7" />
+                  <Text fw={500}>Processing</Text>
+                </Group>
+                <Text size="xl" fw={700} c="blue">
+                  {analysisStatus.job_status_breakdown?.processing || 0}
+                </Text>
+              </Grid.Col>
+              
+              <Grid.Col span={{ base: 12, md: 3 }}>
+                <Group gap="sm" mb="xs">
+                  <IconAlertCircle size={20} color="#FF6B6B" />
+                  <Text fw={500}>Failed</Text>
+                </Group>
+                <Text size="xl" fw={700} c="red">
+                  {analysisStatus.job_status_breakdown?.failed || 0}
+                </Text>
+              </Grid.Col>
+              
+              <Grid.Col span={{ base: 12, md: 3 }}>
+                <Group gap="sm" mb="xs">
+                  <IconMusic size={20} color="#868E96" />
+                  <Text fw={500}>Pending</Text>
+                </Group>
+                <Text size="xl" fw={700} c="gray">
+                  {analysisStatus.job_status_breakdown?.pending || 0}
+                </Text>
+              </Grid.Col>
+            </Grid>
+            
+            {analysisStatus.processing_statistics && (
+              <Stack gap="xs" mt="md" pt="md" style={{ borderTop: '1px solid #e9ecef' }}>
+                <Text size="sm" c="dimmed">
+                  Average processing time: {analysisStatus.processing_statistics.average_processing_time_seconds?.toFixed(1) || 0}s
+                </Text>
+                <Text size="sm" c="dimmed">
+                  Recent jobs processed: {analysisStatus.processing_statistics.recent_jobs_count || 0}
+                </Text>
+              </Stack>
+            )}
           </Card>
         )}
 

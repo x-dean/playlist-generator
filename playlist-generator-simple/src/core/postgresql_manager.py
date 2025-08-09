@@ -1,0 +1,529 @@
+"""
+PostgreSQL Database Manager for Playlist Generator.
+
+Modern database manager optimized for web UI and playlist generation.
+Replaces SQLite with PostgreSQL for better performance and concurrency.
+"""
+
+import json
+import psycopg2
+import psycopg2.extras
+from psycopg2.pool import ThreadedConnectionPool
+from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime
+from contextlib import contextmanager
+
+from .logging_setup import get_logger, log_universal
+from .config_loader import config_loader
+
+logger = get_logger('playlista.postgresql')
+
+
+class PostgreSQLManager:
+    """
+    PostgreSQL database manager for playlist generator.
+    
+    Features:
+    - Connection pooling for web applications
+    - Optimized for music analysis data storage
+    - Fast playlist generation queries
+    - Vector similarity for recommendations
+    - Proper transaction handling
+    """
+    
+    def __init__(self, config: Dict[str, Any] = None):
+        """Initialize PostgreSQL manager."""
+        self.config = config or config_loader.get_config()
+        self.pool = None
+        self._initialize_connection_pool()
+        
+        log_universal('INFO', 'Database', 'PostgreSQL manager initialized')
+    
+    def _initialize_connection_pool(self):
+        """Initialize PostgreSQL connection pool."""
+        try:
+            # Database connection parameters
+            db_config = {
+                'host': self.config.get('POSTGRES_HOST', 'localhost'),
+                'port': self.config.get('POSTGRES_PORT', 5432),
+                'database': self.config.get('POSTGRES_DB', 'playlista'),
+                'user': self.config.get('POSTGRES_USER', 'playlista'),
+                'password': self.config.get('POSTGRES_PASSWORD', ''),
+            }
+            
+            # Connection pool settings
+            min_conn = self.config.get('POSTGRES_MIN_CONNECTIONS', 2)
+            max_conn = self.config.get('POSTGRES_MAX_CONNECTIONS', 10)
+            
+            self.pool = ThreadedConnectionPool(
+                min_conn, max_conn,
+                **db_config
+            )
+            
+            # Test connection and initialize schema if needed
+            self._initialize_database()
+            
+            log_universal('INFO', 'Database', f'Connection pool created: {min_conn}-{max_conn} connections')
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to initialize PostgreSQL: {str(e)}')
+            raise
+    
+    @contextmanager
+    def get_connection(self):
+        """Get connection from pool with automatic cleanup."""
+        conn = None
+        try:
+            conn = self.pool.getconn()
+            yield conn
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            log_universal('ERROR', 'Database', f'Database operation failed: {str(e)}')
+            raise
+        finally:
+            if conn:
+                self.pool.putconn(conn)
+    
+    def _initialize_database(self):
+        """Initialize database schema if needed."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if tables exist
+                cursor.execute("""
+                    SELECT table_name FROM information_schema.tables 
+                    WHERE table_schema = 'public' AND table_name = 'tracks';
+                """)
+                
+                if not cursor.fetchone():
+                    log_universal('INFO', 'Database', 'Initializing database schema...')
+                    self._create_schema(conn)
+                else:
+                    log_universal('DEBUG', 'Database', 'Schema already exists')
+                    
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Schema initialization failed: {str(e)}')
+            raise
+    
+    def _create_schema(self, conn):
+        """Create database schema from SQL file."""
+        import os
+        schema_file = os.path.join(
+            os.path.dirname(__file__), '..', '..', 'database', 'postgresql_schema.sql'
+        )
+        
+        try:
+            with open(schema_file, 'r') as f:
+                schema_sql = f.read()
+            
+            cursor = conn.cursor()
+            cursor.execute(schema_sql)
+            conn.commit()
+            
+            log_universal('INFO', 'Database', 'Schema created successfully')
+            
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Schema creation failed: {str(e)}')
+            raise
+    
+    # =========================================================================
+    # TRACK MANAGEMENT
+    # =========================================================================
+    
+    def save_track_analysis(self, file_path: str, filename: str, file_size_bytes: int, 
+                           file_hash: str, metadata: Dict[str, Any], 
+                           analysis_data: Dict[str, Any], **kwargs) -> bool:
+        """
+        Save complete track analysis to database.
+        
+        Args:
+            file_path: Full path to audio file
+            filename: Just the filename
+            file_size_bytes: File size in bytes
+            file_hash: Hash of file content
+            metadata: Basic metadata (mutagen)
+            analysis_data: Complete analysis results
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+                
+                # Extract features for main tracks table
+                tempo = self._extract_tempo(analysis_data)
+                key = analysis_data.get('key')
+                mode = analysis_data.get('scale', analysis_data.get('mode'))
+                key_confidence = analysis_data.get('key_confidence', analysis_data.get('key_strength'))
+                
+                # Derive playlist features from MusiCNN tags
+                musicnn_tags = analysis_data.get('musicnn_tags', {})
+                features = self._derive_playlist_features(musicnn_tags)
+                
+                # Insert/update track
+                cursor.execute("""
+                    INSERT INTO tracks (
+                        file_path, file_hash, filename, file_size_bytes,
+                        title, artist, album, genre, year, duration_seconds,
+                        bitrate, sample_rate, channels,
+                        tempo, key, mode, key_confidence,
+                        energy, danceability, valence, acousticness,
+                        instrumentalness, liveness, speechiness, loudness,
+                        analysis_completed, analysis_date, analysis_method
+                    ) VALUES (
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s
+                    )
+                    ON CONFLICT (file_path) DO UPDATE SET
+                        file_hash = EXCLUDED.file_hash,
+                        filename = EXCLUDED.filename,
+                        title = EXCLUDED.title,
+                        artist = EXCLUDED.artist,
+                        album = EXCLUDED.album,
+                        tempo = EXCLUDED.tempo,
+                        key = EXCLUDED.key,
+                        mode = EXCLUDED.mode,
+                        energy = EXCLUDED.energy,
+                        danceability = EXCLUDED.danceability,
+                        valence = EXCLUDED.valence,
+                        analysis_completed = EXCLUDED.analysis_completed,
+                        analysis_date = EXCLUDED.analysis_date,
+                        updated_at = NOW()
+                    RETURNING id;
+                """, (
+                    # Basic info
+                    file_path, file_hash, filename, file_size_bytes,
+                    # Metadata
+                    metadata.get('title'), metadata.get('artist'), metadata.get('album'),
+                    json.dumps(metadata.get('genre', [])) if metadata.get('genre') else None,
+                    metadata.get('date'), metadata.get('duration_seconds'),
+                    metadata.get('bitrate'), metadata.get('sample_rate'), metadata.get('channels'),
+                    # Analysis features
+                    tempo, key, mode, key_confidence,
+                    # Derived features
+                    features.get('energy'), features.get('danceability'), features.get('valence'),
+                    features.get('acousticness'), features.get('instrumentalness'),
+                    features.get('liveness'), features.get('speechiness'), features.get('loudness'),
+                    # Analysis metadata
+                    True, datetime.now(), analysis_data.get('analysis_method', 'unknown')
+                ))
+                
+                track_id = cursor.fetchone()[0]
+                
+                # Save complete analysis data
+                self._save_analysis_details(cursor, track_id, analysis_data, file_hash)
+                
+                # Extract and save music tags
+                self._save_music_tags(cursor, track_id, musicnn_tags)
+                
+                conn.commit()
+                log_universal('DEBUG', 'Database', f'Saved analysis for: {filename}')
+                return True
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to save analysis for {filename}: {str(e)}')
+            return False
+    
+    def _extract_tempo(self, analysis_data: Dict[str, Any]) -> Optional[float]:
+        """Extract tempo from analysis data (handles both formats)."""
+        # Multi-segment analysis
+        if 'tempo_mean' in analysis_data:
+            return analysis_data['tempo_mean']
+        # Single analysis
+        elif 'tempo' in analysis_data:
+            return analysis_data['tempo']
+        return None
+    
+    def _derive_playlist_features(self, musicnn_tags: Dict[str, float]) -> Dict[str, float]:
+        """Derive playlist features from MusiCNN tags."""
+        if not musicnn_tags:
+            return {}
+        
+        # Map MusiCNN tags to playlist features (0-1 scale)
+        features = {}
+        
+        # Energy: energetic, aggressive, dance vs peaceful, calm
+        energy_positive = ['energetic', 'aggressive', 'dance', 'metal', 'rock']
+        energy_negative = ['peaceful', 'calm', 'ambient', 'chillout']
+        features['energy'] = self._calculate_feature_score(musicnn_tags, energy_positive, energy_negative)
+        
+        # Danceability: dance, electronic, pop vs classical, folk
+        dance_positive = ['dance', 'electronic', 'pop', 'hip-hop']
+        dance_negative = ['classical', 'folk', 'acoustic', 'jazz']
+        features['danceability'] = self._calculate_feature_score(musicnn_tags, dance_positive, dance_negative)
+        
+        # Valence (happiness): happy, uplifting vs sad, dark
+        valence_positive = ['happy', 'uplifting', 'cheerful']
+        valence_negative = ['sad', 'dark', 'melancholic', 'emotional']
+        features['valence'] = self._calculate_feature_score(musicnn_tags, valence_positive, valence_negative)
+        
+        # Acousticness: acoustic, folk, country vs electronic, dance
+        acoustic_positive = ['acoustic', 'folk', 'country', 'singer-songwriter']
+        acoustic_negative = ['electronic', 'dance', 'techno', 'house']
+        features['acousticness'] = self._calculate_feature_score(musicnn_tags, acoustic_positive, acoustic_negative)
+        
+        # Instrumentalness: instrumental vs vocal
+        features['instrumentalness'] = musicnn_tags.get('instrumental', 0.5)
+        
+        # Liveness: live, concert vs studio
+        features['liveness'] = musicnn_tags.get('live', 0.1)  # Default low
+        
+        # Speechiness: spoken word, rap vs musical
+        features['speechiness'] = musicnn_tags.get('spoken', 0.1)  # Default low
+        
+        # Loudness: metal, rock vs ambient, classical
+        loud_positive = ['metal', 'rock', 'punk', 'aggressive']
+        loud_negative = ['ambient', 'classical', 'peaceful', 'quiet']
+        features['loudness'] = self._calculate_feature_score(musicnn_tags, loud_positive, loud_negative)
+        
+        return features
+    
+    def _calculate_feature_score(self, tags: Dict[str, float], positive_tags: List[str], 
+                                negative_tags: List[str]) -> float:
+        """Calculate feature score from positive and negative tag influences."""
+        positive_score = sum(tags.get(tag, 0) for tag in positive_tags) / len(positive_tags)
+        negative_score = sum(tags.get(tag, 0) for tag in negative_tags) / len(negative_tags)
+        
+        # Combine scores (positive - negative, normalized to 0-1)
+        score = (positive_score - negative_score + 1) / 2
+        return max(0, min(1, score))  # Clamp to 0-1
+    
+    def _save_analysis_details(self, cursor, track_id: int, analysis_data: Dict[str, Any], 
+                              cache_key: str):
+        """Save complete analysis data to track_analysis table."""
+        try:
+            # Prepare analysis components
+            essentia_data = self._extract_essentia_data(analysis_data)
+            musicnn_embeddings = analysis_data.get('musicnn_embeddings', [])
+            
+            cursor.execute("""
+                INSERT INTO track_analysis (
+                    track_id, essentia_rhythm, essentia_spectral, essentia_harmonic,
+                    essentia_mfcc, musicnn_tags, musicnn_embeddings, musicnn_confidence,
+                    segments_analyzed, segment_times, processing_time_seconds, cache_key
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (track_id) DO UPDATE SET
+                    essentia_rhythm = EXCLUDED.essentia_rhythm,
+                    essentia_spectral = EXCLUDED.essentia_spectral,
+                    musicnn_tags = EXCLUDED.musicnn_tags,
+                    musicnn_embeddings = EXCLUDED.musicnn_embeddings,
+                    cache_key = EXCLUDED.cache_key;
+            """, (
+                track_id,
+                json.dumps(essentia_data.get('rhythm', {})),
+                json.dumps(essentia_data.get('spectral', {})),
+                json.dumps(essentia_data.get('harmonic', {})),
+                json.dumps(essentia_data.get('mfcc', {})),
+                json.dumps(analysis_data.get('musicnn_tags', {})),
+                musicnn_embeddings,  # PostgreSQL handles array automatically
+                analysis_data.get('musicnn_confidence', 0.0),
+                analysis_data.get('segments_analyzed', 1),
+                json.dumps(analysis_data.get('segment_times', [])),
+                analysis_data.get('processing_time', 0.0),
+                cache_key
+            ))
+            
+        except Exception as e:
+            log_universal('WARNING', 'Database', f'Failed to save analysis details: {str(e)}')
+    
+    def _extract_essentia_data(self, analysis_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract and organize Essentia features."""
+        essentia = {
+            'rhythm': {},
+            'spectral': {},
+            'harmonic': {},
+            'mfcc': {}
+        }
+        
+        # Rhythm features
+        for key in ['tempo', 'tempo_confidence', 'tempo_mean', 'tempo_std', 'tempo_median']:
+            if key in analysis_data:
+                essentia['rhythm'][key] = analysis_data[key]
+        
+        # Spectral features
+        for key in analysis_data:
+            if 'spectral_centroid' in key or 'loudness' in key:
+                essentia['spectral'][key] = analysis_data[key]
+        
+        # Harmonic features
+        for key in ['key', 'scale', 'key_strength', 'key_confidence', 'scale_confidence']:
+            if key in analysis_data:
+                essentia['harmonic'][key] = analysis_data[key]
+        
+        return essentia
+    
+    def _save_music_tags(self, cursor, track_id: int, musicnn_tags: Dict[str, float]):
+        """Save music tags to normalized tag tables."""
+        try:
+            # Clear existing tags for this track
+            cursor.execute("DELETE FROM track_tags WHERE track_id = %s", (track_id,))
+            
+            # Insert new tags
+            for tag_name, confidence in musicnn_tags.items():
+                if confidence > 0.1:  # Only save tags with meaningful confidence
+                    # Get or create tag
+                    cursor.execute("""
+                        INSERT INTO music_tags (name, category) VALUES (%s, 'musicnn')
+                        ON CONFLICT (name) DO NOTHING
+                        RETURNING id;
+                    """, (tag_name,))
+                    
+                    result = cursor.fetchone()
+                    if result:
+                        tag_id = result[0]
+                    else:
+                        cursor.execute("SELECT id FROM music_tags WHERE name = %s", (tag_name,))
+                        tag_id = cursor.fetchone()[0]
+                    
+                    # Link tag to track
+                    cursor.execute("""
+                        INSERT INTO track_tags (track_id, tag_id, confidence, source)
+                        VALUES (%s, %s, %s, 'musicnn')
+                    """, (track_id, tag_id, confidence))
+                    
+        except Exception as e:
+            log_universal('WARNING', 'Database', f'Failed to save music tags: {str(e)}')
+    
+    # =========================================================================
+    # PLAYLIST GENERATION QUERIES
+    # =========================================================================
+    
+    def find_similar_tracks(self, track_id: int, limit: int = 20) -> List[Dict[str, Any]]:
+        """Find tracks similar to given track using vector similarity."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+                
+                cursor.execute("""
+                    SELECT 
+                        t.id, t.title, t.artist, t.album, t.tempo, t.key,
+                        t.energy, t.valence, t.danceability,
+                        ta.musicnn_embeddings <-> ref_ta.musicnn_embeddings as similarity
+                    FROM tracks t
+                    JOIN track_analysis ta ON t.id = ta.track_id
+                    CROSS JOIN track_analysis ref_ta
+                    WHERE ref_ta.track_id = %s 
+                    AND t.id != %s
+                    AND ta.musicnn_embeddings IS NOT NULL
+                    ORDER BY similarity
+                    LIMIT %s;
+                """, (track_id, track_id, limit))
+                
+                return [dict(row) for row in cursor.fetchall()]
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Similarity search failed: {str(e)}')
+            return []
+    
+    def generate_playlist_by_features(self, tempo_range: Tuple[float, float] = None,
+                                    key: str = None, energy_range: Tuple[float, float] = None,
+                                    valence_range: Tuple[float, float] = None,
+                                    limit: int = 20) -> List[Dict[str, Any]]:
+        """Generate playlist based on musical features."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+                
+                conditions = ["analysis_completed = true"]
+                params = []
+                
+                if tempo_range:
+                    conditions.append("tempo BETWEEN %s AND %s")
+                    params.extend(tempo_range)
+                
+                if key:
+                    conditions.append("key = %s")
+                    params.append(key)
+                
+                if energy_range:
+                    conditions.append("energy BETWEEN %s AND %s")
+                    params.extend(energy_range)
+                
+                if valence_range:
+                    conditions.append("valence BETWEEN %s AND %s")
+                    params.extend(valence_range)
+                
+                params.append(limit)
+                
+                query = f"""
+                    SELECT id, title, artist, album, tempo, key, mode,
+                           energy, valence, danceability, duration_seconds
+                    FROM tracks
+                    WHERE {' AND '.join(conditions)}
+                    ORDER BY random()
+                    LIMIT %s;
+                """
+                
+                cursor.execute(query, params)
+                return [dict(row) for row in cursor.fetchall()]
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Feature-based playlist generation failed: {str(e)}')
+            return []
+    
+    def search_tracks(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Search tracks by title, artist, or album."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+                
+                cursor.execute("""
+                    SELECT id, title, artist, album, duration_seconds, tempo, key
+                    FROM tracks
+                    WHERE title ILIKE %s OR artist ILIKE %s OR album ILIKE %s
+                    ORDER BY 
+                        CASE 
+                            WHEN title ILIKE %s THEN 1
+                            WHEN artist ILIKE %s THEN 2
+                            ELSE 3
+                        END,
+                        similarity(title || ' ' || artist, %s) DESC
+                    LIMIT %s;
+                """, (f'%{query}%', f'%{query}%', f'%{query}%', 
+                     f'%{query}%', f'%{query}%', query, limit))
+                
+                return [dict(row) for row in cursor.fetchall()]
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Track search failed: {str(e)}')
+            return []
+    
+    # =========================================================================
+    # UTILITY METHODS
+    # =========================================================================
+    
+    def get_track_count(self) -> int:
+        """Get total number of analyzed tracks."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM tracks WHERE analysis_completed = true;")
+                return cursor.fetchone()[0]
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to get track count: {str(e)}')
+            return 0
+    
+    def close(self):
+        """Close connection pool."""
+        if self.pool:
+            self.pool.closeall()
+            log_universal('INFO', 'Database', 'Connection pool closed')
+
+
+# Global instance
+_postgresql_manager = None
+
+def get_postgresql_manager() -> PostgreSQLManager:
+    """Get global PostgreSQL manager instance."""
+    global _postgresql_manager
+    if _postgresql_manager is None:
+        _postgresql_manager = PostgreSQLManager()
+    return _postgresql_manager

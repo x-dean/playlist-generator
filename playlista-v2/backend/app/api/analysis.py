@@ -298,3 +298,71 @@ async def retry_analysis_job(
         "status": "queued",
         "message": "Job queued for retry"
     }
+
+
+@router.post("/cleanup")
+async def cleanup_old_jobs() -> Dict[str, Any]:
+    """Clean up old failed jobs and keep only the latest job per track"""
+    
+    async for db in get_db_session():
+        try:
+            # Get all tracks that have multiple jobs
+            tracks_with_jobs_query = (
+                select(AnalysisJob.track_id, func.count(AnalysisJob.id).label('job_count'))
+                .group_by(AnalysisJob.track_id)
+                .having(func.count(AnalysisJob.id) > 1)
+            )
+            tracks_result = await db.execute(tracks_with_jobs_query)
+            tracks_with_multiple_jobs = tracks_result.all()
+            
+            cleaned_tracks = 0
+            deleted_jobs = 0
+            
+            for track_id, job_count in tracks_with_multiple_jobs:
+                # Get all jobs for this track, ordered by creation date (newest first)
+                jobs_query = (
+                    select(AnalysisJob)
+                    .where(AnalysisJob.track_id == track_id)
+                    .order_by(AnalysisJob.created_at.desc())
+                )
+                jobs_result = await db.execute(jobs_query)
+                jobs = list(jobs_result.scalars().all())
+                
+                # Keep the newest completed job, or the newest job if none completed
+                completed_jobs = [j for j in jobs if j.status == 'completed']
+                if completed_jobs:
+                    # Keep the newest completed job
+                    keep_job = completed_jobs[0]
+                else:
+                    # Keep the newest job regardless of status
+                    keep_job = jobs[0]
+                
+                # Delete all other jobs for this track
+                jobs_to_delete = [j for j in jobs if j.id != keep_job.id]
+                for job in jobs_to_delete:
+                    await db.delete(job)
+                    deleted_jobs += 1
+                
+                cleaned_tracks += 1
+            
+            await db.commit()
+            
+            logger.info(
+                "Job cleanup completed",
+                cleaned_tracks=cleaned_tracks,
+                deleted_jobs=deleted_jobs
+            )
+            
+            return {
+                "status": "completed",
+                "cleaned_tracks": cleaned_tracks,
+                "deleted_jobs": deleted_jobs,
+                "message": f"Cleaned up {deleted_jobs} duplicate jobs for {cleaned_tracks} tracks"
+            }
+            
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Job cleanup failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
+        
+        break

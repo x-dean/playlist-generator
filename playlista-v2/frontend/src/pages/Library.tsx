@@ -260,6 +260,7 @@ export const Library = () => {
                             color="blue"
                             onClick={() => analyzeTrack(track.id)}
                             title="Analyze track"
+                            aria-label="Analyze track"
                           >
                             <IconAnalyze size={16} />
                           </ActionIcon>

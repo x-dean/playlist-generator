@@ -25,6 +25,9 @@ tensorflow==2.11.*
 # External APIs for metadata enrichment
 requests
 musicbrainzngs
+
+# Database support
+psycopg2-binary>=2.9.0
 # Additional API clients (optional)
 # spotipy  # Uncomment if using Spotify API
 

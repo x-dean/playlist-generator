@@ -1,10 +1,34 @@
 services:
-  # Playlist Generator Simple
+  # PostgreSQL Database with pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: playlista-postgres
+    environment:
+      POSTGRES_DB: playlista
+      POSTGRES_USER: playlista
+      POSTGRES_PASSWORD: playlista_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/postgresql_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    networks:
+      - playlista-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U playlista -d playlista"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Playlist Generator Application
   playlist-generator:
     build: .
     container_name: playlist-generator
     ports:
-      - "8501:8500"
+      - "8501:8500"  # Original port
+      - "8000:8000"  # Web API port
     volumes:
       # Music library - mount your music directory here
       - C:\Users\Dean\Documents\test_music:/music:ro
@@ -12,8 +36,8 @@ services:
       # Playlists output directory
       - ./playlists:/app/playlists
       
-      # Cache directory for analysis results
-      - ./cache:/app/cache
+      # Cache directory for pipeline cache only (database is PostgreSQL)
+      - playlista_cache:/app/cache
       
       # Logs directory
       - ./logs:/app/logs
@@ -31,11 +55,21 @@ services:
       - FORCE_COLOR=1
       - TERM=xterm-256color
       - PYTHONUNBUFFERED=1
+      
+      # PostgreSQL configuration
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=playlista
+      - POSTGRES_USER=playlista
+      - POSTGRES_PASSWORD=playlista_password
+      - ENVIRONMENT=production
+      
       # TensorFlow warning suppression
       - TF_CPP_MIN_LOG_LEVEL=3
       - TF_ENABLE_ONEDNN_OPTS=0
       - TF_GPU_ALLOCATOR=cpu
       - CUDA_VISIBLE_DEVICES=-1
+      
       # External API keys (set these in your .env file)
       - LASTFM_API_KEY=${LASTFM_API_KEY:-dummy_key_to_suppress_warnings}
     command: ["/app/entrypoint.sh"]
@@ -43,3 +77,55 @@ services:
     working_dir: /app
     tty: true
     stdin_open: true
+    networks:
+      - playlista-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Redis for caching and sessions (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: playlista-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - playlista-network
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    profiles:
+      - cache  # Optional service
+
+  # pgAdmin for database management (optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: playlista-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@playlista.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - playlista-network
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    profiles:
+      - admin  # Optional service
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  playlista-network:
+    driver: bridge

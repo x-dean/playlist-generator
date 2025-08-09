@@ -22,6 +22,7 @@ sys.path.append('/app')
 
 from src.core.logging_setup import get_logger, setup_logging, log_universal
 from src.core.config_loader import config_loader
+from src.core.startup_check import verify_database_config
 from src.cli.commands import AnalysisCommands, PlaylistCommands, DatabaseCommands, UtilityCommands, ManagerCommands
 
 logger = get_logger('playlista.cli.main')
@@ -34,6 +35,8 @@ class SimpleCLI:
         self.parser = self._create_argument_parser()
         self.config = config_loader.get_config()
         self._setup_logging()
+        # Ensure PostgreSQL is configured
+        verify_database_config()
     
     def _setup_logging(self):
         """Setup logging based on configuration."""

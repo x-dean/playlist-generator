@@ -496,16 +496,16 @@ class SingleAnalyzer:
             file_size_bytes = os.path.getsize(file_path)
             file_hash = hashlib.md5(f"{filename}:{file_size_bytes}".encode()).hexdigest()
             
-            # Save to database with correct parameters
-            self.db_manager.save_analysis_result(
-                file_path=file_path,
-                filename=filename,
-                file_size_bytes=file_size_bytes,
-                file_hash=file_hash,
-                analysis_data=result,
-                metadata=result.get('metadata', {}),
-                discovery_source='single_analyzer'
-            )
+                                # Save to database with correct parameters
+                    self.db_manager.save_track_analysis(
+                        file_path=file_path,
+                        filename=filename,
+                        file_size_bytes=file_size_bytes,
+                        file_hash=file_hash,
+                        metadata=result.get('metadata', {}),
+                        analysis_data=result,
+                        discovery_source='single_analyzer'
+                    )
         except Exception as e:
             log_universal('WARNING', 'Database', f'Failed to save analysis result: {str(e)}')
     
