@@ -207,7 +207,9 @@ class PostgreSQLManager:
                     # Basic info
                     file_path, file_hash, filename, file_size_bytes,
                     # Metadata
-                    metadata.get('title'), metadata.get('artist'), metadata.get('album'),
+                    self._safe_string(metadata.get('title')), 
+                    self._safe_string(metadata.get('artist')), 
+                    self._safe_string(metadata.get('album')),
                     json.dumps(metadata.get('genre', [])) if metadata.get('genre') else None,
                     self._extract_year(metadata.get('date')), metadata.get('duration_seconds'),
                     metadata.get('bitrate'), metadata.get('sample_rate'), metadata.get('channels'),
@@ -659,10 +661,23 @@ class PostgreSQLManager:
             log_universal('WARNING', 'Database', f'Failed to get analysis result for {file_path}: {str(e)}')
             return None
     
-    def _safe_json_loads(self, json_str: str, default_value: Any) -> Any:
+    def _safe_json_loads(self, json_str: Any, default_value: Any) -> Any:
         """Safely parse JSON string with fallback to default value."""
-        if not json_str or json_str.strip() == '':
+        if not json_str:
             return default_value
+            
+        # Handle if json_str is a list (should not happen but being safe)
+        if isinstance(json_str, list):
+            if len(json_str) > 0:
+                json_str = str(json_str[0])
+            else:
+                return default_value
+        
+        # Convert to string and check if empty
+        json_str = str(json_str)
+        if json_str.strip() == '':
+            return default_value
+            
         try:
             return json.loads(json_str)
         except (json.JSONDecodeError, TypeError, ValueError) as e:
@@ -745,6 +760,57 @@ class PostgreSQLManager:
                 'analysis_table_size': 'Unknown',
                 'tracks_added_today': 0
             }
+    
+    def _extract_year(self, date_value):
+        """Extract year from date string or return None."""
+        if not date_value:
+            return None
+        
+        # Handle if date_value is a list (from mutagen tags)
+        if isinstance(date_value, list):
+            if len(date_value) > 0:
+                date_value = str(date_value[0])
+            else:
+                return None
+        
+        # Convert to string and strip whitespace
+        date_str = str(date_value).strip()
+        
+        # Try to extract year from various date formats
+        try:
+            # Handle YYYY format
+            if len(date_str) == 4 and date_str.isdigit():
+                year = int(date_str)
+                if 1900 <= year <= 2100:
+                    return year
+            
+            # Handle YYYY-MM-DD format
+            if '-' in date_str:
+                year_part = date_str.split('-')[0]
+                if year_part.isdigit():
+                    year = int(year_part)
+                    if 1900 <= year <= 2100:
+                        return year
+                        
+        except (ValueError, AttributeError):
+            pass
+            
+        return None
+    
+    def _safe_string(self, value):
+        """Safely convert value to string, handling lists and None."""
+        if value is None:
+            return None
+        
+        # Handle lists (from mutagen tags)
+        if isinstance(value, list):
+            if len(value) > 0:
+                return str(value[0]).strip()
+            else:
+                return None
+        
+        # Convert to string and strip
+        return str(value).strip() if value else None
     
     def close(self):
         """Close connection pool."""
