@@ -31,7 +31,7 @@ services:
       - "8123:8000"  # Web API port
     volumes:
       # Music library - mount your music directory here
-      - /root/music/lirary:/music:ro
+      - /root/music/library:/music:ro
 
       # Playlists output directory
       - /root/music/playlista/playlists:/app/playlists
