@@ -580,9 +580,9 @@ class PostgreSQLManager:
                         t.content_type, t.content_subtype, t.content_confidence,
                         t.content_features, t.estimated_track_count, t.content_description,
                         t.analysis_completed, t.created_at, t.updated_at,
-                        ta.analysis_method, ta.essentia_rhythm, ta.essentia_spectral,
+                        t.analysis_method, ta.essentia_rhythm, ta.essentia_spectral,
                         ta.essentia_harmonic, ta.essentia_mfcc, ta.musicnn_tags,
-                        ta.musicnn_embeddings, ta.segment_analysis, ta.segment_times
+                        ta.musicnn_embeddings, ta.segments_analyzed, ta.segment_times
                     FROM tracks t
                     LEFT JOIN track_analysis ta ON t.id = ta.track_id
                     WHERE t.file_path = %s AND t.analysis_completed = true;
