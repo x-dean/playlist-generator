@@ -63,29 +63,14 @@ class SingleAnalyzer:
         
         # Analysis settings
         self.timeout_seconds = self.config.get('ANALYSIS_TIMEOUT', 600)
-        self.max_workers = self._determine_optimal_workers()
+        # Don't set max_workers here - use dynamic calculation instead
+        self.max_workers = None
         
         # File size thresholds for optimization
         self.min_optimized_size_mb = self.config.get('OPTIMIZED_PIPELINE_MIN_SIZE_MB', 5)
         self.max_optimized_size_mb = self.config.get('OPTIMIZED_PIPELINE_MAX_SIZE_MB', 200)
         
-        log_universal('INFO', 'System', f'Audio analyzer ready - {self.max_workers} workers, optimized for {self.min_optimized_size_mb}-{self.max_optimized_size_mb}MB files')
-    
-    def _determine_optimal_workers(self) -> int:
-        """Determine optimal number of workers based on system resources."""
-        workers = self.config.get('ANALYSIS_WORKERS', 'auto')
-        
-        if workers == 'auto':
-            try:
-                from .resource_manager import ResourceManager
-                resource_manager = ResourceManager()
-                workers = resource_manager.get_optimal_worker_count()
-                
-            except Exception as e:
-                log_universal('WARNING', 'System', f'Failed to determine optimal workers: {str(e)}')
-                workers = 4  # Safe default
-        
-        return int(workers)
+        log_universal('INFO', 'System', f'Audio analyzer ready - dynamic workers, optimized for {self.min_optimized_size_mb}-{self.max_optimized_size_mb}MB files')
     
     def _calculate_dynamic_workers(self, files: List[str]) -> int:
         """Calculate optimal workers based on RAM availability and user configuration."""
@@ -95,7 +80,7 @@ class SingleAnalyzer:
         try:
             # Get memory configuration - user override takes priority
             user_ram_override = self.config.get('USER_OVERRIDE_TOTAL_RAM_GB')
-            memory_per_worker_gb = float(self.config.get('MEMORY_PER_WORKER_GB', 1.2))
+            base_memory_per_worker_gb = float(self.config.get('BASE_MEMORY_PER_WORKER_GB', 1.2))
             workload_mode = self.config.get('WORKLOAD_DETECTION_MODE', 'auto')
             
             # Determine available memory
@@ -118,28 +103,47 @@ class SingleAnalyzer:
             
             # Adjust memory per worker based on workload (only if auto mode)
             if workload_mode == 'auto':
-                # Quick workload analysis
+                # Quick workload analysis - sample more files for better accuracy
                 large_files = 0
-                for file_path in files[:10]:  # Sample first 10 files
+                huge_files = 0
+                total_sampled = 0
+                
+                for file_path in files[:20]:  # Sample first 20 files for better accuracy
                     try:
                         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                        if file_size_mb > 200:  # Large file threshold
+                        total_sampled += 1
+                        if file_size_mb > 500:  # Huge files (>500MB)
+                            huge_files += 1
+                        elif file_size_mb > 200:  # Large files (200-500MB)
                             large_files += 1
                     except Exception:
                         continue
                 
-                large_file_ratio = large_files / min(len(files), 10)
+                if total_sampled == 0:
+                    large_file_ratio = 0
+                    huge_file_ratio = 0
+                else:
+                    large_file_ratio = large_files / total_sampled
+                    huge_file_ratio = huge_files / total_sampled
                 
-                if large_file_ratio > 0.5:  # Mostly large files
-                    memory_per_worker_gb *= 1.5  # More memory for Essentia processing
+                # MUCH more conservative memory estimates for Essentia on large files
+                memory_per_worker_gb = base_memory_per_worker_gb  # Start with base
+                
+                if huge_file_ratio > 0.3:  # >30% huge files (>500MB)
+                    memory_per_worker_gb *= 4.0  # 4.8GB per worker for huge files with Essentia
+                    workload_type = 'huge_files'
+                elif large_file_ratio > 0.5:  # >50% large files (200-500MB)
+                    memory_per_worker_gb *= 3.0  # 3.6GB per worker for large files with Essentia
                     workload_type = 'large_files'
-                elif large_file_ratio > 0.2:  # Mixed workload
-                    memory_per_worker_gb *= 1.2  # Slightly more memory
+                elif large_file_ratio > 0.2:  # >20% large files
+                    memory_per_worker_gb *= 2.0  # 2.4GB per worker for mixed workload
                     workload_type = 'mixed'
                 else:  # Mostly small files
+                    memory_per_worker_gb = base_memory_per_worker_gb  # Keep base value
                     workload_type = 'small_files'
                 
-                log_universal('INFO', 'System', f'Workload detected: {workload_type} (large file ratio: {large_file_ratio:.1f})')
+                log_universal('INFO', 'System', f'Workload detected: {workload_type} (large: {large_file_ratio:.1f}, huge: {huge_file_ratio:.1f})')
+                log_universal('INFO', 'System', f'Adjusted memory per worker: {memory_per_worker_gb:.1f}GB')
             
             # Calculate workers based on memory
             memory_based_workers = max(1, int(available_memory_gb / memory_per_worker_gb))
@@ -152,21 +156,23 @@ class SingleAnalyzer:
             except Exception:
                 cpu_max_workers = 4  # Safe fallback
             
-            # Final worker count: limited by CPU cores - 1
-            workers = min(memory_based_workers, cpu_max_workers)
+            # Final worker count: limited by CPU cores - 1 and safety maximum
+            safety_max_workers = 4  # Never use more than 4 workers for safety
+            workers = min(memory_based_workers, cpu_max_workers, safety_max_workers)
             
             log_universal('INFO', 'System', f'Worker calculation:')
             log_universal('INFO', 'System', f'  Available memory: {available_memory_gb:.1f}GB')
             log_universal('INFO', 'System', f'  Memory per worker: {memory_per_worker_gb:.1f}GB')
             log_universal('INFO', 'System', f'  Memory-based workers: {memory_based_workers}')
             log_universal('INFO', 'System', f'  CPU cores: {cpu_cores}, max workers: {cpu_max_workers}')
+            log_universal('INFO', 'System', f'  Safety limit: {safety_max_workers}')
             log_universal('INFO', 'System', f'  Final workers: {workers}')
             
             return workers
             
         except Exception as e:
             log_universal('WARNING', 'System', f'Dynamic worker calculation failed: {str(e)}')
-            return min(self.max_workers, 4)  # Safe fallback with CPU limit
+            return 2  # Conservative fallback
     
     def analyze(self, file_path: str, force_reanalysis: bool = False) -> Dict[str, Any]:
         """
@@ -635,9 +641,9 @@ class SingleAnalyzer:
     def _extract_essentia_features_large(self, file_path: str, duration: float) -> Dict[str, Any]:
         """Extract Essentia features from large files using strategic sampling."""
         try:
-            from .lazy_imports import ensure_essentia
-            essentia_standard = ensure_essentia()
-            if not essentia_standard:
+            from .lazy_imports import get_essentia
+            essentia_standard = get_essentia()
+            if not essentia_standard.available:
                 return {'error': 'Essentia not available', 'analysis_strategy': 'failed'}
             
             # Determine sampling strategy based on file size and duration

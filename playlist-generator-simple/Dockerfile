@@ -59,7 +59,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     CACHE_DIR=/app/cache \
-    MODEL_DIR=/app/feature_extraction/models \
+    LOG_FILE=/app/logs/playlista.log \
+    MODEL_DIR=/app/models \
     LOG_LEVEL=INFO \
     PROMETHEUS_MULTIPROC_DIR=/tmp
 

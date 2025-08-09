@@ -70,6 +70,9 @@ services:
 
       # External API keys
       - LASTFM_API_KEY=${LASTFM_API_KEY:-dummy_key_to_suppress_warnings}
+      
+      # LXC/Container memory override (8GB limit instead of host memory detection)
+      - USER_OVERRIDE_TOTAL_RAM_GB=8
     command: ["/app/entrypoint.sh"]
     restart: unless-stopped
     working_dir: /app
