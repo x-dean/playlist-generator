@@ -84,13 +84,17 @@ CREATE TABLE track_analysis (
     
     -- Essentia features (complete data)
     essentia_rhythm JSONB,         -- BPM, beats, tempo confidence
-    essentia_spectral JSONB,       -- Spectral centroid, rolloff, etc.
+    essentia_spectral JSONB,       -- Spectral centroid, rolloff, loudness, etc.
     essentia_harmonic JSONB,       -- Key detection, chroma features
-    essentia_mfcc JSONB,          -- MFCC coefficients
+    essentia_mfcc JSONB,          -- MFCC coefficients, chroma features
+    essentia_other JSONB,         -- Energy, danceability, method, segments info
     
-    -- MusiCNN results
+    -- MusiCNN results (complete data)
     musicnn_tags JSONB,           -- Genre/mood predictions with confidence
     musicnn_embeddings vector(50), -- High-dimensional feature vector
+    musicnn_genre TEXT,           -- Primary genre prediction
+    musicnn_mood TEXT,            -- Primary mood prediction  
+    musicnn_top_tags JSONB,       -- Top 5 tags with confidence scores
     musicnn_confidence REAL,
     
     -- Processing metadata

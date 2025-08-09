@@ -28,12 +28,11 @@ DEFAULT_RESOURCE_HISTORY_SIZE = 1000
 DEFAULT_RESOURCE_ALERT_THRESHOLD_PERCENT = 90
 DEFAULT_RESOURCE_LOG_LEVEL = 'INFO'
 
-# PLAYLISTA Pattern 4: File Size Thresholds and Memory Requirements
-PLAYLISTA_SMALL_FILE_THRESHOLD_MB = 25      # Files under 25MB require 1-2GB RAM
-PLAYLISTA_LARGE_FILE_THRESHOLD_MB = 50      # Files over 50MB require sequential only
-PLAYLISTA_SMALL_FILE_RAM_GB = 1.5           # RAM per small file thread
-PLAYLISTA_LARGE_FILE_RAM_GB = 2.0           # RAM per large file thread
-PLAYLISTA_SEQUENTIAL_ONLY_RAM_GB = 4.0      # RAM for sequential-only files
+# PLAYLISTA Pattern 4: Duration-Based Analysis Requirements
+PLAYLISTA_SHORT_DURATION_MINUTES = 10      # Files under 10min get full analysis
+PLAYLISTA_LONG_DURATION_MINUTES = 30       # Files over 30min get content classification
+PLAYLISTA_STANDARD_RAM_GB = 1.2             # RAM per worker (consistent for all files)
+PLAYLISTA_MAX_CONCURRENT_WORKERS = 4        # Maximum workers for safety
 
 
 class ResourceManager:
@@ -849,56 +848,63 @@ class ResourceManager:
     
     # PLAYLISTA Pattern 4: Resource Management Methods
     
-    def get_file_analysis_strategy(self, file_size_mb: float) -> Dict[str, Any]:
+    def get_file_analysis_strategy(self, duration_minutes: float) -> Dict[str, Any]:
         """
-        Determine analysis strategy based on PLAYLISTA file size thresholds.
+        Determine analysis strategy based on PLAYLISTA duration thresholds.
         
         Args:
-            file_size_mb: File size in megabytes
+            duration_minutes: File duration in minutes
             
         Returns:
             Dictionary with strategy information
         """
-        strategy = {
-            'file_size_mb': file_size_mb,
-            'analysis_type': None,
-            'max_threads': 1,
-            'required_ram_gb': 0,
-            'enforce_sequential': False,
-            'reasoning': ''
-        }
+        # All files now use consistent chunk analysis with same memory requirements
+        max_workers = min(
+            self.calculate_max_threads_for_memory(PLAYLISTA_STANDARD_RAM_GB),
+            PLAYLISTA_MAX_CONCURRENT_WORKERS
+        )
         
-        if file_size_mb > PLAYLISTA_LARGE_FILE_THRESHOLD_MB:
-            # Files over 50MB: Sequential only
-            strategy.update({
-                'analysis_type': 'sequential_only',
-                'max_threads': 1,
-                'required_ram_gb': PLAYLISTA_SEQUENTIAL_ONLY_RAM_GB,
-                'enforce_sequential': True,
-                'reasoning': f'File over {PLAYLISTA_LARGE_FILE_THRESHOLD_MB}MB requires sequential processing'
-            })
-        elif file_size_mb > PLAYLISTA_SMALL_FILE_THRESHOLD_MB:
-            # Files 25-50MB: Require +2GB RAM
-            strategy.update({
-                'analysis_type': 'parallel_large',
-                'max_threads': self.calculate_max_threads_for_memory(PLAYLISTA_LARGE_FILE_RAM_GB),
-                'required_ram_gb': PLAYLISTA_LARGE_FILE_RAM_GB,
+        if duration_minutes < PLAYLISTA_SHORT_DURATION_MINUTES:
+            # < 10 minutes: Full file analysis
+            strategy = {
+                'duration_minutes': duration_minutes,
+                'analysis_type': 'full_file',
+                'max_threads': max_workers,
+                'required_ram_gb': PLAYLISTA_STANDARD_RAM_GB,
                 'enforce_sequential': False,
-                'reasoning': f'File over {PLAYLISTA_SMALL_FILE_THRESHOLD_MB}MB requires {PLAYLISTA_LARGE_FILE_RAM_GB}GB RAM per thread'
-            })
+                'chunks': 1,
+                'chunk_duration_seconds': min(duration_minutes * 60, 30),
+                'reasoning': f'Short file (<{PLAYLISTA_SHORT_DURATION_MINUTES}min) gets full analysis'
+            }
+        elif duration_minutes < PLAYLISTA_LONG_DURATION_MINUTES:
+            # 10-30 minutes: Multi-chunk analysis
+            strategy = {
+                'duration_minutes': duration_minutes,
+                'analysis_type': 'multi_chunk',
+                'max_threads': max_workers,
+                'required_ram_gb': PLAYLISTA_STANDARD_RAM_GB,
+                'enforce_sequential': False,
+                'chunks': 3,
+                'chunk_duration_seconds': 30,
+                'reasoning': f'Medium file ({PLAYLISTA_SHORT_DURATION_MINUTES}-{PLAYLISTA_LONG_DURATION_MINUTES}min) gets 3-chunk analysis'
+            }
         else:
-            # Files under 25MB: 1-2GB RAM
-            strategy.update({
-                'analysis_type': 'parallel_small',
-                'max_threads': self.calculate_max_threads_for_memory(PLAYLISTA_SMALL_FILE_RAM_GB),
-                'required_ram_gb': PLAYLISTA_SMALL_FILE_RAM_GB,
+            # > 30 minutes: Long content with classification
+            strategy = {
+                'duration_minutes': duration_minutes,
+                'analysis_type': 'long_content',
+                'max_threads': max_workers,
+                'required_ram_gb': PLAYLISTA_STANDARD_RAM_GB,
                 'enforce_sequential': False,
-                'reasoning': f'Small file under {PLAYLISTA_SMALL_FILE_THRESHOLD_MB}MB requires {PLAYLISTA_SMALL_FILE_RAM_GB}GB RAM per thread'
-            })
+                'chunks': 3,
+                'chunk_duration_seconds': 30,
+                'content_classification': True,
+                'reasoning': f'Long file (>{PLAYLISTA_LONG_DURATION_MINUTES}min) gets classification + 3-chunk analysis'
+            }
         
         log_universal('DEBUG', 'ResourceManager', 
-                     f'File {file_size_mb:.1f}MB strategy: {strategy["analysis_type"]}, '
-                     f'{strategy["max_threads"]} threads, {strategy["required_ram_gb"]}GB RAM')
+                     f'File {duration_minutes:.1f}min strategy: {strategy["analysis_type"]}, '
+                     f'{strategy["max_threads"]} threads, {strategy["chunks"]} chunks')
         
         return strategy
     
@@ -971,12 +977,12 @@ class ResourceManager:
             else:
                 plan['parallel_small_files'].append(file_info)
         
-        # Calculate total estimated RAM usage
-        plan['estimated_ram_usage_gb'] = (
-            len(plan['sequential_only_files']) * PLAYLISTA_SEQUENTIAL_ONLY_RAM_GB +
-            len(plan['parallel_large_files']) * PLAYLISTA_LARGE_FILE_RAM_GB +
-            len(plan['parallel_small_files']) * PLAYLISTA_SMALL_FILE_RAM_GB
+        # Calculate total estimated RAM usage (now consistent for all files)
+        max_workers = min(
+            self.calculate_max_threads_for_memory(PLAYLISTA_STANDARD_RAM_GB),
+            PLAYLISTA_MAX_CONCURRENT_WORKERS
         )
+        plan['estimated_ram_usage_gb'] = max_workers * PLAYLISTA_STANDARD_RAM_GB
         
         # Recommend processing order: sequential first (highest memory), then large, then small
         plan['recommended_processing_order'] = (

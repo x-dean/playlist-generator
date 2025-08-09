@@ -235,8 +235,8 @@ class SingleAnalyzer:
         
         log_universal('INFO', 'Analysis', f'Starting unified analysis of {len(files)} files')
         
-        # Group files by size to optimize worker allocation
-        file_groups = self._group_files_by_size(files)
+        # Group files by duration to optimize worker allocation
+        file_groups = self._group_files_by_duration(files)
         
         all_results = []
         all_failed_files = []
@@ -311,39 +311,38 @@ class SingleAnalyzer:
         """Determine if file should use content classification based on duration."""
         return duration_seconds > 1800  # 30 minutes
     
-    def _group_files_by_size(self, files: List[str]) -> Dict[str, List[str]]:
+    def _group_files_by_duration(self, files: List[str]) -> Dict[str, List[str]]:
         """
-        Group files by size category for optimized batch processing.
+        Group files by duration category for optimized batch processing.
         
         Args:
             files: List of file paths to group
             
         Returns:
-            Dictionary with size group names and file lists
+            Dictionary with duration group names and file lists
         """
         groups = {
-            'huge_files': [],      # > 100MB - Single worker, Essentia-only 
-            'large_files': [],     # 50-100MB - Few workers, Essentia-only
-            'medium_files': [],    # 20-50MB - More workers, Full analysis
-            'small_files': []      # < 20MB - Most workers, Full analysis
+            'short_files': [],    # < 10min - Full file analysis
+            'medium_files': [],   # 10-30min - 3 chunks analysis  
+            'long_files': []      # > 30min - 3 chunks + classification
         }
         
         for file_path in files:
             try:
-                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                # Get duration using FFmpeg probe
+                duration_seconds = self._get_duration_ffmpeg(file_path)
+                duration_minutes = duration_seconds / 60
                 
-                if file_size_mb > 100:
-                    groups['huge_files'].append(file_path)
-                elif file_size_mb > 50:
-                    groups['large_files'].append(file_path)
-                elif file_size_mb > 20:
+                if duration_minutes < 10:
+                    groups['short_files'].append(file_path)
+                elif duration_minutes < 30:
                     groups['medium_files'].append(file_path)
                 else:
-                    groups['small_files'].append(file_path)
+                    groups['long_files'].append(file_path)
                     
             except Exception as e:
-                log_universal('WARNING', 'Analysis', f'Could not get size for {file_path}: {e}')
-                # Default to medium group for unknown sizes
+                log_universal('WARNING', 'Analysis', f'Could not get duration for {file_path}: {e}')
+                # Default to medium group for unknown duration
                 groups['medium_files'].append(file_path)
         
         # Log group distribution

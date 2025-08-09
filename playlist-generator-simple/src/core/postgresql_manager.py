@@ -381,14 +381,21 @@ class PostgreSQLManager:
             cursor.execute("""
                 INSERT INTO track_analysis (
                     track_id, essentia_rhythm, essentia_spectral, essentia_harmonic,
-                    essentia_mfcc, musicnn_tags, musicnn_embeddings, musicnn_confidence,
+                    essentia_mfcc, essentia_other, musicnn_tags, musicnn_embeddings, 
+                    musicnn_genre, musicnn_mood, musicnn_top_tags, musicnn_confidence,
                     segments_analyzed, segment_times, processing_time_seconds, cache_key
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (track_id) DO UPDATE SET
                     essentia_rhythm = EXCLUDED.essentia_rhythm,
                     essentia_spectral = EXCLUDED.essentia_spectral,
+                    essentia_harmonic = EXCLUDED.essentia_harmonic,
+                    essentia_mfcc = EXCLUDED.essentia_mfcc,
+                    essentia_other = EXCLUDED.essentia_other,
                     musicnn_tags = EXCLUDED.musicnn_tags,
                     musicnn_embeddings = EXCLUDED.musicnn_embeddings,
+                    musicnn_genre = EXCLUDED.musicnn_genre,
+                    musicnn_mood = EXCLUDED.musicnn_mood,
+                    musicnn_top_tags = EXCLUDED.musicnn_top_tags,
                     cache_key = EXCLUDED.cache_key;
             """, (
                 track_id,
@@ -396,8 +403,12 @@ class PostgreSQLManager:
                 json.dumps(essentia_data.get('spectral')) if essentia_data.get('spectral') else None,
                 json.dumps(essentia_data.get('harmonic')) if essentia_data.get('harmonic') else None,
                 json.dumps(essentia_data.get('mfcc')) if essentia_data.get('mfcc') else None,
+                json.dumps(essentia_data.get('other')) if essentia_data.get('other') else None,
                 json.dumps(analysis_data.get('musicnn_tags')) if analysis_data.get('musicnn_tags') else None,
                 musicnn_embeddings,
+                analysis_data.get('musicnn_genre'),
+                analysis_data.get('musicnn_mood'),
+                json.dumps(analysis_data.get('musicnn_top_tags')) if analysis_data.get('musicnn_top_tags') else None,
                 analysis_data.get('musicnn_confidence'),
                 analysis_data.get('segments_analyzed'),
                 json.dumps(analysis_data.get('segment_times')) if analysis_data.get('segment_times') else None,
@@ -409,28 +420,70 @@ class PostgreSQLManager:
             log_universal('WARNING', 'Database', f'Failed to save analysis details: {str(e)}')
     
     def _extract_essentia_data(self, analysis_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract and organize Essentia features."""
+        """Extract and organize ALL Essentia features."""
         essentia = {
             'rhythm': {},
             'spectral': {},
             'harmonic': {},
-            'mfcc': {}
+            'mfcc': {},
+            'other': {}
         }
         
-        # Rhythm features
-        for key in ['tempo', 'tempo_confidence', 'tempo_mean', 'tempo_std', 'tempo_median']:
+        # Comprehensive rhythm features
+        rhythm_keys = [
+            'tempo', 'tempo_confidence', 'tempo_mean', 'tempo_std', 'tempo_median',
+            'beats_confidence', 'rhythm_confidence', 'tempo_strength', 'rhythm_pattern',
+            'beat_positions', 'onset_times', 'rhythm_complexity', 'bpm_estimates', 
+            'bpm_intervals', 'external_bpm'
+        ]
+        for key in rhythm_keys:
             if key in analysis_data:
                 essentia['rhythm'][key] = analysis_data[key]
         
-        # Spectral features
-        for key in analysis_data:
-            if 'spectral_centroid' in key or 'loudness' in key:
+        # Comprehensive spectral features  
+        spectral_keys = [
+            'spectral_centroid_mean', 'spectral_centroid_std', 'spectral_centroid',
+            'spectral_flatness', 'spectral_rolloff', 'spectral_bandwidth',
+            'spectral_contrast_mean', 'spectral_contrast_std', 'spectral_flux',
+            'spectral_entropy', 'spectral_crest', 'spectral_decrease',
+            'spectral_kurtosis', 'spectral_skewness', 'loudness', 'loudness_range',
+            'dynamic_complexity', 'dynamic_range', 'zero_crossing_rate',
+            'root_mean_square', 'peak_amplitude', 'crest_factor',
+            'signal_to_noise_ratio'
+        ]
+        for key in spectral_keys:
+            if key in analysis_data:
                 essentia['spectral'][key] = analysis_data[key]
         
-        # Harmonic features
-        for key in ['key', 'scale', 'key_strength', 'key_confidence', 'scale_confidence']:
+        # Comprehensive harmonic features
+        harmonic_keys = [
+            'key', 'scale', 'mode', 'key_strength', 'key_confidence', 'scale_confidence',
+            'key_scale_notes', 'key_chord_progression', 'modulation_points',
+            'tonal_centroid', 'harmonic_complexity', 'chord_progression',
+            'harmonic_centroid', 'harmonic_contrast', 'chord_changes'
+        ]
+        for key in harmonic_keys:
             if key in analysis_data:
                 essentia['harmonic'][key] = analysis_data[key]
+        
+        # MFCC and chroma features
+        mfcc_keys = [
+            'mfcc_coefficients', 'mfcc_bands', 'mfcc_std', 'mfcc_delta', 'mfcc_delta2',
+            'chroma_mean', 'chroma_std'
+        ]
+        for key in mfcc_keys:
+            if key in analysis_data:
+                essentia['mfcc'][key] = analysis_data[key]
+        
+        # Other audio features
+        other_keys = [
+            'energy', 'danceability', 'valence', 'acousticness', 'instrumentalness',
+            'speechiness', 'liveness', 'duration', 'sample_rate', 'segments_analyzed',
+            'analysis_strategy', 'method'
+        ]
+        for key in other_keys:
+            if key in analysis_data:
+                essentia['other'][key] = analysis_data[key]
         
         return essentia
     
