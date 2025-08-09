@@ -200,7 +200,9 @@ class SingleAnalyzer:
                     return cached_result
             
             # Extract metadata first (fast operation)
+            log_universal('DEBUG', 'Audio', f'Starting analysis: {os.path.basename(file_path)}')
             metadata = self._extract_metadata(file_path)
+            log_universal('DEBUG', 'Audio', f'Metadata extracted: {os.path.basename(file_path)} - {metadata.get("title", "Unknown")} by {metadata.get("artist", "Unknown")}')
             
             # Determine file size and analysis method
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
@@ -214,7 +216,9 @@ class SingleAnalyzer:
                 audio_features = self._analyze_standard(file_path, metadata)
             
             # Enrich with external APIs
+            log_universal('DEBUG', 'Audio', f'Enriching metadata: {os.path.basename(file_path)}')
             enriched_metadata = self._enrich_metadata(metadata)
+            log_universal('DEBUG', 'Audio', f'Metadata enrichment complete: {os.path.basename(file_path)}')
             
             # Create final result
             result = self._create_complete_result(
@@ -222,7 +226,9 @@ class SingleAnalyzer:
             )
             
             # Save to database and cache
+            log_universal('DEBUG', 'Audio', f'Saving to database: {os.path.basename(file_path)}')
             self._save_result(result)
+            log_universal('DEBUG', 'Audio', f'Database save complete: {os.path.basename(file_path)}')
             
             analysis_time = time.time() - start_time
             log_universal('INFO', 'Audio', f'Completed {os.path.basename(file_path)} in {analysis_time:.1f}s')
@@ -715,6 +721,7 @@ class SingleAnalyzer:
             # Determine sampling strategy based on file size and duration
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
             analysis_strategy = self._determine_large_file_strategy(file_size_mb, duration)
+            log_universal('DEBUG', 'Audio', f'Large file strategy for {os.path.basename(file_path)}: {analysis_strategy} (Size: {file_size_mb:.1f}MB, Duration: {duration:.1f}s)')
             
             if analysis_strategy == 'beginning_sample':
                 # Analyze first 60 seconds only
