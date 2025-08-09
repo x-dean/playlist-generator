@@ -87,6 +87,8 @@ Examples:
         analyze_parser.add_argument('--force', action='store_true', help='Force re-analysis')
         analyze_parser.add_argument('--no-cache', action='store_true', help='Skip cache')
         analyze_parser.add_argument('--workers', type=int, help='Number of workers')
+        analyze_parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output (INFO level)')
+        analyze_parser.add_argument('-vv', '--debug', action='store_true', help='Debug output (DEBUG level)')
         
         stats_parser = subparsers.add_parser('stats', help='Show analysis statistics')
         

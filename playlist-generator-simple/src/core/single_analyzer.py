@@ -483,15 +483,16 @@ class SingleAnalyzer:
             # Extract basic audio info
             duration = self._get_duration_ffmpeg(file_path)
             
-            # Classify content type based on metadata and characteristics
-            content_classification = self._classify_large_content(metadata, duration)
-            
-            # Add lightweight Essentia analysis for large files
+            # Add lightweight Essentia analysis for large files first
             essentia_features = self._extract_essentia_features_large(file_path, duration)
             
             # Check if Essentia extraction failed
             if essentia_features.get('error'):
                 log_universal('WARNING', 'Audio', f'Essentia extraction failed for {os.path.basename(file_path)}: {essentia_features.get("error")} - continuing with metadata-only analysis')
+                essentia_features = {}
+            
+            # Classify content type using metadata AND Essentia features
+            content_classification = self._classify_large_content_enhanced(metadata, duration, essentia_features)
             
             features = {
                 'duration': duration,
@@ -616,6 +617,170 @@ class SingleAnalyzer:
         classification['features'] = self._extract_technical_features(duration, file_size_mb)
         
         return classification
+    
+    def _classify_large_content_enhanced(self, metadata: Dict[str, Any], duration: float, essentia_features: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Enhanced content classification using both metadata and Essentia audio features.
+        
+        Uses tempo, energy, key changes, and other audio characteristics to make
+        more accurate content type determinations for large files.
+        """
+        # Start with metadata-based classification
+        base_classification = self._classify_large_content(metadata, duration)
+        
+        # Extract Essentia features for enhanced classification
+        tempo = essentia_features.get('tempo', 0)
+        energy = essentia_features.get('energy', 0)
+        danceability = essentia_features.get('danceability', 0)
+        segments_analyzed = essentia_features.get('segments_analyzed', 0)
+        
+        # Get text fields for metadata analysis
+        title = metadata.get('title', '').lower() if metadata.get('title') else ''
+        artist = metadata.get('artist', '').lower() if metadata.get('artist') else ''
+        filename = metadata.get('filename', '').lower()
+        all_text = f"{title} {artist} {filename}".lower()
+        
+        log_universal('DEBUG', 'Audio', f'Enhanced classification - Tempo: {tempo}, Energy: {energy}, Danceability: {danceability}')
+        
+        # Enhanced classification logic using audio features
+        enhanced_type = base_classification['type']
+        enhanced_subtype = base_classification['subtype']
+        enhanced_confidence = base_classification['confidence']
+        enhanced_features = base_classification['features'].copy()
+        
+        # DJ Mix detection with audio features
+        if self._is_dj_mix_enhanced(all_text, tempo, energy, danceability, duration):
+            enhanced_type = 'dj_mix'
+            if tempo > 140:
+                enhanced_subtype = 'high_energy_mix'  # Trance, Techno, Hardstyle
+            elif tempo > 120:
+                enhanced_subtype = 'club_mix'         # House, Progressive
+            elif tempo > 100:
+                enhanced_subtype = 'downtempo_mix'    # Chill, Ambient
+            else:
+                enhanced_subtype = 'experimental_mix' # Unusual tempo
+            enhanced_confidence = min(0.95, enhanced_confidence + 0.3)
+            enhanced_features.extend(['tempo_based_classification', 'energy_analysis'])
+        
+        # Radio show detection with audio characteristics
+        elif self._is_radio_show_enhanced(all_text, tempo, energy, segments_analyzed):
+            enhanced_type = 'radio_show'
+            if energy > 0.7:
+                enhanced_subtype = 'music_radio'      # High energy music content
+            elif energy > 0.4:
+                enhanced_subtype = 'talk_music_radio' # Mixed content
+            else:
+                enhanced_subtype = 'talk_radio'       # Mostly speech
+            enhanced_confidence = min(0.9, enhanced_confidence + 0.2)
+            enhanced_features.extend(['energy_based_content', 'segment_analysis'])
+        
+        # Live performance detection
+        elif self._is_live_performance_enhanced(all_text, tempo, danceability, duration):
+            enhanced_type = 'live_performance'
+            if danceability > 0.7 and tempo > 120:
+                enhanced_subtype = 'live_dj_set'      # Live DJ performance
+            elif danceability > 0.5:
+                enhanced_subtype = 'live_concert'     # Live band/artist
+            else:
+                enhanced_subtype = 'live_ambient'     # Ambient/experimental live
+            enhanced_confidence = min(0.85, enhanced_confidence + 0.25)
+            enhanced_features.extend(['danceability_analysis', 'tempo_consistency'])
+        
+        # Podcast detection (low danceability, variable tempo)
+        elif tempo < 80 and danceability < 0.3 and duration > 1800:  # >30 min
+            enhanced_type = 'podcast'
+            enhanced_subtype = 'long_form_podcast'
+            enhanced_confidence = min(0.8, enhanced_confidence + 0.15)
+            enhanced_features.extend(['low_danceability', 'speech_indicators'])
+        
+        # Add audio-based features to the classification
+        audio_features = {
+            'tempo_bpm': tempo,
+            'energy_level': energy,
+            'danceability_score': danceability,
+            'segments_analyzed': segments_analyzed,
+            'audio_classification_used': True
+        }
+        enhanced_features.extend([f"audio_{k}" for k in audio_features.keys()])
+        
+        return {
+            'type': enhanced_type,
+            'subtype': enhanced_subtype,
+            'confidence': enhanced_confidence,
+            'features': enhanced_features,
+            'estimated_tracks': self._estimate_tracks_enhanced(enhanced_type, duration, tempo),
+            'description': f"{enhanced_type.replace('_', ' ').title()} ({enhanced_subtype}, {tempo:.0f}bpm, {energy:.1f} energy)",
+            'audio_features': audio_features
+        }
+    
+    def _is_dj_mix_enhanced(self, text: str, tempo: float, energy: float, danceability: float, duration: float) -> bool:
+        """Enhanced DJ mix detection using audio features."""
+        # Metadata indicators
+        metadata_score = self._score_patterns(text, [
+            'mix', 'set', 'essential', 'trance', 'state', 'radio', 'show'
+        ])
+        
+        # Audio feature indicators
+        audio_score = 0
+        if 100 <= tempo <= 180:  # Typical DJ mix tempo range
+            audio_score += 0.3
+        if energy > 0.5:  # Generally energetic
+            audio_score += 0.2
+        if danceability > 0.6:  # Danceable content
+            audio_score += 0.3
+        if duration > 3600:  # Typically long
+            audio_score += 0.2
+        
+        return (metadata_score + audio_score) > 0.6
+    
+    def _is_radio_show_enhanced(self, text: str, tempo: float, energy: float, segments: int) -> bool:
+        """Enhanced radio show detection using audio features."""
+        metadata_score = self._score_patterns(text, [
+            'radio', 'show', 'episode', 'broadcast', 'fm', 'am'
+        ])
+        
+        # Radio shows often have varied content (music + speech)
+        audio_score = 0
+        if segments > 1:  # Multiple segments analyzed
+            audio_score += 0.3
+        if 0.3 < energy < 0.8:  # Moderate energy (mixed content)
+            audio_score += 0.2
+        if 80 < tempo < 140:  # Varied tempo range
+            audio_score += 0.2
+        
+        return (metadata_score + audio_score) > 0.5
+    
+    def _is_live_performance_enhanced(self, text: str, tempo: float, danceability: float, duration: float) -> bool:
+        """Enhanced live performance detection using audio features."""
+        metadata_score = self._score_patterns(text, [
+            'live', 'concert', 'performance', 'festival', 'stage'
+        ])
+        
+        # Live performances often have consistent tempo and high danceability
+        audio_score = 0
+        if tempo > 100:  # Energetic live performance
+            audio_score += 0.2
+        if danceability > 0.5:  # Engaging for audience
+            audio_score += 0.3
+        if duration > 1800:  # Substantial performance length
+            audio_score += 0.2
+        
+        return (metadata_score + audio_score) > 0.5
+    
+    def _estimate_tracks_enhanced(self, content_type: str, duration: float, tempo: float) -> int:
+        """Enhanced track count estimation using tempo information."""
+        if content_type == 'dj_mix':
+            # Faster tempo = shorter tracks typically
+            if tempo > 140:
+                avg_track_length = 4.5 * 60  # 4.5 minutes for high energy
+            elif tempo > 120:
+                avg_track_length = 5.5 * 60  # 5.5 minutes for club music
+            else:
+                avg_track_length = 7 * 60    # 7 minutes for downtempo
+            return int(duration / avg_track_length)
+        else:
+            # Use original estimation for other types
+            return self._estimate_track_count_mix(duration)
     
     def _score_patterns(self, text: str, patterns: List[str]) -> float:
         """Score text against pattern list."""
