@@ -474,10 +474,12 @@ class SingleAnalyzer:
             # Get enrichment service
             enrichment_service = get_metadata_enrichment_service()
             if not enrichment_service:
-                log_universal('DEBUG', 'API', 'No metadata enrichment service available')
+                log_universal('ERROR', 'API', 'No metadata enrichment service available')
                 return enriched
             
             log_universal('DEBUG', 'API', f'Enrichment service obtained: {type(enrichment_service).__name__}')
+            log_universal('DEBUG', 'API', f'Available APIs: {enrichment_service.get_available_apis()}')
+            log_universal('DEBUG', 'API', f'Service is available: {enrichment_service.is_available()}')
             
             # Extract search parameters
             title = metadata.get('title', '')

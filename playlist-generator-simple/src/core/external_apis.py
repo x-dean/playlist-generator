@@ -167,21 +167,16 @@ class BaseAPIClient(ABC):
             time.sleep(sleep_time)
         self.last_request_time = time.time()
     
-    def _get_cache_key(self, title: str, artist: str) -> str:
-        """Generate cache key for API responses."""
-        normalized_title = title.lower().strip()
-        normalized_artist = artist.lower().strip() if artist else ""
-        search_string = f"{self.api_name.lower()}:{normalized_title}:{normalized_artist}"
-        return hashlib.md5(search_string.encode()).hexdigest()
+
     
     def _log_api_call(self, method: str, query: str, success: bool, details: str = "", 
                       duration: float = 0, failure_type: str = None):
         """Unified API call logging."""
-        log_api_call(
-            self.api_name, method, query, 
-            success=success, details=details, 
-            duration=duration, failure_type=failure_type
-        )
+        level = 'INFO' if success else 'WARNING'
+        status = 'success' if success else 'failed'
+        duration_str = f' ({duration:.2f}s)' if duration > 0 else ''
+        details_str = f' - {details}' if details else ''
+        log_universal(level, f'{self.api_name} API', f'{method}: {query} {status}{details_str}{duration_str}')
     
     @abstractmethod
     def search_track(self, title: str, artist: str = None) -> Optional[TrackMetadata]:
@@ -226,15 +221,8 @@ class MusicBrainzClient(BaseAPIClient):
         if not MUSICBRAINZ_AVAILABLE:
             return None
         
-        # Check cache first
-        cache_key = self._get_cache_key(title, artist)
-        cached_result = self.db_manager.get_cache(cache_key)
-        
-        if cached_result:
-            log_universal('DEBUG', 'MusicBrainz API', f'Using cached result for: {title} by {artist}')
-            if cached_result is not None:
-                return TrackMetadata.from_dict(cached_result)
-            return None
+
+
         
         try:
             start_time = time.time()
@@ -256,23 +244,17 @@ class MusicBrainzClient(BaseAPIClient):
             )
             
             duration = time.time() - start_time
-            log_api_call('MusicBrainz', 'search_recordings', {'query': query}, duration, 'success')
+            log_universal('DEBUG', 'MusicBrainz API', f'Search successful: {query} ({duration:.2f}s)')
             
             if not result or 'recording-list' not in result:
-                self._log_api_call('search', f"'{title}' by '{artist or 'Unknown'}'", 
-                                 success=False, details='No data returned', 
-                                 duration=duration, failure_type='no_data')
-                # Cache negative results for shorter time
-                self.db_manager.save_cache(cache_key, None, expires_hours=1)
+                log_universal('WARNING', 'MusicBrainz API', f'No data returned for: {title} by {artist or "Unknown"} ({duration:.2f}s)')
+
                 return None
             
             recordings = result['recording-list']
             if not recordings:
-                self._log_api_call('search', f"'{title}' by '{artist or 'Unknown'}'", 
-                                 success=False, details='No recordings found', 
-                                 duration=duration, failure_type='no_recordings')
-                # Cache negative results for shorter time
-                self.db_manager.save_cache(cache_key, None, expires_hours=1)
+                log_universal('WARNING', 'MusicBrainz API', f'No recordings found for: {title} by {artist or "Unknown"} ({duration:.2f}s)')
+
                 return None
             
             recording = recordings[0]
@@ -354,8 +336,8 @@ class MusicBrainzClient(BaseAPIClient):
                              success=True, details=f"found {len(track_metadata.tags)} tags", 
                              duration=duration)
             
-            # Cache successful results for 24 hours
-            self.db_manager.save_cache(cache_key, track_metadata.to_dict(), expires_hours=24)
+
+
             
             return track_metadata
             
@@ -366,8 +348,8 @@ class MusicBrainzClient(BaseAPIClient):
             self._log_api_call('search', f"'{title}' by '{artist}'", 
                              success=False, details=f"Error: {e}", 
                              duration=duration, failure_type='network')
-            # Cache errors for shorter time
-            self.db_manager.save_cache(cache_key, None, expires_hours=1)
+
+
             return None
 
 
@@ -433,15 +415,8 @@ class LastFMClient(BaseAPIClient):
             log_universal('DEBUG', 'LastFM API', f'No API key available for: {title} by {artist}')
             return None
         
-        # Check cache first
-        cache_key = self._get_cache_key(title, artist)
-        cached_result = self.db_manager.get_cache(cache_key)
-        
-        if cached_result:
-            log_universal('DEBUG', 'LastFM API', f'Using cached result for: {title} by {artist}')
-            if cached_result is not None:
-                return TrackMetadata.from_dict(cached_result)
-            return None
+
+
         
         try:
             start_time = time.time()
@@ -458,8 +433,7 @@ class LastFMClient(BaseAPIClient):
                 self._log_api_call('get_track_info', f"'{title}' by '{artist}'", 
                                  success=False, details='No data returned', 
                                  duration=duration, failure_type='no_data')
-                # Cache negative results for shorter time
-                self.db_manager.save_cache(cache_key, None, expires_hours=1)
+
                 return None
             
             track_data = result['track']
@@ -518,8 +492,7 @@ class LastFMClient(BaseAPIClient):
                 self._log_api_call('get_track_info', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
                                  success=False, details='No useful data found', 
                                  duration=duration, failure_type='no_data')
-                # Cache negative results for shorter time
-                self.db_manager.save_cache(cache_key, None, expires_hours=1)
+
                 return None
             else:
                 # Found useful data
@@ -527,8 +500,8 @@ class LastFMClient(BaseAPIClient):
                                  success=True, details=f"found {len(track_metadata.tags)} tags", 
                                  duration=duration)
                 
-                # Cache successful results for 24 hours
-                self.db_manager.save_cache(cache_key, track_metadata.to_dict(), expires_hours=24)
+    
+    
                 
                 return track_metadata
             
@@ -539,8 +512,8 @@ class LastFMClient(BaseAPIClient):
             self._log_api_call('get_track_info', f"'{title}' by '{artist}'", 
                              success=False, details=f"Error: {e}", 
                              duration=duration, failure_type='network')
-            # Cache errors for shorter time
-            self.db_manager.save_cache(cache_key, None, expires_hours=1)
+
+
             return None
 
 
@@ -610,15 +583,8 @@ class DiscogsClient(BaseAPIClient):
         if not self.api_key:
             return None
         
-        # Check cache first
-        cache_key = self._get_cache_key(title, artist)
-        cached_result = self.db_manager.get_cache(cache_key)
-        
-        if cached_result:
-            log_universal('DEBUG', 'Discogs API', f'Using cached result for: {title} by {artist}')
-            if cached_result is not None:
-                return TrackMetadata.from_dict(cached_result)
-            return None
+
+
         
         try:
             start_time = time.time()
@@ -641,8 +607,7 @@ class DiscogsClient(BaseAPIClient):
                 self._log_api_call('search', f"'{title}' by '{artist}'", 
                                  success=False, details='No data returned', 
                                  duration=duration, failure_type='no_data')
-                # Cache negative results for shorter time
-                self.db_manager.save_cache(cache_key, None, expires_hours=1)
+
                 return None
             
             release = result['results'][0]
@@ -693,8 +658,8 @@ class DiscogsClient(BaseAPIClient):
                              success=True, details=f"found {len(track_metadata.tags)} tags", 
                              duration=duration)
             
-            # Cache successful results for 24 hours
-            self.db_manager.save_cache(cache_key, track_metadata.to_dict(), expires_hours=24)
+
+
             
             return track_metadata
             
@@ -705,8 +670,8 @@ class DiscogsClient(BaseAPIClient):
             self._log_api_call('search', f"'{title}' by '{artist}'", 
                              success=False, details=f"Error: {e}", 
                              duration=duration, failure_type='network')
-            # Cache errors for shorter time
-            self.db_manager.save_cache(cache_key, None, expires_hours=1)
+
+
             return None
 
 
@@ -796,15 +761,8 @@ class SpotifyClient(BaseAPIClient):
         if not self.client_id or not self.client_secret:
             return None
         
-        # Check cache first
-        cache_key = self._get_cache_key(title, artist)
-        cached_result = self.db_manager.get_cache(cache_key)
-        
-        if cached_result:
-            log_universal('DEBUG', 'Spotify API', f'Using cached result for: {title} by {artist}')
-            if cached_result is not None:
-                return TrackMetadata.from_dict(cached_result)
-            return None
+
+
         
         try:
             start_time = time.time()
@@ -827,8 +785,7 @@ class SpotifyClient(BaseAPIClient):
                 self._log_api_call('search', f"'{title}' by '{artist}'", 
                                  success=False, details='No data returned', 
                                  duration=duration, failure_type='no_data')
-                # Cache negative results for shorter time
-                self.db_manager.save_cache(cache_key, None, expires_hours=1)
+
                 return None
             
             track_data = result['tracks']['items'][0]
@@ -889,8 +846,8 @@ class SpotifyClient(BaseAPIClient):
                              success=True, details=f"found {len(track_metadata.genres)} genres", 
                              duration=duration)
             
-            # Cache successful results for 24 hours
-            self.db_manager.save_cache(cache_key, track_metadata.to_dict(), expires_hours=24)
+
+
             
             return track_metadata
             
@@ -901,8 +858,8 @@ class SpotifyClient(BaseAPIClient):
             self._log_api_call('search', f"'{title}' by '{artist}'", 
                              success=False, details=f"Error: {e}", 
                              duration=duration, failure_type='network')
-            # Cache errors for shorter time
-            self.db_manager.save_cache(cache_key, None, expires_hours=1)
+
+
             return None
 
 
@@ -985,87 +942,9 @@ class EnhancedMetadataEnrichmentService:
         
         log_universal('INFO', 'Enrichment', f'Initialized {len(self.clients)} API clients')
     
-    def _is_radio_show_episode(self, title: str, artist: str) -> bool:
-        """
-        Detect if this is a radio show episode that shouldn't be enriched via external APIs.
-        
-        Args:
-            title: Track title
-            artist: Artist name
-            
-        Returns:
-            True if this appears to be a radio show episode
-        """
-        if not title or not artist:
-            return False
-        
-        title_lower = title.lower()
-        artist_lower = artist.lower()
-        
-        # Common radio show patterns
-        radio_show_indicators = [
-            'episode',
-            'show',
-            'radio',
-            'mix',
-            'podcast',
-            'broadcast',
-            'session',
-            'live',
-            'state of trance',
-            'asot',
-            'essential mix',
-            'global djmix',
-            'trance around the world',
-            'tatw',
-            'armada',
-            'di.fm',
-            'siriusxm',
-            'bbc radio',
-            'kiss fm',
-            'radio 1',
-            'radio 2'
-        ]
-        
-        # Check if title contains radio show indicators
-        for indicator in radio_show_indicators:
-            if indicator in title_lower:
-                return True
-        
-        # Check if artist is a known radio show host
-        radio_hosts = [
-            'armin van buuren',
-            'tiesto',
-            'paul van dyk',
-            'ferry corsten',
-            'markus schulz',
-            'gareth emery',
-            'above & beyond',
-            'deadmau5',
-            'skrillex',
-            'david guetta',
-            'calvin harris',
-            'avicii',
-            'martin garrix',
-            'hardwell',
-            'afrojack'
-        ]
-        
-        # Check if artist is a radio host AND title looks like an episode
-        if artist_lower in radio_hosts:
-            episode_indicators = ['episode', 'show', 'mix', 'live', 'broadcast']
-            for indicator in episode_indicators:
-                if indicator in title_lower:
-                    return True
-        
-        return False
+
     
-    def _get_enrichment_cache_key(self, title: str, artist: str) -> str:
-        """Generate cache key for enrichment results."""
-        normalized_title = title.lower().strip()
-        normalized_artist = artist.lower().strip()
-        enrichment_string = f"enrich:{normalized_title}:{normalized_artist}"
-        return hashlib.md5(enrichment_string.encode()).hexdigest()
+
     
     def enrich_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -1094,11 +973,7 @@ class EnhancedMetadataEnrichmentService:
         if artist == "None":
             artist = ""
         
-        # Detect radio show episodes and handle them appropriately
-        is_radio_show = self._is_radio_show_episode(title, artist)
-        if is_radio_show:
-            log_universal('INFO', 'Enrichment', f'Detected radio show episode: "{title}" by "{artist}" - skipping external API enrichment')
-            return enriched_metadata
+        # Radio show detection removed - perform API enrichment for all tracks
         
         # Try alternative field names if primary ones are empty
         if not title:
@@ -1136,14 +1011,7 @@ class EnhancedMetadataEnrichmentService:
             log_universal('WARNING', 'Enrichment', 'Missing title or artist')
             return enriched_metadata
         
-        # Check enrichment cache first
-        db_manager = get_db_manager()
-        enrichment_cache_key = self._get_enrichment_cache_key(title, artist)
-        cached_enrichment = db_manager.get_cache(enrichment_cache_key)
-        
-        if cached_enrichment:
-            log_universal('DEBUG', 'Enrichment', f'Using cached enrichment for: {title} by {artist}')
-            return cached_enrichment
+
         
         # Collect results from all available APIs
         api_results = []
@@ -1202,14 +1070,13 @@ class EnhancedMetadataEnrichmentService:
                 'image_url': merged_result.image_url,
                 'sources': merged_result.sources
             }
-            log_extracted_fields('Enrichment', merged_result.title, merged_result.artist, merged_fields)
+            log_universal('DEBUG', 'Enrichment', f'Extracted fields for {merged_result.title} by {merged_result.artist}: {list(merged_fields.keys())}')
             
             log_universal('INFO', 'Enrichment', f'Complete - {", ".join(enrichment_results)}')
         else:
             log_universal('INFO', 'Enrichment', 'No data added')
         
-        # Cache enrichment results for 24 hours
-        db_manager.save_cache(enrichment_cache_key, enriched_metadata, expires_hours=24)
+
         
         return enriched_metadata
     
