@@ -222,7 +222,7 @@ class PostgreSQLManager:
                     analysis_data.get('content_type'), analysis_data.get('content_subtype'),
                     analysis_data.get('content_confidence'),
                     json.dumps(analysis_data.get('content_features', [])) if analysis_data.get('content_features') else None,
-                    analysis_data.get('estimated_tracks'), analysis_data.get('content_description')
+                    analysis_data.get('estimated_track_count'), analysis_data.get('content_description')
                 ))
                 
                 track_id = cursor.fetchone()[0]
@@ -590,6 +590,7 @@ class PostgreSQLManager:
                 
                 row = cursor.fetchone()
                 if not row:
+                    log_universal('DEBUG', 'Database', f'No analysis found for {os.path.basename(file_path)}')
                     return None
                 
                 # Convert to analysis result format expected by SingleAnalyzer
@@ -606,7 +607,7 @@ class PostgreSQLManager:
                         'title': row['title'],
                         'artist': row['artist'],
                         'album': row['album'],
-                        'genre': json.loads(row['genre']) if row['genre'] else [],
+                        'genre': self._safe_json_loads(row['genre'], []),
                         'year': row['year'],
                         'file_size_mb': row['file_size_bytes'] / (1024 * 1024) if row['file_size_bytes'] else 0
                     },
@@ -632,20 +633,20 @@ class PostgreSQLManager:
                     'content_type': row['content_type'],
                     'content_subtype': row['content_subtype'],
                     'content_confidence': row['content_confidence'],
-                    'content_features': json.loads(row['content_features']) if row['content_features'] else {},
+                    'content_features': self._safe_json_loads(row['content_features'], {}),
                     'estimated_track_count': row['estimated_track_count'],
                     'content_description': row['content_description'],
                     
                     # Advanced features (if available)
                     'essentia_features': {
-                        'rhythm': json.loads(row['essentia_rhythm']) if row['essentia_rhythm'] else {},
-                        'spectral': json.loads(row['essentia_spectral']) if row['essentia_spectral'] else {},
-                        'harmonic': json.loads(row['essentia_harmonic']) if row['essentia_harmonic'] else {},
-                        'mfcc': json.loads(row['essentia_mfcc']) if row['essentia_mfcc'] else {}
+                        'rhythm': self._safe_json_loads(row['essentia_rhythm'], {}),
+                        'spectral': self._safe_json_loads(row['essentia_spectral'], {}),
+                        'harmonic': self._safe_json_loads(row['essentia_harmonic'], {}),
+                        'mfcc': self._safe_json_loads(row['essentia_mfcc'], {})
                     } if row['essentia_rhythm'] else {},
                     
                     'musicnn_features': {
-                        'tags': json.loads(row['musicnn_tags']) if row['musicnn_tags'] else {},
+                        'tags': self._safe_json_loads(row['musicnn_tags'], {}),
                         'embeddings': row['musicnn_embeddings'] if row['musicnn_embeddings'] else []
                     } if row['musicnn_tags'] else {}
                 }
@@ -656,6 +657,16 @@ class PostgreSQLManager:
         except Exception as e:
             log_universal('WARNING', 'Database', f'Failed to get analysis result for {file_path}: {str(e)}')
             return None
+    
+    def _safe_json_loads(self, json_str: str, default_value: Any) -> Any:
+        """Safely parse JSON string with fallback to default value."""
+        if not json_str or json_str.strip() == '':
+            return default_value
+        try:
+            return json.loads(json_str)
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            log_universal('DEBUG', 'Database', f'JSON parse error: {str(e)}, using default')
+            return default_value
     
     # =========================================================================
     # UTILITY METHODS

@@ -1098,8 +1098,15 @@ class SingleAnalyzer:
     def _load_from_cache(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Load result from database cache."""
         try:
-            return self.db_manager.get_analysis_result(file_path)
-        except Exception:
+            result = self.db_manager.get_analysis_result(file_path)
+            if result:
+                log_universal('DEBUG', 'Cache', f'Cache HIT for {os.path.basename(file_path)}')
+                return result
+            else:
+                log_universal('DEBUG', 'Cache', f'Cache MISS for {os.path.basename(file_path)}')
+                return None
+        except Exception as e:
+            log_universal('DEBUG', 'Cache', f'Cache ERROR for {os.path.basename(file_path)}: {str(e)}')
             return None
     
     def _save_result(self, result: Dict[str, Any]):
