@@ -15,7 +15,7 @@ Key features:
 
 import os
 import sys
-
+import json
 import hashlib
 import subprocess
 import tempfile
