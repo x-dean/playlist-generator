@@ -94,7 +94,7 @@ export const Library = () => {
 
   const analyzeTrack = async (trackId: string) => {
     try {
-      await apiClient.post(`/api/library/tracks/${trackId}/analyze`);
+      await apiClient.post('/api/analyze', { track_id: trackId });
       // Refetch to show updated data
       refetch();
     } catch (error) {
@@ -260,7 +260,6 @@ export const Library = () => {
                             color="blue"
                             onClick={() => analyzeTrack(track.id)}
                             title="Analyze track"
-                            aria-label="Analyze track"
                           >
                             <IconAnalyze size={16} />
                           </ActionIcon>

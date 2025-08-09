@@ -87,22 +87,7 @@ services:
       postgres:
         condition: service_healthy
 
-  # Redis for caching and sessions (optional)
-  redis:
-    image: redis:7-alpine
-    container_name: playlista-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - playlista-network
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    profiles:
-      - cache  # Optional service
-
-  # pgAdmin for database management (optional)
+  # pgAdmin for database management (optional - use: docker-compose --profile admin up)
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: playlista-pgadmin
@@ -111,7 +96,7 @@ services:
       PGADMIN_DEFAULT_PASSWORD: admin
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:
-      - "8080:80"
+      - "8082:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
     networks:
@@ -120,12 +105,10 @@ services:
       - postgres
     restart: unless-stopped
     profiles:
-      - admin  # Optional service
+      - admin  # Optional: docker-compose --profile admin up
 
 volumes:
   postgres_data:
-    driver: local
-  redis_data:
     driver: local
   pgadmin_data:
     driver: local

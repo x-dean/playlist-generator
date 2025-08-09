@@ -85,7 +85,7 @@ services:
       postgres:
         condition: service_healthy
 
-  # pgAdmin for database management (optional)
+  # pgAdmin for database management (optional - use: docker-compose --profile admin up)
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: playlista-pgadmin-test
@@ -103,7 +103,7 @@ services:
       - postgres
     restart: unless-stopped
     profiles:
-      - admin  # Optional service
+      - admin  # Optional: docker-compose --profile admin up
 
 volumes:
   postgres_test_data:

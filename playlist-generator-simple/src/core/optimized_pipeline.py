@@ -15,7 +15,7 @@ Key features:
 
 import os
 import sys
-import json
+
 import hashlib
 import subprocess
 import tempfile
@@ -70,8 +70,7 @@ class OptimizedAudioPipeline:
         
         # Cache settings
         self.cache_enabled = self.config.get('CACHE_ENABLED', True)
-        self.cache_dir = Path(self.config.get('CACHE_DIR', '/app/cache/optimized_pipeline'))
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        # Cache is now handled by PostgreSQL database - no file cache needed
         
         # Initialize MusiCNN integration
         self.musicnn = get_musicnn_integration(self.musicnn_model_size)
@@ -791,48 +790,27 @@ class OptimizedAudioPipeline:
             return hashlib.md5(file_path.encode()).hexdigest()
     
     def _load_from_cache(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Load analysis result from cache."""
+        """Load analysis result from database cache."""
         try:
-            cache_key = self._get_cache_key(file_path)
-            cache_file = self.cache_dir / f"{cache_key}.json"
-            
-            if cache_file.exists():
-                with open(cache_file, 'r') as f:
-                    return json.load(f)
+            # Use database manager to check for existing analysis
+            from .database import get_postgresql_manager
+            db_manager = get_postgresql_manager()
+            return db_manager.get_analysis_result(file_path)
             
         except Exception as e:
-            log_universal('WARNING', 'OptimizedPipeline', f'Cache load failed: {e}')
+            log_universal('WARNING', 'OptimizedPipeline', f'Database cache load failed: {e}')
         
         return None
     
     def _save_to_cache(self, file_path: str, result: Dict[str, Any]):
-        """Save analysis result to cache."""
+        """Save analysis result to database cache."""
         try:
-            cache_key = self._get_cache_key(file_path)
-            cache_file = self.cache_dir / f"{cache_key}.json"
-            
-            # Convert numpy arrays to lists for JSON serialization
-            result_serializable = self._make_json_serializable(result)
-            
-            with open(cache_file, 'w') as f:
-                json.dump(result_serializable, f, indent=2)
-            
-            log_universal('DEBUG', 'OptimizedPipeline', f'Result cached: {cache_file}')
+            # Note: Actual saving is handled by SingleAnalyzer._save_result()
+            # This method is kept for compatibility but does nothing
+            # since the database save happens at a higher level
+            log_universal('DEBUG', 'OptimizedPipeline', f'Cache save skipped - handled by SingleAnalyzer')
             
         except Exception as e:
             log_universal('WARNING', 'OptimizedPipeline', f'Cache save failed: {e}')
     
-    def _make_json_serializable(self, obj):
-        """Convert object to JSON-serializable format."""
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, dict):
-            return {k: self._make_json_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [self._make_json_serializable(item) for item in obj]
-        else:
-            return obj
+
