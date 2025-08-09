@@ -16,7 +16,7 @@ from src.core.resource_manager import ResourceManager
 from src.core.database import DatabaseManager, get_db_manager
 from src.core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
 from src.core.comprehensive_manager import get_comprehensive_manager
-from src.core.logging_setup import get_logger
+from src.core.logging_setup import get_logger, log_universal
 
 logger = get_logger('playlista.cli.commands')
 

@@ -20,7 +20,7 @@ os.environ['LIBROSA_LOG_LEVEL'] = 'error'
 import sys
 sys.path.append('/app')
 
-from src.core.logging_setup import get_logger, setup_logging
+from src.core.logging_setup import get_logger, setup_logging, log_universal
 from src.core.config_loader import config_loader
 from src.cli.commands import AnalysisCommands, PlaylistCommands, DatabaseCommands, UtilityCommands, ManagerCommands
 
