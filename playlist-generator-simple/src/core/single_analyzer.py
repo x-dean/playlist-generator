@@ -1164,14 +1164,18 @@ class SingleAnalyzer:
                 hpcp = essentia_standard.HPCP()
                 key_extractor_hpcp = essentia_standard.Key()
                 
+                # Define windowing and spectrum for harmonic analysis
+                windowing_harmonic = essentia_standard.Windowing(type='hann')
+                spectrum_harmonic = essentia_standard.Spectrum()
+                
                 # Calculate harmonic complexity (simplified)
                 if len(audio) > 1024:
                     frame_generator = essentia_standard.FrameGenerator(audio, frameSize=4096, hopSize=2048)
                     hpcp_values = []
                     for frame in frame_generator:
                         if len(frame) == 4096:  # Ensure full frame
-                            windowed_frame = windowing(frame)
-                            spectrum_frame = spectrum(windowed_frame)
+                            windowed_frame = windowing_harmonic(frame)
+                            spectrum_frame = spectrum_harmonic(windowed_frame)
                             hpcp_frame = hpcp(spectrum_frame)
                             hpcp_values.append(hpcp_frame)
                     
@@ -1191,23 +1195,22 @@ class SingleAnalyzer:
             loudness_extractor = essentia_standard.Loudness()
             features['loudness'] = float(loudness_extractor(audio))
             
-            # Dynamic range and complexity
+            # Peak amplitude and crest factor (can be calculated now)
             try:
-                # Calculate dynamic complexity from energy variations
-                if energies:  # Will be calculated later in the frame loop
-                    pass  # Will be set after energy calculation
-                
-                # Peak amplitude and crest factor
                 if len(audio) > 0:
+                    import numpy as np
                     features['peak_amplitude'] = float(np.max(np.abs(audio)))
                     rms_total = np.sqrt(np.mean(audio**2))
                     if rms_total > 0:
                         features['crest_factor'] = features['peak_amplitude'] / rms_total
                     else:
                         features['crest_factor'] = 1.0
-                
+                else:
+                    features['peak_amplitude'] = 0.0
+                    features['crest_factor'] = 1.0
+                    
             except Exception as e:
-                log_universal('DEBUG', 'Audio', f'Dynamic analysis failed: {e}')
+                log_universal('DEBUG', 'Audio', f'Peak amplitude analysis failed: {e}')
                 features['peak_amplitude'] = 0.5
                 features['crest_factor'] = 1.0
             
@@ -1239,7 +1242,20 @@ class SingleAnalyzer:
             
             # MFCC and chroma
             mfcc = essentia_standard.MFCC(numberCoefficients=13)
-            chroma = essentia_standard.ChromaExtractor()
+            
+            # Try different chroma extractors
+            try:
+                chroma = essentia_standard.ChromaExtractor()
+            except AttributeError:
+                try:
+                    chroma = essentia_standard.Chroma()
+                except AttributeError:
+                    # Fallback: use HPCP as chroma approximation
+                    try:
+                        chroma = essentia_standard.HPCP()
+                    except AttributeError:
+                        chroma = None
+                        log_universal('WARNING', 'Audio', 'No chroma extractor available in Essentia')
             
             # Energy and RMS
             energy = essentia_standard.Energy()
@@ -1282,7 +1298,14 @@ class SingleAnalyzer:
                 # MFCC and chroma
                 mfcc_bands, mfcc_coefficients = mfcc(spec)
                 mfcc_coeffs.append(mfcc_coefficients)
-                chroma_vectors.append(chroma(spec))
+                
+                # Chroma (if available)
+                if chroma is not None:
+                    try:
+                        chroma_frame = chroma(spec)
+                        chroma_vectors.append(chroma_frame)
+                    except:
+                        pass  # Skip if chroma extraction fails
                 
                 # Energy features
                 energies.append(energy(frame))

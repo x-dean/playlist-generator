@@ -237,6 +237,11 @@ class MusiCNNIntegration:
                 log_universal('WARNING', 'MusiCNN', 'Essentia not available, using fallback tags')
                 return self._generate_fallback_tags()
             
+            # Debug: Log available TensorFlow predictors (only once)
+            if not hasattr(self, '_tf_predictors_logged'):
+                self._log_available_tf_predictors(es)
+                self._tf_predictors_logged = True
+            
             # Try multiple model approaches in order of preference
             
             # Try to load MusiCNN models using config paths
@@ -248,14 +253,16 @@ class MusiCNNIntegration:
                 musicnn_model_path = config.get('MUSICNN_MODEL_PATH', '/app/models/musicnn/msd-musicnn-1.pb')
                 
                 model_paths = [
-                    musicnn_model_path,
-                    "/app/models/musicnn/msd-musicnn-1.pb",  # Your actual model path
+                    "/app/models/musicnn/msd-musicnn-1.pb",  # Your actual model path  
+                    "/app/models/msd-musicnn-1.pb",  # Alternative path from logs
+                    musicnn_model_path,  # Config path
                     "/app/models/musicnn_msd.pb"  # Legacy fallback
                 ]
             except Exception as e:
                 log_universal('WARNING', 'MusiCNN', f'Config loading failed: {e}, using default paths')
                 model_paths = [
                     "/app/models/musicnn/msd-musicnn-1.pb",  # Your actual model path
+                    "/app/models/msd-musicnn-1.pb",  # Alternative path from logs
                     "/app/models/musicnn_msd.pb"  # Legacy fallback
                 ]
             
@@ -272,12 +279,34 @@ class MusiCNNIntegration:
                             log_universal('DEBUG', 'MusiCNN', f'Loading tag names from {json_path}')
                             self._load_musicnn_tag_names(json_path)
                         
-                        # Use TensorFlowPredictor2D for MusiCNN models
-                        model = es.TensorFlowPredictor2D(
-                            graphFilename=model_path,
-                            inputs=["model/Placeholder"],
-                            outputs=["model/Sigmoid"]
-                        )
+                        # Try different TensorFlow predictor classes available in Essentia
+                        try:
+                            # Try TensorFlowPredictor2D first (newer versions)
+                            model = es.TensorFlowPredictor2D(
+                                graphFilename=model_path,
+                                inputs=["model/Placeholder"],
+                                outputs=["model/Sigmoid"]
+                            )
+                        except AttributeError:
+                            try:
+                                # Try TensorFlowPredictor (older versions)
+                                model = es.TensorFlowPredictor(
+                                    graphFilename=model_path,
+                                    inputs=["model/Placeholder"],
+                                    outputs=["model/Sigmoid"]
+                                )
+                            except AttributeError:
+                                try:
+                                    # Try generic TensorFlow predictor
+                                    model = es.TensorFlow(
+                                        graphFilename=model_path,
+                                        inputs=["model/Placeholder"],
+                                        outputs=["model/Sigmoid"]
+                                    )
+                                except AttributeError:
+                                    log_universal('WARNING', 'MusiCNN', f'No compatible TensorFlow predictor found in Essentia for {model_path}')
+                                    log_universal('INFO', 'MusiCNN', 'Falling back to descriptive analysis for this model')
+                                    continue
                         
                         # Prepare audio for model
                         audio_processed = self._prepare_audio_for_essentia(audio)
@@ -472,6 +501,32 @@ class MusiCNNIntegration:
         log_universal('DEBUG', 'MusiCNN', f'Using fallback tags: {len(fallback_tags)} tags')
         return fallback_tags
     
+    def _log_available_tf_predictors(self, es):
+        """Debug method to log available TensorFlow predictors in Essentia."""
+        try:
+            available_predictors = []
+            
+            # Check for common TensorFlow predictor classes
+            predictor_classes = [
+                'TensorFlowPredictor2D',
+                'TensorFlowPredictor', 
+                'TensorFlow',
+                'TensorFlowPredictEffNetDiscogs',
+                'TensorFlowPredictMusiCNN'
+            ]
+            
+            for predictor_name in predictor_classes:
+                if hasattr(es, predictor_name):
+                    available_predictors.append(predictor_name)
+            
+            if available_predictors:
+                log_universal('DEBUG', 'MusiCNN', f'Available TensorFlow predictors: {", ".join(available_predictors)}')
+            else:
+                log_universal('WARNING', 'MusiCNN', 'No TensorFlow predictors found in Essentia installation')
+                
+        except Exception as e:
+            log_universal('DEBUG', 'MusiCNN', f'Error checking TensorFlow predictors: {e}')
+    
     def _extract_embeddings(self, audio: np.ndarray) -> List[float]:
         """Extract music embeddings using Essentia TensorFlow models."""
         try:
@@ -491,14 +546,41 @@ class MusiCNNIntegration:
                 model_path = config.get('MUSICNN_MODEL_PATH', '/app/models/musicnn/msd-musicnn-1.pb')
                 
                 if not os.path.exists(model_path):
-                    model_path = "/app/models/musicnn/msd-musicnn-1.pb"
+                    # Try alternative paths
+                    alt_paths = [
+                        "/app/models/musicnn/msd-musicnn-1.pb",
+                        "/app/models/msd-musicnn-1.pb"
+                    ]
+                    for alt_path in alt_paths:
+                        if os.path.exists(alt_path):
+                            model_path = alt_path
+                            break
                 
                 if os.path.exists(model_path):
-                    model = es.TensorFlowPredictor2D(
-                        graphFilename=model_path,
-                        inputs=["model/Placeholder"],
-                        outputs=["model/dense/BiasAdd"]  # Get dense layer for embeddings
-                    )
+                    # Try different TensorFlow predictor classes for embeddings
+                    try:
+                        model = es.TensorFlowPredictor2D(
+                            graphFilename=model_path,
+                            inputs=["model/Placeholder"],
+                            outputs=["model/dense/BiasAdd"]  # Get dense layer for embeddings
+                        )
+                    except AttributeError:
+                        try:
+                            model = es.TensorFlowPredictor(
+                                graphFilename=model_path,
+                                inputs=["model/Placeholder"],
+                                outputs=["model/dense/BiasAdd"]
+                            )
+                        except AttributeError:
+                            try:
+                                model = es.TensorFlow(
+                                    graphFilename=model_path,
+                                    inputs=["model/Placeholder"],
+                                    outputs=["model/dense/BiasAdd"]
+                                )
+                            except AttributeError:
+                                log_universal('WARNING', 'MusiCNN', f'No TensorFlow predictor available for embeddings')
+                                return self._generate_basic_embeddings(audio)
                 
                 # Prepare audio
                 audio_processed = self._prepare_audio_for_essentia(audio)
