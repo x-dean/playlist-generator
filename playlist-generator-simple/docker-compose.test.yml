@@ -11,7 +11,8 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - postgres_test_data:/var/lib/postgresql/data
+      # PostgreSQL test data directory - separate from production
+      - ./test_database:/var/lib/postgresql/data
       - ./database/postgresql_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     networks:
       - playlista-test-network
@@ -38,7 +39,7 @@ services:
       - ./logs:/app/logs
       
       # Cache for pipeline only (database is PostgreSQL)
-      - playlista_test_cache:/app/cache
+      - ./test_cache:/app/cache
       
       # Models directory
       - C:\Users\Dean\Desktop\musicnn:/app/models:ro
@@ -96,7 +97,8 @@ services:
     ports:
       - "8081:80"  # Different port for testing
     volumes:
-      - pgadmin_test_data:/var/lib/pgadmin
+      # pgAdmin test data directory
+      - ./test_pgadmin:/var/lib/pgadmin
     networks:
       - playlista-test-network
     depends_on:
@@ -105,13 +107,7 @@ services:
     profiles:
       - admin  # Optional: docker-compose --profile admin up
 
-volumes:
-  postgres_test_data:
-    driver: local
-  playlista_test_cache:
-    driver: local
-  pgadmin_test_data:
-    driver: local
+# No Docker volumes needed - all data is mounted to host directories for testing
 
 networks:
   playlista-test-network:

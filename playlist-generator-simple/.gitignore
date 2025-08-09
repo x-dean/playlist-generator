@@ -123,6 +123,12 @@ logs/
 cache/
 failed_files/
 
+# Test data directories (Docker host mounts)
+test_database/
+test_cache/
+test_pgadmin/
+playlists/
+
 # Test directories with large audio files
 test_large_files/
 test_large_files_only/

@@ -11,7 +11,8 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL data directory - mounted to host for persistence
+      - /root/music/playlista/database:/var/lib/postgresql/data
       - ./database/postgresql_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     networks:
       - playlista-network
@@ -98,7 +99,8 @@ services:
     ports:
       - "8082:80"
     volumes:
-      - pgadmin_data:/var/lib/pgadmin
+      # pgAdmin data directory - mounted to host for persistence
+      - /root/music/playlista/pgadmin:/var/lib/pgadmin
     networks:
       - playlista-network
     depends_on:
@@ -107,11 +109,7 @@ services:
     profiles:
       - admin  # Optional: docker-compose --profile admin up
 
-volumes:
-  postgres_data:
-    driver: local
-  pgadmin_data:
-    driver: local
+# No Docker volumes needed - all data is mounted to host directories
 
 networks:
   playlista-network:
