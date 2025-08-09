@@ -77,17 +77,96 @@ class SingleAnalyzer:
         
         if workers == 'auto':
             try:
-                import psutil
-                cpu_count = psutil.cpu_count()
-                memory_gb = psutil.virtual_memory().total / (1024**3)
+                from .resource_manager import ResourceManager
+                resource_manager = ResourceManager()
+                workers = resource_manager.get_optimal_worker_count()
                 
-                # Conservative worker calculation
-                workers = max(1, min(cpu_count - 1, int(memory_gb // 2)))
-                
-            except ImportError:
+            except Exception as e:
+                log_universal('WARNING', 'System', f'Failed to determine optimal workers: {str(e)}')
                 workers = 4  # Safe default
         
         return int(workers)
+    
+    def _calculate_dynamic_workers(self, files: List[str]) -> int:
+        """Calculate optimal workers based on RAM availability and user configuration."""
+        if not files:
+            return 1
+        
+        try:
+            # Get memory configuration - user override takes priority
+            user_ram_override = self.config.get('USER_OVERRIDE_TOTAL_RAM_GB')
+            memory_per_worker_gb = float(self.config.get('MEMORY_PER_WORKER_GB', 1.2))
+            workload_mode = self.config.get('WORKLOAD_DETECTION_MODE', 'auto')
+            
+            # Determine available memory
+            from .resource_manager import ResourceManager
+            resource_manager = ResourceManager()
+            
+            if user_ram_override:
+                try:
+                    total_ram_gb = float(user_ram_override)
+                    # Reserve 15% for system, minimum 1GB
+                    reserved_gb = max(1.0, total_ram_gb * 0.15)
+                    available_memory_gb = max(1.0, total_ram_gb - reserved_gb)
+                    log_universal('INFO', 'System', f'Using user RAM override: {total_ram_gb}GB (available: {available_memory_gb:.1f}GB)')
+                except (ValueError, TypeError):
+                    log_universal('WARNING', 'System', f'Invalid user RAM override: {user_ram_override}, falling back to auto-detection')
+                    available_memory_gb = resource_manager.get_available_memory_gb()
+            else:
+                available_memory_gb = resource_manager.get_available_memory_gb()
+                log_universal('INFO', 'System', f'Auto-detected available RAM: {available_memory_gb:.1f}GB')
+            
+            # Adjust memory per worker based on workload (only if auto mode)
+            if workload_mode == 'auto':
+                # Quick workload analysis
+                large_files = 0
+                for file_path in files[:10]:  # Sample first 10 files
+                    try:
+                        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                        if file_size_mb > 200:  # Large file threshold
+                            large_files += 1
+                    except Exception:
+                        continue
+                
+                large_file_ratio = large_files / min(len(files), 10)
+                
+                if large_file_ratio > 0.5:  # Mostly large files
+                    memory_per_worker_gb *= 1.5  # More memory for Essentia processing
+                    workload_type = 'large_files'
+                elif large_file_ratio > 0.2:  # Mixed workload
+                    memory_per_worker_gb *= 1.2  # Slightly more memory
+                    workload_type = 'mixed'
+                else:  # Mostly small files
+                    workload_type = 'small_files'
+                
+                log_universal('INFO', 'System', f'Workload detected: {workload_type} (large file ratio: {large_file_ratio:.1f})')
+            
+            # Calculate workers based on memory
+            memory_based_workers = max(1, int(available_memory_gb / memory_per_worker_gb))
+            
+            # Get CPU limit (cores - 1)
+            try:
+                import multiprocessing as mp
+                cpu_cores = mp.cpu_count()
+                cpu_max_workers = max(1, cpu_cores - 1)
+            except Exception:
+                cpu_max_workers = 4  # Safe fallback
+            
+            # Final worker count: limited by CPU cores - 1
+            workers = min(memory_based_workers, cpu_max_workers)
+            
+            log_universal('INFO', 'System', f'Worker calculation:')
+            log_universal('INFO', 'System', f'  Available memory: {available_memory_gb:.1f}GB')
+            log_universal('INFO', 'System', f'  Memory per worker: {memory_per_worker_gb:.1f}GB')
+            log_universal('INFO', 'System', f'  Memory-based workers: {memory_based_workers}')
+            log_universal('INFO', 'System', f'  CPU cores: {cpu_cores}, max workers: {cpu_max_workers}')
+            log_universal('INFO', 'System', f'  Final workers: {workers}')
+            
+            return workers
+            
+        except Exception as e:
+            log_universal('WARNING', 'System', f'Dynamic worker calculation failed: {str(e)}')
+            return min(self.max_workers, 4)  # Safe fallback with CPU limit
     
     def analyze(self, file_path: str, force_reanalysis: bool = False) -> Dict[str, Any]:
         """
@@ -166,7 +245,14 @@ class SingleAnalyzer:
             return self._create_batch_result([], 0, [])
         
         start_time = time.time()
-        workers = max_workers or self.max_workers
+        
+        # Use dynamic worker calculation if not overridden
+        if max_workers:
+            workers = max_workers
+            log_universal('INFO', 'Analysis', f'Using override: {workers} workers')
+        else:
+            workers = self._calculate_dynamic_workers(files)
+            log_universal('INFO', 'Analysis', f'Dynamic allocation: {workers} workers for {len(files)} files')
         
         log_universal('INFO', 'Analysis', f'Processing {len(files)} files using {workers} workers')
         
@@ -311,22 +397,471 @@ class SingleAnalyzer:
             return {'error': str(e), 'available': False}
     
     def _analyze_large_file(self, file_path: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze very large files with minimal processing."""
+        """Analyze very large files with Essentia features but no MusiCNN."""
         try:
-            # For very large files, extract just basic info
+            # Extract basic audio info
             duration = self._get_duration_ffmpeg(file_path)
+            
+            # Classify content type based on metadata and characteristics
+            content_classification = self._classify_large_content(metadata, duration)
+            
+            # Add lightweight Essentia analysis for large files
+            essentia_features = self._extract_essentia_features_large(file_path, duration)
             
             features = {
                 'duration': duration,
                 'available': True,
-                'method': 'standard_large',
-                'note': 'Simplified analysis for very large file'
+                'method': 'large_file_essentia',
+                'content_type': content_classification['type'],
+                'content_subtype': content_classification['subtype'],
+                'content_confidence': content_classification['confidence'],
+                'content_features': content_classification['features'],
+                'estimated_tracks': content_classification.get('estimated_tracks'),
+                'content_description': content_classification['description'],
+                
+                # Add Essentia features
+                'tempo': essentia_features.get('tempo'),
+                'key': essentia_features.get('key'),
+                'mode': essentia_features.get('mode'),
+                'loudness': essentia_features.get('loudness'),
+                'danceability': essentia_features.get('danceability'),
+                'energy': essentia_features.get('energy'),
+                
+                # Technical analysis info
+                'segments_analyzed': essentia_features.get('segments_analyzed', 0),
+                'analysis_strategy': essentia_features.get('analysis_strategy', 'sampled')
             }
             
             return features
             
         except Exception as e:
             return {'error': str(e), 'available': False}
+    
+    def _classify_large_content(self, metadata: Dict[str, Any], duration: float) -> Dict[str, Any]:
+        """
+        Classify large audio content based on metadata patterns and duration.
+        
+        NOTE: This is metadata-only analysis. No actual audio processing (Essentia/MusiCNN) 
+        is performed on large files for performance reasons.
+        """
+        title = metadata.get('title', '').lower() if metadata.get('title') else ''
+        artist = metadata.get('artist', '').lower() if metadata.get('artist') else ''
+        filename = metadata.get('filename', '').lower()
+        file_size_mb = metadata.get('file_size_mb', 0)
+        
+        # Combine all text for pattern analysis
+        all_text = f"{title} {artist} {filename}".lower()
+        
+        classification = {
+            'type': 'long_form_audio',
+            'subtype': 'unknown',
+            'confidence': 0.0,
+            'features': [],
+            'description': 'Long-form audio content'
+        }
+        
+        # Broad content type patterns (generic, not show-specific)
+        mix_patterns = [
+            'mix', 'set', 'mixed', 'compilation', 'continuous',
+            'non-stop', 'seamless', 'blended', 'dj', 'disc jockey'
+        ]
+        
+        radio_patterns = [
+            'radio', 'show', 'episode', 'broadcast', 'transmission',
+            'fm', 'am', 'station', 'weekly', 'monthly'
+        ]
+        
+        podcast_patterns = [
+            'podcast', 'talk', 'interview', 'discussion', 'conversation',
+            'series', 'chapter', 'episode'
+        ]
+        
+        live_patterns = [
+            'live', 'concert', 'performance', 'recorded live',
+            'venue', 'club', 'festival', 'gig'
+        ]
+        
+        audiobook_patterns = [
+            'audiobook', 'book', 'narrated', 'chapter', 'part', 'volume',
+            'unabridged', 'abridged', 'reading'
+        ]
+        
+        # Score each category
+        scores = {
+            'mix': self._score_patterns(all_text, mix_patterns),
+            'radio': self._score_patterns(all_text, radio_patterns),
+            'podcast': self._score_patterns(all_text, podcast_patterns),
+            'live': self._score_patterns(all_text, live_patterns),
+            'audiobook': self._score_patterns(all_text, audiobook_patterns)
+        }
+        
+        # Determine primary type
+        max_score = max(scores.values())
+        if max_score > 0:
+            primary_type = max(scores, key=scores.get)
+            classification['type'] = primary_type
+            classification['confidence'] = min(max_score, 1.0)
+            
+            # Generic subtypes based on duration and characteristics
+            if primary_type == 'mix':
+                classification['subtype'] = self._classify_mix_duration(duration)
+                classification['estimated_tracks'] = self._estimate_track_count_mix(duration)
+                classification['description'] = f"DJ mix ({classification['subtype']}, ~{classification['estimated_tracks']} tracks)"
+                
+            elif primary_type == 'radio':
+                classification['subtype'] = self._classify_radio_duration(duration)
+                classification['estimated_tracks'] = self._estimate_track_count_radio(duration)
+                classification['description'] = f"Radio show ({classification['subtype']})"
+                
+            elif primary_type == 'podcast':
+                classification['subtype'] = self._classify_podcast_duration(duration)
+                classification['description'] = f"Podcast ({classification['subtype']})"
+                
+            elif primary_type == 'live':
+                classification['subtype'] = self._classify_live_duration(duration)
+                classification['estimated_tracks'] = self._estimate_track_count_live(duration)
+                classification['description'] = f"Live performance ({classification['subtype']})"
+                
+            elif primary_type == 'audiobook':
+                classification['subtype'] = 'chapter' if duration < 3600 else 'full_book'
+                classification['description'] = f"Audiobook ({classification['subtype']})"
+        
+        # Add technical features (file size, duration, estimated quality)
+        classification['features'] = self._extract_technical_features(duration, file_size_mb)
+        
+        return classification
+    
+    def _score_patterns(self, text: str, patterns: List[str]) -> float:
+        """Score text against pattern list."""
+        score = 0
+        for pattern in patterns:
+            if pattern in text:
+                # Weight longer patterns higher
+                score += len(pattern.split()) * 0.2
+        return min(score, 1.0)
+    
+    def _classify_mix_duration(self, duration: float) -> str:
+        """Classify mix based on duration only."""
+        if duration > 10800:  # > 3 hours
+            return 'marathon_mix'
+        elif duration > 7200:  # > 2 hours
+            return 'extended_mix'
+        elif duration > 3600:  # > 1 hour
+            return 'long_mix'
+        else:
+            return 'standard_mix'
+    
+    def _classify_radio_duration(self, duration: float) -> str:
+        """Classify radio show based on duration."""
+        if duration > 7200:  # > 2 hours
+            return 'extended_show'
+        elif duration > 3600:  # > 1 hour
+            return 'standard_show'
+        else:
+            return 'short_show'
+    
+    def _classify_podcast_duration(self, duration: float) -> str:
+        """Classify podcast based on duration."""
+        if duration > 3600:  # > 1 hour
+            return 'long_form'
+        elif duration > 1800:  # > 30 minutes
+            return 'medium_form'
+        else:
+            return 'short_form'
+    
+    def _classify_live_duration(self, duration: float) -> str:
+        """Classify live performance based on duration."""
+        if duration > 7200:  # > 2 hours
+            return 'festival_set'
+        elif duration > 3600:  # > 1 hour
+            return 'extended_set'
+        else:
+            return 'standard_set'
+    
+    def _estimate_track_count_mix(self, duration: float) -> int:
+        """Estimate number of tracks in a DJ mix (avg 4-6 minutes per track)."""
+        if duration > 0:
+            return max(1, int(duration / 300))  # 5 minutes average
+        return 1
+    
+    def _estimate_track_count_radio(self, duration: float) -> int:
+        """Estimate tracks in radio show (includes talk, ads)."""
+        if duration > 0:
+            # Radio shows have more talk/ads, so fewer tracks per minute
+            return max(1, int(duration / 420))  # 7 minutes average
+        return 1
+    
+    def _estimate_track_count_live(self, duration: float) -> int:
+        """Estimate tracks in live performance."""
+        if duration > 0:
+            # Live sets often have longer tracks/transitions
+            return max(1, int(duration / 360))  # 6 minutes average
+        return 1
+    
+    def _extract_technical_features(self, duration: float, file_size_mb: float) -> List[str]:
+        """Extract technical features based on duration, file size, and estimated quality."""
+        features = []
+        
+        # Duration categories
+        if duration > 10800:  # > 3 hours
+            features.append('marathon_length')
+        elif duration > 7200:  # > 2 hours
+            features.append('extended_length')
+        elif duration > 3600:  # > 1 hour
+            features.append('long_form')
+        
+        # File size categories
+        if file_size_mb > 500:
+            features.append('very_large_file')
+        elif file_size_mb > 300:
+            features.append('large_file')
+        elif file_size_mb > 200:
+            features.append('medium_file')
+        
+        # Estimated audio quality based on bitrate
+        if duration > 0:
+            estimated_bitrate = (file_size_mb * 8192) / duration  # kbps estimate
+            if estimated_bitrate > 320:
+                features.append('lossless_quality')
+            elif estimated_bitrate > 256:
+                features.append('high_quality')
+            elif estimated_bitrate > 128:
+                features.append('standard_quality')
+            else:
+                features.append('compressed_quality')
+        
+        return features
+    
+    def _extract_essentia_features_large(self, file_path: str, duration: float) -> Dict[str, Any]:
+        """Extract Essentia features from large files using strategic sampling."""
+        try:
+            from .lazy_imports import ensure_essentia
+            essentia_standard = ensure_essentia()
+            if not essentia_standard:
+                return {'error': 'Essentia not available', 'analysis_strategy': 'failed'}
+            
+            # Determine sampling strategy based on file size and duration
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            analysis_strategy = self._determine_large_file_strategy(file_size_mb, duration)
+            
+            if analysis_strategy == 'beginning_sample':
+                # Analyze first 60 seconds only
+                audio_segment = self._load_audio_segment_ffmpeg(file_path, start=0, duration=60)
+                features = self._analyze_single_segment_essentia(audio_segment)
+                features['segments_analyzed'] = 1
+                features['analysis_strategy'] = 'beginning_sample'
+                
+            elif analysis_strategy == 'strategic_samples':
+                # Analyze 3 strategic segments: beginning, middle, end
+                segment_duration = 30  # 30 seconds per segment
+                segments = [
+                    (0, segment_duration),  # Beginning
+                    (duration * 0.5 - segment_duration/2, segment_duration),  # Middle
+                    (max(0, duration - segment_duration), segment_duration)  # End
+                ]
+                
+                segment_features = []
+                for start_time, seg_duration in segments:
+                    audio_segment = self._load_audio_segment_ffmpeg(file_path, start=start_time, duration=seg_duration)
+                    if audio_segment is not None:
+                        seg_features = self._analyze_single_segment_essentia(audio_segment)
+                        if seg_features.get('tempo'):  # Valid analysis
+                            segment_features.append(seg_features)
+                
+                # Aggregate features from segments
+                features = self._aggregate_segment_features(segment_features)
+                features['segments_analyzed'] = len(segment_features)
+                features['analysis_strategy'] = 'strategic_samples'
+                
+            elif analysis_strategy == 'extended_samples':
+                # Analyze 5 segments across the file
+                segment_duration = 45  # 45 seconds per segment
+                num_segments = 5
+                segments = []
+                for i in range(num_segments):
+                    start_time = (duration / num_segments) * i
+                    segments.append((start_time, segment_duration))
+                
+                segment_features = []
+                for start_time, seg_duration in segments:
+                    audio_segment = self._load_audio_segment_ffmpeg(file_path, start=start_time, duration=seg_duration)
+                    if audio_segment is not None:
+                        seg_features = self._analyze_single_segment_essentia(audio_segment)
+                        if seg_features.get('tempo'):
+                            segment_features.append(seg_features)
+                
+                features = self._aggregate_segment_features(segment_features)
+                features['segments_analyzed'] = len(segment_features)
+                features['analysis_strategy'] = 'extended_samples'
+            
+            else:  # minimal_sample
+                # Just analyze first 30 seconds
+                audio_segment = self._load_audio_segment_ffmpeg(file_path, start=0, duration=30)
+                features = self._analyze_single_segment_essentia(audio_segment)
+                features['segments_analyzed'] = 1
+                features['analysis_strategy'] = 'minimal_sample'
+            
+            return features
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Large file Essentia analysis failed for {os.path.basename(file_path)}: {str(e)}')
+            return {'error': str(e), 'analysis_strategy': 'failed'}
+    
+    def _determine_large_file_strategy(self, file_size_mb: float, duration: float) -> str:
+        """Determine analysis strategy based on file characteristics."""
+        if file_size_mb > 1000 or duration > 14400:  # >1GB or >4 hours
+            return 'minimal_sample'
+        elif file_size_mb > 500 or duration > 7200:  # >500MB or >2 hours  
+            return 'strategic_samples'
+        elif file_size_mb > 300 or duration > 3600:  # >300MB or >1 hour
+            return 'extended_samples'
+        else:
+            return 'beginning_sample'
+    
+    def _load_audio_segment_ffmpeg(self, file_path: str, start: float, duration: float) -> Optional[np.ndarray]:
+        """Load a specific segment of audio using FFmpeg."""
+        try:
+            import numpy as np
+            import subprocess
+            
+            cmd = [
+                'ffmpeg', '-i', file_path,
+                '-ss', str(start),  # Start time
+                '-t', str(duration),  # Duration
+                '-ac', '1',  # Mono
+                '-ar', '22050',  # Sample rate
+                '-f', 'f32le',  # Output format
+                '-v', 'quiet',  # Suppress logs
+                '-'
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, timeout=60)
+            if result.returncode == 0 and len(result.stdout) > 0:
+                audio = np.frombuffer(result.stdout, dtype=np.float32)
+                return audio if len(audio) > 0 else None
+            
+            return None
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Failed to load audio segment: {str(e)}')
+            return None
+    
+    def _analyze_single_segment_essentia(self, audio: np.ndarray) -> Dict[str, Any]:
+        """Analyze a single audio segment with Essentia."""
+        try:
+            from .lazy_imports import ensure_essentia
+            essentia_standard = ensure_essentia()
+            if not essentia_standard or audio is None or len(audio) == 0:
+                return {}
+            
+            # Basic rhythm analysis
+            features = {}
+            
+            # Tempo and beats
+            tempo_extractor = essentia_standard.RhythmExtractor2013(method="multifeature")
+            tempo, beats, beats_confidence, _, beats_intervals = tempo_extractor(audio)
+            features['tempo'] = float(tempo) if tempo > 0 else None
+            features['beats_confidence'] = float(beats_confidence)
+            
+            # Key detection
+            key_extractor = essentia_standard.KeyExtractor()
+            key, scale, strength = key_extractor(audio)
+            features['key'] = key if strength > 0.6 else None
+            features['mode'] = scale if strength > 0.6 else None
+            features['key_strength'] = float(strength)
+            
+            # Loudness
+            loudness_extractor = essentia_standard.Loudness()
+            features['loudness'] = float(loudness_extractor(audio))
+            
+            # Spectral features for energy/danceability estimation
+            spectral_centroid = essentia_standard.SpectralCentroid()
+            spectral_rolloff = essentia_standard.SpectralRollOff()
+            zcr = essentia_standard.ZeroCrossingRate()
+            
+            windowing = essentia_standard.Windowing(type='hann')
+            spectrum = essentia_standard.Spectrum()
+            
+            # Process in frames
+            frame_size = 2048
+            hop_size = 1024
+            centroids, rolloffs, zcrs = [], [], []
+            
+            for frame in essentia_standard.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
+                windowed_frame = windowing(frame)
+                spec = spectrum(windowed_frame)
+                centroids.append(spectral_centroid(spec))
+                rolloffs.append(spectral_rolloff(spec))
+                zcrs.append(zcr(frame))
+            
+            if centroids:
+                import numpy as np
+                # Derive energy and danceability from spectral features
+                avg_centroid = np.mean(centroids)
+                avg_rolloff = np.mean(rolloffs)
+                avg_zcr = np.mean(zcrs)
+                
+                # Energy estimation (higher spectral content = more energy)
+                features['energy'] = min(1.0, avg_centroid / 8000.0)  # Normalize to 0-1
+                
+                # Danceability estimation (rhythm consistency + tempo range)
+                tempo_danceable = 1.0 if 100 <= tempo <= 140 else 0.5 if 80 <= tempo <= 160 else 0.2
+                rhythm_consistency = beats_confidence
+                features['danceability'] = (tempo_danceable + rhythm_consistency) / 2.0
+            
+            return features
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Essentia segment analysis failed: {str(e)}')
+            return {}
+    
+    def _aggregate_segment_features(self, segment_features: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Aggregate features from multiple segments."""
+        if not segment_features:
+            return {}
+        
+        try:
+            import numpy as np
+            
+            # Collect numeric features
+            tempos = [f['tempo'] for f in segment_features if f.get('tempo') and f['tempo'] > 0]
+            energies = [f['energy'] for f in segment_features if f.get('energy') is not None]
+            danceabilities = [f['danceability'] for f in segment_features if f.get('danceability') is not None]
+            loudnesses = [f['loudness'] for f in segment_features if f.get('loudness') is not None]
+            
+            aggregated = {}
+            
+            # Tempo: use median to avoid outliers
+            if tempos:
+                aggregated['tempo'] = float(np.median(tempos))
+                aggregated['tempo_std'] = float(np.std(tempos))
+            
+            # Energy: use mean
+            if energies:
+                aggregated['energy'] = float(np.mean(energies))
+            
+            # Danceability: use mean
+            if danceabilities:
+                aggregated['danceability'] = float(np.mean(danceabilities))
+            
+            # Loudness: use mean
+            if loudnesses:
+                aggregated['loudness'] = float(np.mean(loudnesses))
+            
+            # Key: use most common key with sufficient confidence
+            keys = [(f['key'], f['key_strength']) for f in segment_features 
+                   if f.get('key') and f.get('key_strength', 0) > 0.6]
+            if keys:
+                # Get key with highest confidence
+                best_key = max(keys, key=lambda x: x[1])
+                aggregated['key'] = best_key[0]
+                aggregated['key_strength'] = best_key[1]
+            
+            return aggregated
+            
+        except Exception as e:
+            log_universal('WARNING', 'Audio', f'Feature aggregation failed: {str(e)}')
+            return segment_features[0] if segment_features else {}
     
     def _load_audio_ffmpeg(self, file_path: str, max_duration: float = 30) -> Tuple[Optional[np.ndarray], int]:
         """Load audio using FFmpeg (limited duration for small files)."""

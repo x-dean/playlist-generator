@@ -172,7 +172,9 @@ class PostgreSQLManager:
                         tempo, key, mode, key_confidence,
                         energy, danceability, valence, acousticness,
                         instrumentalness, liveness, speechiness, loudness,
-                        analysis_completed, analysis_date, analysis_method
+                        analysis_completed, analysis_date, analysis_method,
+                        content_type, content_subtype, content_confidence,
+                        content_features, estimated_track_count, content_description
                     ) VALUES (
                         %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s,
@@ -180,6 +182,8 @@ class PostgreSQLManager:
                         %s, %s, %s, %s,
                         %s, %s, %s, %s,
                         %s, %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s,
                         %s, %s, %s
                     )
                     ON CONFLICT (file_path) DO UPDATE SET
@@ -213,7 +217,12 @@ class PostgreSQLManager:
                     features.get('acousticness'), features.get('instrumentalness'),
                     features.get('liveness'), features.get('speechiness'), features.get('loudness'),
                     # Analysis metadata
-                    True, datetime.now(), analysis_data.get('analysis_method', 'unknown')
+                    True, datetime.now(), analysis_data.get('analysis_method', 'unknown'),
+                    # Content classification (for large files)
+                    analysis_data.get('content_type'), analysis_data.get('content_subtype'),
+                    analysis_data.get('content_confidence'),
+                    json.dumps(analysis_data.get('content_features', [])) if analysis_data.get('content_features') else None,
+                    analysis_data.get('estimated_tracks'), analysis_data.get('content_description')
                 ))
                 
                 track_id = cursor.fetchone()[0]

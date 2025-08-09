@@ -29,7 +29,6 @@ RUN apt-get update && \
     libavcodec-extra \
     libfftw3-3 \
     libtag1v5 \
-    sqlite3 \
     libmagic1 \
     gosu \
     curl && \
@@ -45,7 +44,7 @@ WORKDIR /app
 COPY src /app/src
 COPY playlista /app/playlista
 COPY entrypoint.sh /app/entrypoint.sh
-COPY database/component_based_schema.sql /app/database/component_based_schema.sql
+COPY database/postgresql_schema.sql /app/database/postgresql_schema.sql
 COPY scripts /app/scripts
 COPY playlista.conf /app/playlista.conf
 

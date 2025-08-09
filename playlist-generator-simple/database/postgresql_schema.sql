@@ -61,7 +61,15 @@ CREATE TABLE tracks (
     -- Analysis completion tracking
     analysis_completed BOOLEAN DEFAULT FALSE,
     analysis_date TIMESTAMPTZ,
-    analysis_method VARCHAR(50),   -- 'optimized', 'standard'
+    analysis_method VARCHAR(50),   -- 'optimized', 'standard', 'large_file_classified'
+    
+    -- Content classification for large files (DJ mixes, podcasts, etc.)
+    content_type VARCHAR(50),           -- 'dj_mix', 'radio_show', 'podcast', 'audiobook', 'live_performance'
+    content_subtype VARCHAR(50),        -- 'trance', 'asot', 'essential_mix', 'marathon_set', etc.
+    content_confidence REAL,            -- Classification confidence (0-1)
+    content_features JSONB,             -- ['long_form', 'high_quality', 'extended_length']
+    estimated_track_count INTEGER,      -- Estimated number of tracks within
+    content_description TEXT,           -- Human-readable description
     
     -- Timestamps
     created_at TIMESTAMPTZ DEFAULT NOW(),

@@ -620,6 +620,31 @@ class ResourceManager:
                 log_universal('ERROR', 'Resource', f"Fallback worker count also failed: {fallback_error}")
                 return 2  # Conservative fallback: 2 workers
 
+    def get_available_memory_gb(self) -> float:
+        """Get available memory for analysis in GB."""
+        try:
+            # Get current process memory usage
+            process = psutil.Process()
+            current_rss_gb = process.memory_info().rss / (1024**3)
+            
+            # Get total system memory
+            memory = psutil.virtual_memory()
+            total_memory_gb = memory.total / (1024**3)
+            
+            # Use container memory limit if specified
+            if self.container_memory_limit_gb is not None:
+                total_memory_gb = self.container_memory_limit_gb
+            
+            # Reserve memory for system and current process
+            reserved_memory_gb = min(2.0, total_memory_gb * 0.15)  
+            available_for_workers_gb = max(1.0, total_memory_gb - reserved_memory_gb - current_rss_gb)
+            
+            return available_for_workers_gb
+            
+        except Exception as e:
+            log_universal('WARNING', 'Resource', f'Failed to calculate available memory: {e}')
+            return 4.0  # Safe fallback
+
     def is_memory_critical(self) -> bool:
         """
         Check if memory usage is critical.
