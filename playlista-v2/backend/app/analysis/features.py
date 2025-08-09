@@ -69,7 +69,8 @@ class FeatureExtractor:
                 tensorflow_support=tensorflow_available
             )
         except ImportError:
-            logger.warning("Essentia not available - advanced features disabled")
+            self._essentia_available = False
+            logger.warning("Essentia not available - using basic features only")
     
     async def extract_comprehensive_features(self, audio_path: str) -> Dict[str, Any]:
         """
