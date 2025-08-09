@@ -105,7 +105,7 @@ class AnalysisManager:
                     
                 elif include_failed and self.db_manager.is_file_failed(file_path):
                     # Previously failed file and we want to retry
-                    should_analyze = True
+                        should_analyze = True
                     log_universal('DEBUG', 'FileDiscovery', f"Previously failed: {os.path.basename(file_path)}")
                 
                 if should_analyze:

@@ -353,11 +353,11 @@ class PostgreSQLManager:
             # Prepare analysis components
             essentia_data = self._extract_essentia_data(analysis_data)
             
-            # Fix musicnn_embeddings - ensure it's a proper array for PostgreSQL vector type
-            musicnn_embeddings = analysis_data.get('musicnn_embeddings', [])
-            if not isinstance(musicnn_embeddings, list) or len(musicnn_embeddings) == 0:
-                # Create default empty vector for 50-dimensional embeddings
-                musicnn_embeddings = [0.0] * 50
+            # Only include musicnn_embeddings if they actually exist
+            musicnn_embeddings = analysis_data.get('musicnn_embeddings')
+            if not (musicnn_embeddings and isinstance(musicnn_embeddings, list) and len(musicnn_embeddings) > 0):
+                # No valid embeddings - skip MusiCNN data entirely
+                musicnn_embeddings = None
             
             cursor.execute("""
                 INSERT INTO track_analysis (
@@ -373,16 +373,16 @@ class PostgreSQLManager:
                     cache_key = EXCLUDED.cache_key;
             """, (
                 track_id,
-                json.dumps(essentia_data.get('rhythm', {})),
-                json.dumps(essentia_data.get('spectral', {})),
-                json.dumps(essentia_data.get('harmonic', {})),
-                json.dumps(essentia_data.get('mfcc', {})),
-                json.dumps(analysis_data.get('musicnn_tags', {})),
-                musicnn_embeddings,  # Now properly formatted as array
-                analysis_data.get('musicnn_confidence', 0.0),
-                analysis_data.get('segments_analyzed', 1),
-                json.dumps(analysis_data.get('segment_times', [])),
-                analysis_data.get('processing_time', 0.0),
+                json.dumps(essentia_data.get('rhythm')) if essentia_data.get('rhythm') else None,
+                json.dumps(essentia_data.get('spectral')) if essentia_data.get('spectral') else None,
+                json.dumps(essentia_data.get('harmonic')) if essentia_data.get('harmonic') else None,
+                json.dumps(essentia_data.get('mfcc')) if essentia_data.get('mfcc') else None,
+                json.dumps(analysis_data.get('musicnn_tags')) if analysis_data.get('musicnn_tags') else None,
+                musicnn_embeddings,
+                analysis_data.get('musicnn_confidence'),
+                analysis_data.get('segments_analyzed'),
+                json.dumps(analysis_data.get('segment_times')) if analysis_data.get('segment_times') else None,
+                analysis_data.get('processing_time'),
                 cache_key
             ))
             

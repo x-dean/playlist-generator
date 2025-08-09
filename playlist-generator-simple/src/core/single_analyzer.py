@@ -207,10 +207,10 @@ class SingleAnalyzer:
             
             # Perform audio analysis
             if self._should_use_large_file_analysis(file_size_mb):
-                log_universal('DEBUG', 'Pipeline', f'Large file analysis: {os.path.basename(file_path)} ({file_size_mb:.1f}MB)')
-                audio_features = self.pipeline.analyze_track(file_path, metadata)
+                log_universal('DEBUG', 'Audio', f'Large file analysis: {os.path.basename(file_path)} ({file_size_mb:.1f}MB)')
+                audio_features = self._analyze_large_file(file_path, metadata)
             else:
-                log_universal('DEBUG', 'Pipeline', f'Standard analysis: {os.path.basename(file_path)} ({file_size_mb:.1f}MB)')
+                log_universal('DEBUG', 'Audio', f'Standard analysis: {os.path.basename(file_path)} ({file_size_mb:.1f}MB)')
                 audio_features = self._analyze_standard(file_path, metadata)
             
             # Enrich with external APIs
