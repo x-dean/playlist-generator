@@ -447,24 +447,35 @@ class OptimizedAudioPipeline:
         try:
             import essentia.standard as es
             
-            # Calculate spectral novelty
-            noveltyCurve = es.NoveltyCurve()
-            spectrum = es.Spectrum()
-            windowing = es.Windowing()
-            fft = es.FFT()
-            
+            # Parameters
             frame_size = 2048
             hop_size = 512
             
-            novelty_values = []
+            # Initialize algorithms
+            windowing = es.Windowing(type='hann')
+            spectrum = es.Spectrum()
+            
+            # Calculate spectra for novelty detection
+            spectra = []
             
             for frame in es.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
                 windowed_frame = windowing(frame)
                 spectrum_frame = spectrum(windowed_frame)
-                novelty = noveltyCurve(spectrum_frame)
-                novelty_values.append(novelty)
+                spectra.append(spectrum_frame)
             
-            return np.array(novelty_values)
+            # Calculate novelty from spectral differences
+            novelty_values = []
+            for i in range(1, len(spectra)):
+                # Calculate spectral difference
+                diff = np.sum(np.abs(spectra[i] - spectra[i-1]))
+                novelty_values.append(diff)
+            
+            # Normalize novelty curve
+            novelty_array = np.array(novelty_values)
+            if len(novelty_array) > 0 and np.max(novelty_array) > 0:
+                novelty_array = novelty_array / np.max(novelty_array)
+            
+            return novelty_array
             
         except Exception as e:
             log_universal('WARNING', 'OptimizedPipeline', f'Spectral novelty failed: {e}')
@@ -491,38 +502,67 @@ class OptimizedAudioPipeline:
     def _find_novelty_peaks(self, novelty_curve: np.ndarray, duration: float, 
                           num_segments: int) -> List[float]:
         """Find peak times in novelty curve."""
+        if len(novelty_curve) == 0:
+            # No novelty data, use fixed positions
+            return [duration * i / num_segments for i in range(num_segments)]
+        
         try:
-            # Find peaks in novelty curve
+            # Try using scipy for peak detection
             from scipy.signal import find_peaks
-            peaks, _ = find_peaks(novelty_curve, height=np.mean(novelty_curve))
+            
+            # Set minimum height threshold
+            min_height = np.mean(novelty_curve) if len(novelty_curve) > 0 else 0
+            peaks, _ = find_peaks(novelty_curve, height=min_height, distance=10)
+            
         except ImportError:
             # Fallback: simple peak detection
             peaks = []
-            for i in range(1, len(novelty_curve) - 1):
-                if (novelty_curve[i] > novelty_curve[i-1] and 
-                    novelty_curve[i] > novelty_curve[i+1] and
-                    novelty_curve[i] > np.mean(novelty_curve)):
-                    peaks.append(i)
+            if len(novelty_curve) > 2:
+                for i in range(1, len(novelty_curve) - 1):
+                    if (novelty_curve[i] > novelty_curve[i-1] and 
+                        novelty_curve[i] > novelty_curve[i+1] and
+                        novelty_curve[i] > np.mean(novelty_curve)):
+                        peaks.append(i)
             peaks = np.array(peaks)
+        except Exception as e:
+            log_universal('WARNING', 'OptimizedPipeline', f'Peak detection failed: {e}')
+            peaks = np.array([])
         
         if len(peaks) == 0:
             # No peaks found, use fixed positions
+            log_universal('DEBUG', 'OptimizedPipeline', 'No peaks found, using fixed positions')
             return [duration * i / num_segments for i in range(num_segments)]
         
         # Convert peak indices to time
         hop_size = 512
-        peak_times = peaks * hop_size / self.optimized_sample_rate
         
-        # Select most significant peaks
+        # Calculate time per frame
+        time_per_frame = hop_size / self.optimized_sample_rate if self.optimized_sample_rate > 0 else hop_size / 22050
+        peak_times = peaks * time_per_frame
+        
+        # Select most significant peaks if we have too many
         if len(peak_times) > num_segments:
             # Sort by novelty value and take top peaks
-            peak_values = novelty_curve[peaks]
-            sorted_indices = np.argsort(peak_values)[::-1]
-            selected_peaks = sorted_indices[:num_segments]
-            peak_times = peak_times[selected_peaks]
+            try:
+                peak_values = novelty_curve[peaks]
+                sorted_indices = np.argsort(peak_values)[::-1]
+                selected_peaks = sorted_indices[:num_segments]
+                peak_times = peak_times[selected_peaks]
+            except IndexError:
+                # Fallback to taking first N peaks
+                peak_times = peak_times[:num_segments]
         
-        # Ensure peaks are within track duration
-        peak_times = np.clip(peak_times, 0, duration - self.segment_length)
+        # Ensure we have enough peaks
+        while len(peak_times) < num_segments:
+            # Add evenly distributed peaks
+            missing_peaks = num_segments - len(peak_times)
+            for i in range(missing_peaks):
+                position = duration * (i + 1) / (missing_peaks + 1)
+                peak_times = np.append(peak_times, position)
+        
+        # Ensure peaks are within track duration and allow for segment length
+        max_start_time = max(0, duration - self.segment_length)
+        peak_times = np.clip(peak_times, 0, max_start_time)
         
         return sorted(peak_times.tolist())
     
@@ -537,10 +577,25 @@ class OptimizedAudioPipeline:
         try:
             import essentia.standard as es
             
-            # Convert audio for Essentia compatibility
+            # Validate and convert audio for Essentia compatibility
+            if audio is None or len(audio) == 0:
+                log_universal('WARNING', 'OptimizedPipeline', 'Empty audio data, skipping Essentia features')
+                return features
+            
+            # Convert to mono if stereo
             if len(audio.shape) > 1:
                 audio = np.mean(audio, axis=1)
+            
+            # Ensure audio is 1D and float32
             audio = audio.astype(np.float32)
+            if len(audio.shape) != 1:
+                log_universal('WARNING', 'OptimizedPipeline', 'Audio is not 1D after conversion')
+                return features
+            
+            # Basic validation
+            if sample_rate <= 0:
+                log_universal('WARNING', 'OptimizedPipeline', f'Invalid sample rate: {sample_rate}')
+                sample_rate = 22050  # Fallback sample rate
             
             # Extract key features
             features['duration'] = len(audio) / sample_rate
@@ -563,10 +618,10 @@ class OptimizedAudioPipeline:
             loudness = loudness_extractor(audio)
             features['loudness'] = float(loudness)
             
-            # Spectral features
-            spectral_centroid = es.SpectralCentroid()
-            windowing = es.Windowing()
+            # Spectral features using correct Essentia algorithm
+            windowing = es.Windowing(type='hann')
             spectrum = es.Spectrum()
+            spectral_centroid = es.Centroid(range=sample_rate/2)
             
             centroids = []
             for frame in es.FrameGenerator(audio, frameSize=2048, hopSize=512):
@@ -575,8 +630,9 @@ class OptimizedAudioPipeline:
                 centroid = spectral_centroid(spectrum_frame)
                 centroids.append(centroid)
             
-            features['spectral_centroid_mean'] = float(np.mean(centroids))
-            features['spectral_centroid_std'] = float(np.std(centroids))
+            if centroids:
+                features['spectral_centroid_mean'] = float(np.mean(centroids))
+                features['spectral_centroid_std'] = float(np.std(centroids))
             
             log_universal('DEBUG', 'OptimizedPipeline', 'Essentia features extracted successfully')
             

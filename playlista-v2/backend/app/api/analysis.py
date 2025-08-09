@@ -22,7 +22,7 @@ async def start_analysis_processing(
     background_tasks: BackgroundTasks,
     quick: bool = False,
     limit: Optional[int] = None
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """Start analysis processing with optional parameters"""
     
     with LogContext(operation="start_analysis_processing"):
