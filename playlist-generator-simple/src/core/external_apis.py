@@ -933,11 +933,15 @@ class EnhancedMetadataEnrichmentService:
         # MusicBrainz
         if config.get('MUSICBRAINZ_ENABLED', True):
             try:
-                self.clients['musicbrainz'] = MusicBrainzClient(
-                    user_agent=config.get('MUSICBRAINZ_USER_AGENT', 'Playlista/1.0'),
-                    rate_limit=config.get('MUSICBRAINZ_RATE_LIMIT', 1.0)
-                )
-                log_universal('INFO', 'Enrichment', 'MusicBrainz client initialized')
+                if MUSICBRAINZ_AVAILABLE:
+                    musicbrainz_client = MusicBrainzClient(
+                        user_agent=config.get('MUSICBRAINZ_USER_AGENT', 'Playlista/1.0'),
+                        rate_limit=config.get('MUSICBRAINZ_RATE_LIMIT', 1.0)
+                    )
+                    self.clients['musicbrainz'] = musicbrainz_client
+                    log_universal('INFO', 'Enrichment', 'MusicBrainz client initialized')
+                else:
+                    log_universal('WARNING', 'Enrichment', 'MusicBrainz library not available - skipping client initialization')
             except Exception as e:
                 log_universal('WARNING', 'Enrichment', f'MusicBrainz client failed: {e}')
         

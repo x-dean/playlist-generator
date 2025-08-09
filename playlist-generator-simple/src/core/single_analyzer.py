@@ -493,13 +493,7 @@ class SingleAnalyzer:
             
             # Enrich with external APIs
             log_universal('DEBUG', 'API', f'Calling enrichment service with: title="{title}", artist="{artist}", album="{metadata.get("album", "")}"')
-            enriched_data = enrichment_service.enrich_track_metadata(
-                title=title,
-                artist=artist,
-                album=metadata.get('album', ''),
-                track_number=metadata.get('track'),
-                duration_ms=int(metadata.get('duration_seconds', 0) * 1000) if metadata.get('duration_seconds') else None
-            )
+            enriched_data = enrichment_service.enrich_metadata(metadata)
             log_universal('DEBUG', 'API', f'Enrichment service returned: {type(enriched_data)} with {len(enriched_data) if enriched_data else 0} fields')
             
             if enriched_data:
