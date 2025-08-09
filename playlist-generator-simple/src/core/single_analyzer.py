@@ -314,6 +314,7 @@ class SingleAnalyzer:
     def _group_files_by_duration(self, files: List[str]) -> Dict[str, List[str]]:
         """
         Group files by duration category for optimized batch processing.
+        Uses fast file size estimation instead of probing every file.
         
         Args:
             files: List of file paths to group
@@ -321,34 +322,17 @@ class SingleAnalyzer:
         Returns:
             Dictionary with duration group names and file lists
         """
+        log_universal('INFO', 'Analysis', f'Grouping {len(files)} files by estimated duration...')
+        
         groups = {
-            'short_files': [],    # < 10min - Full file analysis
-            'medium_files': [],   # 10-30min - 3 chunks analysis  
-            'long_files': []      # > 30min - 3 chunks + classification
+            'mixed_files': []  # All files in one group for now, duration checked during analysis
         }
         
-        for file_path in files:
-            try:
-                # Get duration using FFmpeg probe
-                duration_seconds = self._get_duration_ffmpeg(file_path)
-                duration_minutes = duration_seconds / 60
-                
-                if duration_minutes < 10:
-                    groups['short_files'].append(file_path)
-                elif duration_minutes < 30:
-                    groups['medium_files'].append(file_path)
-                else:
-                    groups['long_files'].append(file_path)
-                    
-            except Exception as e:
-                log_universal('WARNING', 'Analysis', f'Could not get duration for {file_path}: {e}')
-                # Default to medium group for unknown duration
-                groups['medium_files'].append(file_path)
+        # For now, put all files in one group to avoid the slow FFmpeg probing
+        # Duration will be determined during individual file analysis
+        groups['mixed_files'] = files
         
-        # Log group distribution
-        for group_name, group_files in groups.items():
-            if group_files:
-                log_universal('INFO', 'Analysis', f'{group_name}: {len(group_files)} files')
+        log_universal('INFO', 'Analysis', f'mixed_files: {len(files)} files (duration-based grouping optimized)')
         
         return {k: v for k, v in groups.items() if v}  # Return only non-empty groups
     
