@@ -46,6 +46,7 @@ CREATE TABLE tracks (
     tempo REAL,
     key VARCHAR(10),
     mode VARCHAR(20),
+    time_signature VARCHAR(10),        -- "4/4", "3/4", "6/8", etc.
     key_confidence REAL,
     
     -- Derived features for playlist generation
