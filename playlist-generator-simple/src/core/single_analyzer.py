@@ -469,15 +469,20 @@ class SingleAnalyzer:
         enriched = metadata.copy()
         
         try:
+            log_universal('DEBUG', 'API', 'Getting metadata enrichment service...')
             # Get enrichment service
             enrichment_service = get_metadata_enrichment_service()
             if not enrichment_service:
                 log_universal('DEBUG', 'API', 'No metadata enrichment service available')
                 return enriched
             
+            log_universal('DEBUG', 'API', f'Enrichment service obtained: {type(enrichment_service).__name__}')
+            
             # Extract search parameters
             title = metadata.get('title', '')
             artist = metadata.get('artist', '')
+            
+            log_universal('DEBUG', 'API', f'Extracted metadata - title: "{title}", artist: "{artist}"')
             
             if not title or not artist:
                 log_universal('DEBUG', 'API', f'Insufficient metadata for enrichment: title="{title}", artist="{artist}"')
@@ -486,6 +491,7 @@ class SingleAnalyzer:
             log_universal('DEBUG', 'API', f'Starting metadata enrichment for: "{title}" by "{artist}"')
             
             # Enrich with external APIs
+            log_universal('DEBUG', 'API', f'Calling enrichment service with: title="{title}", artist="{artist}", album="{metadata.get("album", "")}"')
             enriched_data = enrichment_service.enrich_track_metadata(
                 title=title,
                 artist=artist,
@@ -493,6 +499,7 @@ class SingleAnalyzer:
                 track_number=metadata.get('track'),
                 duration_ms=int(metadata.get('duration_seconds', 0) * 1000) if metadata.get('duration_seconds') else None
             )
+            log_universal('DEBUG', 'API', f'Enrichment service returned: {type(enriched_data)} with {len(enriched_data) if enriched_data else 0} fields')
             
             if enriched_data:
                 # Merge enriched data
