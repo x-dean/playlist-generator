@@ -28,6 +28,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .logging_setup import get_logger, log_universal
 from .config_loader import config_loader
 from .database import get_db_manager
+from .external_apis import get_metadata_enrichment_service
 from .optimized_pipeline import OptimizedAudioPipeline
 from .lazy_imports import is_mutagen_available, mutagen
 
@@ -454,6 +455,59 @@ class SingleAnalyzer:
                     return str(value[0])
                 return str(value)
         return None
+    
+    def _enrich_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Enrich metadata using external APIs (MusicBrainz, Last.fm, etc.).
+        
+        Args:
+            metadata: Base metadata extracted from file
+            
+        Returns:
+            Enriched metadata dictionary
+        """
+        enriched = metadata.copy()
+        
+        try:
+            # Get enrichment service
+            enrichment_service = get_metadata_enrichment_service()
+            if not enrichment_service:
+                log_universal('DEBUG', 'API', 'No metadata enrichment service available')
+                return enriched
+            
+            # Extract search parameters
+            title = metadata.get('title', '')
+            artist = metadata.get('artist', '')
+            
+            if not title or not artist:
+                log_universal('DEBUG', 'API', f'Insufficient metadata for enrichment: title="{title}", artist="{artist}"')
+                return enriched
+            
+            log_universal('DEBUG', 'API', f'Starting metadata enrichment for: "{title}" by "{artist}"')
+            
+            # Enrich with external APIs
+            enriched_data = enrichment_service.enrich_track_metadata(
+                title=title,
+                artist=artist,
+                album=metadata.get('album', ''),
+                track_number=metadata.get('track'),
+                duration_ms=int(metadata.get('duration_seconds', 0) * 1000) if metadata.get('duration_seconds') else None
+            )
+            
+            if enriched_data:
+                # Merge enriched data
+                for key, value in enriched_data.items():
+                    if value and (key not in enriched or not enriched[key]):
+                        enriched[key] = value
+                
+                log_universal('DEBUG', 'API', f'Successfully enriched metadata for: "{title}" by "{artist}"')
+            else:
+                log_universal('DEBUG', 'API', f'No enrichment data found for: "{title}" by "{artist}"')
+            
+        except Exception as e:
+            log_universal('WARNING', 'API', f'Metadata enrichment failed: {str(e)}')
+        
+        return enriched
     
     def _analyze_standard(self, file_path: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Standard analysis for files outside optimized range."""
