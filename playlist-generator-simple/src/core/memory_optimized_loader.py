@@ -42,7 +42,7 @@ from .logging_setup import get_logger, log_universal
 logger = get_logger('playlista.memory_optimized_loader')
 
 # Universal memory optimization constants (applies to ALL file categories)
-OPTIMIZED_SAMPLE_RATE = 22050  # Reduced from 44100 (50% memory reduction)
+OPTIMIZED_SAMPLE_RATE = 16000  # Optimized for MusiCNN models
 OPTIMIZED_BIT_DEPTH = 16  # Use float16 instead of float32 (50% memory reduction)
 OPTIMIZED_CHUNK_DURATION_SECONDS = 3  # Smaller chunks for memory safety
 OPTIMIZED_MEMORY_LIMIT_PERCENT = 15  # Universal memory limit

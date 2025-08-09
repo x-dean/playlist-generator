@@ -489,8 +489,8 @@ class SingleAnalyzer:
                     if essentia_features.get('tempo'):  # Valid analysis
                         segment_features.append(essentia_features)
                     
-                    # MusiCNN analysis for this segment
-                    musicnn_result = self._analyze_single_segment_musicnn(audio_segment, 22050)
+                    # MusiCNN analysis for this segment (already at 16kHz)
+                    musicnn_result = self._analyze_single_segment_musicnn(audio_segment, 16000)
                     if musicnn_result.get('tags'):
                         musicnn_features.append(musicnn_result)
             
@@ -1115,7 +1115,7 @@ class SingleAnalyzer:
                 '-ss', str(start),  # Start time
                 '-t', str(duration),  # Duration
                 '-ac', '1',  # Mono
-                '-ar', '22050',  # Sample rate
+                '-ar', '16000',  # Sample rate (optimized for MusiCNN)
                 '-f', 'f32le',  # Output format
                 '-v', 'quiet',  # Suppress logs
                 '-'
@@ -1150,51 +1150,211 @@ class SingleAnalyzer:
             features['tempo'] = float(tempo) if tempo > 0 else None
             features['beats_confidence'] = float(beats_confidence)
             
-            # Key detection
+            # Comprehensive key and harmonic analysis
             key_extractor = essentia_standard.KeyExtractor()
             key, scale, strength = key_extractor(audio)
             features['key'] = key if strength > 0.6 else None
             features['mode'] = scale if strength > 0.6 else None
             features['key_strength'] = float(strength)
+            features['key_confidence'] = float(strength)  # Alias for database compatibility
             
-            # Loudness
+            # Additional harmonic features
+            try:
+                # Harmonic pitch class profile
+                hpcp = essentia_standard.HPCP()
+                key_extractor_hpcp = essentia_standard.Key()
+                
+                # Calculate harmonic complexity (simplified)
+                if len(audio) > 1024:
+                    frame_generator = essentia_standard.FrameGenerator(audio, frameSize=4096, hopSize=2048)
+                    hpcp_values = []
+                    for frame in frame_generator:
+                        if len(frame) == 4096:  # Ensure full frame
+                            windowed_frame = windowing(frame)
+                            spectrum_frame = spectrum(windowed_frame)
+                            hpcp_frame = hpcp(spectrum_frame)
+                            hpcp_values.append(hpcp_frame)
+                    
+                    if hpcp_values:
+                        import numpy as np
+                        hpcp_array = np.array(hpcp_values)
+                        # Harmonic complexity as variance in HPCP
+                        features['harmonic_complexity'] = float(np.var(hpcp_array))
+                        # Tonal centroid as weighted mean
+                        features['tonal_centroid'] = float(np.mean(hpcp_array))
+            except Exception as e:
+                log_universal('DEBUG', 'Audio', f'Advanced harmonic analysis failed: {e}')
+                features['harmonic_complexity'] = 0.1  # Default low complexity
+                features['tonal_centroid'] = 0.5  # Default neutral
+            
+            # Comprehensive loudness and dynamic analysis
             loudness_extractor = essentia_standard.Loudness()
             features['loudness'] = float(loudness_extractor(audio))
             
-            # Spectral features for energy/danceability estimation
-            spectral_centroid = essentia_standard.Centroid()
-            spectral_rolloff = essentia_standard.RollOff()
-            zcr = essentia_standard.ZeroCrossingRate()
+            # Dynamic range and complexity
+            try:
+                # Calculate dynamic complexity from energy variations
+                if energies:  # Will be calculated later in the frame loop
+                    pass  # Will be set after energy calculation
+                
+                # Peak amplitude and crest factor
+                if len(audio) > 0:
+                    features['peak_amplitude'] = float(np.max(np.abs(audio)))
+                    rms_total = np.sqrt(np.mean(audio**2))
+                    if rms_total > 0:
+                        features['crest_factor'] = features['peak_amplitude'] / rms_total
+                    else:
+                        features['crest_factor'] = 1.0
+                
+            except Exception as e:
+                log_universal('DEBUG', 'Audio', f'Dynamic analysis failed: {e}')
+                features['peak_amplitude'] = 0.5
+                features['crest_factor'] = 1.0
             
+            # Comprehensive spectral and timbral feature extraction
             windowing = essentia_standard.Windowing(type='hann')
             spectrum = essentia_standard.Spectrum()
             
-            # Process in frames
+            # Comprehensive spectral descriptors
+            spectral_centroid = essentia_standard.Centroid()
+            spectral_rolloff = essentia_standard.RollOff()
+            spectral_flux = essentia_standard.Flux()
+            spectral_flatness = essentia_standard.Flatness()
+            spectral_contrast = essentia_standard.SpectralContrast()
+            spectral_complexity = essentia_standard.SpectralComplexity()
+            zcr = essentia_standard.ZeroCrossingRate()
+            
+            # Additional spectral features
+            try:
+                spectral_peaks = essentia_standard.SpectralPeaks()
+                spectral_centroid_time = essentia_standard.SpectralCentroidTime()
+                spectral_decrease = essentia_standard.Decrease()
+                spectral_entropy = essentia_standard.Entropy()
+            except AttributeError:
+                # Some features might not be available in all Essentia versions
+                spectral_peaks = None
+                spectral_centroid_time = None
+                spectral_decrease = None
+                spectral_entropy = None
+            
+            # MFCC and chroma
+            mfcc = essentia_standard.MFCC(numberCoefficients=13)
+            chroma = essentia_standard.ChromaExtractor()
+            
+            # Energy and RMS
+            energy = essentia_standard.Energy()
+            rms = essentia_standard.RMS()
+            
+            # Frame-based feature collections
             frame_size = 2048
             hop_size = 1024
-            centroids, rolloffs, zcrs = [], [], []
             
+            # Feature arrays
+            centroids, rolloffs, fluxes, flatnesses, zcrs = [], [], [], [], []
+            contrasts, complexities = [], []
+            decreases, entropies = [], []
+            mfcc_coeffs, chroma_vectors = [], []
+            energies, rms_values = [], []
+            
+            # Process audio in frames
             for frame in essentia_standard.FrameGenerator(audio, frameSize=frame_size, hopSize=hop_size):
                 windowed_frame = windowing(frame)
                 spec = spectrum(windowed_frame)
+                
+                # Spectral features
                 centroids.append(spectral_centroid(spec))
                 rolloffs.append(spectral_rolloff(spec))
+                fluxes.append(spectral_flux(spec))
+                flatnesses.append(spectral_flatness(spec))
                 zcrs.append(zcr(frame))
+                
+                # Additional spectral features
+                try:
+                    contrasts.append(spectral_contrast(spec))
+                    complexities.append(spectral_complexity(spec))
+                    if spectral_decrease:
+                        decreases.append(spectral_decrease(spec))
+                    if spectral_entropy:
+                        entropies.append(spectral_entropy(spec))
+                except:
+                    pass  # Skip if features not available
+                
+                # MFCC and chroma
+                mfcc_bands, mfcc_coefficients = mfcc(spec)
+                mfcc_coeffs.append(mfcc_coefficients)
+                chroma_vectors.append(chroma(spec))
+                
+                # Energy features
+                energies.append(energy(frame))
+                rms_values.append(rms(frame))
             
             if centroids:
                 import numpy as np
-                # Derive energy and danceability from spectral features
+                
+                # Calculate spectral feature statistics
+                features['spectral_centroid_mean'] = float(np.mean(centroids))
+                features['spectral_centroid_std'] = float(np.std(centroids))
+                features['spectral_rolloff'] = float(np.mean(rolloffs))
+                features['spectral_flux'] = float(np.mean(fluxes))
+                features['spectral_flatness'] = float(np.mean(flatnesses))
+                features['zero_crossing_rate'] = float(np.mean(zcrs))
+                
+                # Additional spectral statistics
+                if contrasts:
+                    features['spectral_contrast_mean'] = float(np.mean(contrasts))
+                    features['spectral_contrast_std'] = float(np.std(contrasts))
+                if complexities:
+                    features['spectral_complexity'] = float(np.mean(complexities))
+                if decreases:
+                    features['spectral_decrease'] = float(np.mean(decreases))
+                if entropies:
+                    features['spectral_entropy'] = float(np.mean(entropies))
+                
+                # MFCC statistics
+                if mfcc_coeffs:
+                    mfcc_array = np.array(mfcc_coeffs)
+                    features['mfcc_coefficients'] = mfcc_array.mean(axis=0).tolist()
+                    features['mfcc_std'] = mfcc_array.std(axis=0).tolist()
+                
+                # Chroma statistics
+                if chroma_vectors:
+                    chroma_array = np.array(chroma_vectors)
+                    features['chroma_mean'] = chroma_array.mean(axis=0).tolist()
+                    features['chroma_std'] = chroma_array.std(axis=0).tolist()
+                
+                # Energy statistics
+                features['energy_mean'] = float(np.mean(energies))
+                features['energy_std'] = float(np.std(energies))
+                features['root_mean_square'] = float(np.mean(rms_values))
+                
+                # Dynamic complexity and range
+                if len(energies) > 1:
+                    energy_range = max(energies) - min(energies)
+                    features['dynamic_range'] = float(energy_range)
+                    features['dynamic_complexity'] = float(np.std(energies) / np.mean(energies) if np.mean(energies) > 0 else 0)
+                    features['loudness_range'] = float(energy_range)  # Simplified measure
+                
+                # Derive high-level features
                 avg_centroid = np.mean(centroids)
                 avg_rolloff = np.mean(rolloffs)
                 avg_zcr = np.mean(zcrs)
+                avg_energy = np.mean(energies)
                 
-                # Energy estimation (higher spectral content = more energy)
-                features['energy'] = min(1.0, avg_centroid / 8000.0)  # Normalize to 0-1
+                # Energy estimation (normalized spectral energy)
+                features['energy'] = min(1.0, max(0.0, avg_energy * 10))  # Scale to 0-1
                 
-                # Danceability estimation (rhythm consistency + tempo range)
+                # Danceability estimation (rhythm + tempo + energy)
                 tempo_danceable = 1.0 if 100 <= tempo <= 140 else 0.5 if 80 <= tempo <= 160 else 0.2
                 rhythm_consistency = beats_confidence
-                features['danceability'] = (tempo_danceable + rhythm_consistency) / 2.0
+                energy_factor = min(1.0, avg_energy * 5)  # Energy contribution
+                features['danceability'] = (tempo_danceable + rhythm_consistency + energy_factor) / 3.0
+                
+                # Additional derived features
+                features['acousticness'] = max(0.0, 1.0 - (avg_centroid / 4000.0))  # Lower centroid = more acoustic
+                features['instrumentalness'] = 0.3  # Default, will be refined by MusiCNN
+                features['valence'] = 0.5  # Default neutral, will be refined by MusiCNN
+                features['liveness'] = 0.1  # Default low, will be refined by MusiCNN
+                features['speechiness'] = min(1.0, avg_zcr * 20)  # Higher ZCR can indicate speech
             
             return features
             
@@ -1404,7 +1564,7 @@ class SingleAnalyzer:
                 'ffmpeg', '-i', file_path,
                 '-t', str(max_duration),  # Limit to 30 seconds max
                 '-ac', '1',  # Mono
-                '-ar', '22050',  # Standard sample rate
+                '-ar', '16000',  # Sample rate (optimized for MusiCNN)
                 '-f', 'f32le',
                 '-'
             ]
@@ -1413,7 +1573,7 @@ class SingleAnalyzer:
             
             if result.returncode == 0:
                 audio_data = np.frombuffer(result.stdout, dtype=np.float32)
-                return audio_data, 22050
+                return audio_data, 16000
             else:
                 return None, None
                 

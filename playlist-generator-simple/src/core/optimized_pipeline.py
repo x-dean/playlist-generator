@@ -41,7 +41,7 @@ TENSORFLOW_AVAILABLE = is_tensorflow_available()
 LIBROSA_AVAILABLE = is_librosa_available()
 
 # Pipeline configuration constants
-DEFAULT_OPTIMIZED_SAMPLE_RATE = 22050  # Good compromise for MusiCNN accuracy
+DEFAULT_OPTIMIZED_SAMPLE_RATE = 16000  # Optimized for MusiCNN models
 DEFAULT_SEGMENT_LENGTH = 30  # seconds
 DEFAULT_MIN_TRACK_LENGTH = 180  # 3 minutes - threshold for chunk processing
 DEFAULT_MAX_SEGMENTS = 4
@@ -90,7 +90,7 @@ class OptimizedAudioPipeline:
                 'musicnn_model': 'compact'
             },
             'balanced': {
-                'sample_rate': 22050,
+                'sample_rate': 16000,
                 'channels': 1,
                 'segment_length': 30,
                 'max_segments': 4,
@@ -536,7 +536,7 @@ class OptimizedAudioPipeline:
         hop_size = 512
         
         # Calculate time per frame
-        time_per_frame = hop_size / self.optimized_sample_rate if self.optimized_sample_rate > 0 else hop_size / 22050
+        time_per_frame = hop_size / self.optimized_sample_rate if self.optimized_sample_rate > 0 else hop_size / 16000
         peak_times = peaks * time_per_frame
         
         # Select most significant peaks if we have too many
@@ -594,7 +594,7 @@ class OptimizedAudioPipeline:
             # Basic validation
             if sample_rate <= 0:
                 log_universal('WARNING', 'OptimizedPipeline', f'Invalid sample rate: {sample_rate}')
-                sample_rate = 22050  # Fallback sample rate
+                sample_rate = 16000  # Fallback sample rate (MusiCNN optimized)
             
             # Extract key features
             features['duration'] = len(audio) / sample_rate

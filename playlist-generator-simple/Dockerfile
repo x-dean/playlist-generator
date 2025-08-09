@@ -49,7 +49,7 @@ COPY scripts /app/scripts
 COPY playlista.conf /app/playlista.conf
 
 # Create directories with proper permissions
-RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/music /app/database
+RUN mkdir -p /app/playlists /app/cache/checkpoints /app/cache/metrics /app/logs /app/music /app/database /app/models
 
 # Make scripts executable
 RUN chmod +x /app/playlista /app/entrypoint.sh

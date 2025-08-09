@@ -267,7 +267,7 @@ class ConfigLoader:
             'OPTIMIZED_PIPELINE_MAX_SIZE_MB': 200,
             
             # OptimizedPipeline settings
-            'OPTIMIZED_SAMPLE_RATE': 22050,
+            'OPTIMIZED_SAMPLE_RATE': 16000,
             'SEGMENT_LENGTH': 30,
             'MAX_SEGMENTS': 4,
             'PIPELINE_RESOURCE_MODE': 'balanced',
@@ -390,7 +390,7 @@ class ConfigLoader:
             'MEMORY_OPTIMIZATION_ENABLED': config.get('MEMORY_OPTIMIZATION_ENABLED', False),
             'MEMORY_OPTIMIZATION_UNIVERSAL': config.get('MEMORY_OPTIMIZATION_UNIVERSAL', False),
             'MEMORY_OPTIMIZATION_FORCE_ALL_CATEGORIES': config.get('MEMORY_OPTIMIZATION_FORCE_ALL_CATEGORIES', False),
-            'MEMORY_OPTIMIZED_SAMPLE_RATE': config.get('MEMORY_OPTIMIZED_SAMPLE_RATE', 22050),
+            'MEMORY_OPTIMIZED_SAMPLE_RATE': config.get('MEMORY_OPTIMIZED_SAMPLE_RATE', 16000),
             'MEMORY_OPTIMIZED_MEMORY_LIMIT_PERCENT': config.get('MEMORY_OPTIMIZED_MEMORY_LIMIT_PERCENT', 15),
             'MEMORY_OPTIMIZED_MAX_MB_PER_TRACK': config.get('MEMORY_OPTIMIZED_MAX_MB_PER_TRACK', 200)
         }

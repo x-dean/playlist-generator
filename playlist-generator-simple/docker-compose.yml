@@ -37,6 +37,9 @@ services:
       # Playlists output directory
       - /root/music/playlista/playlists:/app/playlists
 
+      # Models directory - mount your MusiCNN models here
+      - /root/music/playlista/models:/app/models:ro
+
       # Cache directory for pipeline cache only (database is PostgreSQL)
       - /root/music/playlista/cache:/app/cache
 

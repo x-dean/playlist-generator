@@ -237,58 +237,90 @@ class MusiCNNIntegration:
                 log_universal('WARNING', 'MusiCNN', 'Essentia not available, using fallback tags')
                 return self._generate_fallback_tags()
             
-            # Use Essentia's DiscogEffNet or MusiCNN model
+            # Try multiple model approaches in order of preference
+            
+            # Try to load MusiCNN models using config paths
+            from .config_loader import ConfigLoader
             try:
-                # Try to use DiscogEffNet (more reliable than MusiCNN in Essentia)
-                model = es.TensorFlowPredictEffNetDiscogs(
-                    graphFilename="/essentia/models/discogs-effnet-bs64-1.pb",
-                    output="PartitionedCall:1"  # Adjust output layer as needed
-                )
+                config_loader = ConfigLoader()
+                config = config_loader.get_audio_analysis_config()
                 
-                # Prepare audio for model
-                audio_processed = self._prepare_audio_for_essentia(audio)
-                if audio_processed is None:
-                    return self._generate_fallback_tags()
+                musicnn_model_path = config.get('MUSICNN_MODEL_PATH', '/app/models/musicnn/msd-musicnn-1.pb')
                 
-                # Get predictions
-                predictions = model(audio_processed)
-                
-                # Convert predictions to tag probabilities
-                # DiscogEffNet typically outputs genre/style probabilities
-                tags = self._convert_effnet_to_musicnn_tags(predictions)
-                
-                log_universal('DEBUG', 'MusiCNN', f'Extracted {len(tags)} tags using DiscogEffNet')
-                return tags
-                
+                model_paths = [
+                    musicnn_model_path,
+                    "/app/models/musicnn/msd-musicnn-1.pb",  # Your actual model path
+                    "/app/models/musicnn_msd.pb"  # Legacy fallback
+                ]
             except Exception as e:
-                log_universal('WARNING', 'MusiCNN', f'DiscogEffNet failed: {e}, trying alternative')
-                return self._extract_tags_alternative(audio)
+                log_universal('WARNING', 'MusiCNN', f'Config loading failed: {e}, using default paths')
+                model_paths = [
+                    "/app/models/musicnn/msd-musicnn-1.pb",  # Your actual model path
+                    "/app/models/musicnn_msd.pb"  # Legacy fallback
+                ]
+            
+            model_found = False
+            for model_path in model_paths:
+                try:
+                    import os
+                    if os.path.exists(model_path):
+                        log_universal('DEBUG', 'MusiCNN', f'Found model at {model_path}')
+                        
+                        # Load MusiCNN tag names from JSON if available
+                        json_path = model_path.replace('.pb', '.json')
+                        if os.path.exists(json_path):
+                            log_universal('DEBUG', 'MusiCNN', f'Loading tag names from {json_path}')
+                            self._load_musicnn_tag_names(json_path)
+                        
+                        # Use TensorFlowPredictor2D for MusiCNN models
+                        model = es.TensorFlowPredictor2D(
+                            graphFilename=model_path,
+                            inputs=["model/Placeholder"],
+                            outputs=["model/Sigmoid"]
+                        )
+                        
+                        # Prepare audio for model
+                        audio_processed = self._prepare_audio_for_essentia(audio)
+                        if audio_processed is None:
+                            continue
+                        
+                        # Get predictions
+                        predictions = model(audio_processed)
+                        tags = self._convert_musicnn_predictions_to_tags(predictions)
+                        
+                        log_universal('DEBUG', 'MusiCNN', f'Extracted {len(tags)} tags using MusiCNN at {model_path}')
+                        return tags
+                        
+                except Exception as e:
+                    log_universal('DEBUG', 'MusiCNN', f'Model at {model_path} failed: {e}')
+                    continue
+            
+            # If no TensorFlow models work, use descriptive analysis
+            log_universal('INFO', 'MusiCNN', 'No TensorFlow models available, using descriptive analysis')
+            return self._extract_tags_alternative(audio)
                 
         except Exception as e:
             log_universal('ERROR', 'MusiCNN', f'Tag extraction failed: {e}')
             return self._generate_fallback_tags()
     
     def _prepare_audio_for_essentia(self, audio: np.ndarray) -> np.ndarray:
-        """Prepare audio for Essentia TensorFlow models."""
+        """Prepare audio for MusiCNN TensorFlow models (optimized for 16kHz input)."""
         try:
-            # Ensure mono
+            # Ensure mono (audio should already be mono from FFmpeg)
             if len(audio.shape) > 1:
                 audio = np.mean(audio, axis=1)
             
-            # Resample to model's expected sample rate (typically 16kHz)
-            if hasattr(self, 'config') and 'sample_rate' in self.config:
-                target_sr = self.config['sample_rate']
-            else:
-                target_sr = 16000
+            # Audio is already at 16kHz from FFmpeg, no resampling needed
+            target_sr = 16000
             
             # Normalize audio
             if np.max(np.abs(audio)) > 0:
                 audio = audio / np.max(np.abs(audio))
             
-            # Ensure correct length (3 seconds for most models)
-            target_length = target_sr * 3
+            # Ensure exactly 3 seconds (48000 samples at 16kHz)
+            target_length = target_sr * 3  # 48000 samples
             if len(audio) > target_length:
-                # Take middle segment
+                # Take middle segment for best representation
                 start_idx = (len(audio) - target_length) // 2
                 audio = audio[start_idx:start_idx + target_length]
             elif len(audio) < target_length:
@@ -362,29 +394,65 @@ class MusiCNNIntegration:
             log_universal('ERROR', 'MusiCNN', f'Alternative tag extraction failed: {e}')
             return self._generate_fallback_tags()
     
-    def _convert_effnet_to_musicnn_tags(self, predictions: np.ndarray) -> Dict[str, float]:
-        """Convert EffNet predictions to MusiCNN-style tags."""
+    def _convert_musicnn_predictions_to_tags(self, predictions: np.ndarray) -> Dict[str, float]:
+        """Convert MusiCNN predictions to tag dictionary."""
         try:
-            # EffNet outputs style/genre probabilities
-            # Map them to our standard tag names
+            # MusiCNN outputs tag probabilities
             if len(predictions.shape) > 1:
                 predictions = predictions[0]  # Take first batch item
             
-            # Create basic mapping (this would need refinement with actual model outputs)
+            # Create tag dictionary using loaded tag names or defaults
             tags = {}
-            for i, tag_name in enumerate(self.tag_names[:min(len(self.tag_names), len(predictions))]):
+            tag_names = self.tag_names if hasattr(self, 'tag_names') and self.tag_names else self._get_default_tag_names()
+            
+            for i, tag_name in enumerate(tag_names[:min(len(tag_names), len(predictions))]):
                 tags[tag_name] = float(predictions[i])
             
-            # Ensure all tag names have values
-            for tag_name in self.tag_names:
+            # Ensure all expected tag names have values
+            for tag_name in tag_names:
                 if tag_name not in tags:
                     tags[tag_name] = 0.1  # Default low probability
             
             return tags
             
         except Exception as e:
-            log_universal('ERROR', 'MusiCNN', f'EffNet conversion failed: {e}')
+            log_universal('ERROR', 'MusiCNN', f'MusiCNN prediction conversion failed: {e}')
             return self._generate_fallback_tags()
+    
+    def _load_musicnn_tag_names(self, json_path: str):
+        """Load tag names from MusiCNN JSON metadata file."""
+        try:
+            import json
+            with open(json_path, 'r') as f:
+                metadata = json.load(f)
+            
+            # Extract tag names from JSON (format may vary)
+            if 'classes' in metadata:
+                self.tag_names = metadata['classes']
+            elif 'tags' in metadata:
+                self.tag_names = metadata['tags']
+            elif 'labels' in metadata:
+                self.tag_names = metadata['labels']
+            else:
+                log_universal('WARNING', 'MusiCNN', f'No tag names found in {json_path}, using defaults')
+                self.tag_names = self._get_default_tag_names()
+            
+            log_universal('INFO', 'MusiCNN', f'Loaded {len(self.tag_names)} tag names from {json_path}')
+            
+        except Exception as e:
+            log_universal('ERROR', 'MusiCNN', f'Failed to load tag names from {json_path}: {e}')
+            self.tag_names = self._get_default_tag_names()
+    
+    def _get_default_tag_names(self) -> List[str]:
+        """Get default MusiCNN tag names if JSON loading fails."""
+        return [
+            'rock', 'pop', 'alternative', 'indie', 'electronic', 'female vocalists',
+            'dance', 'folk', 'chillout', 'instrumental', 'beautiful', 'ambient',
+            'jazz', 'chill', 'experimental', 'electronica', 'male vocalists',
+            'hip hop', 'classical', 'soul', 'funk', 'reggae', 'country',
+            'rnb', 'psychedelic', 'new age', 'world', 'blues', 'house',
+            'metal', 'latin'
+        ]
     
     def _generate_fallback_tags(self) -> Dict[str, float]:
         """Generate basic fallback tags when models aren't available."""
@@ -414,13 +482,23 @@ class MusiCNNIntegration:
                 log_universal('WARNING', 'MusiCNN', 'Essentia not available, generating basic embeddings')
                 return self._generate_basic_embeddings(audio)
             
-            # Try to use Essentia's embedding models
+            # Try to use MusiCNN for embeddings
             try:
-                # Use DiscogEffNet for embeddings (more reliable)
-                model = es.TensorFlowPredictEffNetDiscogs(
-                    graphFilename="/essentia/models/discogs-effnet-bs64-1.pb",
-                    output="dense_2/BiasAdd:0"  # Embedding layer output
-                )
+                # Use same MusiCNN model but get intermediate layer for embeddings
+                from .config_loader import ConfigLoader
+                config_loader = ConfigLoader()
+                config = config_loader.get_audio_analysis_config()
+                model_path = config.get('MUSICNN_MODEL_PATH', '/app/models/musicnn/msd-musicnn-1.pb')
+                
+                if not os.path.exists(model_path):
+                    model_path = "/app/models/musicnn/msd-musicnn-1.pb"
+                
+                if os.path.exists(model_path):
+                    model = es.TensorFlowPredictor2D(
+                        graphFilename=model_path,
+                        inputs=["model/Placeholder"],
+                        outputs=["model/dense/BiasAdd"]  # Get dense layer for embeddings
+                    )
                 
                 # Prepare audio
                 audio_processed = self._prepare_audio_for_essentia(audio)
@@ -434,19 +512,22 @@ class MusiCNNIntegration:
                 if len(embeddings.shape) > 1:
                     embeddings = embeddings[0]
                 
-                # Resize to 50 dimensions if needed
-                if len(embeddings) > 50:
-                    embeddings = embeddings[:50]
-                elif len(embeddings) < 50:
-                    embeddings = np.pad(embeddings, (0, 50 - len(embeddings)), mode='constant')
-                
-                embedding_vector = embeddings.astype(float).tolist()
-                
-                log_universal('DEBUG', 'MusiCNN', f'Extracted {len(embedding_vector)}-dimensional embeddings using DiscogEffNet')
-                return embedding_vector
+                    # Resize to 50 dimensions if needed
+                    if len(embeddings) > 50:
+                        embeddings = embeddings[:50]
+                    elif len(embeddings) < 50:
+                        embeddings = np.pad(embeddings, (0, 50 - len(embeddings)), mode='constant')
+                    
+                    embedding_vector = embeddings.astype(float).tolist()
+                    
+                    log_universal('DEBUG', 'MusiCNN', f'Extracted {len(embedding_vector)}-dimensional embeddings using MusiCNN')
+                    return embedding_vector
+                else:
+                    log_universal('WARNING', 'MusiCNN', f'MusiCNN model not found at {model_path}, using basic embeddings')
+                    return self._generate_basic_embeddings(audio)
                 
             except Exception as e:
-                log_universal('WARNING', 'MusiCNN', f'DiscogEffNet embeddings failed: {e}, using basic embeddings')
+                log_universal('WARNING', 'MusiCNN', f'MusiCNN embeddings failed: {e}, using basic embeddings')
                 return self._generate_basic_embeddings(audio)
                 
         except Exception as e:
