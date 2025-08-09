@@ -820,8 +820,8 @@ class SingleAnalyzer:
     def _analyze_single_segment_essentia(self, audio: np.ndarray) -> Dict[str, Any]:
         """Analyze a single audio segment with Essentia."""
         try:
-            from .lazy_imports import ensure_essentia
-            essentia_standard = ensure_essentia()
+            from .lazy_imports import get_essentia
+            essentia_standard = get_essentia()
             if not essentia_standard or audio is None or len(audio) == 0:
                 return {}
             
