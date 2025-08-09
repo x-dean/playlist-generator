@@ -169,6 +169,15 @@ class ConfigLoader:
             'MUSIC_PATH': 'MUSIC_PATH',
             'DB_PATH': 'DB_PATH',
             'LOG_LEVEL': 'LOG_LEVEL',
+            
+            # PostgreSQL configuration
+            'POSTGRES_HOST': 'POSTGRES_HOST',
+            'POSTGRES_PORT': 'POSTGRES_PORT',
+            'POSTGRES_DB': 'POSTGRES_DB',
+            'POSTGRES_USER': 'POSTGRES_USER',
+            'POSTGRES_PASSWORD': 'POSTGRES_PASSWORD',
+            'POSTGRES_MIN_CONNECTIONS': 'POSTGRES_MIN_CONNECTIONS',
+            'POSTGRES_MAX_CONNECTIONS': 'POSTGRES_MAX_CONNECTIONS',
             'LOG_FILE': 'LOG_FILE',
             'CACHE_ENABLED': 'CACHE_ENABLED',
             'CACHE_EXPIRY_HOURS': 'CACHE_EXPIRY_HOURS',
