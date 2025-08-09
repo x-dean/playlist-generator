@@ -530,11 +530,16 @@ class AudioAnalyzer:
                     else:
                         log_universal('WARNING', 'Audio', f'Could not create comprehensive category - missing advanced features or categorization disabled')
             else:
-                log_universal('INFO', 'Audio', f'Step 5: Extracting MusicNN features for {os.path.basename(file_path)}')
-                musicnn_features = self._extract_musicnn_features(audio, sample_rate, file_path)
-                if musicnn_features:
-                    self.db_manager.save_musicnn_features(file_path, musicnn_features)
-                    log_universal('INFO', 'Audio', f'MusicNN features saved to database')
+                # Check if MusicNN extraction is enabled
+                if self.extract_musicnn:
+                    log_universal('INFO', 'Audio', f'Step 5: Extracting MusicNN features for {os.path.basename(file_path)}')
+                    musicnn_features = self._extract_musicnn_features(audio, sample_rate, file_path)
+                    if musicnn_features:
+                        self.db_manager.save_musicnn_features(file_path, musicnn_features)
+                        log_universal('INFO', 'Audio', f'MusicNN features saved to database')
+                else:
+                    log_universal('INFO', 'Audio', f'Step 5: MusicNN extraction disabled by config')
+                    musicnn_features = {}
             
             # STEP 6: Ensure everything written to DB
             log_universal('INFO', 'Audio', f'Step 6: Committing all analysis results to database for {os.path.basename(file_path)}')
@@ -1857,8 +1862,8 @@ class AudioAnalyzer:
                 )
 
                 chroma_frames = []
-                # Use the required frame size for Chromagram (32768 samples as per error message)
-                chroma_frame_size = 32768
+                # Use the required frame size for Chromagram's ConstantQ (16384 samples as per error message)
+                chroma_frame_size = 16384
                 chroma_hop_size = chroma_frame_size // 2  # 50% overlap
                 
                 for frame in es.FrameGenerator(audio, frameSize=chroma_frame_size, hopSize=chroma_hop_size, startFromZero=True):

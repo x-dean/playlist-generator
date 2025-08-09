@@ -532,35 +532,33 @@ class AnalysisManager:
         
         start_time = time.time()
         
-        # Categorize files by size
-        sequential_files, parallel_half_files, parallel_full_files = self._categorize_files_by_size(files)
+        # Categorize files by size using PLAYLISTA Pattern 4
+        sequential_only_files, parallel_large_files, parallel_small_files = self._categorize_files_by_size(files)
         
-        log_universal('INFO', 'Analysis', f"File categorization:")
-        log_universal('INFO', 'Analysis', f"  Sequential files (>200MB): {len(sequential_files)} (Sequential + Aggressive sampling + Lightweight categorization)")
-        log_universal('INFO', 'Analysis', f"  Parallel half files (25-200MB): {len(parallel_half_files)} (Parallel + Multi-segment + Full)")
-        log_universal('INFO', 'Analysis', f"  Parallel full files (<25MB): {len(parallel_full_files)} (Parallel + Full)")
+        # PLAYLISTA categorization is logged in the method itself
         
         results = {
             'success_count': 0,
             'failed_count': 0,
             'total_time': 0,
-            'sequential_files_processed': 0,
-            'parallel_half_files_processed': 0,
-            'parallel_full_files_processed': 0
+            'sequential_only_files_processed': 0,
+            'parallel_large_files_processed': 0,
+            'parallel_small_files_processed': 0
         }
         
-        # Process sequential files
-        if sequential_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(sequential_files)} sequential files (Multi-segment loading)")
-            sequential_results = self.sequential_analyzer.process_files(sequential_files, force_reextract)
+        # Process sequential only files (PLAYLISTA: >50MB files)
+        if sequential_only_files:
+            log_universal('INFO', 'Analysis', f"Processing {len(sequential_only_files)} sequential-only files (PLAYLISTA: >50MB)")
+            log_universal('INFO', 'Analysis', f"PLAYLISTA Rule: Files >50MB require sequential processing only")
+            sequential_results = self.sequential_analyzer.process_files(sequential_only_files, force_reextract)
             results['success_count'] += sequential_results['success_count']
             results['failed_count'] += sequential_results['failed_count']
-            results['sequential_files_processed'] = len(sequential_files)
+            results['sequential_only_files_processed'] = len(sequential_only_files)
         
-        # Process parallel half files using optimized analyzer
-        if parallel_half_files:
-            log_universal('INFO', 'Analysis', f"Processing {len(parallel_half_files)} parallel half files (Optimized)")
-            log_universal('INFO', 'Analysis', f"Using optimized batch processing for files 25-200MB")
+        # Process parallel large files (PLAYLISTA: 25-50MB files with +2GB RAM per thread)
+        if parallel_large_files:
+            log_universal('INFO', 'Analysis', f"Processing {len(parallel_large_files)} parallel large files (PLAYLISTA: 25-50MB)")
+            log_universal('INFO', 'Analysis', f"PLAYLISTA Rule: Files 25-50MB require +2GB RAM per thread")
             
             try:
                 from .optimized_analyzer import analyze_files_optimized
@@ -619,36 +617,70 @@ class AnalysisManager:
 
     def _categorize_files_by_size(self, files: List[str]) -> Tuple[List[str], List[str], List[str]]:
         """
-        Categorize files by size for appropriate processing.
+        Categorize files by size using PLAYLISTA Pattern 4 rules.
+        
+        PLAYLISTA Rules:
+        - Files over 50MB: Sequential only (require 4GB RAM)
+        - Files 25-50MB: Parallel with +2GB RAM per thread
+        - Files under 25MB: Parallel with 1.5GB RAM per thread
         
         Args:
             files: List of file paths
             
         Returns:
-            Tuple of (sequential_files, parallel_half_files, parallel_full_files)
+            Tuple of (sequential_only_files, parallel_large_files, parallel_small_files)
         """
-        sequential_files = []  # >200MB: Sequential + Aggressive sampling + Full processing
-        parallel_half_files = []  # 25-200MB: Parallel + Multi-segment + Full processing
-        parallel_full_files = []  # <25MB: Parallel + Full processing
+        from .resource_manager import get_resource_manager
+        
+        sequential_only_files = []  # >50MB: Sequential only (PLAYLISTA rule)
+        parallel_large_files = []   # 25-50MB: Parallel large (require +2GB RAM)
+        parallel_small_files = []   # <25MB: Parallel small (require 1.5GB RAM)
+        
+        # Get resource manager for PLAYLISTA strategy decisions
+        resource_manager = get_resource_manager()
+        
+        # Get file sizes for batch planning
+        file_sizes_mb = []
+        file_paths_with_sizes = []
         
         for file_path in files:
             try:
-                # Get file size from database, not filesystem
+                # Get file size from database
                 file_size_mb = self.db_manager.get_file_size_mb(file_path)
+                file_sizes_mb.append(file_size_mb)
+                file_paths_with_sizes.append((file_path, file_size_mb))
                 
-                if file_size_mb > 200:  # Sequential + Aggressive sampling + Full processing
-                    sequential_files.append(file_path)
-                elif file_size_mb > 25:  # Parallel + Multi-segment + Full processing
-                    parallel_half_files.append(file_path)
-                else:  # Parallel + Full processing
-                    parallel_full_files.append(file_path)
-                    
             except Exception as e:
                 log_universal('WARNING', 'Analysis', f"Could not determine size for {file_path}: {e}")
-                # Default to sequential for unknown sizes
-                sequential_files.append(file_path)
+                # Default to large file (sequential) for unknown sizes
+                file_sizes_mb.append(60.0)  # Assume large file
+                file_paths_with_sizes.append((file_path, 60.0))
         
-        return sequential_files, parallel_half_files, parallel_full_files
+        # Create PLAYLISTA processing plan
+        processing_plan = resource_manager.get_batch_processing_plan(file_sizes_mb)
+        
+        # Categorize files based on PLAYLISTA strategy
+        for file_path, file_size_mb in file_paths_with_sizes:
+            strategy = resource_manager.get_file_analysis_strategy(file_size_mb)
+            
+            if strategy['analysis_type'] == 'sequential_only':
+                sequential_only_files.append(file_path)
+                log_universal('DEBUG', 'Analysis', f"Sequential: {file_path} ({file_size_mb:.1f}MB)")
+            elif strategy['analysis_type'] == 'parallel_large':
+                parallel_large_files.append(file_path)
+                log_universal('DEBUG', 'Analysis', f"Parallel Large: {file_path} ({file_size_mb:.1f}MB)")
+            else:  # parallel_small
+                parallel_small_files.append(file_path)
+                log_universal('DEBUG', 'Analysis', f"Parallel Small: {file_path} ({file_size_mb:.1f}MB)")
+        
+        # Log PLAYLISTA categorization results
+        log_universal('INFO', 'Analysis', f"PLAYLISTA file categorization:")
+        log_universal('INFO', 'Analysis', f"  Sequential only (>50MB): {len(sequential_only_files)} files")
+        log_universal('INFO', 'Analysis', f"  Parallel large (25-50MB): {len(parallel_large_files)} files")
+        log_universal('INFO', 'Analysis', f"  Parallel small (<25MB): {len(parallel_small_files)} files")
+        log_universal('INFO', 'Analysis', f"  Estimated RAM usage: {processing_plan['estimated_ram_usage_gb']:.1f}GB")
+        
+        return sequential_only_files, parallel_large_files, parallel_small_files
 
     def _get_analysis_config(self, file_path: str) -> Dict[str, Any]:
         """

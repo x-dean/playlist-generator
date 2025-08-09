@@ -346,3 +346,8 @@ class ModelManager:
 
 # Global model manager instance
 model_manager = ModelManager()
+
+
+async def load_models() -> None:
+    """Load all ML models - module-level function for application startup"""
+    await model_manager.load_models()

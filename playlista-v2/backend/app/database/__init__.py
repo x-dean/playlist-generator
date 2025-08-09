@@ -12,7 +12,7 @@ from .models import (
     Base,
     CacheEntry,
     Playlist,
-    PlaylistTrack,
+    PlaylistItem,
     Track,
 )
 
@@ -25,7 +25,7 @@ __all__ = [
     "Base",
     "Track",
     "Playlist",
-    "PlaylistTrack", 
+    "PlaylistItem", 
     "AnalysisJob",
     "CacheEntry",
 ]

@@ -17,6 +17,7 @@ from .database import get_db_manager
 from .model_manager import get_model_manager
 from .audio_analyzer import safe_essentia_load
 from .config_loader import config_loader
+from .model_manager import ensure_models_loaded_once
 
 logger = get_logger('playlista.optimized_analyzer')
 
@@ -53,10 +54,10 @@ class OptimizedAnalyzer:
     def _preload_models(self):
         """Pre-load all models to avoid per-thread initialization."""
         try:
+            # Use global model loading to ensure they're loaded only once
+            self.model_manager = ensure_models_loaded_once()
             if self.model_manager.is_musicnn_available():
-                # Trigger model loading
-                self.model_manager.get_musicnn_models()
-                log_universal('INFO', 'OptimizedAnalyzer', 'MusicNN models pre-loaded')
+                log_universal('INFO', 'OptimizedAnalyzer', 'MusicNN models pre-loaded globally')
             else:
                 log_universal('WARNING', 'OptimizedAnalyzer', 'MusicNN models not available')
         except Exception as e:
@@ -122,6 +123,13 @@ class OptimizedAnalyzer:
             'processed_files': []
         }
         
+        # Ensure models are loaded globally before threading
+        try:
+            ensure_models_loaded_once()
+            log_universal('DEBUG', 'OptimizedAnalyzer', 'Models globally ensured for batch processing')
+        except Exception as e:
+            log_universal('WARNING', 'OptimizedAnalyzer', f'Global model pre-loading failed: {e}')
+        
         # Use ThreadPoolExecutor for I/O bound operations
         with ThreadPoolExecutor(max_workers=min(self.max_workers, len(batch))) as executor:
             # Submit all files in batch
@@ -150,6 +158,9 @@ class OptimizedAnalyzer:
                     log_universal('ERROR', 'OptimizedAnalyzer', f'Future failed for {file_path}: {e}')
                     batch_results['failed_count'] += 1
         
+        # Force aggressive memory cleanup after batch
+        self.model_manager.force_memory_cleanup()
+        
         return batch_results
     
     def _analyze_single_file(self, file_path: str, force_reanalysis: bool) -> bool:
@@ -173,8 +184,14 @@ class OptimizedAnalyzer:
             # Extract features using shared models
             features = self._extract_features_optimized(audio, sample_rate, file_path)
             
+            # Clean up audio data immediately
+            del audio
+            
             # Save to database efficiently
             success = self._save_analysis_result(file_path, features)
+            
+            # Clean up features data
+            del features
             
             if success:
                 log_universal('DEBUG', 'OptimizedAnalyzer', f'Analyzed: {os.path.basename(file_path)}')
@@ -186,6 +203,10 @@ class OptimizedAnalyzer:
         except Exception as e:
             log_universal('ERROR', 'OptimizedAnalyzer', f'Analysis failed for {file_path}: {e}')
             return False
+        finally:
+            # Force garbage collection after each file
+            import gc
+            gc.collect()
     
     def _is_already_analyzed(self, file_path: str) -> bool:
         """Check if file is already analyzed."""
@@ -212,10 +233,15 @@ class OptimizedAnalyzer:
             # Basic audio features (fast)
             features.update(self._extract_basic_features(audio, sample_rate))
             
-            # MusicNN features using shared models (if available)
-            if self.model_manager.is_musicnn_available():
+            # MusicNN features using shared models (if enabled and available)
+            extract_musicnn = self.config.get('EXTRACT_MUSICNN', True)
+            if extract_musicnn and self.model_manager.is_musicnn_available():
                 musicnn_features = self._extract_musicnn_optimized(audio, sample_rate)
                 features.update(musicnn_features)
+            elif not extract_musicnn:
+                log_universal('DEBUG', 'OptimizedAnalyzer', 'MusicNN extraction disabled by config')
+            else:
+                log_universal('DEBUG', 'OptimizedAnalyzer', 'MusicNN not available')
             
             # Additional features can be added here
             

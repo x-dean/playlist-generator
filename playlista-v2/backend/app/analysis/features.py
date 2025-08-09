@@ -425,98 +425,129 @@ class FeatureExtractor:
 
 
     async def _extract_essentia_tensorflow_features(self, audio_data: np.ndarray, sr: int) -> Dict[str, Any]:
-        """Extract advanced features using Essentia TensorFlow models"""
-        if not self._essentia_available:
-            return {}
+        """Extract advanced features using Essentia-TensorFlow models"""
+        features = {}
         
         try:
             import essentia.standard as es
             
-            features = {}
-            
-            # Convert to mono and resample if needed
+            # Convert to mono and resample if needed for Essentia
             if sr != 16000:
                 import librosa
                 audio_16k = librosa.resample(audio_data, orig_sr=sr, target_sr=16000)
             else:
                 audio_16k = audio_data
             
-            # Try to use TensorFlow-based models for advanced analysis
-            try:
-                # EffNet-Discogs model for style/genre prediction
-                from essentia.standard import TensorflowPredictEffnetDiscogs
-                
-                # This would normally use a pre-trained model file
-                # For demonstration, we'll simulate the output structure
-                features["effnet_discogs_features"] = {
-                    "electronic": float(np.random.random()),
-                    "rock": float(np.random.random()),
-                    "pop": float(np.random.random()),
-                    "classical": float(np.random.random()),
-                    "jazz": float(np.random.random())
-                }
-                
-                logger.debug("Essentia TensorFlow EffNet features extracted")
-                
-            except (ImportError, Exception) as e:
-                logger.debug(f"EffNet model not available: {e}")
-            
-            # Try MusiCNN model for music classification
+            # Try to use real Essentia TensorFlow models
             try:
                 from essentia.standard import TensorflowPredictMusiCNN
                 
-                # This would use the MusiCNN model from your path
-                features["musicnn_features"] = {
-                    "danceability": float(np.random.random()),
-                    "energy": float(np.random.random()),
-                    "mood_relaxed": float(np.random.random()),
-                    "mood_sad": float(np.random.random()),
-                    "mood_happy": float(np.random.random()),
-                    "mood_aggressive": float(np.random.random())
-                }
+                # Initialize MusiCNN predictor with model path
+                model_path = "/models/msd-musicnn-1.pb"
                 
-                logger.debug("Essentia MusiCNN features extracted")
+                # Check if model exists and use it
+                from pathlib import Path
+                if Path(model_path).exists():
+                    musicnn_predictor = TensorflowPredictMusiCNN(
+                        graphFilename=model_path,
+                        output="model/Sigmoid"
+                    )
+                    
+                    # Convert audio to format expected by MusiCNN
+                    # MusiCNN expects mono audio at 16kHz
+                    predictions = musicnn_predictor(audio_16k.astype(np.float32))
+                    
+                    # Load MusiCNN tags from JSON config
+                    config_path = "/models/msd-musicnn-1.json"
+                    if Path(config_path).exists():
+                        import json
+                        with open(config_path, 'r') as f:
+                            config = json.load(f)
+                            tags = config.get('tags', [])
+                    else:
+                        # Default MusiCNN tags
+                        tags = [
+                            'genre---rock', 'genre---pop', 'genre---alternative',
+                            'genre---indie', 'genre---electronic', 'genre---female vocals',
+                            'genre---dance', 'genre---00s', 'genre---alternative rock'
+                        ]
+                    
+                    # Create tag predictions
+                    tag_predictions = {}
+                    for i, tag in enumerate(tags[:len(predictions)]):
+                        clean_tag = tag.replace('genre---', '').replace('mood---', '')
+                        tag_predictions[clean_tag] = float(predictions[i])
+                    
+                    features["musicnn_real_tags"] = tag_predictions
+                    features["musicnn_method"] = "essentia_tensorflow"
+                    
+                    logger.info(
+                        "Real MusiCNN inference completed",
+                        predictions_count=len(predictions),
+                        top_tag=max(tag_predictions.items(), key=lambda x: x[1])[0] if tag_predictions else "none"
+                    )
+                    
+                else:
+                    logger.warning(f"MusiCNN model not found at {model_path}, using simulation")
+                    from .musicnn_inference import musicnn_inference
+                    musicnn_results = musicnn_inference._simulate_musicnn_output()
+                    features["musicnn_tags"] = musicnn_results["tags"]
+                    features["musicnn_method"] = "simulation"
+                    
+            except ImportError as e:
+                logger.warning(f"Essentia TensorFlow models not available: {e}")
+                from .musicnn_inference import musicnn_inference
+                musicnn_results = musicnn_inference._simulate_musicnn_output()
+                features["musicnn_tags"] = musicnn_results["tags"]
+                features["musicnn_method"] = "simulation_fallback"
+            
+            # Basic Essentia-style features using librosa (fallback)
+            if self._librosa_available:
+                import librosa
                 
-            except (ImportError, Exception) as e:
-                logger.debug(f"MusiCNN model not available: {e}")
-            
-            # Basic Essentia extractors that are always available
-            windowing = es.Windowing(type='hann')
-            spectrum = es.Spectrum()
-            spectral_peaks = es.SpectralPeaks()
-            
-            # Frame-based analysis
-            frame_size = 2048
-            hop_size = 1024
-            
-            spectral_features = []
-            for frame in es.FrameGenerator(audio_data, frameSize=frame_size, hopSize=hop_size):
-                windowed_frame = windowing(frame)
-                spectrum_frame = spectrum(windowed_frame)
-                frequencies, magnitudes = spectral_peaks(spectrum_frame)
+                # Spectral peaks analysis using librosa
+                stft = librosa.stft(audio_data, hop_length=self.hop_length, n_fft=self.n_fft)
+                magnitude = np.abs(stft)
                 
-                if len(frequencies) > 0:
-                    spectral_features.append({
-                        'spectral_peak_freq': float(np.mean(frequencies)),
-                        'spectral_peak_mag': float(np.mean(magnitudes))
-                    })
-            
-            if spectral_features:
-                features["essentia_spectral_peaks"] = {
-                    "mean_peak_freq": float(np.mean([f['spectral_peak_freq'] for f in spectral_features])),
-                    "mean_peak_mag": float(np.mean([f['spectral_peak_mag'] for f in spectral_features]))
-                }
+                # Find spectral peaks for each frame
+                peak_frequencies = []
+                peak_magnitudes = []
+                
+                for frame in range(magnitude.shape[1]):
+                    frame_magnitude = magnitude[:, frame]
+                    peaks = np.where(
+                        (frame_magnitude[1:-1] > frame_magnitude[:-2]) &
+                        (frame_magnitude[1:-1] > frame_magnitude[2:])
+                    )[0] + 1
+                    
+                    if len(peaks) > 0:
+                        peak_freqs = peaks * sr / self.n_fft
+                        peak_mags = frame_magnitude[peaks]
+                        
+                        # Take top 5 peaks
+                        top_indices = np.argsort(peak_mags)[-5:]
+                        peak_frequencies.extend(peak_freqs[top_indices])
+                        peak_magnitudes.extend(peak_mags[top_indices])
+                
+                if peak_frequencies:
+                    features["spectral_peaks"] = {
+                        "mean_peak_freq": float(np.mean(peak_frequencies)),
+                        "mean_peak_mag": float(np.mean(peak_magnitudes)),
+                        "std_peak_freq": float(np.std(peak_frequencies)),
+                        "peak_count": len(peak_frequencies)
+                    }
             
             logger.debug(
-                "Essentia TensorFlow features extracted",
-                feature_count=len(features)
+                "Advanced TensorFlow features extracted",
+                feature_count=len(features),
+                musicnn_enabled=True
             )
             
             return features
             
         except Exception as e:
             logger.error(
-                "Essentia TensorFlow feature extraction failed",
+                "Advanced feature extraction failed",
                 error_type=type(e).__name__,
                 error_message=str(e)
             )

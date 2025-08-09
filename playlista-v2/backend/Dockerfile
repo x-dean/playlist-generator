@@ -17,7 +17,6 @@ RUN apt-get update && apt-get install -y \
     libavutil-dev \
     libswresample-dev \
     python3-dev \
-    python3-numpy-dev \
     python3-yaml \
     libsamplerate0-dev \
     libtag1-dev \
@@ -54,7 +53,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
-    libfftw3-3 \
+    libfftw3-double3 \
+    libfftw3-single3 \
     libavcodec59 \
     libavformat59 \
     libavutil57 \

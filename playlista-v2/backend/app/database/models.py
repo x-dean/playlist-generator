@@ -108,7 +108,7 @@ class Track(Base):
     external_tags = Column(JSON, nullable=True)
     
     # Relationships
-    playlist_tracks = relationship("PlaylistTrack", back_populates="track", cascade="all, delete-orphan")
+    playlist_items = relationship("PlaylistItem", back_populates="track", cascade="all, delete-orphan")
     
     # Composite indexes for common queries
     __table_args__ = (
@@ -146,10 +146,10 @@ class Playlist(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    tracks = relationship("PlaylistTrack", back_populates="playlist", cascade="all, delete-orphan")
+    tracks = relationship("PlaylistItem", back_populates="playlist", cascade="all, delete-orphan")
 
 
-class PlaylistTrack(Base):
+class PlaylistItem(Base):
     """Junction table for playlist tracks with ordering"""
     
     __tablename__ = "playlist_tracks"

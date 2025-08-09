@@ -31,6 +31,23 @@ try:
     tf.get_logger().setLevel('ERROR')
     # Disable TensorFlow warnings about network creation
     tf.autograph.set_verbosity(0)
+    
+    # Configure TensorFlow memory growth to prevent memory accumulation
+    try:
+        # Limit TensorFlow memory growth
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        if gpus:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+        
+        # Set CPU memory limit and threading
+        tf.config.threading.set_inter_op_parallelism_threads(2)
+        tf.config.threading.set_intra_op_parallelism_threads(2)
+        
+        log_universal('DEBUG', 'Model', 'TensorFlow memory optimization configured')
+    except Exception as e:
+        log_universal('WARNING', 'Model', f'TensorFlow memory config failed: {e}')
+    
     TENSORFLOW_AVAILABLE = True
 except ImportError:
     TENSORFLOW_AVAILABLE = False
@@ -441,11 +458,35 @@ class ModelManager:
             self._musicnn_metadata = None
             self._models_initialized = False
             
+            # TensorFlow memory cleanup
+            if TENSORFLOW_AVAILABLE:
+                try:
+                    import tensorflow as tf
+                    tf.keras.backend.clear_session()
+                    log_universal('DEBUG', 'Model', 'TensorFlow session cleared')
+                except Exception as e:
+                    log_universal('WARNING', 'Model', f'TensorFlow cleanup failed: {e}')
+            
             # Force garbage collection
             import gc
             gc.collect()
             
             log_universal('INFO', 'Model', 'Model cleanup completed')
+    
+    def force_memory_cleanup(self):
+        """Force aggressive memory cleanup after batch processing."""
+        with self._model_lock:
+            if TENSORFLOW_AVAILABLE:
+                try:
+                    import tensorflow as tf
+                    tf.keras.backend.clear_session()
+                    log_universal('DEBUG', 'Model', 'TensorFlow memory forcibly cleared')
+                except Exception as e:
+                    log_universal('WARNING', 'Model', f'TensorFlow force cleanup failed: {e}')
+            
+            import gc
+            gc.collect()
+            log_universal('DEBUG', 'Model', 'Memory force cleanup completed')
 
     def is_file_suitable_for_musicnn(self, file_size_bytes: int, available_memory_gb: float = None) -> bool:
         """Check if a file is suitable for MusicNN processing based on config settings."""
@@ -478,6 +519,7 @@ class ModelManager:
 # Global model manager instance
 _model_manager_instance = None
 _model_manager_lock = threading.Lock()
+_models_loading_lock = threading.Lock()  # Separate lock for model loading
 
 def get_model_manager(config: Dict[str, Any] = None) -> 'ModelManager':
     """Get the global model manager instance (thread-safe singleton)."""
@@ -488,4 +530,14 @@ def get_model_manager(config: Dict[str, Any] = None) -> 'ModelManager':
             if _model_manager_instance is None:
                 _model_manager_instance = ModelManager(config)
     
-    return _model_manager_instance 
+    return _model_manager_instance
+
+def ensure_models_loaded_once():
+    """Ensure MusicNN models are loaded only once across all threads."""
+    global _models_loading_lock
+    with _models_loading_lock:
+        manager = get_model_manager()
+        if manager.is_musicnn_available() and not manager._models_initialized:
+            manager.get_musicnn_models()
+            log_universal('DEBUG', 'Model', 'Models loaded once for all threads')
+        return manager 

@@ -37,7 +37,7 @@ services:
       - TF_GPU_ALLOCATOR=cpu
       - CUDA_VISIBLE_DEVICES=-1
       # External API keys (set these in your .env file)
-      - LASTFM_API_KEY=${LASTFM_API_KEY}
+      - LASTFM_API_KEY=${LASTFM_API_KEY:-dummy_key_to_suppress_warnings}
     command: ["/app/entrypoint.sh"]
     restart: unless-stopped
     working_dir: /app

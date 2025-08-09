@@ -7,6 +7,7 @@ from typing import AsyncGenerator, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
+from sqlalchemy import text
 import redis.asyncio as aioredis
 
 from ..core.config import get_settings
@@ -28,14 +29,21 @@ async def init_db() -> None:
     logger.info("Initializing database connections...")
     
     # PostgreSQL connection
-    engine = create_async_engine(
-        settings.database_url,
-        echo=settings.debug,
-        pool_size=settings.database_pool_size,
-        max_overflow=settings.database_max_overflow,
-        pool_pre_ping=True,
-        poolclass=NullPool if settings.debug else None,  # Use NullPool in debug mode
-    )
+    engine_kwargs = {
+        "echo": settings.debug,
+        "pool_pre_ping": True,
+    }
+    
+    # Only add pooling parameters if not using NullPool
+    if settings.debug:
+        engine_kwargs["poolclass"] = NullPool
+    else:
+        engine_kwargs.update({
+            "pool_size": settings.database_pool_size,
+            "max_overflow": settings.database_max_overflow,
+        })
+    
+    engine = create_async_engine(settings.database_url, **engine_kwargs)
     
     async_session_maker = async_sessionmaker(
         engine,
@@ -55,7 +63,7 @@ async def init_db() -> None:
     try:
         # Test PostgreSQL
         async with async_session_maker() as session:
-            await session.execute("SELECT 1")
+            await session.execute(text("SELECT 1"))
         logger.info("PostgreSQL connection established")
         
         # Test Redis

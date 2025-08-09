@@ -209,15 +209,23 @@ class AnalysisEngine:
             str(track.id), 60, "Running ML analysis"
         )
         
-        # Create dummy mel spectrogram for ML models
+        # Use MusiCNN for advanced ML analysis
+        from .musicnn_inference import musicnn_inference
+        musicnn_results = musicnn_inference.predict(file_path)
+        
+        # Create dummy mel spectrogram for other ML models
         import numpy as np
         dummy_features = np.random.random((128, 1292))
         
-        # Get genre predictions
-        genre_predictions = await model_manager.predict_genre(dummy_features)
+        # Get genre predictions (enhanced with MusiCNN)
+        genre_predictions = musicnn_results.get("genre_features", {})
+        if not genre_predictions:
+            genre_predictions = await model_manager.predict_genre(dummy_features)
         
-        # Get mood predictions  
-        mood_predictions = await model_manager.predict_mood(dummy_features)
+        # Get mood predictions (enhanced with MusiCNN)
+        mood_predictions = musicnn_results.get("mood_features", {})
+        if not mood_predictions:
+            mood_predictions = await model_manager.predict_mood(dummy_features)
         
         # Get embeddings
         embeddings = await model_manager.extract_embeddings(dummy_features)
@@ -233,12 +241,15 @@ class AnalysisEngine:
             "genre_predictions": genre_predictions,
             "mood_predictions": mood_predictions,
             "ml_embeddings": embeddings.tolist(),
+            "musicnn_results": musicnn_results,
             "analysis_version": "2.0",
             "processing_info": {
                 "worker_id": self._worker_id,
                 "feature_count": len(features),
-                "top_genre": max(genre_predictions.items(), key=lambda x: x[1])[0],
-                "confidence": max(genre_predictions.values())
+                "top_genre": max(genre_predictions.items(), key=lambda x: x[1])[0] if genre_predictions else "unknown",
+                "confidence": max(genre_predictions.values()) if genre_predictions else 0.0,
+                "musicnn_method": musicnn_results.get("inference_method", "unknown"),
+                "musicnn_model": musicnn_results.get("model_version", "unknown")
             }
         }
         

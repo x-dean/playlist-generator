@@ -16,11 +16,10 @@ os.environ['MUSICEXTRACTOR_LOG_LEVEL'] = 'error'
 os.environ['TENSORFLOW_LOG_LEVEL'] = '2'
 os.environ['LIBROSA_LOG_LEVEL'] = 'error'
 
-# Add src to path for imports
-src_path = Path(__file__).parent
-sys.path.insert(0, str(src_path))
+# Add app to path for imports
+sys.path.append('/app')
 
-from cli.main import main as cli_main
+from src.cli.main import main as cli_main
 
 
 def main():

@@ -17,9 +17,12 @@ os.environ['MUSICEXTRACTOR_LOG_LEVEL'] = 'error'
 os.environ['TENSORFLOW_LOG_LEVEL'] = '2'
 os.environ['LIBROSA_LOG_LEVEL'] = 'error'
 
-from core.logging_setup import get_logger, setup_logging
-from core.config_loader import config_loader
-from .commands import AnalysisCommands, PlaylistCommands, DatabaseCommands, UtilityCommands
+import sys
+sys.path.append('/app')
+
+from src.core.logging_setup import get_logger, setup_logging
+from src.core.config_loader import config_loader
+from src.cli.commands import AnalysisCommands, PlaylistCommands, DatabaseCommands, UtilityCommands, ManagerCommands
 
 logger = get_logger('playlista.cli.main')
 
@@ -54,6 +57,8 @@ class SimpleCLI:
 Examples:
   playlista analyze --music-path /music
   playlista playlist --method kmeans --num-playlists 5
+  playlista manager status
+  playlista manager analyze --force
   playlista stats
   playlista status
             """
@@ -88,6 +93,16 @@ Examples:
         db_parser.add_argument('--vacuum', action='store_true', help='Vacuum database')
         
         validate_parser = subparsers.add_parser('validate-database', help='Validate database structure')
+        
+        # Manager commands (Comprehensive PLAYLISTA Manager)
+        manager_parser = subparsers.add_parser('manager', help='Comprehensive PLAYLISTA Manager')
+        manager_subparsers = manager_parser.add_subparsers(dest='manager_command', help='Manager commands')
+        
+        manager_status_parser = manager_subparsers.add_parser('status', help='Show comprehensive manager status')
+        
+        manager_analyze_parser = manager_subparsers.add_parser('analyze', help='Start PLAYLISTA Manager analysis')
+        manager_analyze_parser.add_argument('--music-path', help='Path to music directory')
+        manager_analyze_parser.add_argument('--force', action='store_true', help='Force re-analysis')
         
         # Utility commands
         status_parser = subparsers.add_parser('status', help='Show system status')
@@ -137,6 +152,17 @@ Examples:
             return DatabaseCommands.handle_db(args)
         elif command == 'validate-database':
             return DatabaseCommands.handle_validate_database(args)
+        
+        # Manager commands
+        elif command == 'manager':
+            manager_command = getattr(args, 'manager_command', None)
+            if manager_command == 'status':
+                return ManagerCommands.handle_manager_status(args)
+            elif manager_command == 'analyze':
+                return ManagerCommands.handle_manager_analyze(args)
+            else:
+                logger.error("No manager command specified. Use 'playlista manager --help'")
+                return 1
         
         # Utility commands
         elif command == 'status':

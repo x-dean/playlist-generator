@@ -10,13 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_
 
-from ..database import get_db_session, Track, Playlist, PlaylistTrack
+from ..database import get_db_session, Track, Playlist, PlaylistItem
 from ..core.logging import get_logger, LogContext, log_operation_success
-from ..playlist.algorithms import PlaylistAlgorithms
+from ..playlist import PlaylistAlgorithms, PlaylistEngine
 
 router = APIRouter()
 logger = get_logger("api.playlists")
 algorithms = PlaylistAlgorithms()
+engine = PlaylistEngine()
 
 
 @router.post("/generate")
@@ -194,10 +195,10 @@ async def get_playlist(
     
     # Get playlist tracks with track information
     tracks_query = (
-        select(PlaylistTrack, Track)
-        .join(Track, PlaylistTrack.track_id == Track.id)
-        .where(PlaylistTrack.playlist_id == playlist_uuid)
-        .order_by(PlaylistTrack.position)
+        select(PlaylistItem, Track)
+        .join(Track, PlaylistItem.track_id == Track.id)
+        .where(PlaylistItem.playlist_id == playlist_uuid)
+        .order_by(PlaylistItem.position)
     )
     
     tracks_result = await db.execute(tracks_query)
@@ -385,7 +386,7 @@ async def _create_playlist(
     
     # Add tracks to playlist
     for position, track in enumerate(tracks):
-        playlist_track = PlaylistTrack(
+        playlist_item = PlaylistItem(
             playlist_id=playlist.id,
             track_id=uuid.UUID(track["id"]),
             position=position,

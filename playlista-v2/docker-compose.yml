@@ -37,11 +37,11 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # FastAPI Backend
+  # FastAPI Backend with Essentia-TensorFlow
   backend:
     build: 
       context: ./backend
-      dockerfile: Dockerfile.simple
+      dockerfile: Dockerfile.full
     container_name: playlista-v2-backend
     environment:
       # Database
@@ -97,8 +97,8 @@ services:
       dockerfile: Dockerfile
     container_name: playlista-v2-frontend
     environment:
-      REACT_APP_API_URL: http://localhost:8000/api
-      REACT_APP_WS_URL: ws://localhost:8000/ws
+      VITE_API_URL: http://localhost:8000
+      VITE_WS_URL: ws://localhost:8000/ws
     ports:
       - "3000:3000"
     volumes:

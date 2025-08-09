@@ -28,6 +28,13 @@ DEFAULT_RESOURCE_HISTORY_SIZE = 1000
 DEFAULT_RESOURCE_ALERT_THRESHOLD_PERCENT = 90
 DEFAULT_RESOURCE_LOG_LEVEL = 'INFO'
 
+# PLAYLISTA Pattern 4: File Size Thresholds and Memory Requirements
+PLAYLISTA_SMALL_FILE_THRESHOLD_MB = 25      # Files under 25MB require 1-2GB RAM
+PLAYLISTA_LARGE_FILE_THRESHOLD_MB = 50      # Files over 50MB require sequential only
+PLAYLISTA_SMALL_FILE_RAM_GB = 1.5           # RAM per small file thread
+PLAYLISTA_LARGE_FILE_RAM_GB = 2.0           # RAM per large file thread
+PLAYLISTA_SEQUENTIAL_ONLY_RAM_GB = 4.0      # RAM for sequential-only files
+
 
 class ResourceManager:
     """
@@ -814,6 +821,152 @@ class ResourceManager:
             return 'decreasing'
         else:
             return 'stable'
+    
+    # PLAYLISTA Pattern 4: Resource Management Methods
+    
+    def get_file_analysis_strategy(self, file_size_mb: float) -> Dict[str, Any]:
+        """
+        Determine analysis strategy based on PLAYLISTA file size thresholds.
+        
+        Args:
+            file_size_mb: File size in megabytes
+            
+        Returns:
+            Dictionary with strategy information
+        """
+        strategy = {
+            'file_size_mb': file_size_mb,
+            'analysis_type': None,
+            'max_threads': 1,
+            'required_ram_gb': 0,
+            'enforce_sequential': False,
+            'reasoning': ''
+        }
+        
+        if file_size_mb > PLAYLISTA_LARGE_FILE_THRESHOLD_MB:
+            # Files over 50MB: Sequential only
+            strategy.update({
+                'analysis_type': 'sequential_only',
+                'max_threads': 1,
+                'required_ram_gb': PLAYLISTA_SEQUENTIAL_ONLY_RAM_GB,
+                'enforce_sequential': True,
+                'reasoning': f'File over {PLAYLISTA_LARGE_FILE_THRESHOLD_MB}MB requires sequential processing'
+            })
+        elif file_size_mb > PLAYLISTA_SMALL_FILE_THRESHOLD_MB:
+            # Files 25-50MB: Require +2GB RAM
+            strategy.update({
+                'analysis_type': 'parallel_large',
+                'max_threads': self.calculate_max_threads_for_memory(PLAYLISTA_LARGE_FILE_RAM_GB),
+                'required_ram_gb': PLAYLISTA_LARGE_FILE_RAM_GB,
+                'enforce_sequential': False,
+                'reasoning': f'File over {PLAYLISTA_SMALL_FILE_THRESHOLD_MB}MB requires {PLAYLISTA_LARGE_FILE_RAM_GB}GB RAM per thread'
+            })
+        else:
+            # Files under 25MB: 1-2GB RAM
+            strategy.update({
+                'analysis_type': 'parallel_small',
+                'max_threads': self.calculate_max_threads_for_memory(PLAYLISTA_SMALL_FILE_RAM_GB),
+                'required_ram_gb': PLAYLISTA_SMALL_FILE_RAM_GB,
+                'enforce_sequential': False,
+                'reasoning': f'Small file under {PLAYLISTA_SMALL_FILE_THRESHOLD_MB}MB requires {PLAYLISTA_SMALL_FILE_RAM_GB}GB RAM per thread'
+            })
+        
+        log_universal('DEBUG', 'ResourceManager', 
+                     f'File {file_size_mb:.1f}MB strategy: {strategy["analysis_type"]}, '
+                     f'{strategy["max_threads"]} threads, {strategy["required_ram_gb"]}GB RAM')
+        
+        return strategy
+    
+    def calculate_max_threads_for_memory(self, ram_per_thread_gb: float) -> int:
+        """
+        Calculate maximum threads based on available memory and PLAYLISTA requirements.
+        
+        Args:
+            ram_per_thread_gb: Required RAM per thread in GB
+            
+        Returns:
+            Maximum number of threads that can be safely spawned
+        """
+        try:
+            memory_info = psutil.virtual_memory()
+            available_gb = memory_info.available / (1024**3)
+            
+            # Reserve 25% of available memory for system operations
+            usable_gb = available_gb * 0.75
+            
+            # Calculate max threads based on memory requirement
+            max_threads = int(usable_gb / ram_per_thread_gb)
+            
+            # Apply practical limits
+            max_threads = max(1, min(max_threads, psutil.cpu_count()))
+            
+            log_universal('DEBUG', 'ResourceManager',
+                         f'Memory calculation: {available_gb:.1f}GB available, '
+                         f'{usable_gb:.1f}GB usable, {ram_per_thread_gb}GB per thread = {max_threads} max threads')
+            
+            return max_threads
+            
+        except Exception as e:
+            log_universal('WARNING', 'ResourceManager', f'Memory calculation failed: {e}')
+            return 1  # Safe fallback
+    
+    def get_batch_processing_plan(self, file_sizes_mb: List[float]) -> Dict[str, Any]:
+        """
+        Create an optimal processing plan for a batch of files based on PLAYLISTA rules.
+        
+        Args:
+            file_sizes_mb: List of file sizes in MB
+            
+        Returns:
+            Processing plan with categorized files and resource allocation
+        """
+        plan = {
+            'sequential_only_files': [],
+            'parallel_large_files': [],
+            'parallel_small_files': [],
+            'total_files': len(file_sizes_mb),
+            'estimated_ram_usage_gb': 0,
+            'recommended_processing_order': []
+        }
+        
+        # Categorize files by size
+        for i, size_mb in enumerate(file_sizes_mb):
+            strategy = self.get_file_analysis_strategy(size_mb)
+            
+            file_info = {
+                'index': i,
+                'size_mb': size_mb,
+                'strategy': strategy
+            }
+            
+            if strategy['analysis_type'] == 'sequential_only':
+                plan['sequential_only_files'].append(file_info)
+            elif strategy['analysis_type'] == 'parallel_large':
+                plan['parallel_large_files'].append(file_info)
+            else:
+                plan['parallel_small_files'].append(file_info)
+        
+        # Calculate total estimated RAM usage
+        plan['estimated_ram_usage_gb'] = (
+            len(plan['sequential_only_files']) * PLAYLISTA_SEQUENTIAL_ONLY_RAM_GB +
+            len(plan['parallel_large_files']) * PLAYLISTA_LARGE_FILE_RAM_GB +
+            len(plan['parallel_small_files']) * PLAYLISTA_SMALL_FILE_RAM_GB
+        )
+        
+        # Recommend processing order: sequential first (highest memory), then large, then small
+        plan['recommended_processing_order'] = (
+            plan['sequential_only_files'] +
+            plan['parallel_large_files'] + 
+            plan['parallel_small_files']
+        )
+        
+        log_universal('INFO', 'ResourceManager',
+                     f'Batch plan: {len(plan["sequential_only_files"])} sequential, '
+                     f'{len(plan["parallel_large_files"])} large parallel, '
+                     f'{len(plan["parallel_small_files"])} small parallel, '
+                     f'estimated {plan["estimated_ram_usage_gb"]:.1f}GB RAM')
+        
+        return plan
 
 
 # Global resource manager instance - created lazily to avoid circular imports

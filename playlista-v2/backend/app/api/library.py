@@ -23,6 +23,51 @@ settings = get_settings()
 websocket_manager = WebSocketManager()
 
 
+@router.get("/stats")
+async def get_library_stats(db: AsyncSession = Depends(get_db_session)) -> Dict[str, Any]:
+    """Get library statistics"""
+    with LogContext(operation="get_library_stats"):
+        log_operation_start(logger, "library stats")
+        
+        try:
+            from sqlalchemy import text
+            
+            # Count total tracks
+            result = await db.execute(text("SELECT COUNT(*) FROM tracks"))
+            total_tracks = result.scalar() or 0
+            
+            # Count analyzed tracks (with audio_features)
+            result = await db.execute(text("SELECT COUNT(*) FROM tracks WHERE audio_features IS NOT NULL"))
+            analyzed_tracks = result.scalar() or 0
+            
+            # Count playlists
+            result = await db.execute(text("SELECT COUNT(*) FROM playlists"))
+            total_playlists = result.scalar() or 0
+            
+            # Sum total duration
+            result = await db.execute(text("SELECT SUM(duration) FROM tracks WHERE duration IS NOT NULL"))
+            total_duration = result.scalar() or 0
+            
+            stats = {
+                "total_tracks": total_tracks,
+                "analyzed_tracks": analyzed_tracks,
+                "total_playlists": total_playlists,
+                "total_duration": float(total_duration)
+            }
+            
+            logger.info(f"Library stats retrieved: {stats}")
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to get library stats: {e}")
+            return {
+                "total_tracks": 0,
+                "analyzed_tracks": 0,
+                "total_playlists": 0,
+                "total_duration": 0.0
+            }
+
+
 class TrackResponse:
     """Track response model"""
     def __init__(self, track: Track):

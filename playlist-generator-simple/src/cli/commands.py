@@ -7,12 +7,16 @@ import argparse
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
-from core.analysis_manager import AnalysisManager
-from core.resource_manager import ResourceManager
-from core.audio_analyzer import AudioAnalyzer
-from core.database import DatabaseManager, get_db_manager
-from core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
-from core.logging_setup import get_logger
+import sys
+sys.path.append('/app')
+
+from src.core.analysis_manager import AnalysisManager
+from src.core.resource_manager import ResourceManager
+from src.core.audio_analyzer import AudioAnalyzer
+from src.core.database import DatabaseManager, get_db_manager
+from src.core.playlist_generator import PlaylistGenerator, PlaylistGenerationMethod
+from src.core.comprehensive_manager import get_comprehensive_manager
+from src.core.logging_setup import get_logger
 
 logger = get_logger('playlista.cli.commands')
 
@@ -200,6 +204,93 @@ class DatabaseCommands:
                 
         except Exception as e:
             logger.error(f"Database validation error: {e}")
+            return 1
+
+
+class ManagerCommands:
+    """Handle comprehensive PLAYLISTA Manager commands."""
+    
+    @staticmethod
+    def handle_manager_status(args) -> int:
+        """Handle comprehensive manager status command."""
+        try:
+            manager = get_comprehensive_manager()
+            status = manager.get_comprehensive_status()
+            
+            print("=" * 80)
+            print("🎯 COMPREHENSIVE PLAYLISTA MANAGER STATUS")
+            print("=" * 80)
+            
+            # Manager info
+            manager_info = status['manager_info']
+            print(f"\n📊 Manager Status:")
+            print(f"  State: {manager_info['state'].upper()}")
+            print(f"  Current Mode: {manager_info.get('current_mode', 'None')}")
+            print(f"  Uptime: {manager_info['uptime_seconds']:.1f} seconds")
+            
+            # PLAYLISTA compliance
+            compliance = status['playlista_compliance']
+            print(f"\n🎯 PLAYLISTA Pattern 4 Compliance: {compliance['compliance_score']}%")
+            
+            # System health
+            health = status['system_health']
+            print(f"\n📈 System Health: {health['overall_health'].upper()}")
+            print(f"  Health Score: {health['health_score']:.1%}")
+            print(f"  Memory Health: {health['memory_health']}")
+            print(f"  CPU Health: {health['cpu_health']}")
+            
+            # File status
+            file_status = status['file_status']
+            print(f"\n💾 Database Status:")
+            print(f"  Total Files: {file_status['total_files']}")
+            print(f"  Completion Rate: {file_status['completion_rate']:.1f}%")
+            print(f"  Failure Rate: {file_status['failure_rate']:.1f}%")
+            
+            # Resource status
+            resource_status = status['resource_status']
+            current_resources = resource_status['current_resources']
+            print(f"\n🎛️ Resource Status:")
+            print(f"  Available Memory: {current_resources.get('available_memory_gb', 0):.1f} GB")
+            print(f"  CPU Cores: {current_resources.get('cpu_cores', 0)}")
+            print(f"  Memory Usage: {current_resources.get('memory_used_percent', 0):.1f}%")
+            print(f"  CPU Usage: {current_resources.get('cpu_usage_percent', 0):.1f}%")
+            
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Manager status command failed: {e}")
+            return 1
+    
+    @staticmethod
+    def handle_manager_analyze(args) -> int:
+        """Handle comprehensive manager analysis command."""
+        try:
+            manager = get_comprehensive_manager()
+            
+            music_path = args.music_path or '/music'
+            force = args.force
+            
+            print(f"🎯 Starting PLAYLISTA Manager Analysis")
+            print(f"Music Path: {music_path}")
+            print(f"Force Reanalysis: {force}")
+            
+            # Start analysis using comprehensive manager
+            operation_id = manager.feed_analyzers_with_tracks(
+                files=None,  # Auto-select files
+                force_reanalysis=force
+            )
+            
+            if operation_id == "no_files_needed":
+                print("✅ No files need analysis")
+                return 0
+            
+            print(f"🚀 Analysis pipeline started: {operation_id}")
+            print("Use 'playlista manager status' to track progress")
+            
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Manager analysis command failed: {e}")
             return 1
 
 
