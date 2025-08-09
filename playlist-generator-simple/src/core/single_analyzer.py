@@ -706,10 +706,11 @@ class SingleAnalyzer:
     def _extract_essentia_features_large(self, file_path: str, duration: float) -> Dict[str, Any]:
         """Extract Essentia features from large files using strategic sampling."""
         try:
-            from .lazy_imports import get_essentia
-            essentia_standard = get_essentia()
-            if not essentia_standard.available:
+            from .lazy_imports import get_essentia, is_essentia_available
+            if not is_essentia_available():
                 return {'error': 'Essentia not available', 'analysis_strategy': 'failed'}
+            
+            essentia_standard = get_essentia()
             
             # Determine sampling strategy based on file size and duration
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
@@ -832,10 +833,11 @@ class SingleAnalyzer:
     def _analyze_single_segment_essentia(self, audio: np.ndarray) -> Dict[str, Any]:
         """Analyze a single audio segment with Essentia."""
         try:
-            from .lazy_imports import get_essentia
-            essentia_standard = get_essentia()
-            if not essentia_standard or audio is None or len(audio) == 0:
+            from .lazy_imports import get_essentia, is_essentia_available
+            if not is_essentia_available() or audio is None or len(audio) == 0:
                 return {}
+            
+            essentia_standard = get_essentia()
             
             # Basic rhythm analysis
             features = {}
