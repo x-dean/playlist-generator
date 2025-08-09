@@ -497,7 +497,14 @@ class SingleAnalyzer:
             # Aggregate all features
             final_features = self._aggregate_segment_features(segment_features)
             if musicnn_features:
-                final_features.update(self._aggregate_musicnn_features(musicnn_features))
+                aggregated_musicnn = self._aggregate_musicnn_features(musicnn_features)
+                final_features.update(aggregated_musicnn)
+                
+                # Derive playlist features from aggregated MusiCNN tags
+                musicnn_tags = aggregated_musicnn.get('musicnn_tags', {})
+                if musicnn_tags:
+                    derived_features = self._derive_playlist_features_from_tags(musicnn_tags)
+                    final_features.update(derived_features)
             
             final_features.update({
                 'segments_analyzed': len(segment_features),
@@ -559,6 +566,13 @@ class SingleAnalyzer:
             # Combine features
             features = essentia_features.copy()
             features.update(musicnn_features)
+            
+            # Derive playlist features from MusiCNN tags
+            musicnn_tags = musicnn_features.get('musicnn_tags', {})
+            if musicnn_tags:
+                derived_features = self._derive_playlist_features_from_tags(musicnn_tags)
+                features.update(derived_features)
+            
             features.update({
                 'duration': len(audio) / sample_rate,
                 'sample_rate': sample_rate,
@@ -1327,6 +1341,59 @@ class SingleAnalyzer:
         except Exception as e:
             log_universal('WARNING', 'Audio', f'MusiCNN feature aggregation failed: {str(e)}')
             return {'musicnn_available': False, 'error': str(e)}
+    
+    def _derive_playlist_features_from_tags(self, musicnn_tags: Dict[str, float]) -> Dict[str, float]:
+        """Derive playlist features from MusiCNN tags using the same logic as PostgreSQL manager."""
+        if not musicnn_tags:
+            return {}
+        
+        # Map MusiCNN tags to playlist features (0-1 scale)
+        features = {}
+        
+        # Energy: energetic, aggressive, dance vs peaceful, calm
+        energy_positive = ['energetic', 'aggressive', 'dance', 'metal', 'rock']
+        energy_negative = ['peaceful', 'calm', 'ambient', 'chillout']
+        features['energy'] = self._calculate_feature_score(musicnn_tags, energy_positive, energy_negative)
+        
+        # Danceability: dance, electronic, pop vs classical, folk
+        dance_positive = ['dance', 'electronic', 'pop', 'hip-hop']
+        dance_negative = ['classical', 'folk', 'acoustic', 'jazz']
+        features['danceability'] = self._calculate_feature_score(musicnn_tags, dance_positive, dance_negative)
+        
+        # Valence (happiness): happy, uplifting vs sad, dark
+        valence_positive = ['happy', 'uplifting', 'cheerful']
+        valence_negative = ['sad', 'dark', 'melancholic', 'emotional']
+        features['valence'] = self._calculate_feature_score(musicnn_tags, valence_positive, valence_negative)
+        
+        # Acousticness: acoustic, folk, country vs electronic, dance
+        acoustic_positive = ['acoustic', 'folk', 'country', 'singer-songwriter']
+        acoustic_negative = ['electronic', 'dance', 'techno', 'house']
+        features['acousticness'] = self._calculate_feature_score(musicnn_tags, acoustic_positive, acoustic_negative)
+        
+        # Instrumentalness: instrumental vs vocal
+        features['instrumentalness'] = musicnn_tags.get('instrumental', 0.5)
+        
+        # Liveness: live, concert vs studio
+        features['liveness'] = musicnn_tags.get('live', 0.1)  # Default low
+        
+        # Speechiness: spoken word, rap vs musical
+        features['speechiness'] = musicnn_tags.get('spoken', 0.1)  # Default low
+        
+        # Loudness: metal, rock vs ambient, classical
+        loud_positive = ['metal', 'rock', 'aggressive']
+        loud_negative = ['ambient', 'classical', 'peaceful']
+        features['loudness'] = self._calculate_feature_score(musicnn_tags, loud_positive, loud_negative)
+        
+        return features
+    
+    def _calculate_feature_score(self, tags: Dict[str, float], positive_tags: List[str], negative_tags: List[str]) -> float:
+        """Calculate feature score based on positive/negative tag presence."""
+        positive_score = sum(tags.get(tag, 0) for tag in positive_tags)
+        negative_score = sum(tags.get(tag, 0) for tag in negative_tags)
+        
+        # Normalize to 0-1 range
+        total_score = positive_score - negative_score + 1  # Add 1 to shift range to 0-2
+        return max(0, min(1, total_score / 2))  # Normalize to 0-1
     
     def _load_audio_ffmpeg(self, file_path: str, max_duration: float = 30) -> Tuple[Optional[np.ndarray], int]:
         """Load audio using FFmpeg (limited duration for small files)."""

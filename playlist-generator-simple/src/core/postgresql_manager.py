@@ -163,9 +163,12 @@ class PostgreSQLManager:
                 # Always define musicnn_tags first
                 musicnn_tags = analysis_data.get('musicnn_tags', {})
                 
-                # Derive playlist features - use Essentia features for large files, MusiCNN for others
-                if analysis_data.get('method') == 'large_file_essentia':
-                    # For large files, use Essentia features directly
+                # Derive playlist features - first try direct features, then MusiCNN derivation
+                # All our new methods include both Essentia and MusiCNN, so check for direct features first
+                if (analysis_data.get('energy') is not None or 
+                    analysis_data.get('danceability') is not None or
+                    analysis_data.get('valence') is not None):
+                    # Use direct features from analysis (Essentia + MusiCNN hybrid)
                     features = {
                         'energy': analysis_data.get('energy'),
                         'danceability': analysis_data.get('danceability'),
@@ -176,9 +179,11 @@ class PostgreSQLManager:
                         'speechiness': analysis_data.get('speechiness'),
                         'loudness': analysis_data.get('loudness')
                     }
+                    log_universal('DEBUG', 'Database', f'Using direct features from analysis')
                 else:
-                    # For regular files, derive from MusiCNN tags
+                    # Fallback: derive from MusiCNN tags if direct features not available
                     features = self._derive_playlist_features(musicnn_tags)
+                    log_universal('DEBUG', 'Database', f'Deriving features from MusiCNN tags: {len(musicnn_tags)} tags')
                 
                 # Insert/update track
                 cursor.execute("""
