@@ -846,8 +846,8 @@ class SingleAnalyzer:
             features['loudness'] = float(loudness_extractor(audio))
             
             # Spectral features for energy/danceability estimation
-            spectral_centroid = essentia_standard.SpectralCentroid()
-            spectral_rolloff = essentia_standard.SpectralRollOff()
+            spectral_centroid = essentia_standard.Centroid()
+            spectral_rolloff = essentia_standard.RollOff()
             zcr = essentia_standard.ZeroCrossingRate()
             
             windowing = essentia_standard.Windowing(type='hann')
