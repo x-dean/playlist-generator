@@ -62,7 +62,7 @@ ENV PYTHONUNBUFFERED=1 \
     CACHE_DIR=/app/cache \
     LOG_FILE=/app/logs/playlista.log \
     MODEL_DIR=/app/models \
-    LOG_LEVEL=INFO \
+
     PROMETHEUS_MULTIPROC_DIR=/tmp
 
 # Expose port

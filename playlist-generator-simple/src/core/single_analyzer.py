@@ -215,6 +215,10 @@ class SingleAnalyzer:
                 log_universal('DEBUG', 'Audio', f'Standard analysis: {os.path.basename(file_path)} ({file_size_mb:.1f}MB)')
                 audio_features = self._analyze_standard(file_path, metadata)
             
+            # Check if audio analysis failed
+            if audio_features.get('error') or not audio_features.get('available', True):
+                log_universal('WARNING', 'Audio', f'Audio feature extraction failed for {os.path.basename(file_path)}: {audio_features.get("error", "unknown error")}')
+            
             # Enrich with external APIs
             log_universal('DEBUG', 'Audio', f'Enriching metadata: {os.path.basename(file_path)}')
             enriched_metadata = self._enrich_metadata(metadata)
@@ -485,6 +489,10 @@ class SingleAnalyzer:
             # Add lightweight Essentia analysis for large files
             essentia_features = self._extract_essentia_features_large(file_path, duration)
             
+            # Check if Essentia extraction failed
+            if essentia_features.get('error'):
+                log_universal('WARNING', 'Audio', f'Essentia extraction failed for {os.path.basename(file_path)}: {essentia_features.get("error")} - continuing with metadata-only analysis')
+            
             features = {
                 'duration': duration,
                 'available': True,
@@ -512,6 +520,7 @@ class SingleAnalyzer:
             return features
             
         except Exception as e:
+            log_universal('ERROR', 'Audio', f'Large file analysis completely failed for {os.path.basename(file_path)}: {str(e)}')
             return {'error': str(e), 'available': False}
     
     def _classify_large_content(self, metadata: Dict[str, Any], duration: float) -> Dict[str, Any]:
