@@ -395,8 +395,12 @@ class SingleAnalyzer:
         # Extract ID3/metadata tags if available
         if is_mutagen_available() and mutagen:
             try:
+                log_universal('DEBUG', 'Metadata', f'Extracting metadata with Mutagen from: {os.path.basename(file_path)}')
+                
                 audio_file = mutagen.File(file_path)
                 if audio_file:
+                    log_universal('DEBUG', 'Metadata', f'Mutagen loaded file type: {type(audio_file).__name__}')
+                    
                     # Extract common tags
                     tags = {
                         'title': self._get_tag_value(audio_file, ['TIT2', 'TITLE', '\xa9nam']),
@@ -408,9 +412,11 @@ class SingleAnalyzer:
                     }
                     
                     # Add non-null tags to metadata
+                    extracted_tags = {}
                     for key, value in tags.items():
                         if value:
                             metadata[key] = value
+                            extracted_tags[key] = value
                     
                     # Get audio properties
                     if hasattr(audio_file, 'info'):
@@ -419,6 +425,20 @@ class SingleAnalyzer:
                         metadata['bitrate'] = getattr(info, 'bitrate', 0)
                         metadata['sample_rate'] = getattr(info, 'sample_rate', 0)
                         metadata['channels'] = getattr(info, 'channels', 0)
+                        
+                        # Add audio properties to extracted fields
+                        extracted_tags.update({
+                            'duration_seconds': metadata.get('duration_seconds'),
+                            'bitrate': metadata.get('bitrate'),
+                            'sample_rate': metadata.get('sample_rate'),
+                            'channels': metadata.get('channels')
+                        })
+                    
+                    # Log what was extracted
+                    from .logging_setup import log_extracted_fields
+                    log_extracted_fields('Mutagen', os.path.basename(file_path), extracted_tags)
+                else:
+                    log_universal('DEBUG', 'Metadata', f'Mutagen could not read file: {os.path.basename(file_path)}')
             
             except Exception as e:
                 log_universal('WARNING', 'Audio', f'Metadata extraction failed for {os.path.basename(file_path)}: {str(e)}')

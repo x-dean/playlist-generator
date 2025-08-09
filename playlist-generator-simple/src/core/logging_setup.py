@@ -406,12 +406,50 @@ def _setup_external_logging(log_dir: str, file_logging: bool) -> None:
         pass
 
 
+def get_logger(name: str = 'playlista') -> logging.Logger:
+    """Get a logger instance."""
+    return logging.getLogger(name)
+
+
 def cleanup_logging():
     """Cleanup logging resources."""
     logger = get_logger()
     for handler in logger.handlers[:]:
         handler.close()
         logger.removeHandler(handler)
+
+
+def log_universal(level: str, module: str, message: str):
+    """Universal logging function that ensures logging is initialized."""
+    logger = get_logger()
+    
+    # If no handlers exist, setup minimal logging without the initialization message
+    if not logger.handlers:
+        # Basic console handler only - no "Logging system initialized" message
+        console_handler = logging.StreamHandler()
+        formatter = ColoredFormatter('%(asctime)s - %(levelname)s - %(name)s: %(message)s', 
+                                    datefmt='%H:%M:%S')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        logger.setLevel(logging.INFO)  # Default level, will be overridden by CLI
+    
+    # Convert level string to logging level
+    numeric_level = getattr(logging, level.upper(), logging.INFO)
+    logger.log(numeric_level, f"{module}: {message}")
+
+
+def log_api_call(service: str, method: str, params: dict = None, response_time: float = None, status: str = "success"):
+    """Log external API calls with details."""
+    params_str = f" params={params}" if params else ""
+    time_str = f" ({response_time:.2f}s)" if response_time else ""
+    log_universal('DEBUG', 'API', f'{service}.{method}{params_str} - {status}{time_str}')
+
+
+def log_extracted_fields(source: str, filename: str, fields: dict):
+    """Log extracted metadata fields."""
+    field_count = len([k for k, v in fields.items() if v is not None and v != ""])
+    field_names = [k for k, v in fields.items() if v is not None and v != ""]
+    log_universal('DEBUG', 'Metadata', f'{source} extracted {field_count} fields from {filename}: {field_names}')
 
 
 def get_log_config() -> dict:

@@ -247,6 +247,8 @@ class MusicBrainzClient(BaseAPIClient):
             
             query = ' AND '.join(query_parts)
             
+            log_universal('DEBUG', 'MusicBrainz API', f'Searching for track: {title} by {artist or "Unknown"} - query: {query}')
+            
             # Search for recordings
             result = musicbrainzngs.search_recordings(
                 query=query,
@@ -254,6 +256,7 @@ class MusicBrainzClient(BaseAPIClient):
             )
             
             duration = time.time() - start_time
+            log_api_call('MusicBrainz', 'search_recordings', {'query': query}, duration, 'success')
             
             if not result or 'recording-list' not in result:
                 self._log_api_call('search', f"'{title}' by '{artist or 'Unknown'}'", 
@@ -273,6 +276,8 @@ class MusicBrainzClient(BaseAPIClient):
                 return None
             
             recording = recordings[0]
+            
+            log_universal('DEBUG', 'MusicBrainz API', f'Found recording: {recording.get("title", title)} (ID: {recording.get("id", "Unknown")})')
             
             # Extract track information
             track_id = recording.get('id', '')
@@ -343,7 +348,7 @@ class MusicBrainzClient(BaseAPIClient):
                 'musicbrainz_album_id': track_metadata.musicbrainz_album_id,
                 'tags': track_metadata.tags
             }
-            log_extracted_fields('MusicBrainz', track_metadata.title, track_metadata.artist, extracted_fields)
+            log_extracted_fields('MusicBrainz', f"{title} by {artist or 'Unknown'}", extracted_fields)
             
             self._log_api_call('search', f"'{track_metadata.artist}' - '{track_metadata.title}'", 
                              success=True, details=f"found {len(track_metadata.tags)} tags", 

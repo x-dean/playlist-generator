@@ -34,23 +34,18 @@ class SimpleCLI:
     def __init__(self):
         self.parser = self._create_argument_parser()
         self.config = config_loader.get_config()
-        self._setup_logging()  # Initial setup with config file defaults
-        # Ensure PostgreSQL is configured
-        verify_database_config()
+        # Don't setup logging here - wait for CLI args
+        # Don't verify database here - wait until logging is setup
     
-    def _setup_logging(self, args=None):
-        """Setup logging based on configuration and CLI flags."""
+    def _setup_logging(self):
+        """Setup logging based on configuration file."""
         logging_config = config_loader.get_logging_config()
         log_level = logging_config.get('LOG_LEVEL', 'INFO')
         console_logging = logging_config.get('LOG_CONSOLE_ENABLED', True)
         file_logging = logging_config.get('LOG_FILE_ENABLED', True)
         
-        # Override log level based on CLI flags
-        if args:
-            if args.debug:
-                log_level = 'DEBUG'
-            elif args.verbose:
-                log_level = 'INFO'
+        # CLI flags override config file settings (if implemented)
+        # Note: CLI override functionality removed for now
         
         setup_logging(
             log_level=log_level,
@@ -75,9 +70,9 @@ Examples:
             """
         )
         
-        # Global flags
-        parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output (INFO level)')
-        parser.add_argument('-vv', '--debug', action='store_true', help='Debug output (DEBUG level)')
+        # Global flags (disabled for now)
+        # parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output (INFO level)')
+        # parser.add_argument('-vv', '--debug', action='store_true', help='Debug output (DEBUG level)')
         
         subparsers = parser.add_subparsers(dest='command', help='Available commands')
         
@@ -87,8 +82,8 @@ Examples:
         analyze_parser.add_argument('--force', action='store_true', help='Force re-analysis')
         analyze_parser.add_argument('--no-cache', action='store_true', help='Skip cache')
         analyze_parser.add_argument('--workers', type=int, help='Number of workers')
-        analyze_parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output (INFO level)')
-        analyze_parser.add_argument('-vv', '--debug', action='store_true', help='Debug output (DEBUG level)')
+        # analyze_parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output (INFO level)')
+        # analyze_parser.add_argument('-vv', '--debug', action='store_true', help='Debug output (DEBUG level)')
         
         stats_parser = subparsers.add_parser('stats', help='Show analysis statistics')
         
@@ -132,8 +127,11 @@ Examples:
         try:
             parsed_args = self.parser.parse_args(args)
             
-            # Re-setup logging based on CLI flags
-            self._setup_logging(parsed_args)
+            # Setup logging with config file settings
+            self._setup_logging()
+            
+            # Verify database config
+            verify_database_config()
             
             if not parsed_args.command:
                 self.parser.print_help()
