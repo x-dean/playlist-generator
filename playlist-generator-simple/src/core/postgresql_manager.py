@@ -204,7 +204,7 @@ class PostgreSQLManager:
                     # Metadata
                     metadata.get('title'), metadata.get('artist'), metadata.get('album'),
                     json.dumps(metadata.get('genre', [])) if metadata.get('genre') else None,
-                    metadata.get('date'), metadata.get('duration_seconds'),
+                    self._extract_year(metadata.get('date')), metadata.get('duration_seconds'),
                     metadata.get('bitrate'), metadata.get('sample_rate'), metadata.get('channels'),
                     # Analysis features
                     tempo, key, mode, key_confidence,
@@ -241,6 +241,47 @@ class PostgreSQLManager:
         elif 'tempo' in analysis_data:
             return analysis_data['tempo']
         return None
+    
+    def _extract_year(self, date_value: Any) -> Optional[int]:
+        """Extract year as integer from various date formats."""
+        if not date_value:
+            return None
+            
+        try:
+            # Convert to string if not already
+            date_str = str(date_value).strip()
+            
+            # Handle various date formats
+            if '-' in date_str:
+                # Format: "2025-05-09" or "1996-02-13"
+                year_str = date_str.split('-')[0]
+            elif '/' in date_str:
+                # Format: "05/09/2025" or "2025/05/09"
+                parts = date_str.split('/')
+                # Assume 4-digit part is year
+                year_str = max(parts, key=len) if any(len(p) == 4 for p in parts) else parts[-1]
+            elif len(date_str) == 4 and date_str.isdigit():
+                # Just a year: "2025"
+                year_str = date_str
+            else:
+                # Try to extract 4-digit year from string
+                import re
+                year_match = re.search(r'\b(19|20)\d{2}\b', date_str)
+                if year_match:
+                    year_str = year_match.group()
+                else:
+                    return None
+            
+            # Convert to integer and validate range
+            year = int(year_str)
+            if 1900 <= year <= 2030:  # Reasonable range for music
+                return year
+            else:
+                return None
+                
+        except (ValueError, AttributeError, IndexError):
+            # If parsing fails, return None
+            return None
     
     def _derive_playlist_features(self, musicnn_tags: Dict[str, float]) -> Dict[str, float]:
         """Derive playlist features from MusiCNN tags."""
@@ -302,7 +343,12 @@ class PostgreSQLManager:
         try:
             # Prepare analysis components
             essentia_data = self._extract_essentia_data(analysis_data)
+            
+            # Fix musicnn_embeddings - ensure it's a proper array for PostgreSQL vector type
             musicnn_embeddings = analysis_data.get('musicnn_embeddings', [])
+            if not isinstance(musicnn_embeddings, list) or len(musicnn_embeddings) == 0:
+                # Create default empty vector for 50-dimensional embeddings
+                musicnn_embeddings = [0.0] * 50
             
             cursor.execute("""
                 INSERT INTO track_analysis (
@@ -323,7 +369,7 @@ class PostgreSQLManager:
                 json.dumps(essentia_data.get('harmonic', {})),
                 json.dumps(essentia_data.get('mfcc', {})),
                 json.dumps(analysis_data.get('musicnn_tags', {})),
-                musicnn_embeddings,  # PostgreSQL handles array automatically
+                musicnn_embeddings,  # Now properly formatted as array
                 analysis_data.get('musicnn_confidence', 0.0),
                 analysis_data.get('segments_analyzed', 1),
                 json.dumps(analysis_data.get('segment_times', [])),
@@ -510,6 +556,68 @@ class PostgreSQLManager:
         except Exception as e:
             log_universal('ERROR', 'Database', f'Failed to get track count: {str(e)}')
             return 0
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get database statistics."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                stats = {}
+                
+                # Track counts
+                cursor.execute("SELECT COUNT(*) FROM tracks;")
+                stats['total_tracks'] = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM tracks WHERE analysis_completed = true;")
+                stats['analyzed_tracks'] = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM tracks WHERE analysis_completed = false;")
+                stats['pending_tracks'] = cursor.fetchone()[0]
+                
+                # Analysis methods
+                cursor.execute("""
+                    SELECT analysis_method, COUNT(*) 
+                    FROM tracks 
+                    WHERE analysis_completed = true 
+                    GROUP BY analysis_method;
+                """)
+                analysis_methods = dict(cursor.fetchall())
+                stats['analysis_methods'] = analysis_methods
+                
+                # Database size info
+                cursor.execute("""
+                    SELECT 
+                        pg_size_pretty(pg_database_size(current_database())) as db_size,
+                        pg_size_pretty(pg_total_relation_size('tracks')) as tracks_size,
+                        pg_size_pretty(pg_total_relation_size('track_analysis')) as analysis_size;
+                """)
+                size_info = cursor.fetchone()
+                stats['database_size'] = size_info[0]
+                stats['tracks_table_size'] = size_info[1] 
+                stats['analysis_table_size'] = size_info[2]
+                
+                # Recent activity
+                cursor.execute("""
+                    SELECT COUNT(*) FROM tracks 
+                    WHERE created_at >= NOW() - INTERVAL '24 hours';
+                """)
+                stats['tracks_added_today'] = cursor.fetchone()[0]
+                
+                return stats
+                
+        except Exception as e:
+            log_universal('ERROR', 'Database', f'Failed to get statistics: {str(e)}')
+            return {
+                'total_tracks': 0,
+                'analyzed_tracks': 0,
+                'pending_tracks': 0,
+                'analysis_methods': {},
+                'database_size': 'Unknown',
+                'tracks_table_size': 'Unknown',
+                'analysis_table_size': 'Unknown',
+                'tracks_added_today': 0
+            }
     
     def close(self):
         """Close connection pool."""

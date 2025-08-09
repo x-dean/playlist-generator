@@ -1,0 +1,114 @@
+services:
+  # PostgreSQL Database with pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: playlista-postgres-test
+    environment:
+      POSTGRES_DB: playlista
+      POSTGRES_USER: playlista
+      POSTGRES_PASSWORD: playlista_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./database/postgresql_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    networks:
+      - playlista-test-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U playlista -d playlista"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Playlist Generator Application
+  playlist-generator:
+    build: .
+    container_name: playlist-generator-test
+    ports:
+      - "8502:8500"  # Different port for testing
+      - "8001:8000"  # Web API port for testing
+    volumes:
+      # Music library (your test music)
+      - C:\Users\Dean\Documents\test_music:/music:ro
+      
+      # Local output directories
+      - ./playlists:/app/playlists
+      - ./logs:/app/logs
+      
+      # Cache for pipeline only (database is PostgreSQL)
+      - playlista_test_cache:/app/cache
+      
+      # Models directory
+      - C:\Users\Dean\Desktop\musicnn:/app/models:ro
+      
+      # Local configuration file
+      - ./playlista.conf:/app/playlista.conf:ro
+    environment:
+      - PYTHONPATH=/app
+      - CACHE_DIR=/app/cache
+      - LOG_LEVEL=INFO
+      - DOCKER_CONTAINER=true
+      - FORCE_COLOR=1
+      - TERM=xterm-256color
+      - PYTHONUNBUFFERED=1
+
+      # PostgreSQL configuration (connects to test container)
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=playlista
+      - POSTGRES_USER=playlista
+      - POSTGRES_PASSWORD=playlista_password
+      - ENVIRONMENT=production
+
+      # TensorFlow warning suppression
+      - TF_CPP_MIN_LOG_LEVEL=3
+      - TF_ENABLE_ONEDNN_OPTS=0
+      - TF_GPU_ALLOCATOR=cpu
+      - CUDA_VISIBLE_DEVICES=-1
+
+      # External API keys
+      - LASTFM_API_KEY=${LASTFM_API_KEY:-dummy_key_to_suppress_warnings}
+    command: ["/app/entrypoint.sh"]
+    restart: unless-stopped
+    working_dir: /app
+    tty: true
+    stdin_open: true
+    networks:
+      - playlista-test-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # pgAdmin for database management (optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: playlista-pgadmin-test
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@playlista.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "8081:80"  # Different port for testing
+    volumes:
+      - pgadmin_test_data:/var/lib/pgadmin
+    networks:
+      - playlista-test-network
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    profiles:
+      - admin  # Optional service
+
+volumes:
+  postgres_test_data:
+    driver: local
+  playlista_test_cache:
+    driver: local
+  pgadmin_test_data:
+    driver: local
+
+networks:
+  playlista-test-network:
+    driver: bridge

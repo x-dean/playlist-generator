@@ -71,7 +71,7 @@ CREATE TABLE tracks (
 -- Full analysis data storage
 CREATE TABLE track_analysis (
     id SERIAL PRIMARY KEY,
-    track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+    track_id INTEGER UNIQUE REFERENCES tracks(id) ON DELETE CASCADE,
     
     -- Essentia features (complete data)
     essentia_rhythm JSONB,         -- BPM, beats, tempo confidence
