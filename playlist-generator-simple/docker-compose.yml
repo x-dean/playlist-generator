@@ -92,7 +92,7 @@ services:
     image: dpage/pgadmin4:latest
     container_name: playlista-pgadmin
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@playlista.local
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
       PGADMIN_DEFAULT_PASSWORD: admin
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:

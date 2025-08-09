@@ -552,6 +552,112 @@ class PostgreSQLManager:
             return []
     
     # =========================================================================
+    # CACHE/ANALYSIS RETRIEVAL METHODS
+    # =========================================================================
+    
+    def get_analysis_result(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """
+        Get existing analysis result for a file path.
+        
+        Args:
+            file_path: Full path to the audio file
+            
+        Returns:
+            Analysis result dict if found, None otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+                
+                # Query for track with analysis data
+                cursor.execute("""
+                    SELECT 
+                        t.id, t.file_path, t.filename, t.file_size_bytes, t.file_hash,
+                        t.title, t.artist, t.album, t.genre, t.year,
+                        t.tempo, t.key, t.mode, t.time_signature,
+                        t.energy, t.valence, t.danceability, t.acousticness,
+                        t.instrumentalness, t.liveness, t.speechiness, t.loudness,
+                        t.content_type, t.content_subtype, t.content_confidence,
+                        t.content_features, t.estimated_track_count, t.content_description,
+                        t.analysis_completed, t.created_at, t.updated_at,
+                        ta.analysis_method, ta.essentia_rhythm, ta.essentia_spectral,
+                        ta.essentia_harmonic, ta.essentia_mfcc, ta.musicnn_tags,
+                        ta.musicnn_embeddings, ta.segment_analysis, ta.segment_times
+                    FROM tracks t
+                    LEFT JOIN track_analysis ta ON t.id = ta.track_id
+                    WHERE t.file_path = %s AND t.analysis_completed = true;
+                """, (file_path,))
+                
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                
+                # Convert to analysis result format expected by SingleAnalyzer
+                result = {
+                    'success': True,
+                    'file_path': row['file_path'],
+                    'filename': row['filename'],
+                    'file_size_mb': row['file_size_bytes'] / (1024 * 1024) if row['file_size_bytes'] else 0,
+                    'analysis_method': row['analysis_method'] or 'unknown',
+                    'analysis_time': 0.0,  # Not stored separately
+                    
+                    # Metadata
+                    'metadata': {
+                        'title': row['title'],
+                        'artist': row['artist'],
+                        'album': row['album'],
+                        'genre': json.loads(row['genre']) if row['genre'] else [],
+                        'year': row['year'],
+                        'file_size_mb': row['file_size_bytes'] / (1024 * 1024) if row['file_size_bytes'] else 0
+                    },
+                    
+                    # Audio features
+                    'audio_features': {
+                        'duration': 0.0,  # Could be calculated from other data
+                        'tempo': row['tempo'],
+                        'key': row['key'],
+                        'mode': row['mode'],
+                        'time_signature': row['time_signature'],
+                        'energy': row['energy'],
+                        'valence': row['valence'],
+                        'danceability': row['danceability'],
+                        'acousticness': row['acousticness'],
+                        'instrumentalness': row['instrumentalness'],
+                        'liveness': row['liveness'],
+                        'speechiness': row['speechiness'],
+                        'loudness': row['loudness']
+                    },
+                    
+                    # Content classification (for large files)
+                    'content_type': row['content_type'],
+                    'content_subtype': row['content_subtype'],
+                    'content_confidence': row['content_confidence'],
+                    'content_features': json.loads(row['content_features']) if row['content_features'] else {},
+                    'estimated_track_count': row['estimated_track_count'],
+                    'content_description': row['content_description'],
+                    
+                    # Advanced features (if available)
+                    'essentia_features': {
+                        'rhythm': json.loads(row['essentia_rhythm']) if row['essentia_rhythm'] else {},
+                        'spectral': json.loads(row['essentia_spectral']) if row['essentia_spectral'] else {},
+                        'harmonic': json.loads(row['essentia_harmonic']) if row['essentia_harmonic'] else {},
+                        'mfcc': json.loads(row['essentia_mfcc']) if row['essentia_mfcc'] else {}
+                    } if row['essentia_rhythm'] else {},
+                    
+                    'musicnn_features': {
+                        'tags': json.loads(row['musicnn_tags']) if row['musicnn_tags'] else {},
+                        'embeddings': row['musicnn_embeddings'] if row['musicnn_embeddings'] else []
+                    } if row['musicnn_tags'] else {}
+                }
+                
+                log_universal('DEBUG', 'Database', f'Retrieved cached analysis for {row["filename"]}')
+                return result
+                
+        except Exception as e:
+            log_universal('WARNING', 'Database', f'Failed to get analysis result for {file_path}: {str(e)}')
+            return None
+    
+    # =========================================================================
     # UTILITY METHODS
     # =========================================================================
     

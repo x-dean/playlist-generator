@@ -67,7 +67,7 @@ class SingleAnalyzer:
         self.max_workers = None
         
         # File size thresholds for optimization
-        self.large_file_threshold_mb = self.config.get('LARGE_FILE_THRESHOLD_MB', 200)
+        self.large_file_threshold_mb = self.config.get('LARGE_FILE_THRESHOLD_MB', 50)
         
         log_universal('INFO', 'System', f'Audio analyzer ready - dynamic workers, large files >{self.large_file_threshold_mb}MB get Essentia-only')
     
@@ -251,59 +251,125 @@ class SingleAnalyzer:
         
         start_time = time.time()
         
-        # Use dynamic worker calculation if not overridden
-        if max_workers:
-            workers = max_workers
-            log_universal('INFO', 'Analysis', f'Using override: {workers} workers')
-        else:
-            workers = self._calculate_dynamic_workers(files)
-            log_universal('INFO', 'Analysis', f'Dynamic allocation: {workers} workers for {len(files)} files')
+        log_universal('INFO', 'Analysis', f'Starting unified analysis of {len(files)} files')
         
-        log_universal('INFO', 'Analysis', f'Processing {len(files)} files using {workers} workers')
+        # Group files by size to optimize worker allocation
+        file_groups = self._group_files_by_size(files)
         
-        results = []
-        failed_files = []
+        all_results = []
+        all_failed_files = []
         
-        # Process files in parallel
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            # Submit all tasks
-            future_to_file = {
-                executor.submit(self.analyze, file_path, force_reanalysis): file_path
-                for file_path in files
-            }
+        # Process each group with optimized worker count
+        for group_name, group_files in file_groups.items():
+            if not group_files:
+                continue
+                
+            group_start_time = time.time()
             
-            # Collect results
-            for future in as_completed(future_to_file):
-                file_path = future_to_file[future]
-                try:
-                    result = future.result(timeout=self.timeout_seconds)
-                    results.append(result)
-                    
-                    if not result.get('success', False):
-                        failed_files.append({
-                            'file_path': file_path,
-                            'error': result.get('error', 'Unknown error')
-                        })
+            # Calculate workers for this specific group
+            if max_workers:
+                workers = max_workers
+                log_universal('INFO', 'Analysis', f'{group_name}: Using override: {workers} workers')
+            else:
+                workers = self._calculate_dynamic_workers(group_files)
+                log_universal('INFO', 'Analysis', f'{group_name}: Dynamic allocation: {workers} workers for {len(group_files)} files')
+            
+            log_universal('INFO', 'Analysis', f'{group_name}: Processing {len(group_files)} files using {workers} workers')
+            
+            group_results = []
+            group_failed_files = []
+            
+            # Process files in parallel for this group
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                # Submit all tasks for this group
+                future_to_file = {
+                    executor.submit(self.analyze, file_path, force_reanalysis): file_path
+                    for file_path in group_files
+                }
+                
+                # Collect results
+                for future in as_completed(future_to_file):
+                    file_path = future_to_file[future]
+                    try:
+                        result = future.result(timeout=self.timeout_seconds)
+                        group_results.append(result)
                         
-                except Exception as e:
-                    log_universal('ERROR', 'Audio', f'Processing failed: {os.path.basename(file_path)} - {str(e)}')
-                    failed_files.append({
-                        'file_path': file_path,
-                        'error': str(e)
-                    })
+                        if not result.get('success', False):
+                            group_failed_files.append({
+                                'file_path': file_path,
+                                'error': result.get('error', 'Unknown error')
+                            })
+                            
+                    except Exception as e:
+                        log_universal('ERROR', 'Audio', f'Processing failed: {os.path.basename(file_path)} - {str(e)}')
+                        group_failed_files.append({
+                            'file_path': file_path,
+                            'error': str(e)
+                        })
+            
+            # Log group completion
+            group_time = time.time() - group_start_time
+            group_success = sum(1 for r in group_results if r.get('success', False))
+            log_universal('INFO', 'Analysis', f'{group_name}: Complete - {group_success}/{len(group_files)} files in {group_time:.1f}s')
+            
+            # Add to overall results
+            all_results.extend(group_results)
+            all_failed_files.extend(group_failed_files)
         
-        # Calculate statistics
+        # Calculate final statistics
         total_time = time.time() - start_time
-        success_count = sum(1 for r in results if r.get('success', False))
+        success_count = sum(1 for r in all_results if r.get('success', False))
         
-        # Log summary
+        # Log final summary
         log_universal('INFO', 'Analysis', f'Batch complete: {success_count}/{len(files)} files processed in {total_time:.1f}s')
         
-        return self._create_batch_result(results, total_time, failed_files)
+        return self._create_batch_result(all_results, total_time, all_failed_files)
     
     def _should_use_large_file_analysis(self, file_size_mb: float) -> bool:
         """Determine if file should use large file analysis (Essentia-only)."""
         return file_size_mb > self.large_file_threshold_mb
+    
+    def _group_files_by_size(self, files: List[str]) -> Dict[str, List[str]]:
+        """
+        Group files by size category for optimized batch processing.
+        
+        Args:
+            files: List of file paths to group
+            
+        Returns:
+            Dictionary with size group names and file lists
+        """
+        groups = {
+            'huge_files': [],      # > 100MB - Single worker, Essentia-only 
+            'large_files': [],     # 50-100MB - Few workers, Essentia-only
+            'medium_files': [],    # 20-50MB - More workers, Full analysis
+            'small_files': []      # < 20MB - Most workers, Full analysis
+        }
+        
+        for file_path in files:
+            try:
+                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                
+                if file_size_mb > 100:
+                    groups['huge_files'].append(file_path)
+                elif file_size_mb > 50:
+                    groups['large_files'].append(file_path)
+                elif file_size_mb > 20:
+                    groups['medium_files'].append(file_path)
+                else:
+                    groups['small_files'].append(file_path)
+                    
+            except Exception as e:
+                log_universal('WARNING', 'Analysis', f'Could not get size for {file_path}: {e}')
+                # Default to medium group for unknown sizes
+                groups['medium_files'].append(file_path)
+        
+        # Log group distribution
+        for group_name, group_files in groups.items():
+            if group_files:
+                log_universal('INFO', 'Analysis', f'{group_name}: {len(group_files)} files')
+        
+        return {k: v for k, v in groups.items() if v}  # Return only non-empty groups
     
     def _extract_metadata(self, file_path: str) -> Dict[str, Any]:
         """Extract basic metadata from audio file."""
