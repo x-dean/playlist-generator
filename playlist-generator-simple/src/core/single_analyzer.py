@@ -1172,12 +1172,23 @@ class SingleAnalyzer:
                 if len(audio) > 1024:
                     frame_generator = essentia_standard.FrameGenerator(audio, frameSize=4096, hopSize=2048)
                     hpcp_values = []
+                    
+                    # Need spectral peaks for HPCP
+                    spectral_peaks_extractor = essentia_standard.SpectralPeaks()
+                    
                     for frame in frame_generator:
                         if len(frame) == 4096:  # Ensure full frame
                             windowed_frame = windowing_harmonic(frame)
                             spectrum_frame = spectrum_harmonic(windowed_frame)
-                            hpcp_frame = hpcp(spectrum_frame)
-                            hpcp_values.append(hpcp_frame)
+                            
+                            # Extract spectral peaks (frequencies and magnitudes)
+                            try:
+                                frequencies, magnitudes = spectral_peaks_extractor(spectrum_frame)
+                                hpcp_frame = hpcp(frequencies, magnitudes)
+                                hpcp_values.append(hpcp_frame)
+                            except Exception as e:
+                                # Skip problematic frames
+                                continue
                     
                     if hpcp_values:
                         import numpy as np
@@ -1302,8 +1313,20 @@ class SingleAnalyzer:
                 # Chroma (if available)
                 if chroma is not None:
                     try:
-                        chroma_frame = chroma(spec)
-                        chroma_vectors.append(chroma_frame)
+                        # Check if chroma is HPCP (needs freq + magnitude) or regular chroma
+                        if hasattr(chroma, '__class__') and 'HPCP' in str(chroma.__class__):
+                            # HPCP needs spectral peaks
+                            try:
+                                spectral_peaks_main = essentia_standard.SpectralPeaks()
+                                frequencies, magnitudes = spectral_peaks_main(spec)
+                                chroma_frame = chroma(frequencies, magnitudes)
+                                chroma_vectors.append(chroma_frame)
+                            except:
+                                pass  # Skip if peaks extraction fails
+                        else:
+                            # Regular chroma extractor
+                            chroma_frame = chroma(spec)
+                            chroma_vectors.append(chroma_frame)
                     except:
                         pass  # Skip if chroma extraction fails
                 
