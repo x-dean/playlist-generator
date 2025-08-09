@@ -28,7 +28,7 @@ services:
     container_name: playlist-generator
     ports:
       - "8501:8500"  # Original port
-      - "8000:8000"  # Web API port
+      - "8123:8000"  # Web API port
     volumes:
       # Music library - mount your music directory here
       - /root/music/lirary:/music:ro
