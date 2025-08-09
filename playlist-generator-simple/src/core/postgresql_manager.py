@@ -160,6 +160,9 @@ class PostgreSQLManager:
                 mode = analysis_data.get('scale', analysis_data.get('mode'))
                 key_confidence = analysis_data.get('key_confidence', analysis_data.get('key_strength'))
                 
+                # Always define musicnn_tags first
+                musicnn_tags = analysis_data.get('musicnn_tags', {})
+                
                 # Derive playlist features - use Essentia features for large files, MusiCNN for others
                 if analysis_data.get('method') == 'large_file_essentia':
                     # For large files, use Essentia features directly
@@ -175,7 +178,6 @@ class PostgreSQLManager:
                     }
                 else:
                     # For regular files, derive from MusiCNN tags
-                    musicnn_tags = analysis_data.get('musicnn_tags', {})
                     features = self._derive_playlist_features(musicnn_tags)
                 
                 # Insert/update track
